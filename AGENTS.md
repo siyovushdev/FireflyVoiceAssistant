@@ -16,7 +16,7 @@ The current milestone is TEXT ONLY: no microphone, STT, GPIO/hardware execution,
 Do not tune prompt v5. Do not replace the compact protocol with JSON.
 
 ## Frozen Protocol and Architecture
-Pipeline: original text → conservative deterministic parser → RKLLM/Qwen3-4B if unresolved (future integration) → SafetyGate → strict ActionValidator → Action.
+Pipeline: original text → conservative deterministic parser → RKLLM/Qwen3-4B if unresolved → SafetyGate → strict ActionValidator → Action.
 
 Protocol: `L|K|N` kitchen, `L|B|N` bedroom, `L|G|N` living room/hall, `L|C|N` corridor; integer N is 0..100. `D` means open entrance door. `U` means unsupported, ambiguous, or unsafe and is never executable.
 
@@ -28,9 +28,14 @@ Use maintainable C++17, CMake, separated responsibilities, RAII where appropriat
 First milestone: inspect repository and necessary references; implement Action, ActionValidator, DeterministicParser, SafetyGate; test all four without RKLLM. Run:
 
 ```sh
-cmake -S . -B build
+cmake -S . -B build -DRKLLM_ROOT=/home/firefly/demo_Linux_aarch64
 cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
 Stop after tests pass. Report files created, architecture, build command, tests/results, and proposed next step. For future changes, add regression tests for safety failures. Keep commits focused; PRs describe behavior and validation. Never commit model binaries or credentials.
+
+## Milestone 2 Integration
+`RkllmEngine` uses the exact reference header and runtime at `~/demo_Linux_aarch64/lib/librkllmrt.so`, also READ-ONLY. Keep Qwen3 template and reference sampling parameters fixed. Initialize once, bootstrap with an empty user prompt, clear KV keeping the system prompt, then clear with `rkllm_clear_kv_cache(handle, 1, nullptr, nullptr)` before every real request. Use synchronous inference and per-instance callback userdata; never use persistent prompt caches.
+
+`CommandEngine` must bypass the LLM for deterministic candidates, normalize only model-output whitespace on fallback, and always give SafetyGate the ORIGINAL input. Keep mock-based CommandEngine tests independent of the NPU. Use `FIREFLY_BUILD_ASSISTANT=OFF` for a core-only build. Run real smoke tests separately with the frozen model/prompt, report routes and available timings, then stop; do not start Milestone 3. Preserve baseline core semantics and defer parser optimization. Do not download dependencies/models without permission.

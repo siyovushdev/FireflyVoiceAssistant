@@ -1,12 +1,12 @@
 # FireflyVoiceAssistantLinux
 
-Text-only C++17 core for Firefly ROC-RK3588S-PC (RK3588S, 8 GB), Linux/aarch64, Ubuntu 22.04. Future inference is fixed to RKLLM 1.3.0 and Qwen3-4B W8A8 on NPU.
+Text-only C++17 assistant for Firefly ROC-RK3588S-PC (RK3588S, 8 GB), Linux/aarch64, Ubuntu 22.04. Inference is fixed to RKLLM 1.3.0 and Qwen3-4B W8A8 on NPU.
 
 ## Build and test
 Requires a C++17 compiler, CMake 3.16+, and Make (Ubuntu packages `g++ cmake make`). No third-party test dependencies or model downloads.
 
 ```sh
-cmake -S . -B build
+cmake -S . -B build -DRKLLM_ROOT=/home/firefly/demo_Linux_aarch64
 cmake --build build
 ctest --test-dir build --output-on-failure
 ```
@@ -17,6 +17,29 @@ ctest --test-dir build --output-on-failure
 - `SafetyGate`: receives original text and candidate; preserves candidate bytes or returns `U`. Requires an explicit matching room for lights; rejects zero with «включить» forms. Uses whole room words to avoid matching «вокзал» or «кухнейка». D is preserved under the specified initial rules.
 - `ActionValidator`: accepts exact D or L with K/B/G/C and ASCII digits representing 0..100. No trimming, signs, decimal values, or extra output. Leading zeros are accepted consistently with the production reference. U produces no Action.
 
-Future composition: text → parser → RKLLM if unresolved → gate → validator → Action. The gate uses the validator internally to inspect candidates safely; callers must still validate its result. No orchestration, RKLLM integration, hardware execution, audio, or service exists yet. The initial gate is limited to the two specified semantic rules, not a general natural-language safety classifier.
+Production composition: original text → parser → RKLLM if unresolved → gate → validator → Action. `CommandEngine` owns this routing and returns the route plus an optional typed Action. `LlmEngine` allows fake inference in unit tests. The gate uses the validator internally to inspect candidates safely; callers must still validate its result. The CLI prints compact actions only; no hardware execution, audio, or service exists. The initial gate is limited to the two specified semantic rules, not a general natural-language safety classifier.
 
-Unit tests use a small dependency-free runner registered as four CTest suites. Failed checks exit nonzero, including Release builds. Public headers are in `include/firefly`, implementations in `src`, tests in `tests`. Reference files under `~/demo_Linux_aarch64` remain read-only.
+Unit tests use a small dependency-free runner registered as five CTest suites. Failed checks exit nonzero, including Release builds. Public headers are in `include/firefly`, implementations in `src`, tests in `tests`. Reference files under `~/demo_Linux_aarch64` remain read-only.
+
+## Run
+```sh
+./build/firefly-assistant \
+  --model /home/firefly/demo_Linux_aarch64/Qwen3-4B_W8A8_RK3588_3core.rkllm \
+  --system-prompt /home/firefly/demo_Linux_aarch64/prompt_compact_v5_short_system.txt
+```
+
+Enter one command per line. Blank lines are skipped; `quit`, `exit`, and EOF (Ctrl+D) shut down cleanly. Piped input is supported. Add `--verbose` for startup, bootstrap, prefill/generation, route, and command wall timings on stderr. Application progress and vendor runtime diagnostics go to stderr; compact results go to stdout. The single-process CLI preserves a separate result stream and routes vendor stdout to stderr for the lifetime of the runtime. Runtime failures report an error and exit nonzero without emitting an action. `--help` needs no model initialization.
+
+## RKLLM lifecycle
+`RkllmEngine` owns the handle through a private implementation, including cleanup after partial initialization. It configures the frozen Qwen3 template and reference sampling settings, runs one empty user request, then clears KV with `keep_system_prompt=1`. Each real request repeats this clear before synchronous inference; the model stays loaded. There are no serialized prompt-cache files.
+
+Callback userdata points to the owning implementation: no global bridge is needed. A request mutex serializes inference, a separate mutex protects callback output, and callback exceptions are captured rather than crossing the C API. Raw output is returned only after a successful completed run. CommandEngine removes only ASCII model-output whitespace, matching the reference, then gates against the untouched original input and validates. Engine lifetime must outlast callers; destruction must not race inference.
+
+For unit tests without the SDK/runtime, use a separate build directory:
+```sh
+cmake -S . -B build/unit -DFIREFLY_BUILD_ASSISTANT=OFF
+cmake --build build/unit
+ctest --test-dir build/unit --output-on-failure
+```
+
+Real NPU smoke tests are manual and separate from CTest. The SDK, runtime, model, and frozen prompt stay outside this repository. No dependencies or models are downloaded by CMake. The existing parser suite takes about 7 seconds; optimization is deferred. The initial SafetyGate still has only the two specified semantic checks and preserves valid D without checking door intent. No timeout/cancellation or context-length policy has been added in this milestone.
