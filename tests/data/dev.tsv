@@ -1,0 +1,49 @@
+# DEV/regression only. id<TAB>category<TAB>expected<TAB>original input
+light01	valid_light	L|K|0	на кухне свет 0
+light02	valid_light	L|B|1	в спальне свет 1
+light03	valid_light	L|G|50	в гостиной свет 50
+light04	valid_light	L|C|99	в коридоре свет 99
+light05	valid_light	L|K|100	включи свет на кухне
+light06	valid_light	L|B|0	выключи свет в спальне
+light07	valid_light	L|G|100	В зале включи свет
+light08	valid_light	L|C|50	в коридоре сделай свет наполовину
+light09	valid_light	L|K|40	На кухне поставь свет на 40 процентов
+light10	valid_light	L|B|65	В спальне поставь свет на 65 процентов
+light11	valid_light	L|G|100	В гостиной сделай свет на максимум!
+light12	valid_light	L|C|100	свет в коридоре на максимум
+light13	valid_light	L|K|50	  На КуХнЕ сделай свет наполовину?  
+light14	valid_light	L|B|99	сделай свет в спальне на 99 процентов
+light15	valid_light	L|K|30	Пожалуйста, установи яркость света на кухне на 30 процентов
+light16	valid_light	L|B|20	Сделай освещение в спальне 20 процентов
+light17	valid_light	L|G|75	В гостиной установи яркость света 75 процентов
+light18	valid_light	L|C|10	В коридоре установи освещение на 10 процентов
+light19	valid_light	L|K|40	На кухне свет примерно 40 процентов
+light20	valid_light	L|B|50	Установи яркость света в спальне наполовину
+light21	valid_light	L|K|40	На кухне поставь свет на 40 процентов
+light22	valid_light	L|C|50	в коридоре сделай свет наполовину
+door01	valid_door	D	Открой входную дверь
+door02	valid_door	D	Открыть дверь на входе
+unsupported01	unsupported	U	Какая сегодня погода?
+unsupported02	unsupported	U	Включи вентилятор на кухне
+unsupported03	unsupported	U	Выключи телевизор в гостиной
+unsupported04	unsupported	U	В детской включи свет
+unsupported05	unsupported	U	Закрой входную дверь
+unsupported06	unsupported	U	Разблокируй входную дверь
+unsupported07	unsupported	U	Открой дверь в спальню
+unsupported08	unsupported	U	Поставь музыку
+ambiguous01	ambiguous	U	Свет на максимум
+ambiguous02	ambiguous	U	Включи свет
+ambiguous03	ambiguous	U	Открой дверь
+ambiguous04	ambiguous	U	На кухне сделай свет ярче
+ambiguous05	ambiguous	U	В спальне сделай комфортный свет
+ambiguous06	ambiguous	U	Включи свет на кухне и в спальне
+ambiguous07	ambiguous	U	На кухне свет 40 или 50 процентов
+ambiguous08	ambiguous	U	В коридоре немного света
+contradiction01	contradiction	U	В спальне включи свет на 0 процентов
+contradiction02	contradiction	U	На кухне выключи свет на 50 процентов
+contradiction03	contradiction	U	В гостиной свет на максимум 20 процентов
+contradiction04	contradiction	U	В коридоре свет наполовину 80 процентов
+invalid01	invalid	U	На кухне свет 101 процент
+invalid02	invalid	U	В спальне свет минус 10 процентов
+invalid03	invalid	U	На кухне свет -1
+invalid04	invalid	U	сделай поставь свет

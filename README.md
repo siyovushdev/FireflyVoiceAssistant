@@ -19,7 +19,7 @@ ctest --test-dir build --output-on-failure
 
 Production composition: original text → parser → RKLLM if unresolved → gate → validator → Action. `CommandEngine` owns this routing and returns the route plus an optional typed Action. `LlmEngine` allows fake inference in unit tests. The gate uses the validator internally to inspect candidates safely; callers must still validate its result. The CLI prints compact actions only; no hardware execution, audio, or service exists. The initial gate is limited to the two specified semantic rules, not a general natural-language safety classifier.
 
-Unit tests use a small dependency-free runner registered as five CTest suites. Failed checks exit nonzero, including Release builds. Public headers are in `include/firefly`, implementations in `src`, tests in `tests`. Reference files under `~/demo_Linux_aarch64` remain read-only.
+Unit tests use a small dependency-free runner registered as seven CTest suites (five core suites plus RKLLM C-API stubs and CLI subprocess tests). Failed checks exit nonzero, including Release builds. Public headers are in `include/firefly`, implementations in `src`, tests in `tests`. Reference files under `~/demo_Linux_aarch64` remain read-only.
 
 ## Run
 ```sh
@@ -28,7 +28,7 @@ Unit tests use a small dependency-free runner registered as five CTest suites. F
   --system-prompt /home/firefly/demo_Linux_aarch64/prompt_compact_v5_short_system.txt
 ```
 
-Enter one command per line. Blank lines are skipped; `quit`, `exit`, and EOF (Ctrl+D) shut down cleanly. Piped input is supported. Add `--verbose` for startup, bootstrap, prefill/generation, route, and command wall timings on stderr. Application progress and vendor runtime diagnostics go to stderr; compact results go to stdout. The single-process CLI preserves a separate result stream and routes vendor stdout to stderr for the lifetime of the runtime. Runtime failures report an error and exit nonzero without emitting an action. `--help` needs no model initialization.
+Enter one command per line. Blank and whitespace-only lines return `U`; `quit`, `exit`, and EOF (Ctrl+D) shut down cleanly. Piped input is supported. Add `--verbose` for startup, bootstrap, prefill/generation, route, and command wall timings on stderr. Application progress and vendor runtime diagnostics go to stderr; compact results go to stdout. The single-process CLI preserves a separate result stream and routes vendor stdout to stderr for the lifetime of the runtime. Request failures return `U` and log the error. Initialization failures print `U`, log the error, and exit nonzero. `--help` needs no model initialization.
 
 ## RKLLM lifecycle
 `RkllmEngine` owns the handle through a private implementation, including cleanup after partial initialization. It configures the frozen Qwen3 template and reference sampling settings, runs one empty user request, then clears KV with `keep_system_prompt=1`. Each real request repeats this clear before synchronous inference; the model stays loaded. There are no serialized prompt-cache files.
@@ -42,4 +42,26 @@ cmake --build build/unit
 ctest --test-dir build/unit --output-on-failure
 ```
 
-Real NPU smoke tests are manual and separate from CTest. The SDK, runtime, model, and frozen prompt stay outside this repository. No dependencies or models are downloaded by CMake. The existing parser suite takes about 7 seconds; optimization is deferred. The initial SafetyGate still has only the two specified semantic checks and preserves valid D without checking door intent. No timeout/cancellation or context-length policy has been added in this milestone.
+Real NPU smoke tests are manual and separate from CTest. The SDK, runtime, model, and frozen prompt stay outside this repository. No dependencies or models are downloaded by CMake. The parser compiles its unchanged regex grammar once; the existing suite now takes about 0.08 seconds (previously about 7.1 seconds). The initial SafetyGate still has only the two specified semantic checks and preserves valid D without checking door intent. See the failure and input policy below.
+
+## Failure, input, and deadline policy
+`CommandEngine` returns U for invalid input, thrown runtime errors, malformed outputs, and SafetyGate rejection. Results include distinct raw/normalized model output, final Action, error, route, and latency fields. No previous result is reused. The runtime clears callback state before KV clearing and inference, bounds callback output to 4096 bytes, and rejects unknown callback states, missing finish, error callbacks, and invalid callback sequences. `RKLLM_RUN_WAITING` is a documented normal state.
+
+Input must be nonempty valid UTF-8, at most **192 bytes**, with no NUL or non-whitespace ASCII control bytes. This allows approximately 96 Cyrillic letters, sufficient for short room commands, while leaving a conservative margin around the frozen prompt (788 observed bootstrap tokens) in the 1024-token context. This is a byte cap, not a token guarantee. The CLI stores at most 193 bytes per line and drains excess bytes before returning U, so the next command remains independent. SafetyGate still receives the unmodified original accepted input.
+
+RKLLM 1.3.0 declares `int rkllm_abort(LLMHandle)` and `int rkllm_is_running(LLMHandle)`. A joined watchdog requests abort after **30 seconds**, including bootstrap; CLI `--timeout-ms N` overrides this. It does not detach inference or destroy the handle while work is running. After a deadline/run/KV/callback fault, the engine remains not-ready and fallback returns U until process restart; the independent fast path remains usable. Invalid user input and malformed model output do not poison an otherwise healthy runtime.
+
+Abort is best effort: the header does not guarantee bounded return time. The caller still waits for synchronous `rkllm_run` and the watchdog to finish. A stuck vendor run/abort can therefore still block shutdown; model initialization and KV clear also have no interruptible deadline. CLI requests taking at least 2000 ms produce a stderr warning. Timing and detailed runtime logs are available with `--verbose`.
+
+## DEV regression on the NPU
+```sh
+./build/firefly-regression \
+  --model /home/firefly/demo_Linux_aarch64/Qwen3-4B_W8A8_RK3588_3core.rkllm \
+  --system-prompt /home/firefly/demo_Linux_aarch64/prompt_compact_v5_short_system.txt \
+  --data tests/data/dev.tsv --verbose \
+  > build/dev-regression.tsv 2> build/dev-regression.log
+```
+
+This executes the production CommandEngine. The 48-row DEV dataset is balanced between 24 valid actions and 24 expected U responses; it is not a hidden evaluation. Per-case routes/final results and aggregate metrics go to stdout; original input, raw model output, normalized output, final result, and errors remain distinguishable in stderr diagnostics. Exit status is 0 for a clean pass, 1 for regression failures, and 2 for harness/startup errors. See `tests/data/README.md` for metric definitions.
+
+Unit tests need no NPU. Wrapper/CLI tests link stub C functions against the exact SDK header and require Python 3 for subprocess checks; the runtime library is not linked to these tests. A core-only build runs the five core suites without the SDK. No dependency is downloaded automatically.

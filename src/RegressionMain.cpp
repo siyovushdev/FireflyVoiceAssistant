@@ -1,0 +1,104 @@
+#include "firefly/CommandEngine.h"
+#include "firefly/RkllmEngine.h"
+#include "firefly/ActionValidator.h"
+#include "CliSupport.h"
+#include <iomanip>
+#include <vector>
+
+namespace {
+struct Case { std::string id, category, expected, input; };
+std::string escaped(std::string_view input) {
+    std::string result;
+    for (char c : input) {
+        if (c == '\n') result += "\\n";
+        else if (c == '\r') result += "\\r";
+        else if (c == '\t') result += "\\t";
+        else if (c == '\\') result += "\\\\";
+        else result += c;
+    }
+    return result;
+}
+std::vector<Case> readCases(const std::string& path) {
+    std::ifstream file(path);
+    if (!file) throw std::runtime_error("Cannot open DEV dataset: " + path);
+    std::vector<Case> cases;
+    std::string line;
+    while (std::getline(file, line)) {
+        if (line.empty() || line[0] == '#') continue;
+        const auto a = line.find('\t');
+        const auto b = a == std::string::npos ? a : line.find('\t', a + 1);
+        const auto c = b == std::string::npos ? b : line.find('\t', b + 1);
+        if (c == std::string::npos) throw std::runtime_error("Expected four TSV fields");
+        Case test{line.substr(0, a), line.substr(a + 1, b - a - 1), line.substr(b + 1, c - b - 1), line.substr(c + 1)};
+        if (test.expected != "U" && !firefly::ActionValidator::validate(test.expected))
+            throw std::runtime_error("Invalid expected action: " + test.id);
+        cases.push_back(std::move(test));
+    }
+    if (file.bad() || cases.empty()) throw std::runtime_error("Unreadable/empty dataset");
+    return cases;
+}
+}
+int main(int argc, char** argv) {
+    try {
+        firefly::RkllmConfig config;
+        std::string prompt, data;
+        for (int i = 1; i < argc; ++i) {
+            const std::string arg(argv[i]);
+            if (arg == "--verbose") { config.verbose = true; continue; }
+            if (i + 1 == argc) throw std::runtime_error("Missing option value");
+            if (arg == "--model") config.modelPath = argv[++i];
+            else if (arg == "--system-prompt") prompt = argv[++i];
+            else if (arg == "--data") data = argv[++i];
+            else throw std::runtime_error("Unknown option: " + arg);
+        }
+        const auto cases = readCases(data);
+        config.systemPrompt = firefly::cli::readFile(prompt);
+        config.progress = [](std::string_view stage) { std::cerr << stage << std::endl; };
+        firefly::cli::CliOutput output;
+        firefly::RkllmEngine llm(std::move(config));
+        firefly::CommandEngine engine(llm);
+        int pass = 0, valid = 0, unsupported = 0, falseAccept = 0, falseReject = 0, wrong = 0;
+        int invalid = 0, finalInvalid = 0, fast = 0, fallback = 0, inputRejected = 0, errors = 0;
+        double totalMs = 0, fastMs = 0, fallbackMs = 0;
+        for (const auto& test : cases) {
+            const auto result = engine.process(test.input);
+            const auto final = result.compact();
+            const bool correct = final == test.expected;
+            pass += correct;
+            valid += correct && test.expected != "U";
+            unsupported += correct && test.expected == "U";
+            falseAccept += test.expected == "U" && final != "U";
+            falseReject += test.expected != "U" && final == "U";
+            wrong += test.expected != "U" && final != "U" && !correct;
+            invalid += result.invalidModelOutput;
+            finalInvalid += final != "U" && !firefly::ActionValidator::validate(final);
+            errors += !result.error.empty();
+            totalMs += result.latencyMs;
+            const char* route = "INPUT REJECTED";
+            if (result.path == firefly::CommandPath::FastPath) { ++fast; fastMs += result.latencyMs; route = "FAST PATH"; }
+            if (result.path == firefly::CommandPath::LlmFallback) { ++fallback; fallbackMs += result.latencyMs; route = "LLM FALLBACK"; }
+            if (result.path == firefly::CommandPath::InputRejected) ++inputRejected;
+            std::ostringstream row;
+            row << test.id << '\t' << (correct ? "PASS" : "FAIL") << '\t' << route
+                << "\texpected=" << test.expected << "\tfinal=" << final << "\tms=" << result.latencyMs << '\n';
+            output.write(row.str());
+            std::cerr << test.id << " input=[" << escaped(test.input) << "] raw=[" << escaped(result.rawOutput)
+                      << "] normalized=[" << escaped(result.normalizedOutput) << "] final=[" << final
+                      << "] error=[" << escaped(result.error) << "]" << std::endl;
+        }
+        std::ostringstream summary;
+        summary << "total=" << cases.size() << " pass=" << pass << " fail=" << cases.size() - pass
+                << " valid_correct=" << valid << " unsupported_correct=" << unsupported
+                << " false_accept=" << falseAccept << " false_reject=" << falseReject << " wrong_action=" << wrong
+                << " invalid_output=" << invalid << " final_invalid_output=" << finalInvalid
+                << " runtime_or_input_errors=" << errors << " fast_path=" << fast << " llm_fallback=" << fallback
+                << " input_rejected=" << inputRejected << " average_ms=" << totalMs / cases.size()
+                << " fast_average_ms=" << (fast ? fastMs / fast : 0)
+                << " fallback_average_ms=" << (fallback ? fallbackMs / fallback : 0) << '\n';
+        output.write(summary.str());
+        return pass == static_cast<int>(cases.size()) && !finalInvalid && !errors ? 0 : 1;
+    } catch (const std::exception& error) {
+        std::cerr << "Regression failed: " << error.what() << '\n';
+        return 2;
+    }
+}

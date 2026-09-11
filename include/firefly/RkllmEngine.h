@@ -1,12 +1,14 @@
 #pragma once
 #include "firefly/LlmEngine.h"
 #include <functional>
+#include <chrono>
 #include <memory>
 namespace firefly {
 struct RkllmConfig {
     std::string modelPath;
     std::string systemPrompt;
     bool verbose = false;
+    std::chrono::milliseconds requestTimeout{30000};
     std::function<void(std::string_view)> progress;
 };
 // Owns one synchronous runtime. Requests are serialized; do not destroy while in use.

@@ -57,6 +57,34 @@ void validatorTests(Checks& checks) {
     checks.check(ActionValidator::validate("L|K|00050").has_value(), "reference-compatible leading zeros");
 }
 void parserTests(Checks& checks) {
+    for (const auto& [location, room] : std::vector<std::pair<std::string, std::string>>{
+             {"на кухне", "K"}, {"в спальне", "B"}, {"в гостиной", "G"},
+             {"в зале", "G"}, {"в коридоре", "C"}}) {
+        for (const auto& [brightness, expected] : std::vector<std::pair<std::string, int>>{
+                 {"0", 0}, {"100%", 100}, {"40 процентов", 40}, {"на 40 процентов", 40},
+                 {"наполовину", 50}, {"максимум", 100}, {"на максимум", 100}}) {
+            const auto text = "Установи яркость света " + location + " " + brightness;
+            const auto parsed = DeterministicParser::parse(text);
+            checks.check(parsed && *parsed == "L|" + room + "|" + std::to_string(expected),
+                         "explicit light brightness " + text);
+        }
+    }
+    for (const auto& text : {
+             "установи яркость света наполовину", "установи яркость света на 40 процентов",
+             "установи яркость света в спальне и на кухне наполовину",
+             "установи яркость света в детской наполовину",
+             "установи яркость света в спальне на 101 процент",
+             "установи яркость света в спальне на 101 процентов",
+             "установи яркость света в спальне -1", "установи яркость света в спальне 1.5",
+             "установи яркость света в спальне на максимум 40 процентов",
+             "установи яркость света в спальне 40 или 50 процентов",
+             "установи яркость света в спальне примерно 40 процентов",
+             "не установи яркость света в спальне наполовину",
+             "установи яркость света в спальне на наполовину",
+             "установи яркость света в спальне на на максимум",
+             "установи яркасть света в спальне наполовину"})
+        checks.check(!DeterministicParser::parse(text), std::string("reject brightness form ") + text);
+
     for (const auto& [text, code] : std::vector<std::pair<std::string, std::string>>{
         {"На кухне свет 40 процентов", "L|K|40"}, {"свет в спальне 0", "L|B|0"},
         {"установи свет в коридоре на 100%", "L|C|100"}, {"В зале включи свет", "L|G|100"},

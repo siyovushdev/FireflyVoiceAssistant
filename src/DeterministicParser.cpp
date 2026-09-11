@@ -2,6 +2,7 @@
 #include "Text.h"
 #include <array>
 #include <regex>
+#include <vector>
 
 namespace firefly {
 std::optional<std::string> DeterministicParser::parse(std::string_view original) {
@@ -12,34 +13,52 @@ std::optional<std::string> DeterministicParser::parse(std::string_view original)
     if (last == std::string_view::npos || last < first) return std::nullopt;
     const auto text = detail::lowercase(original.substr(first, last - first + 1));
     // Entire-input grammar: unknown words, negation and compound commands fall through.
-    const std::array<std::pair<std::string, char>, 5> locations{{
-        {"на кухне", 'K'}, {"в спальне", 'B'}, {"в гостиной", 'G'},
-        {"в зале", 'G'}, {"в коридоре", 'C'}
-    }};
-    for (const auto& [location, room] : locations) {
-        const auto code = [room](int value) {
-            return std::string("L|") + room + "|" + std::to_string(value);
+    struct RoomRules {
+        std::string location;
+        char room;
+        std::vector<std::regex> numbers;
+        std::vector<std::regex> brightness;
+    };
+    // Function-local initialization is thread-safe. Compile the unchanged grammar once.
+    static const auto rules = [] {
+        std::vector<RoomRules> result;
+        for (const auto& [location, room] : std::array<std::pair<std::string, char>, 5>{{
+                 {"на кухне", 'K'}, {"в спальне", 'B'}, {"в гостиной", 'G'},
+                 {"в зале", 'G'}, {"в коридоре", 'C'}}}) {
+            RoomRules rule{location, room, {}, {}};
+            const std::string number = "(0|[1-9][0-9]?|100)(%| процентов)?";
+            for (const auto& pattern : {location + " свет " + number,
+                     "свет " + location + " " + number, "установи свет " + location + " на " + number})
+                rule.numbers.emplace_back(pattern);
+            const std::string brightness = "(0|[1-9][0-9]?|100)(?:%| процентов)?|наполовину|максимум";
+            for (const std::string verb : {"сделай", "поставь"}) {
+                for (const auto& pattern : {
+                         location + " " + verb + " свет (?:на )?(" + brightness + ")",
+                         verb + " свет " + location + " на (" + brightness + ")"})
+                    rule.brightness.emplace_back(pattern);
+            }
+            rule.brightness.emplace_back("установи яркость света " + location + " (" + brightness + ")");
+            // «на» precedes a numeric value or «максимум», not «наполовину».
+            rule.brightness.emplace_back("установи яркость света " + location + " на (" + number + "|максимум)");
+            result.push_back(std::move(rule));
+        }
+        return result;
+    }();
+    for (const auto& rule : rules) {
+        const auto& location = rule.location;
+        const auto code = [&rule](int value) {
+            return std::string("L|") + rule.room + "|" + std::to_string(value);
         };
         std::smatch match;
-        const std::string number = "(0|[1-9][0-9]?|100)(%| процентов)?";
-        for (const auto& pattern : {location + " свет " + number,
-                                    "свет " + location + " " + number,
-                                    "установи свет " + location + " на " + number}) {
-            if (std::regex_match(text, match, std::regex(pattern)))
-                return code(std::stoi(match[1].str()));
+        for (const auto& pattern : rule.numbers) {
+            if (std::regex_match(text, match, pattern)) return code(std::stoi(match[1].str()));
         }
-        // Narrow imperative forms only: one explicit location and one absolute value.
-        const std::string brightness = "(0|[1-9][0-9]?|100)(?:%| процентов)?|наполовину|максимум";
-        for (const std::string verb : {"сделай", "поставь"}) {
-            for (const auto& pattern : {
-                     location + " " + verb + " свет (?:на )?(" + brightness + ")",
-                     verb + " свет " + location + " на (" + brightness + ")"}) {
-                if (std::regex_match(text, match, std::regex(pattern))) {
-                    const auto value = match[1].str();
-                    if (value == "наполовину") return code(50);
-                    if (value == "максимум") return code(100);
-                    return code(std::stoi(match[2].str()));
-                }
+        for (const auto& pattern : rule.brightness) {
+            if (std::regex_match(text, match, pattern)) {
+                const auto value = match[1].str();
+                if (value == "наполовину") return code(50);
+                if (value == "максимум") return code(100);
+                return code(std::stoi(match[2].str()));
             }
         }
         const std::array<std::pair<std::string, int>, 6> verbs{{
