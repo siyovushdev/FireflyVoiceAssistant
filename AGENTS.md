@@ -46,3 +46,6 @@ Keep this milestone text-only; do not start STT or Milestone 4. Input is limited
 Use only the exact `rkllm_abort` / `rkllm_is_running` APIs in the reference header. Keep the watchdog joined and the handle alive until synchronous inference and abort return. Default deadline is 30 seconds; it is not a hard bound on vendor hangs. Warn on CLI requests over 2 seconds. Keep raw model output separate from final actions in diagnostics.
 
 Maintain `tests/data/dev.tsv` as DEV/regression only; do not use HIDDEN tests. Run the seven available suites and the separate real NPU harness, report error categories and latency, then stop. Parser regexes are now precompiled; do not broaden the grammar as part of optimization. Reference files remain strictly read-only.
+
+## Explicit Entrance-Door Safety
+D may pass only with an explicit opening word (`открой`, `откройте`, `открыть`, `открывай`, `открывайте`) and a `двер` stem plus an entrance reference (either the `входн` stem or adjacent whole tokens `на входе`) in the ORIGINAL CommandEngine input, case-insensitively. Otherwise return U. Do not correct transcripts. Keep the frozen DEV data unchanged, including «Открыть дверь на входе». Light rules, parser, prompt, model, and protocol remain unchanged.

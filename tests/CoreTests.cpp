@@ -153,6 +153,24 @@ void parserTests(Checks& checks) {
         checks.check(!DeterministicParser::parse(text), std::string("unresolved ") + text);
 }
 void gateTests(Checks& checks) {
+    for (const auto& [input, expected] : std::vector<std::pair<std::string, std::string>>{
+             {"дверь", "U"}, {"двер", "U"}, {"открой дверь", "U"},
+             {"открой входную дверь", "D"}, {"открыть входную дверь", "D"},
+             {"  ОтКрОй ВХОДНУЮ ДВЕРЬ!  ", "D"}, {"откройте входную дверь", "D"},
+             {"открывай входную дверь", "D"}, {"открывайте входную дверь", "D"},
+             {"входная дверь", "U"}, {"открой входную", "U"},
+             {"закрой входную дверь", "U"}, {"открой входную тверь", "U"},
+             {"аткрой входную дверь", "U"}, {"открытая входная дверь", "U"},
+             {"открыть дверь на входе", "D"}, {"открой дверь на входе", "D"},
+             {"ОТКРОЙ дверь НА\tВХОДЕ!", "D"}, {"открой вход", "U"},
+             {"дверь на входе", "U"}, {"открой на входе", "U"},
+             {"открой тверь на входе", "U"}, {"открой дверь на входеже", "U"},
+             {"открой дверь страна входе", "U"}, {"открой дверь на другом входе", "U"}}) {
+        const auto result = SafetyGate::apply(input, "D");
+        checks.check(result == expected, "door requires explicit cues: " + input);
+        checks.check(result == "D" || result == "U", "door gate never repairs");
+    }
+
     for (const auto& [text, candidate, expected] : std::vector<std::tuple<std::string, std::string, std::string>>{
         {"На кухне свет 40", "L|K|40", "L|K|40"}, {"В СПАЛЬНЕ свет 50", "L|B|50", "L|B|50"},
         {"свет (в зале), 20", "L|G|20", "L|G|20"}, {"в гостиной свет 10", "L|G|10", "L|G|10"},
