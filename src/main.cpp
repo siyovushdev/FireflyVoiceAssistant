@@ -1,3 +1,6 @@
+#ifdef FIREFLY_WITH_VOICE
+#include "VoiceMode.h"
+#endif
 #include "firefly/CommandEngine.h"
 #include "firefly/RkllmEngine.h"
 #include "firefly/InputPolicy.h"
@@ -18,6 +21,10 @@ void usage() {
 }
 }
 int main(int argc, char** argv) {
+#ifdef FIREFLY_WITH_VOICE
+    for (int i = 1; i < argc; ++i)
+        if (std::string(argv[i]) == "--voice") return runVoiceMode(argc, argv);
+#endif
     try {
         firefly::RkllmConfig config;
         std::string promptPath;
