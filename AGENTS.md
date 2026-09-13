@@ -3,7 +3,7 @@
 ## Fixed Target and Scope
 FireflyVoiceAssistantLinux targets Linux/aarch64 only: Firefly ROC-RK3588S-PC, Ubuntu 22.04, RK3588S, 8 GB RAM. The fixed inference stack is RKLLM 1.3.0 with Qwen3-4B W8A8 on the NPU. Do not select another LLM, change quantization, rebuild the model, redo Vulkan/NPU research, or work on Android.
 
-The current milestone is TEXT ONLY: no microphone, STT, GPIO/hardware execution, or systemd. Do not integrate RKLLM during the first implementation milestone. Never use serialized persistent prompt cache as production state.
+The initial milestone was TEXT ONLY: no microphone, STT, GPIO/hardware execution, or systemd. Do not integrate RKLLM during the first implementation milestone. Never use serialized persistent prompt cache as production state.
 
 ## Read-Only Production References
 `~/demo_Linux_aarch64` is strictly READ-ONLY. Never modify, rename, delete, or overwrite anything there. Inspect only necessary listed references:
@@ -41,7 +41,7 @@ Stop after tests pass. Report files created, architecture, build command, tests/
 `CommandEngine` must bypass the LLM for deterministic candidates, normalize only model-output whitespace on fallback, and always give SafetyGate the ORIGINAL input. Keep mock-based CommandEngine tests independent of the NPU. Use `FIREFLY_BUILD_ASSISTANT=OFF` for a core-only build. Run real smoke tests separately with the frozen model/prompt, report routes and available timings, then stop at the authorized milestone. Preserve baseline core semantics. Do not download dependencies/models without permission.
 
 ## Milestone 3 Stabilization Rules
-Keep this milestone text-only; do not start STT or Milestone 4. Input is limited to 192 UTF-8 bytes; reject invalid, oversized, or blank input to U before parser/inference. Never replay output after failure. Runtime/KV/callback failures and deadlines require engine restart; fast-path commands remain independent. Model-output syntax failures become U without changing prompt/model/protocol.
+Milestone 3 was text-only; its scope did not include STT. Input is limited to 192 UTF-8 bytes; reject invalid, oversized, or blank input to U before parser/inference. Never replay output after failure. Runtime/KV/callback failures and deadlines require engine restart; fast-path commands remain independent. Model-output syntax failures become U without changing prompt/model/protocol.
 
 Use only the exact `rkllm_abort` / `rkllm_is_running` APIs in the reference header. Keep the watchdog joined and the handle alive until synchronous inference and abort return. Default deadline is 30 seconds; it is not a hard bound on vendor hangs. Warn on CLI requests over 2 seconds. Keep raw model output separate from final actions in diagnostics.
 
@@ -49,3 +49,6 @@ Maintain `tests/data/dev.tsv` as DEV/regression only; do not use HIDDEN tests. R
 
 ## Explicit Entrance-Door Safety
 D may pass only with an explicit opening word (`открой`, `откройте`, `открыть`, `открывай`, `открывайте`) and a `двер` stem plus an entrance reference (either the `входн` stem or adjacent whole tokens `на входе`) in the ORIGINAL CommandEngine input, case-insensitively. Otherwise return U. Do not correct transcripts. Keep the frozen DEV data unchanged, including «Открыть дверь на входе». Light rules, parser, prompt, model, and protocol remain unchanged.
+
+## Milestone 4 Checkpoint
+The current implementation includes offline native ALSA → Silero VAD → full Russian Zipformer STT → unchanged CommandEngine. See [the live baseline](docs/milestone-4-baseline.md) and [build/run guide](docs/live-voice.md). Models, STT/VAD settings, parser, SafetyGate, Qwen3 prompt/configuration and compact protocol remain unchanged. Current live padding defaults are configurable 300 ms pre/post-roll, selected on DEV; they are not permanently frozen production constants. Fresh live regression is 8/9 exact STT and actions, zero false accepts/wrong actions, one false reject. Preserve «открыть дверь на входе» → «открытвер на входе» → U as a recorded failure; do not add a transcript correction or tune components without separate authorization. Milestone 4 is complete. Do not start wake-word detection or hardware execution without a new instruction.

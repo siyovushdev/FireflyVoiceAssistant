@@ -1,4 +1,4 @@
-# Live voice mode (Milestone 4.4)
+# Live voice mode (Milestone 4 checkpoint)
 
 Linux/aarch64 only. No wake word, network service, or hardware action execution.
 The existing text mode and command semantics are unchanged. Speak only after
@@ -107,9 +107,9 @@ After LISTENING, speak these separately, waiting for LISTENING between them:
 - «Какая сегодня погода?» → U
 
 Leave several seconds of silence between commands: silence must produce no
-STT call, Qwen3 call, or repeated U. Use Ctrl-C to exit. These are expectations,
-not claimed live speech results. New live speech still needs human validation;
-the eight DEV recordings do not establish production accuracy or safety.
+STT call, Qwen3 call, or repeated U. Use Ctrl-C to exit. The user reported this initial live smoke test passed. The subsequent
+[fresh live baseline](milestone-4-baseline.md) records 8/9 correct transcripts
+and actions. These small sets do not establish production accuracy or safety.
 
 ## Verified in this milestone
 
@@ -120,5 +120,7 @@ the eight DEV recordings do not establish production accuracy or safety.
 - Real H340 + STT + RKLLM startup reached LISTENING in 30.36 s. A brief capture
   check produced no transcript/action output; SIGINT exited with status 0 in
   1.82 s. Logs: `build/stt/live-startup.*` and `build/stt/live-replay.log`.
-- Sequential new human speech has not yet been tested. Do not interpret the
-  startup check as live command-accuracy validation.
+- Fresh live regression: 8/9 exact transcripts and correct actions; zero false
+  accepts/wrong actions and one false reject. See the tracked
+  [Milestone 4 baseline](milestone-4-baseline.md) for every utterance, the measured
+  silence intervals and the unconfirmed extra segment.
