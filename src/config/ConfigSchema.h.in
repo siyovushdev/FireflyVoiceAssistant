@@ -1,0 +1,4 @@
+#pragma once
+namespace firefly::config::detail {
+inline constexpr char SchemaJson[] = R"FIREFLY_SCHEMA(@FIREFLY_SCHEMA_JSON@)FIREFLY_SCHEMA";
+}

@@ -1,0 +1,201 @@
+{
+    "activation_checks": "not_implemented",
+    "capability_contract": "m4_v1",
+    "content_sha256": "6f7d116d7cdb0f95bce447f4b98d0de104cf08056aa0694e17aaa6b12efbdff2",
+    "devices": [
+        {
+            "action_ids": [
+                "action_set_brightness"
+            ],
+            "enabled": true,
+            "id": "device_bedroom_light",
+            "kind": "light",
+            "name": "Свет в спальне",
+            "room_id": "room_bedroom"
+        },
+        {
+            "action_ids": [
+                "action_set_brightness"
+            ],
+            "enabled": true,
+            "id": "device_corridor_light",
+            "kind": "light",
+            "name": "Свет в коридоре",
+            "room_id": "room_corridor"
+        },
+        {
+            "action_ids": [
+                "action_open_entrance"
+            ],
+            "enabled": true,
+            "id": "device_entrance_door",
+            "kind": "entrance_door",
+            "name": "Входная дверь",
+            "room_id": null
+        },
+        {
+            "action_ids": [
+                "action_set_brightness"
+            ],
+            "enabled": true,
+            "id": "device_kitchen_light",
+            "kind": "light",
+            "name": "Свет на кухне",
+            "room_id": "room_kitchen"
+        },
+        {
+            "action_ids": [
+                "action_set_brightness"
+            ],
+            "enabled": true,
+            "id": "device_living_light",
+            "kind": "light",
+            "name": "Свет в гостиной",
+            "room_id": "room_living"
+        }
+    ],
+    "effective_actions": [
+        {
+            "action_id": "action_set_brightness",
+            "brightness": {
+                "maximum": 100,
+                "minimum": 0,
+                "type": "integer",
+                "unit": "percent"
+            },
+            "mandatory_policies": [
+                "original_room_required_v1",
+                "zero_with_enable_forbidden_v1"
+            ],
+            "operation": "light.set_brightness.v1",
+            "permitted": true,
+            "target_id": "device_bedroom_light"
+        },
+        {
+            "action_id": "action_set_brightness",
+            "brightness": {
+                "maximum": 100,
+                "minimum": 0,
+                "type": "integer",
+                "unit": "percent"
+            },
+            "mandatory_policies": [
+                "original_room_required_v1",
+                "zero_with_enable_forbidden_v1"
+            ],
+            "operation": "light.set_brightness.v1",
+            "permitted": true,
+            "target_id": "device_corridor_light"
+        },
+        {
+            "action_id": "action_open_entrance",
+            "mandatory_policies": [
+                "explicit_entrance_open_required_v1"
+            ],
+            "operation": "entrance_door.open.v1",
+            "permitted": true,
+            "target_id": "device_entrance_door"
+        },
+        {
+            "action_id": "action_set_brightness",
+            "brightness": {
+                "maximum": 100,
+                "minimum": 0,
+                "type": "integer",
+                "unit": "percent"
+            },
+            "mandatory_policies": [
+                "original_room_required_v1",
+                "zero_with_enable_forbidden_v1"
+            ],
+            "operation": "light.set_brightness.v1",
+            "permitted": true,
+            "target_id": "device_kitchen_light"
+        },
+        {
+            "action_id": "action_set_brightness",
+            "brightness": {
+                "maximum": 100,
+                "minimum": 0,
+                "type": "integer",
+                "unit": "percent"
+            },
+            "mandatory_policies": [
+                "original_room_required_v1",
+                "zero_with_enable_forbidden_v1"
+            ],
+            "operation": "light.set_brightness.v1",
+            "permitted": true,
+            "target_id": "device_living_light"
+        }
+    ],
+    "language_profile": "legacy_m4_v1",
+    "legacy_differences": [],
+    "matches_current_legacy_domain": true,
+    "production_activated": false,
+    "revision": 1,
+    "rooms": [
+        {
+            "id": "room_bedroom",
+            "locations": [
+                "в спальне"
+            ],
+            "mentions": [
+                "спальне",
+                "спальней",
+                "спальни",
+                "спальню",
+                "спальня"
+            ],
+            "name": "Спальня"
+        },
+        {
+            "id": "room_corridor",
+            "locations": [
+                "в коридоре"
+            ],
+            "mentions": [
+                "коридор",
+                "коридора",
+                "коридоре",
+                "коридором",
+                "коридору"
+            ],
+            "name": "Коридор"
+        },
+        {
+            "id": "room_kitchen",
+            "locations": [
+                "на кухне"
+            ],
+            "mentions": [
+                "кухне",
+                "кухней",
+                "кухни",
+                "кухню",
+                "кухня"
+            ],
+            "name": "Кухня"
+        },
+        {
+            "id": "room_living",
+            "locations": [
+                "в гостиной",
+                "в зале"
+            ],
+            "mentions": [
+                "гостиная",
+                "гостиной",
+                "гостиную",
+                "зал",
+                "зала",
+                "зале",
+                "залом",
+                "залу"
+            ],
+            "name": "Гостиная"
+        }
+    ],
+    "schema_version": 1,
+    "storage_valid": true
+}

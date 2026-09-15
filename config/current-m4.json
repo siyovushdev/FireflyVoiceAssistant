@@ -1,0 +1,136 @@
+{
+    "schema_version": 1,
+    "revision": 1,
+    "retired_ids": [],
+    "system": {
+        "id": "system_home",
+        "name": "Дом",
+        "locale": "ru-RU",
+        "interpretation_profile": "legacy_m4_v1"
+    },
+    "rooms": [
+        {
+            "id": "room_kitchen",
+            "name": "Кухня",
+            "speech": {
+                "mentions": ["кухня", "кухне", "кухню", "кухни", "кухней"],
+                "locations": ["на кухне"]
+            }
+        },
+        {
+            "id": "room_bedroom",
+            "name": "Спальня",
+            "speech": {
+                "mentions": ["спальня", "спальне", "спальню", "спальни", "спальней"],
+                "locations": ["в спальне"]
+            }
+        },
+        {
+            "id": "room_living",
+            "name": "Гостиная",
+            "speech": {
+                "mentions": ["гостиная", "гостиной", "гостиную", "зал", "зале", "зала", "залу", "залом"],
+                "locations": ["в гостиной", "в зале"]
+            }
+        },
+        {
+            "id": "room_corridor",
+            "name": "Коридор",
+            "speech": {
+                "mentions": ["коридор", "коридоре", "коридора", "коридору", "коридором"],
+                "locations": ["в коридоре"]
+            }
+        }
+    ],
+    "devices": [
+        {
+            "id": "device_kitchen_light",
+            "name": "Свет на кухне",
+            "kind": "light",
+            "room_id": "room_kitchen",
+            "enabled": true,
+            "action_ids": ["action_set_brightness"],
+            "spoken_aliases": []
+        },
+        {
+            "id": "device_bedroom_light",
+            "name": "Свет в спальне",
+            "kind": "light",
+            "room_id": "room_bedroom",
+            "enabled": true,
+            "action_ids": ["action_set_brightness"],
+            "spoken_aliases": []
+        },
+        {
+            "id": "device_living_light",
+            "name": "Свет в гостиной",
+            "kind": "light",
+            "room_id": "room_living",
+            "enabled": true,
+            "action_ids": ["action_set_brightness"],
+            "spoken_aliases": []
+        },
+        {
+            "id": "device_corridor_light",
+            "name": "Свет в коридоре",
+            "kind": "light",
+            "room_id": "room_corridor",
+            "enabled": true,
+            "action_ids": ["action_set_brightness"],
+            "spoken_aliases": []
+        },
+        {
+            "id": "device_entrance_door",
+            "name": "Входная дверь",
+            "kind": "entrance_door",
+            "room_id": null,
+            "enabled": true,
+            "action_ids": ["action_open_entrance"],
+            "spoken_aliases": []
+        }
+    ],
+    "actions": [
+        {
+            "id": "action_set_brightness",
+            "name": "Установить яркость света",
+            "operation": "light.set_brightness.v1",
+            "enabled": true,
+            "parameters": [
+                {
+                    "id": "brightness",
+                    "name": "Яркость",
+                    "type": "integer",
+                    "required": true,
+                    "minimum": 0,
+                    "maximum": 100,
+                    "unit": "percent"
+                }
+            ],
+            "speech_aliases": {}
+        },
+        {
+            "id": "action_open_entrance",
+            "name": "Открыть входную дверь",
+            "operation": "entrance_door.open.v1",
+            "enabled": true,
+            "parameters": [],
+            "speech_aliases": {}
+        }
+    ],
+    "safety": {
+        "restrictions": []
+    },
+    "bindings": [],
+    "compatibility": {
+        "codec": "compact_v1",
+        "light_action_id": "action_set_brightness",
+        "light_targets": {
+            "K": "device_kitchen_light",
+            "B": "device_bedroom_light",
+            "G": "device_living_light",
+            "C": "device_corridor_light"
+        },
+        "door_action_id": "action_open_entrance",
+        "door_target_id": "device_entrance_door"
+    }
+}

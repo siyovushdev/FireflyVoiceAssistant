@@ -96,3 +96,9 @@ if(FIREFLY_BUILD_VOICE)
         # Opt-in model-backed replay; kept separate from pure unit tests.
     endif()
 endif()
+
+# Disconnected offline tooling: production targets do not link this library.
+option(FIREFLY_BUILD_CONFIG_TOOLS "Build offline configuration tools and tests" OFF)
+if(FIREFLY_BUILD_CONFIG_TOOLS)
+    add_subdirectory(src/config)
+endif()

@@ -1,0 +1,381 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:firefly:configuration:v1",
+    "title": "Firefly offline configuration v1",
+    "type": "object",
+    "properties": {
+        "schema_version": {
+            "type": "integer",
+            "const": 1
+        },
+        "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+        },
+        "retired_ids": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/id"
+            },
+            "minItems": 0,
+            "maxItems": 4096
+        },
+        "system": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "$ref": "#/$defs/id"
+                },
+                "name": {
+                    "$ref": "#/$defs/name"
+                },
+                "locale": {
+                    "const": "ru-RU"
+                },
+                "interpretation_profile": {
+                    "const": "legacy_m4_v1"
+                }
+            },
+            "required": [
+                "id",
+                "name",
+                "locale",
+                "interpretation_profile"
+            ],
+            "additionalProperties": false
+        },
+        "rooms": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/room"
+            },
+            "minItems": 0,
+            "maxItems": 64
+        },
+        "devices": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/device"
+            },
+            "minItems": 0,
+            "maxItems": 128
+        },
+        "actions": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/action"
+            },
+            "minItems": 0,
+            "maxItems": 32
+        },
+        "safety": {
+            "type": "object",
+            "properties": {
+                "restrictions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/restriction"
+                    },
+                    "minItems": 0,
+                    "maxItems": 128
+                }
+            },
+            "required": [
+                "restrictions"
+            ],
+            "additionalProperties": false
+        },
+        "bindings": {
+            "type": "array",
+            "items": {},
+            "minItems": 0,
+            "maxItems": 0
+        },
+        "compatibility": {
+            "type": "object",
+            "properties": {
+                "codec": {
+                    "const": "compact_v1"
+                },
+                "light_action_id": {
+                    "$ref": "#/$defs/id"
+                },
+                "light_targets": {
+                    "type": "object",
+                    "properties": {
+                        "K": {
+                            "$ref": "#/$defs/id"
+                        },
+                        "B": {
+                            "$ref": "#/$defs/id"
+                        },
+                        "G": {
+                            "$ref": "#/$defs/id"
+                        },
+                        "C": {
+                            "$ref": "#/$defs/id"
+                        }
+                    },
+                    "required": [
+                        "K",
+                        "B",
+                        "G",
+                        "C"
+                    ],
+                    "additionalProperties": false
+                },
+                "door_action_id": {
+                    "$ref": "#/$defs/id"
+                },
+                "door_target_id": {
+                    "$ref": "#/$defs/id"
+                }
+            },
+            "required": [
+                "codec",
+                "light_action_id",
+                "light_targets",
+                "door_action_id",
+                "door_target_id"
+            ],
+            "additionalProperties": false
+        }
+    },
+    "required": [
+        "schema_version",
+        "revision",
+        "retired_ids",
+        "system",
+        "rooms",
+        "devices",
+        "actions",
+        "safety",
+        "bindings",
+        "compatibility"
+    ],
+    "additionalProperties": false,
+    "$defs": {
+        "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,63}$"
+        },
+        "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+        },
+        "parameter": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "$ref": "#/$defs/id"
+                },
+                "name": {
+                    "$ref": "#/$defs/name"
+                },
+                "type": {
+                    "const": "integer"
+                },
+                "required": {
+                    "const": true
+                },
+                "minimum": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100
+                },
+                "maximum": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100
+                },
+                "unit": {
+                    "const": "percent"
+                }
+            },
+            "required": [
+                "id",
+                "name",
+                "type",
+                "required",
+                "minimum",
+                "maximum",
+                "unit"
+            ],
+            "additionalProperties": false
+        },
+        "room": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "$ref": "#/$defs/id"
+                },
+                "name": {
+                    "$ref": "#/$defs/name"
+                },
+                "speech": {
+                    "type": "object",
+                    "properties": {
+                        "mentions": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 96
+                            },
+                            "minItems": 1,
+                            "maxItems": 32
+                        },
+                        "locations": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 96
+                            },
+                            "minItems": 1,
+                            "maxItems": 32
+                        }
+                    },
+                    "required": [
+                        "mentions",
+                        "locations"
+                    ],
+                    "additionalProperties": false
+                }
+            },
+            "required": [
+                "id",
+                "name",
+                "speech"
+            ],
+            "additionalProperties": false
+        },
+        "device": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "$ref": "#/$defs/id"
+                },
+                "name": {
+                    "$ref": "#/$defs/name"
+                },
+                "kind": {
+                    "enum": [
+                        "light",
+                        "entrance_door"
+                    ]
+                },
+                "room_id": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "action_ids": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/id"
+                    },
+                    "minItems": 1,
+                    "maxItems": 32
+                },
+                "spoken_aliases": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 96
+                    },
+                    "minItems": 0,
+                    "maxItems": 0
+                }
+            },
+            "required": [
+                "id",
+                "name",
+                "kind",
+                "room_id",
+                "enabled",
+                "action_ids",
+                "spoken_aliases"
+            ],
+            "additionalProperties": false
+        },
+        "action": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "$ref": "#/$defs/id"
+                },
+                "name": {
+                    "$ref": "#/$defs/name"
+                },
+                "operation": {
+                    "enum": [
+                        "light.set_brightness.v1",
+                        "entrance_door.open.v1"
+                    ]
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "parameters": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/parameter"
+                    },
+                    "minItems": 0,
+                    "maxItems": 16
+                },
+                "speech_aliases": {
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                    "additionalProperties": false
+                }
+            },
+            "required": [
+                "id",
+                "name",
+                "operation",
+                "enabled",
+                "parameters",
+                "speech_aliases"
+            ],
+            "additionalProperties": false
+        },
+        "restriction": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "$ref": "#/$defs/id"
+                },
+                "name": {
+                    "$ref": "#/$defs/name"
+                },
+                "kind": {
+                    "const": "deny_action"
+                },
+                "device_id": {
+                    "$ref": "#/$defs/id"
+                },
+                "action_id": {
+                    "$ref": "#/$defs/id"
+                }
+            },
+            "required": [
+                "id",
+                "name",
+                "kind",
+                "device_id",
+                "action_id"
+            ],
+            "additionalProperties": false
+        }
+    }
+}
