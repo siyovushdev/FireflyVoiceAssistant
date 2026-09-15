@@ -1,6 +1,7 @@
 #include "VoiceMode.h"
 #include "CliSupport.h"
 #include "firefly/RkllmEngine.h"
+#include "firefly/DeterministicParser.h"
 #include "firefly/voice/AlsaAudioSource.h"
 #include "firefly/voice/SherpaSpeech.h"
 #include "firefly/voice/VoiceProcessor.h"
@@ -71,6 +72,9 @@ int runVoiceMode(int argc, char** argv) {
             throw std::invalid_argument("Voice mode requires --model, --system-prompt, --stt-model-dir, --vad-model");
         const runtime::RuntimeConfig runtimeConfig(configPath);
         runtimeConfig.writeDiagnostics(std::cerr);
+        const DeterministicParser parser(runtimeConfig.domain());
+        parser.requireLegacyRoomDomain();
+        std::cerr << "PARSER_ROOMS authoritative=config legacy_shadow=matched\n";
         cli::CliOutput output;
         std::cerr << "Loading VAD...\n";
         SherpaVad detector(vad);
@@ -80,7 +84,7 @@ int runVoiceMode(int argc, char** argv) {
         rk.systemPrompt = cli::readFile(prompt);
         rk.progress = [](std::string_view stage) { std::cerr << stage << '\n'; };
         RkllmEngine llm(std::move(rk));
-        CommandEngine engine(llm);
+        CommandEngine engine(llm, parser);
         VoiceProcessor processor(recognizer, engine);
         if (stopped) return 0;
         AlsaAudioSource capture(device);

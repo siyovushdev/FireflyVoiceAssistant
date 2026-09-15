@@ -2,6 +2,7 @@
 #include "VoiceMode.h"
 #endif
 #include "firefly/CommandEngine.h"
+#include "firefly/DeterministicParser.h"
 #include "firefly/RkllmEngine.h"
 #include "firefly/InputPolicy.h"
 #include "firefly/runtime/RuntimeConfig.h"
@@ -60,12 +61,15 @@ int main(int argc, char** argv) {
         }
         const firefly::runtime::RuntimeConfig runtimeConfig(configPath);
         runtimeConfig.writeDiagnostics(std::cerr);
+        const firefly::DeterministicParser parser(runtimeConfig.domain());
+        parser.requireLegacyRoomDomain();
+        std::cerr << "PARSER_ROOMS authoritative=config legacy_shadow=matched\n";
         config.systemPrompt = readFile(promptPath);
         const bool verbose = config.verbose;
         config.progress = [](std::string_view stage) { std::cerr << stage << std::endl; };
         CliOutput output;
         firefly::RkllmEngine llm(std::move(config));
-        firefly::CommandEngine engine(llm);
+        firefly::CommandEngine engine(llm, parser);
         std::cerr << "READY" << std::endl;
         const bool interactive = isatty(STDIN_FILENO);
         std::string line;

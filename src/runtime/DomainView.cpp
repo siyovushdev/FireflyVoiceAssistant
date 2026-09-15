@@ -23,6 +23,21 @@ const config::Room* DomainView::roomLocation(std::string_view alias) const {
     const auto found = snapshot_->locationIndex().find(std::string(alias));
     return found == snapshot_->locationIndex().end() ? nullptr : room(found->second);
 }
+std::vector<ParserRoomLocation> DomainView::parserLocations() const {
+    std::vector<ParserRoomLocation> result;
+    for (const auto& [phrase, roomId] : snapshot_->locationIndex()) {
+        std::optional<char> code;
+        for (const auto& [candidate, targetId] : snapshot_->configuration().compatibility.lightTargets) {
+            const auto* target = device(targetId);
+            if (!target || target->roomId != roomId) continue;
+            if (code) throw std::invalid_argument("Parser room has multiple legacy targets: " + roomId);
+            code = candidate;
+        }
+        if (!code) throw std::invalid_argument("Parser room has no legacy target: " + roomId);
+        result.push_back({phrase, *code});
+    }
+    return result;
+}
 const config::Device* DomainView::legacyLightTarget(char code) const {
     const auto& targets = snapshot_->configuration().compatibility.lightTargets;
     const auto found = targets.find(code);

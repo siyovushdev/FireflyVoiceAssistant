@@ -23,6 +23,6 @@ void RuntimeConfig::writeDiagnostics(std::ostream& output) const {
            << " sha256=" << snapshot->contentHash() << " checks=" << comparison_.checks
            << " mismatches=" << comparison_.mismatches.size() << " authoritative=legacy";
     if (!comparison_.equivalent()) output << " first=" << comparison_.mismatches.front();
-    output << '\n';
+    output << " scope=legacy_domain_baseline\n";
 }
 }

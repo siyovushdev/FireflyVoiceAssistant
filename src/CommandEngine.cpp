@@ -7,6 +7,10 @@
 #include <exception>
 
 namespace firefly {
+CommandEngine::CommandEngine(LlmEngine& llm, const DeterministicParser& parser)
+    : llm_(llm), parse_([&parser](std::string_view original) { return parser.parseChecked(original); }) {}
+CommandEngine::CommandEngine(LlmEngine& llm)
+    : llm_(llm), parse_(DeterministicParser::parse) {}
 CommandResult CommandEngine::process(std::string_view original) {
     const auto start = std::chrono::steady_clock::now();
     CommandResult result{};
@@ -15,7 +19,7 @@ CommandResult CommandEngine::process(std::string_view original) {
         if (!validInput(original)) {
             result.error = "Invalid input: expected nonempty UTF-8, at most 192 bytes";
         } else {
-            auto candidate = DeterministicParser::parse(original);
+            auto candidate = parse_(original);
             result.path = candidate ? CommandPath::FastPath : CommandPath::LlmFallback;
             if (!candidate) {
                 result.rawOutput = llm_.infer(original);
