@@ -97,8 +97,15 @@ if(FIREFLY_BUILD_VOICE)
     endif()
 endif()
 
-# Disconnected offline tooling: production targets do not link this library.
+# The foundation is shared by offline tools and the startup-only shadow bridge.
 option(FIREFLY_BUILD_CONFIG_TOOLS "Build offline configuration tools and tests" OFF)
-if(FIREFLY_BUILD_CONFIG_TOOLS)
+if(FIREFLY_BUILD_CONFIG_TOOLS OR FIREFLY_BUILD_ASSISTANT)
     add_subdirectory(src/config)
+    add_subdirectory(src/runtime)
+endif()
+if(FIREFLY_BUILD_ASSISTANT)
+    target_link_libraries(firefly-assistant PRIVATE firefly_runtime_config)
+    if(BUILD_TESTING)
+        target_link_libraries(cli_tests_app PRIVATE firefly_runtime_config)
+    endif()
 endif()

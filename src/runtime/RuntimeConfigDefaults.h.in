@@ -1,0 +1,4 @@
+#pragma once
+namespace firefly::runtime {
+inline constexpr const char* DefaultConfigPath = R"config(@FIREFLY_CONFIG_FILE@)config";
+}

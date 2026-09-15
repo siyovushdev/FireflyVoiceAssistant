@@ -4,6 +4,7 @@
 #include "firefly/CommandEngine.h"
 #include "firefly/RkllmEngine.h"
 #include "firefly/InputPolicy.h"
+#include "firefly/runtime/RuntimeConfig.h"
 #include "CliSupport.h"
 #include <chrono>
 #include <cstdio>
@@ -17,7 +18,7 @@ namespace {
 using firefly::cli::CliOutput;
 using firefly::cli::readFile;
 void usage() {
-    std::cout << "Usage: firefly-assistant --model PATH --system-prompt PATH [--verbose] [--timeout-ms N]\n";
+    std::cout << "Usage: firefly-assistant --model PATH --system-prompt PATH [--config PATH] [--verbose] [--timeout-ms N]\n";
 }
 }
 int main(int argc, char** argv) {
@@ -28,9 +29,18 @@ int main(int argc, char** argv) {
     try {
         firefly::RkllmConfig config;
         std::string promptPath;
+        std::string configPath = firefly::runtime::RuntimeConfig::defaultPath();
+        bool explicitConfig = false;
         for (int i = 1; i < argc; ++i) {
             const std::string arg(argv[i]);
             if (arg == "--help") { usage(); return 0; }
+            if (arg == "--config") {
+                if (explicitConfig || i + 1 == argc || std::string(argv[i + 1]).empty())
+                    throw std::invalid_argument("Expected one --config PATH");
+                configPath = argv[++i];
+                explicitConfig = true;
+                continue;
+            }
             if (arg == "--timeout-ms" && i + 1 < argc) {
                 const std::string value(argv[++i]);
                 if (value.empty() || value.find_first_not_of("0123456789") != std::string::npos)
@@ -48,6 +58,8 @@ int main(int argc, char** argv) {
             usage();
             return 2;
         }
+        const firefly::runtime::RuntimeConfig runtimeConfig(configPath);
+        runtimeConfig.writeDiagnostics(std::cerr);
         config.systemPrompt = readFile(promptPath);
         const bool verbose = config.verbose;
         config.progress = [](std::string_view stage) { std::cerr << stage << std::endl; };

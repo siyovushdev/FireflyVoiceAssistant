@@ -4,6 +4,7 @@
 #include "firefly/voice/AlsaAudioSource.h"
 #include "firefly/voice/SherpaSpeech.h"
 #include "firefly/voice/VoiceProcessor.h"
+#include "firefly/runtime/RuntimeConfig.h"
 #include <array>
 #include <chrono>
 #include <csignal>
@@ -34,6 +35,8 @@ int runVoiceMode(int argc, char** argv) {
         RkllmConfig rk;
         SegmentConfig segments;
         std::string prompt, stt, vad, device = "plughw:CARD=H340,DEV=0";
+        std::string configPath = runtime::RuntimeConfig::defaultPath();
+        bool explicitConfig = false;
         int runSeconds = 0;
         for (int i = 1; i < argc; ++i) {
             const std::string arg = argv[i];
@@ -42,12 +45,17 @@ int runVoiceMode(int argc, char** argv) {
             if (arg == "--help") {
                 std::cout << "Voice: --voice --model PATH --system-prompt PATH --stt-model-dir DIR --vad-model PATH\n"
                              "  [--audio-device ALSA_NAME] [--pre-roll-ms 300] [--post-roll-ms 300]\n"
-                             "  [--max-utterance-ms 15000] [--voice-run-seconds N] [--verbose] [--timeout-ms N]\n";
+                             "  [--max-utterance-ms 15000] [--voice-run-seconds N] [--verbose] [--timeout-ms N] [--config PATH]\n";
                 return 0;
             }
             if (i + 1 >= argc) throw std::invalid_argument("Missing value: " + arg);
             const std::string value = argv[++i];
             if (arg == "--model") rk.modelPath = value;
+            else if (arg == "--config") {
+                if (explicitConfig || value.empty()) throw std::invalid_argument("Expected one --config PATH");
+                configPath = value;
+                explicitConfig = true;
+            }
             else if (arg == "--system-prompt") prompt = value;
             else if (arg == "--stt-model-dir") stt = value;
             else if (arg == "--vad-model") vad = value;
@@ -61,6 +69,8 @@ int runVoiceMode(int argc, char** argv) {
         }
         if (rk.modelPath.empty() || prompt.empty() || stt.empty() || vad.empty())
             throw std::invalid_argument("Voice mode requires --model, --system-prompt, --stt-model-dir, --vad-model");
+        const runtime::RuntimeConfig runtimeConfig(configPath);
+        runtimeConfig.writeDiagnostics(std::cerr);
         cli::CliOutput output;
         std::cerr << "Loading VAD...\n";
         SherpaVad detector(vad);
