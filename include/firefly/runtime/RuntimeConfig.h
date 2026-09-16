@@ -11,9 +11,11 @@ public:
     static std::string defaultPath();
     const DomainView& domain() const { return domain_; }
     const ShadowComparison& comparison() const { return comparison_; }
+    const ShadowComparison& brightnessComparison() const { return brightnessComparison_; }
     void writeDiagnostics(std::ostream& output) const;
 private:
     const DomainView domain_;
     const ShadowComparison comparison_;
+    const ShadowComparison brightnessComparison_;
 };
 }

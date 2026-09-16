@@ -93,7 +93,7 @@ class RuntimeConfigCliTests(unittest.TestCase):
                       ["--config", self.config, "--config", self.config]):
             self.assert_startup_failure(self.run_app(*extra))
 
-    def test_valid_drift_reports_mismatch_without_changing_outputs(self):
+    def test_valid_drift_changes_only_migrated_brightness_support(self):
         candidate = copy.deepcopy(SAMPLE)
         candidate["actions"][0]["parameters"][0]["maximum"] = 99
         candidate["devices"][-1]["enabled"] = False
@@ -102,7 +102,8 @@ class RuntimeConfigCliTests(unittest.TestCase):
         result = self.run_app("--config", self.config, text=commands)
         repeated = self.run_app("--config", self.config, text=commands)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, "L|K|100\nD\nU\n")
+        # 6.5 activates the narrower range, while door enablement is still shadow-only.
+        self.assertEqual(result.stdout, "U\nD\nU\n")
         diagnostic = next(line for line in result.stderr.splitlines() if line.startswith("CONFIG_SHADOW"))
         self.assertNotIn("mismatches=0 ", diagnostic)
         self.assertIn("authoritative=legacy first=legacy_profile", diagnostic)

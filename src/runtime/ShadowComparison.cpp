@@ -7,6 +7,30 @@ namespace firefly::runtime {
 void ShadowComparison::requireEquivalent() const {
     if (!equivalent()) throw std::runtime_error("Configuration shadow mismatch: " + mismatches.front());
 }
+ShadowComparison compareLegacyBrightness(const DomainView& domain) {
+    ShadowComparison result;
+    const auto check = [&](bool equal, const std::string& key) {
+        ++result.checks;
+        if (!equal) result.mismatches.push_back(key);
+    };
+    for (int byte = 0; byte <= 255; ++byte) {
+        const char code = static_cast<char>(static_cast<unsigned char>(byte));
+        const std::string prefix = "L|" + std::string(1, code) + "|";
+        const auto legacyTarget = ActionValidator::validate(prefix + "50");
+        const auto bounds = domain.lightBrightnessBounds(code);
+        const std::string key = "code:" + std::to_string(byte);
+        check(legacyTarget.has_value() == bounds.has_value(), key);
+        if (!legacyTarget && !bounds) continue;
+        // Frozen compact percentage envelope plus its adjacent boundaries.
+        // These are comparison probes, never production support defaults.
+        for (int value = -1; value <= 101; ++value) {
+            const bool legacy = ActionValidator::validate(prefix + std::to_string(value)).has_value();
+            check(domain.supportsBrightness(code, value) == legacy,
+                  key + ":brightness:" + std::to_string(value));
+        }
+    }
+    return result;
+}
 ShadowComparison compareLegacyDomain(const DomainView& domain) {
     ShadowComparison result;
     const auto check = [&](bool equal, const std::string& key) {

@@ -5,6 +5,7 @@
 #include <optional>
 namespace firefly {
 class DeterministicParser;
+class LightBrightnessDomain;
 enum class CommandPath { FastPath, LlmFallback, InputRejected };
 struct CommandResult {
     CommandPath path;
@@ -18,7 +19,10 @@ struct CommandResult {
 };
 class CommandEngine {
 public:
-    // Production constructor. The parser must outlive this engine.
+    // Production constructor. Both read-only dependencies must outlive this engine.
+    CommandEngine(LlmEngine& llm, const DeterministicParser& parser,
+                  const LightBrightnessDomain& brightnessDomain);
+    // Migration-only 6.4 reference for existing standalone tests.
     CommandEngine(LlmEngine& llm, const DeterministicParser& parser);
     // Migration-only reference constructor for unchanged legacy tests/harness.
     // The injected production path cannot switch to this implementation.
@@ -28,5 +32,7 @@ public:
 private:
     LlmEngine& llm_;
     const std::function<std::optional<std::string>(std::string_view)> parse_;
+    // Null only in explicitly selected historical reference constructors.
+    const LightBrightnessDomain* const brightnessDomain_;
 };
 }

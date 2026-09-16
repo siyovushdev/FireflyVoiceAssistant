@@ -65,6 +65,17 @@ bool DomainView::allowsBrightness(std::string_view deviceId, std::int64_t value)
     const auto bounds = brightnessBounds(deviceId);
     return bounds && value >= bounds->first && value <= bounds->second;
 }
+std::optional<std::pair<std::int64_t, std::int64_t>> DomainView::lightBrightnessBounds(char roomCode) const {
+    const auto* target = legacyLightTarget(roomCode);
+    if (!target || target->kind != config::DeviceKind::Light) return std::nullopt;
+    const auto* action = effectiveAction(target->id, snapshot_->configuration().compatibility.lightActionId);
+    if (!action || action->operation != config::Operation::SetBrightness) return std::nullopt;
+    return action->brightnessBounds;
+}
+bool DomainView::supportsBrightness(char roomCode, std::int64_t value) const {
+    const auto bounds = lightBrightnessBounds(roomCode);
+    return bounds && value >= bounds->first && value <= bounds->second;
+}
 bool DomainView::entranceAvailable() const {
     const auto* target = entranceTarget();
     if (!target || target->kind != config::DeviceKind::EntranceDoor || target->roomId) return false;

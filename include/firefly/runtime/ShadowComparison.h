@@ -12,4 +12,6 @@ struct ShadowComparison {
 // Fixed, synthetic startup probes only; never interprets a user's command.
 // This adapter depends on the old components; the configuration library does not.
 ShadowComparison compareLegacyDomain(const DomainView& domain);
+// Range-only oracle: reuse the frozen decoder, without permission/alias policy.
+ShadowComparison compareLegacyBrightness(const DomainView& domain);
 }

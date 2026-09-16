@@ -3,14 +3,20 @@
 #include "firefly/DeterministicParser.h"
 #include "firefly/SafetyGate.h"
 #include "firefly/InputPolicy.h"
+#include "firefly/LightBrightnessDomain.h"
 #include <chrono>
 #include <exception>
 
 namespace firefly {
+CommandEngine::CommandEngine(LlmEngine& llm, const DeterministicParser& parser,
+                             const LightBrightnessDomain& brightnessDomain)
+    : llm_(llm), parse_([&parser](std::string_view original) { return parser.parseChecked(original); }),
+      brightnessDomain_(&brightnessDomain) {}
 CommandEngine::CommandEngine(LlmEngine& llm, const DeterministicParser& parser)
-    : llm_(llm), parse_([&parser](std::string_view original) { return parser.parseChecked(original); }) {}
+    : llm_(llm), parse_([&parser](std::string_view original) { return parser.parseChecked(original); }),
+      brightnessDomain_(nullptr) {}
 CommandEngine::CommandEngine(LlmEngine& llm)
-    : llm_(llm), parse_(DeterministicParser::parse) {}
+    : llm_(llm), parse_(DeterministicParser::parse), brightnessDomain_(nullptr) {}
 CommandResult CommandEngine::process(std::string_view original) {
     const auto start = std::chrono::steady_clock::now();
     CommandResult result{};
@@ -31,7 +37,20 @@ CommandResult CommandEngine::process(std::string_view original) {
                 result.normalizedOutput = *candidate;
                 result.invalidModelOutput = *candidate != "U" && !ActionValidator::validate(*candidate);
             }
-            result.action = ActionValidator::validate(SafetyGate::apply(original, *candidate));
+            const auto gated = SafetyGate::apply(original, *candidate);
+            auto validated = ActionValidator::validate(gated);
+            if (validated && brightnessDomain_) {
+                if (const auto* light = std::get_if<LightAction>(&*validated)) {
+                    // The strict decoder established gated[2] as a light code.
+                    // Protocol/safety validity alone does not establish support
+                    // by this installation. Never clamp or retry a domain miss.
+                    if (!brightnessDomain_->supportsBrightness(gated[2], light->brightness)) {
+                        validated.reset();
+                        result.error = "Brightness outside configured domain";
+                    }
+                }
+            }
+            result.action = std::move(validated);
         }
     } catch (const std::exception& error) {
         result.action.reset();

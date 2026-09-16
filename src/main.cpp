@@ -69,7 +69,7 @@ int main(int argc, char** argv) {
         config.progress = [](std::string_view stage) { std::cerr << stage << std::endl; };
         CliOutput output;
         firefly::RkllmEngine llm(std::move(config));
-        firefly::CommandEngine engine(llm, parser);
+        firefly::CommandEngine engine(llm, parser, runtimeConfig.domain());
         std::cerr << "READY" << std::endl;
         const bool interactive = isatty(STDIN_FILENO);
         std::string line;
