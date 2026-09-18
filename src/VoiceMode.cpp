@@ -84,7 +84,7 @@ int runVoiceMode(int argc, char** argv) {
         rk.systemPrompt = cli::readFile(prompt);
         rk.progress = [](std::string_view stage) { std::cerr << stage << '\n'; };
         RkllmEngine llm(std::move(rk));
-        CommandEngine engine(llm, parser, runtimeConfig.domain());
+        CommandEngine engine(llm, parser, runtimeConfig.domain(), runtimeConfig.domain());
         VoiceProcessor processor(recognizer, engine);
         if (stopped) return 0;
         AlsaAudioSource capture(device);

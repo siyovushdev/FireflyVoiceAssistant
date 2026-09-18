@@ -9,14 +9,19 @@
 
 namespace firefly {
 CommandEngine::CommandEngine(LlmEngine& llm, const DeterministicParser& parser,
+                             const LightBrightnessDomain& brightnessDomain,
+                             const EntranceDoorDomain& entranceDomain)
+    : llm_(llm), parse_([&parser](std::string_view original) { return parser.parseChecked(original); }),
+      brightnessDomain_(&brightnessDomain), entranceDomain_(&entranceDomain) {}
+CommandEngine::CommandEngine(LlmEngine& llm, const DeterministicParser& parser,
                              const LightBrightnessDomain& brightnessDomain)
     : llm_(llm), parse_([&parser](std::string_view original) { return parser.parseChecked(original); }),
-      brightnessDomain_(&brightnessDomain) {}
+      brightnessDomain_(&brightnessDomain), entranceDomain_(nullptr) {}
 CommandEngine::CommandEngine(LlmEngine& llm, const DeterministicParser& parser)
     : llm_(llm), parse_([&parser](std::string_view original) { return parser.parseChecked(original); }),
-      brightnessDomain_(nullptr) {}
+      brightnessDomain_(nullptr), entranceDomain_(nullptr) {}
 CommandEngine::CommandEngine(LlmEngine& llm)
-    : llm_(llm), parse_(DeterministicParser::parse), brightnessDomain_(nullptr) {}
+    : llm_(llm), parse_(DeterministicParser::parse), brightnessDomain_(nullptr), entranceDomain_(nullptr) {}
 CommandResult CommandEngine::process(std::string_view original) {
     const auto start = std::chrono::steady_clock::now();
     CommandResult result{};
@@ -50,13 +55,24 @@ CommandResult CommandEngine::process(std::string_view original) {
                     }
                 }
             }
+            if (validated && entranceDomain_ && std::holds_alternative<OpenEntranceDoor>(*validated)) {
+                // Safety/strict decoding establish intent and representation;
+                // only the snapshot-backed resolver supplies installation identity.
+                result.entranceTarget = entranceDomain_->resolveEntranceDoor();
+                if (!result.entranceTarget) {
+                    validated.reset();
+                    result.error = "Configured entrance-door target unavailable";
+                }
+            }
             result.action = std::move(validated);
         }
     } catch (const std::exception& error) {
         result.action.reset();
+        result.entranceTarget.reset();
         result.error = error.what();
     } catch (...) {
         result.action.reset();
+        result.entranceTarget.reset();
         result.error = "Unknown engine failure";
     }
     result.latencyMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();

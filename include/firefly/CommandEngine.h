@@ -1,5 +1,6 @@
 #pragma once
 #include "firefly/Action.h"
+#include "firefly/EntranceDoorDomain.h"
 #include "firefly/LlmEngine.h"
 #include <functional>
 #include <optional>
@@ -10,6 +11,10 @@ enum class CommandPath { FastPath, LlmFallback, InputRejected };
 struct CommandResult {
     CommandPath path;
     std::optional<Action> action;
+    // Set only for an accepted D on the configured production path. Owned
+    // metadata remains usable after the engine/snapshot lifetime; wire output
+    // and the existing Action representation are unchanged.
+    std::optional<EntranceDoorTarget> entranceTarget;
     std::string rawOutput;
     std::string normalizedOutput;
     std::string error;
@@ -19,7 +24,11 @@ struct CommandResult {
 };
 class CommandEngine {
 public:
-    // Production constructor. Both read-only dependencies must outlive this engine.
+    // Production constructor. All read-only dependencies must outlive this engine.
+    CommandEngine(LlmEngine& llm, const DeterministicParser& parser,
+                  const LightBrightnessDomain& brightnessDomain,
+                  const EntranceDoorDomain& entranceDomain);
+    // Migration-only 6.5 reference for existing standalone tests.
     CommandEngine(LlmEngine& llm, const DeterministicParser& parser,
                   const LightBrightnessDomain& brightnessDomain);
     // Migration-only 6.4 reference for existing standalone tests.
@@ -34,5 +43,6 @@ private:
     const std::function<std::optional<std::string>(std::string_view)> parse_;
     // Null only in explicitly selected historical reference constructors.
     const LightBrightnessDomain* const brightnessDomain_;
+    const EntranceDoorDomain* const entranceDomain_;
 };
 }

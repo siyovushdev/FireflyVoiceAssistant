@@ -76,6 +76,13 @@ bool DomainView::supportsBrightness(char roomCode, std::int64_t value) const {
     const auto bounds = lightBrightnessBounds(roomCode);
     return bounds && value >= bounds->first && value <= bounds->second;
 }
+std::optional<EntranceDoorTarget> DomainView::resolveEntranceDoor() const {
+    const auto* target = entranceTarget();
+    if (!target || target->kind != config::DeviceKind::EntranceDoor || target->roomId) return std::nullopt;
+    const auto* action = effectiveAction(target->id, snapshot_->configuration().compatibility.doorActionId);
+    if (!action || action->operation != config::Operation::OpenEntranceDoor) return std::nullopt;
+    return EntranceDoorTarget{target->id, target->name};
+}
 bool DomainView::entranceAvailable() const {
     const auto* target = entranceTarget();
     if (!target || target->kind != config::DeviceKind::EntranceDoor || target->roomId) return false;

@@ -7,6 +7,23 @@ namespace firefly::runtime {
 void ShadowComparison::requireEquivalent() const {
     if (!equivalent()) throw std::runtime_error("Configuration shadow mismatch: " + mismatches.front());
 }
+ShadowComparison compareLegacyEntranceDoor(const DomainView& domain) {
+    ShadowComparison result;
+    const auto legacy = ActionValidator::validate("D");
+    const bool legacyEntrance = legacy && std::holds_alternative<OpenEntranceDoor>(*legacy);
+    ++result.checks;
+    if (domain.resolveEntranceDoor().has_value() != legacyEntrance)
+        result.mismatches.push_back("entrance_target");
+    // Frozen D can address one entrance only. Extra stored entrances are
+    // observable profile drift, never alternative candidates for resolution.
+    std::size_t configuredEntrances = 0;
+    for (const auto& device : domain.snapshot()->configuration().devices)
+        if (device.kind == config::DeviceKind::EntranceDoor) ++configuredEntrances;
+    ++result.checks;
+    if (configuredEntrances != static_cast<std::size_t>(legacyEntrance))
+        result.mismatches.push_back("entrance_entity_set");
+    return result;
+}
 ShadowComparison compareLegacyBrightness(const DomainView& domain) {
     ShadowComparison result;
     const auto check = [&](bool equal, const std::string& key) {

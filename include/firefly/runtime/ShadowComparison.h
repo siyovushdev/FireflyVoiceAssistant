@@ -14,4 +14,7 @@ struct ShadowComparison {
 ShadowComparison compareLegacyDomain(const DomainView& domain);
 // Range-only oracle: reuse the frozen decoder, without permission/alias policy.
 ShadowComparison compareLegacyBrightness(const DomainView& domain);
+// D denotes one unnamed entrance. Stable-ID compatibility is already enforced
+// by the existing schema validator; no legacy ID/name table is copied here.
+ShadowComparison compareLegacyEntranceDoor(const DomainView& domain);
 }

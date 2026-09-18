@@ -16,7 +16,8 @@ config::Catalog loadSnapshot(const std::string& path) {
 }
 RuntimeConfig::RuntimeConfig(const std::string& path)
     : domain_(loadSnapshot(path)), comparison_(compareLegacyDomain(domain_)),
-      brightnessComparison_(compareLegacyBrightness(domain_)) {}
+      brightnessComparison_(compareLegacyBrightness(domain_)),
+      entranceComparison_(compareLegacyEntranceDoor(domain_)) {}
 std::string RuntimeConfig::defaultPath() { return DefaultConfigPath; }
 void RuntimeConfig::writeDiagnostics(std::ostream& output) const {
     const auto& snapshot = domain_.snapshot();
@@ -29,6 +30,11 @@ void RuntimeConfig::writeDiagnostics(std::ostream& output) const {
            << " mismatches=" << brightnessComparison_.mismatches.size()
            << " legacy_shadow=" << (brightnessComparison_.equivalent() ? "matched" : "mismatch");
     if (!brightnessComparison_.equivalent()) output << " first=" << brightnessComparison_.mismatches.front();
+    output << '\n';
+    output << "ENTRANCE_DOMAIN authoritative=config checks=" << entranceComparison_.checks
+           << " mismatches=" << entranceComparison_.mismatches.size()
+           << " legacy_shadow=" << (entranceComparison_.equivalent() ? "matched" : "mismatch");
+    if (!entranceComparison_.equivalent()) output << " first=" << entranceComparison_.mismatches.front();
     output << '\n';
 }
 }

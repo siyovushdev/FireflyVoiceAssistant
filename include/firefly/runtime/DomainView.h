@@ -2,13 +2,14 @@
 #include "firefly/config/Configuration.h"
 #include "firefly/ParserRoomDomain.h"
 #include "firefly/LightBrightnessDomain.h"
+#include "firefly/EntranceDoorDomain.h"
 #include <string_view>
 
 namespace firefly::runtime {
 // Read-only installation data, not a command parser or permission to execute.
 // Returned pointers remain valid for this view's lifetime. Alias inputs are
 // exact canonical keys; request tokenization/normalization is not migrated here.
-class DomainView final : public ParserRoomDomain, public LightBrightnessDomain {
+class DomainView final : public ParserRoomDomain, public LightBrightnessDomain, public EntranceDoorDomain {
 public:
     explicit DomainView(config::Catalog snapshot);
     const config::Catalog& snapshot() const { return snapshot_; }
@@ -27,6 +28,9 @@ public:
     // the permission-aware brightnessBounds/allowsBrightness above are unchanged.
     std::optional<std::pair<std::int64_t, std::int64_t>> lightBrightnessBounds(char roomCode) const;
     bool supportsBrightness(char roomCode, std::int64_t value) const override;
+    // Identity only. Enablement/deny metadata remains observational, as for
+    // the range-only view. Mandatory door intent policy remains in SafetyGate.
+    std::optional<EntranceDoorTarget> resolveEntranceDoor() const override;
     bool entranceAvailable() const;
 private:
     const config::Catalog snapshot_;
