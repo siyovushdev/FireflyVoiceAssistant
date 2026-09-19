@@ -6,6 +6,8 @@
 #include "firefly/RkllmEngine.h"
 #include "firefly/InputPolicy.h"
 #include "firefly/runtime/RuntimeConfig.h"
+#include "firefly/llm/LlmContext.h"
+#include "firefly/actions/CompactV1Adapter.h"
 #include "CliSupport.h"
 #include <chrono>
 #include <cstdio>
@@ -17,9 +19,8 @@
 
 namespace {
 using firefly::cli::CliOutput;
-using firefly::cli::readFile;
 void usage() {
-    std::cout << "Usage: firefly-assistant --model PATH --system-prompt PATH [--config PATH] [--verbose] [--timeout-ms N]\n";
+    std::cout << "Usage: firefly-assistant --model PATH [--config PATH] [--verbose] [--timeout-ms N]\n";
 }
 }
 int main(int argc, char** argv) {
@@ -29,7 +30,6 @@ int main(int argc, char** argv) {
 #endif
     try {
         firefly::RkllmConfig config;
-        std::string promptPath;
         std::string configPath = firefly::runtime::RuntimeConfig::defaultPath();
         bool explicitConfig = false;
         for (int i = 1; i < argc; ++i) {
@@ -50,12 +50,11 @@ int main(int argc, char** argv) {
                 continue;
             }
             if (arg == "--verbose") { config.verbose = true; continue; }
-            if ((arg == "--model" || arg == "--system-prompt") && i + 1 < argc) {
-                if (arg == "--model") config.modelPath = argv[++i];
-                else promptPath = argv[++i];
+            if (arg == "--model" && i + 1 < argc) {
+                config.modelPath = argv[++i];
             } else throw std::invalid_argument("Unknown option or missing value: " + arg);
         }
-        if (config.modelPath.empty() || promptPath.empty()) {
+        if (config.modelPath.empty()) {
             usage();
             return 2;
         }
@@ -63,7 +62,7 @@ int main(int argc, char** argv) {
         runtimeConfig.writeDiagnostics(std::cerr);
         const firefly::DeterministicParser parser(runtimeConfig.domain());
         std::cerr << "PARSER_ROOMS authoritative=config action_model=generic\n";
-        config.systemPrompt = readFile(promptPath);
+        config.systemPrompt = firefly::llm::generateContext(runtimeConfig.domain()).systemPrompt();
         const bool verbose = config.verbose;
         config.progress = [](std::string_view stage) { std::cerr << stage << std::endl; };
         CliOutput output;
@@ -90,6 +89,12 @@ int main(int argc, char** argv) {
                 std::cerr << (result.path == firefly::CommandPath::FastPath ? "FAST PATH" :
                               result.path == firefly::CommandPath::LlmFallback ? "LLM FALLBACK" : "INPUT REJECTED")
                           << " final=" << outputCodec.render(result.action) << " command_ms=" << result.latencyMs << '\n';
+                std::cerr << "TRACE original=" << firefly::llm::quotedText(line)
+                          << " raw=" << firefly::llm::quotedText(result.rawOutput)
+                          << " decode=" << firefly::llm::decodeStatusName(result.decodeStatus)
+                          << " candidate=" << firefly::llm::structuredResult(result.candidate)
+                          << " safety=" << firefly::llm::structuredResult(result.safeCandidate)
+                          << " final=" << firefly::llm::structuredResult(result.action) << '\n';
             }
         }
         if (std::cin.bad()) throw std::runtime_error("Failed reading stdin");

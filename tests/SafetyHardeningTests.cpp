@@ -24,7 +24,7 @@ public:
     std::string infer(std::string_view input) override {
         ++calls;
         received = input;
-        return output;
+        return test::modelOutput(output);
     }
 };
 std::string compact(char room, int value) {
@@ -63,7 +63,7 @@ int main(int argc, char** argv) {
                 check(result.compact() == expected, "fallback: " + input + " / " + raw);
                 check(result.path == CommandPath::LlmFallback && fake.calls == before + 1,
                       "one unchanged fallback call, no inference bypass workaround");
-                check(result.rawOutput == raw && fake.received == input && result.error.empty(),
+                check(result.rawOutput == test::modelOutput(raw) && fake.received == input && result.error.empty(),
                       "raw/original preserved; semantic rejection is not an engine error");
             }
         };

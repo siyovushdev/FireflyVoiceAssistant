@@ -3,7 +3,8 @@
 #include "rkllm.h"
 #include <atomic>
 namespace firefly_test {
-enum class Fault { None, Run, Clear, State, Error, MissingFinish, NullText, Overflow, Timeout, AbortFailure };
+enum class Fault { None, Run, Clear, State, Error, MissingFinish, NullText, Overflow, Timeout, AbortFailure,
+                   Context, OutputLimit, CacheRead, CacheSize, MissingPerf };
 struct Stub {
     RKLLMCallback callbacks{};
     Fault fault = Fault::None;

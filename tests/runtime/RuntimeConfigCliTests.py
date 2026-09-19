@@ -22,9 +22,7 @@ class RuntimeConfigCliTests(unittest.TestCase):
         self.directory = Path(self.scratch.name)
         self.config = self.directory / "current.json"
         self.config.write_text(json.dumps(SAMPLE, ensure_ascii=False))
-        self.prompt = self.directory / "prompt.txt"
-        self.prompt.write_text("frozen")
-        self.args = [str(APP), "--model", "fake", "--system-prompt", str(self.prompt)]
+        self.args = [str(APP), "--model", "fake"]
 
     def run_app(self, *extra, text="на кухне свет 40\n"):
         return subprocess.run(self.args + list(map(str, extra)), input=text, text=True,

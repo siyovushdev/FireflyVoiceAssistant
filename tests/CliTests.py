@@ -8,7 +8,7 @@ import tempfile
 with tempfile.TemporaryDirectory() as directory:
     prompt = Path(directory) / "prompt.txt"
     prompt.write_text("frozen")
-    args = [sys.argv[1], "--model", "fake", "--system-prompt", str(prompt)]
+    args = [sys.argv[1], "--model", "fake"]
     cases = [
         (b"", b""),
         (b"\n \t\n", b"U\nU\n"),
@@ -28,4 +28,7 @@ with tempfile.TemporaryDirectory() as directory:
     env = dict(os.environ, FIREFLY_TEST_INIT_FAIL="1")
     result = subprocess.run(args, input=b"", capture_output=True, env=env, timeout=10)
     assert result.returncode == 1 and result.stdout == b"U\n", result
-print("10 CLI scenarios passed (EOF/Ctrl+D semantics, blanks, quit/exit, repeated commands, bounded input, startup failure)")
+    result = subprocess.run(args + ["--system-prompt", str(prompt)], input=b"", capture_output=True, timeout=10)
+    assert result.returncode == 1 and b"Unknown option" in result.stderr, result
+    assert b"stub destroyed" not in result.stderr, result.stderr
+print("11 CLI scenarios passed, including explicit rejection of a manual prompt override")

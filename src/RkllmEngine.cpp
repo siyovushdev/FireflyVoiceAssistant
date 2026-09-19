@@ -76,6 +76,7 @@ struct RkllmEngine::Impl {
     std::atomic<bool> callbackFailed{false};
     bool finished = false;
     bool ready = false;
+    int bootstrapPrefill = 0;
 
     static int callback(RKLLMResult* result, void* userdata, LLMCallState state) noexcept {
         auto* self = static_cast<Impl*>(userdata);
@@ -87,7 +88,7 @@ struct RkllmEngine::Impl {
             switch (state) {
                 case RKLLM_RUN_NORMAL:
                     if (!result || !result->text) { self->callbackFailed = true; break; }
-                    // Compact output needs only a few bytes. Bound even faulty callbacks.
+                    // Bound structured output and faulty callbacks without repair.
                     for (const char* c = result->text; *c; ++c) {
                         if (self->output.size() >= 4096) { self->callbackFailed = true; break; }
                         self->output.push_back(*c);
@@ -119,7 +120,7 @@ struct RkllmEngine::Impl {
         RKLLMInferParam infer{};
         infer.mode = RKLLM_INFER_GENERATE;
         infer.keep_history = 0;
-        infer.max_new_tokens = 16;
+        infer.max_new_tokens = RkllmResponseTokens;
         resetOutput();
         const auto start = Clock::now();
         RequestDeadline deadline(handle, config.requestTimeout);
@@ -130,6 +131,23 @@ struct RkllmEngine::Impl {
         requireSuccess(status, "rkllm_run");
         std::lock_guard<std::mutex> lock(outputMutex);
         if (callbackFailed || !finished) throw std::runtime_error("RKLLM callback failed or did not finish");
+        // The public API has no internal-tokenizer preflight. Admit actual runtime
+        // counts before READY / before returning any response; never estimate tokens.
+        int cacheSize = -1;
+        requireSuccess(rkllm_get_kv_cache_size(handle, &cacheSize), "read KV size");
+        const int ceiling = ready ? RkllmRequestReserve : RkllmBootstrapCeiling;
+        if (perf.prefill_tokens <= 0 || perf.prefill_tokens > ceiling ||
+            perf.generate_tokens < 0 || perf.generate_tokens >= RkllmResponseTokens - 1 ||
+            cacheSize <= 0 || cacheSize > RkllmContextTokens ||
+            (ready && bootstrapPrefill + perf.prefill_tokens + RkllmResponseTokens > RkllmContextTokens))
+            throw std::runtime_error("RKLLM context/output budget rejected: prefill=" + std::to_string(perf.prefill_tokens) +
+                                     " generated=" + std::to_string(perf.generate_tokens) + " kv=" + std::to_string(cacheSize));
+        if (!ready) {
+            bootstrapPrefill = perf.prefill_tokens;
+            std::cerr << "LLM_CONTEXT bootstrap_prefill=" << bootstrapPrefill << " bootstrap_kv=" << cacheSize
+                      << " ceiling=" << RkllmBootstrapCeiling << " request_reserve=" << RkllmRequestReserve
+                      << " response_budget=" << RkllmResponseTokens << " context=" << RkllmContextTokens << '\n';
+        }
         if (config.verbose)
             std::cerr << label << " wall_ms=" << elapsed(start)
                       << " prefill_ms=" << perf.prefill_time_ms << " prefill_tokens=" << perf.prefill_tokens
@@ -148,6 +166,8 @@ struct RkllmEngine::Impl {
         if (config.modelPath.empty() || config.systemPrompt.empty() ||
             config.modelPath.find('\0') != std::string::npos || config.systemPrompt.find('\0') != std::string::npos)
             throw std::invalid_argument("Model path and system prompt must be nonempty and contain no NUL bytes");
+        if (config.systemPrompt.size() > 16384)
+            throw std::invalid_argument("LLM system prompt exceeds byte resource limit");
         const auto startup = Clock::now();
         progress("Loading RKLLM...");
         auto param = rkllm_createDefaultParam();
@@ -158,8 +178,8 @@ struct RkllmEngine::Impl {
         param.repeat_penalty = 1.0f;
         param.frequency_penalty = 0.0f;
         param.presence_penalty = 0.0f;
-        param.max_new_tokens = 16;
-        param.max_context_len = 1024;
+        param.max_new_tokens = RkllmResponseTokens;
+        param.max_context_len = RkllmContextTokens;
         param.skip_special_token = true;
         param.extend_param.base_domain_id = 0;
         param.extend_param.embed_flash = 1;

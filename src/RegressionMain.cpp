@@ -1,6 +1,8 @@
 #include "firefly/CommandEngine.h"
 #include "firefly/RkllmEngine.h"
 #include "firefly/runtime/RuntimeConfig.h"
+#include "firefly/llm/LlmContext.h"
+#include "firefly/actions/CompactV1Adapter.h"
 #include "CliSupport.h"
 #include <iomanip>
 #include <vector>
@@ -41,27 +43,29 @@ std::vector<Case> readCases(const std::string& path, const firefly::actions::Com
 int main(int argc, char** argv) {
     try {
         firefly::RkllmConfig config;
-        std::string prompt, data;
+        std::string data, configPath = firefly::runtime::RuntimeConfig::defaultPath();
         for (int i = 1; i < argc; ++i) {
             const std::string arg(argv[i]);
             if (arg == "--verbose") { config.verbose = true; continue; }
             if (i + 1 == argc) throw std::runtime_error("Missing option value");
             if (arg == "--model") config.modelPath = argv[++i];
-            else if (arg == "--system-prompt") prompt = argv[++i];
+            else if (arg == "--config") configPath = argv[++i];
             else if (arg == "--data") data = argv[++i];
             else throw std::runtime_error("Unknown option: " + arg);
         }
-        const firefly::runtime::RuntimeConfig runtime(firefly::runtime::RuntimeConfig::defaultPath());
+        const firefly::runtime::RuntimeConfig runtime(configPath);
         const firefly::DeterministicParser parser(runtime.domain());
         const firefly::actions::CompactV1Adapter outputCodec(runtime.domain().snapshot());
         const auto cases = readCases(data, outputCodec);
-        config.systemPrompt = firefly::cli::readFile(prompt);
+        config.systemPrompt = firefly::llm::generateContext(runtime.domain()).systemPrompt();
         config.progress = [](std::string_view stage) { std::cerr << stage << std::endl; };
         firefly::cli::CliOutput output;
         firefly::RkllmEngine llm(std::move(config));
         firefly::CommandEngine engine(llm, parser, runtime.domain());
         int pass = 0, valid = 0, unsupported = 0, falseAccept = 0, falseReject = 0, wrong = 0;
         int invalid = 0, finalInvalid = 0, fast = 0, fallback = 0, inputRejected = 0, errors = 0;
+        int structuredActions = 0, structuredUnsupported = 0, safetyRejects = 0, domainRejects = 0, semanticWrong = 0;
+        int malformedJson = 0, invalidStructured = 0;
         double totalMs = 0, fastMs = 0, fallbackMs = 0;
         for (const auto& test : cases) {
             const auto result = engine.process(test.input);
@@ -74,6 +78,15 @@ int main(int argc, char** argv) {
             falseReject += test.expected != "U" && final == "U";
             wrong += test.expected != "U" && final != "U" && !correct;
             invalid += result.invalidModelOutput;
+            malformedJson += result.decodeStatus == firefly::llm::DecodeStatus::InvalidJson;
+            invalidStructured += result.invalidModelOutput && result.decodeStatus != firefly::llm::DecodeStatus::InvalidJson;
+            structuredActions += result.decodeStatus == firefly::llm::DecodeStatus::Action;
+            structuredUnsupported += result.decodeStatus == firefly::llm::DecodeStatus::Unsupported;
+            safetyRejects += result.safetyRejected;
+            domainRejects += result.domainRejected;
+            const auto expectedSemantic = std::get<firefly::actions::CandidateResult>(outputCodec.decode(test.expected));
+            semanticWrong += result.path == firefly::CommandPath::LlmFallback && !result.invalidModelOutput &&
+                             result.candidate != expectedSemantic;
             finalInvalid += std::holds_alternative<firefly::actions::CompactV1Error>(outputCodec.decode(final));
             errors += !result.error.empty();
             totalMs += result.latencyMs;
@@ -86,7 +99,10 @@ int main(int argc, char** argv) {
                 << "\texpected=" << test.expected << "\tfinal=" << final << "\tms=" << result.latencyMs << '\n';
             output.write(row.str());
             std::cerr << test.id << " input=[" << escaped(test.input) << "] raw=[" << escaped(result.rawOutput)
-                      << "] normalized=[" << escaped(result.normalizedOutput) << "] final=[" << final
+                      << "] decode=[" << firefly::llm::decodeStatusName(result.decodeStatus)
+                      << "] candidate=[" << firefly::llm::structuredResult(result.candidate)
+                      << "] safety=[" << firefly::llm::structuredResult(result.safeCandidate)
+                      << "] semantic_final=[" << firefly::llm::structuredResult(result.action) << "] final=[" << final
                       << "] error=[" << escaped(result.error) << "]" << std::endl;
         }
         std::ostringstream summary;
@@ -94,6 +110,10 @@ int main(int argc, char** argv) {
                 << " valid_correct=" << valid << " unsupported_correct=" << unsupported
                 << " false_accept=" << falseAccept << " false_reject=" << falseReject << " wrong_action=" << wrong
                 << " invalid_output=" << invalid << " final_invalid_output=" << finalInvalid
+                << " structured_actions=" << structuredActions << " structured_unsupported=" << structuredUnsupported
+                << " malformed_json=" << malformedJson << " invalid_structured=" << invalidStructured
+                << " decoder_rejects=" << invalid << " safety_rejects=" << safetyRejects
+                << " domain_rejects=" << domainRejects << " llm_semantic_wrong=" << semanticWrong
                 << " runtime_or_input_errors=" << errors << " fast_path=" << fast << " llm_fallback=" << fallback
                 << " input_rejected=" << inputRejected << " average_ms=" << totalMs / cases.size()
                 << " fast_average_ms=" << (fast ? fastMs / fast : 0)

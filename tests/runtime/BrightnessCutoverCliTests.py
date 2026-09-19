@@ -23,10 +23,7 @@ class BrightnessCutoverCliTests(unittest.TestCase):
         self.addCleanup(self.scratch.cleanup)
         self.directory = Path(self.scratch.name)
         self.config = self.directory / "config.json"
-        self.prompt = self.directory / "prompt.txt"
-        self.prompt.write_text("frozen")
-        self.args = [str(APP), "--config", str(self.config), "--model", "unused",
-                     "--system-prompt", str(self.prompt)]
+        self.args = [str(APP), "--config", str(self.config), "--model", "unused"]
         if VOICE:
             self.args += ["--voice", "--stt-model-dir", "unused", "--vad-model",
                           str(self.directory / "absent-vad.onnx")]

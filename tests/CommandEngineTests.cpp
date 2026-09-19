@@ -17,7 +17,7 @@ public:
         ++calls;
         received = original;
         if (fail) throw std::runtime_error("fake runtime failure");
-        return output;
+        return test::modelOutput(output);
     }
 };
 int main() {
@@ -43,7 +43,7 @@ int main() {
     }
     for (const auto& [text, raw, expected] : std::vector<std::tuple<std::string, std::string, std::string>>{
         {"Пожалуйста, свет на кухне 40 процентов", "L|K|40", "L|K|40"},
-        {"Пожалуйста, свет на кухне 40 процентов", " \n L | K | 4 0 \t", "L|K|40"},
+        {"Пожалуйста, свет на кухне 40 процентов", " \n " + test::modelOutput("L|K|40") + " \t", "L|K|40"},
         {"Пожалуйста, свет на кухне 40 процентов", "L|B|40", "U"},
         {"Свет на максимум", "L|K|100", "U"},
         {"  В спальне ВкЛюЧи свет на 0 процентов!  ", "L|B|0", "U"},

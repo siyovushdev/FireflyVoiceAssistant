@@ -23,7 +23,7 @@ int main(int argc, char** argv) {
                 const auto fallback = runtime.engine.process("Пожалуйста, " + text);
                 check(action(fallback.action) == expected && fallback.path == CommandPath::LlmFallback,
                       "one ingress decode leads to same typed final action");
-                check(fallback.normalizedOutput == runtime.llm.raw && fallback.rawOutput == runtime.llm.raw,
+                check(fallback.decodeStatus == llm::DecodeStatus::Action && fallback.rawOutput == test::modelOutput(runtime.llm.raw),
                       "raw model diagnostics remain separate from canonical result");
                 check(runtime.codec.render(fast.action) == runtime.codec.render(fallback.action), "external compact compatibility");
                 ++lights;

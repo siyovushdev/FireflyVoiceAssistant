@@ -14,9 +14,7 @@ checks = 0
 with tempfile.TemporaryDirectory(prefix="firefly-parser-cutover-") as directory:
     directory = Path(directory)
     path = directory / "config.json"
-    prompt = directory / "prompt.txt"
-    prompt.write_text("frozen")
-    args = [str(app), "--config", str(path), "--model", "unused", "--system-prompt", str(prompt)]
+    args = [str(app), "--config", str(path), "--model", "unused"]
     if voice:
         args += ["--voice", "--stt-model-dir", "unused", "--vad-model", str(directory / "absent-vad.onnx")]
     # All three variants are storage-valid configurations with changed locations.

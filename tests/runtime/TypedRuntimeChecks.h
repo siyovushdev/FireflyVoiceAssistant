@@ -24,7 +24,7 @@ inline GenericAction light(const std::string& target, std::int64_t value) {
 struct FakeLlm : LlmEngine {
     std::string raw = "U", original;
     int calls = 0;
-    std::string infer(std::string_view text) override { ++calls; original = text; return raw; }
+    std::string infer(std::string_view text) override { ++calls; original = text; return test::modelOutput(raw); }
 };
 struct Runtime {
     runtime::DomainView domain;

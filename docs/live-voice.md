@@ -32,7 +32,7 @@ From the repository root:
 ./build/firefly-assistant --voice \
   --audio-device 'plughw:CARD=H340,DEV=0' \
   --model /home/firefly/demo_Linux_aarch64/Qwen3-4B_W8A8_RK3588_3core.rkllm \
-  --system-prompt /home/firefly/demo_Linux_aarch64/prompt_compact_v5_short_system.txt \
+  --config config/current-m4.json \
   --stt-model-dir "$PWD/build/stt/model" \
   --vad-model "$PWD/build/stt/vad-ab/silero_vad.onnx"
 ```
@@ -124,3 +124,5 @@ and actions. These small sets do not establish production accuracy or safety.
   accepts/wrong actions and one false reject. See the tracked
   [Milestone 4 baseline](milestone-4-baseline.md) for every utterance, the measured
   silence intervals and the unconfirmed extra segment.
+
+The LLM context is generated from the retained ConfigSnapshot. RKLLM returns structured JSON; strict decoding, SafetyGate and domain validation produce GenericAction/Unsupported. Compact stdout is an outward compatibility display only. Manual prompt files are no longer a production option; STT/VAD/audio settings are unchanged.

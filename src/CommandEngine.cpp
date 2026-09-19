@@ -5,7 +5,7 @@
 #include <exception>
 namespace firefly {
 CommandEngine::CommandEngine(LlmEngine& llm, const DeterministicParser& parser, const runtime::DomainView& domain)
-    : llm_(llm), parser_(parser), domain_(domain), modelCodec_(domain.snapshot()) {}
+    : llm_(llm), parser_(parser), domain_(domain), modelDecoder_(domain) {}
 CommandResult CommandEngine::process(std::string_view original) {
     const auto start = std::chrono::steady_clock::now();
     CommandResult result;
@@ -16,21 +16,25 @@ CommandResult CommandEngine::process(std::string_view original) {
             auto candidate = parser_.parse(original);
             result.path = std::holds_alternative<actions::GenericAction>(candidate) ? CommandPath::FastPath : CommandPath::LlmFallback;
             if (result.path == CommandPath::LlmFallback) {
-                // Frozen RKLLM compatibility ingress. Normalize only model bytes,
-                // decode once, then leave strings behind except in diagnostics.
+                // Structured ingress: preserve raw bytes, with no whitespace or
+                // transcript repair. JSON whitespace is handled by the decoder.
                 result.rawOutput = llm_.infer(original);
-                for (const char c : result.rawOutput)
-                    if (std::string_view(" \t\r\n\f\v").find(c) == std::string_view::npos)
-                        result.normalizedOutput.push_back(c);
-                const auto decoded = modelCodec_.decode(result.normalizedOutput);
-                if (const auto* value = std::get_if<actions::CandidateResult>(&decoded)) candidate = *value;
-                else { candidate = actions::Unsupported{}; result.invalidModelOutput = true; }
+                const auto decoded = modelDecoder_.decode(result.rawOutput);
+                candidate = decoded.value;
+                result.decodeStatus = decoded.status;
+                result.invalidModelOutput = !decoded.valid();
             }
+            result.candidate = candidate;
             const auto safe = SafetyGate::apply(original, candidate, domain_);
+            result.safeCandidate = safe;
+            result.safetyRejected = std::holds_alternative<actions::GenericAction>(candidate) &&
+                                    std::holds_alternative<actions::Unsupported>(safe);
             result.action = domain_.validate(safe);
             if (std::holds_alternative<actions::GenericAction>(safe) &&
-                std::holds_alternative<actions::Unsupported>(result.action))
+                std::holds_alternative<actions::Unsupported>(result.action)) {
+                result.domainRejected = true;
                 result.error = "Action outside configured domain";
+            }
         }
     } catch (const std::exception& error) {
         result.action = actions::Unsupported{};

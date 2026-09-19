@@ -8,7 +8,7 @@ import tempfile
 app, root = Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve()
 with tempfile.TemporaryDirectory(prefix="firefly-voice-config-") as directory:
     path = Path(directory) / "invalid.json"
-    args = [str(app), "--voice", "--model", "unused", "--system-prompt", "unused",
+    args = [str(app), "--voice", "--model", "unused",
             "--stt-model-dir", "unused", "--vad-model", "unused", "--config", str(path)]
     candidate = json.loads((root / "config/current-m4.json").read_text())
     candidate["safety"]["skip_safety"] = True

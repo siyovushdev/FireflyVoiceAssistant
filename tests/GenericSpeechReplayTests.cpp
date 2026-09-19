@@ -2,6 +2,8 @@
 #include "firefly/voice/VoiceProcessor.h"
 #include "firefly/voice/SherpaSpeech.h"
 #include "firefly/RkllmEngine.h"
+#include "firefly/llm/LlmContext.h"
+#include "firefly/actions/CompactV1Adapter.h"
 #include "c-api.h"
 #include <algorithm>
 #include <fstream>
@@ -12,17 +14,14 @@ using namespace firefly;
 using namespace firefly::voice;
 int main(int argc, char** argv) {
     try {
-        if (argc != 7) throw std::runtime_error("Usage: generic_speech_replay_tests STT_DIR VAD WORK MODEL PROMPT CONFIG");
-        const runtime::RuntimeConfig owner(argv[6]);
+        if (argc != 6) throw std::runtime_error("Usage: generic_speech_replay_tests STT_DIR VAD WORK MODEL CONFIG");
+        const runtime::RuntimeConfig owner(argv[5]);
         const DeterministicParser parser(owner.domain());
         const actions::CompactV1Adapter output(owner.domain().snapshot());
         SherpaVad vad(argv[2]);
         SherpaRecognizer recognizer(argv[1]);
-        std::ifstream prompt(argv[5]);
-        if (!prompt) throw std::runtime_error("Cannot open frozen prompt");
-        std::ostringstream bytes; bytes << prompt.rdbuf();
         RkllmConfig configuration;
-        configuration.modelPath = argv[4]; configuration.systemPrompt = bytes.str();
+        configuration.modelPath = argv[4]; configuration.systemPrompt = llm::generateContext(owner.domain()).systemPrompt();
         RkllmEngine llm(std::move(configuration));
         CommandEngine engine(llm, parser, owner.domain());
         VoiceProcessor processor(recognizer, engine);

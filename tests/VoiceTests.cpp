@@ -19,7 +19,7 @@ struct Recognizer : SpeechRecognizer {
 };
 struct Llm : LlmEngine {
     int calls = 0; std::string original, output = "U";
-    std::string infer(std::string_view s) override { ++calls; original = s; return output; }
+    std::string infer(std::string_view s) override { ++calls; original = s; return test::modelOutput(output); }
 };
 int main() { try {
     float frame[512]; for (int i = 0; i < 512; ++i) frame[i] = float(i) / 512;

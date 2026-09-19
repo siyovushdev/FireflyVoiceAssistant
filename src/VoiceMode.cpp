@@ -6,6 +6,8 @@
 #include "firefly/voice/SherpaSpeech.h"
 #include "firefly/voice/VoiceProcessor.h"
 #include "firefly/runtime/RuntimeConfig.h"
+#include "firefly/llm/LlmContext.h"
+#include "firefly/actions/CompactV1Adapter.h"
 #include <array>
 #include <chrono>
 #include <csignal>
@@ -35,7 +37,7 @@ int runVoiceMode(int argc, char** argv) {
         Signals signals;
         RkllmConfig rk;
         SegmentConfig segments;
-        std::string prompt, stt, vad, device = "plughw:CARD=H340,DEV=0";
+        std::string stt, vad, device = "plughw:CARD=H340,DEV=0";
         std::string configPath = runtime::RuntimeConfig::defaultPath();
         bool explicitConfig = false;
         int runSeconds = 0;
@@ -44,7 +46,7 @@ int runVoiceMode(int argc, char** argv) {
             if (arg == "--voice") continue;
             if (arg == "--verbose") { rk.verbose = true; continue; }
             if (arg == "--help") {
-                std::cout << "Voice: --voice --model PATH --system-prompt PATH --stt-model-dir DIR --vad-model PATH\n"
+                std::cout << "Voice: --voice --model PATH --stt-model-dir DIR --vad-model PATH\n"
                              "  [--audio-device ALSA_NAME] [--pre-roll-ms 300] [--post-roll-ms 300]\n"
                              "  [--max-utterance-ms 15000] [--voice-run-seconds N] [--verbose] [--timeout-ms N] [--config PATH]\n";
                 return 0;
@@ -57,7 +59,6 @@ int runVoiceMode(int argc, char** argv) {
                 configPath = value;
                 explicitConfig = true;
             }
-            else if (arg == "--system-prompt") prompt = value;
             else if (arg == "--stt-model-dir") stt = value;
             else if (arg == "--vad-model") vad = value;
             else if (arg == "--audio-device") device = value;
@@ -68,11 +69,12 @@ int runVoiceMode(int argc, char** argv) {
             else if (arg == "--timeout-ms") rk.requestTimeout = std::chrono::milliseconds(number(value));
             else throw std::invalid_argument("Unknown voice option: " + arg);
         }
-        if (rk.modelPath.empty() || prompt.empty() || stt.empty() || vad.empty())
-            throw std::invalid_argument("Voice mode requires --model, --system-prompt, --stt-model-dir, --vad-model");
+        if (rk.modelPath.empty() || stt.empty() || vad.empty())
+            throw std::invalid_argument("Voice mode requires --model, --stt-model-dir, --vad-model");
         const runtime::RuntimeConfig runtimeConfig(configPath);
         runtimeConfig.writeDiagnostics(std::cerr);
         const DeterministicParser parser(runtimeConfig.domain());
+        rk.systemPrompt = llm::generateContext(runtimeConfig.domain()).systemPrompt();
         std::cerr << "PARSER_ROOMS authoritative=config action_model=generic\n";
         cli::CliOutput output;
         std::cerr << "Loading VAD...\n";
@@ -80,7 +82,6 @@ int runVoiceMode(int argc, char** argv) {
         VoiceSegmenter segmenter(detector, segments);
         std::cerr << "Loading offline STT...\n";
         SherpaRecognizer recognizer(stt);
-        rk.systemPrompt = cli::readFile(prompt);
         rk.progress = [](std::string_view stage) { std::cerr << stage << '\n'; };
         RkllmEngine llm(std::move(rk));
         CommandEngine engine(llm, parser, runtimeConfig.domain());

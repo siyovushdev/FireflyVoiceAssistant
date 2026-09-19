@@ -5,6 +5,7 @@
 #include "firefly/config/ConfigValidator.h"
 #include "firefly/runtime/RuntimeConfig.h"
 #include "firefly/legacy/ActionValidator.h"
+#include "firefly/actions/CompactV1Adapter.h"
 #include "reference/FrozenSemantics.h"
 #include <stdexcept>
 namespace test {
@@ -22,6 +23,17 @@ inline firefly::actions::CandidateResult decode(std::string_view wire) {
     const auto result = fixture().codec.decode(wire);
     if (const auto* value = std::get_if<firefly::actions::CandidateResult>(&result)) return *value;
     return firefly::actions::Unsupported{};
+}
+// Translate historical mock-candidate fixtures at the TEST boundary only.
+// Malformed fixture strings stay malformed; production never accepts compact.
+inline std::string modelOutput(std::string_view wire) {
+    const auto first = wire.find_first_not_of(" \t\r\n");
+    if (first == std::string_view::npos) return std::string(wire);
+    const auto last = wire.find_last_not_of(" \t\r\n");
+    const auto parsed = fixture().codec.decode(wire.substr(first, last - first + 1));
+    if (const auto* value = std::get_if<firefly::actions::CandidateResult>(&parsed))
+        return std::string(wire.substr(0, first)) + firefly::llm::structuredResult(*value) + std::string(wire.substr(last + 1));
+    return std::string(wire);
 }
 inline std::optional<std::string> parse(std::string_view input) {
     const auto result = fixture().parser.parse(input);

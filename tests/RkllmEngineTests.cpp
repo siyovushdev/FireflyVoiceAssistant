@@ -17,7 +17,8 @@ int main() {
         if (!pass) { ++failures; std::cerr << "FAIL: " << name << '\n'; }
     };
     for (const auto fault : {Fault::None, Fault::Run, Fault::Clear, Fault::State, Fault::Error,
-             Fault::MissingFinish, Fault::NullText, Fault::Overflow, Fault::Timeout, Fault::AbortFailure}) {
+             Fault::MissingFinish, Fault::NullText, Fault::Overflow, Fault::Timeout, Fault::AbortFailure,
+             Fault::Context, Fault::OutputLimit, Fault::CacheRead, Fault::CacheSize, Fault::MissingPerf}) {
         stub.fault = Fault::None;
         stub.init = stub.run = stub.clear = stub.destroy = stub.abort = 0;
         stub.aborted = false;
@@ -46,6 +47,24 @@ int main() {
                 check(stub.abort == 1 && !stub.running, "abort joined before returning");
         }
         check(stub.destroy == 1, "RAII destroys once");
+    }
+    for (const auto fault : {Fault::Context, Fault::OutputLimit, Fault::CacheRead, Fault::CacheSize, Fault::MissingPerf}) {
+        stub.fault = fault;
+        stub.init = stub.run = stub.clear = stub.destroy = 0;
+        firefly::RkllmConfig config;
+        config.modelPath = "fake"; config.systemPrompt = "frozen";
+        bool rejected = false;
+        try { firefly::RkllmEngine engine(config); } catch (const std::exception&) { rejected = true; }
+        check(rejected && stub.destroy == 1, "bad bootstrap token/KV evidence fails startup with RAII cleanup");
+    }
+    stub.fault = Fault::None;
+    {
+        stub.init = 0;
+        firefly::RkllmConfig config;
+        config.modelPath = "fake"; config.systemPrompt = std::string(16385, 'x');
+        bool rejected = false;
+        try { firefly::RkllmEngine engine(config); } catch (const std::exception&) { rejected = true; }
+        check(rejected && stub.init == 0, "oversized byte resource fails before model allocation");
     }
     std::cout << checks << " checks, " << failures << " failures\n";
     return failures ? 1 : 0;
