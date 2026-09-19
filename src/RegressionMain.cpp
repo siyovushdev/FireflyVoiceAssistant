@@ -1,6 +1,6 @@
 #include "firefly/CommandEngine.h"
 #include "firefly/RkllmEngine.h"
-#include "firefly/ActionValidator.h"
+#include "firefly/runtime/RuntimeConfig.h"
 #include "CliSupport.h"
 #include <iomanip>
 #include <vector>
@@ -18,7 +18,7 @@ std::string escaped(std::string_view input) {
     }
     return result;
 }
-std::vector<Case> readCases(const std::string& path) {
+std::vector<Case> readCases(const std::string& path, const firefly::actions::CompactV1Adapter& codec) {
     std::ifstream file(path);
     if (!file) throw std::runtime_error("Cannot open DEV dataset: " + path);
     std::vector<Case> cases;
@@ -30,7 +30,7 @@ std::vector<Case> readCases(const std::string& path) {
         const auto c = b == std::string::npos ? b : line.find('\t', b + 1);
         if (c == std::string::npos) throw std::runtime_error("Expected four TSV fields");
         Case test{line.substr(0, a), line.substr(a + 1, b - a - 1), line.substr(b + 1, c - b - 1), line.substr(c + 1)};
-        if (test.expected != "U" && !firefly::ActionValidator::validate(test.expected))
+        if (std::holds_alternative<firefly::actions::CompactV1Error>(codec.decode(test.expected)))
             throw std::runtime_error("Invalid expected action: " + test.id);
         cases.push_back(std::move(test));
     }
@@ -51,18 +51,21 @@ int main(int argc, char** argv) {
             else if (arg == "--data") data = argv[++i];
             else throw std::runtime_error("Unknown option: " + arg);
         }
-        const auto cases = readCases(data);
+        const firefly::runtime::RuntimeConfig runtime(firefly::runtime::RuntimeConfig::defaultPath());
+        const firefly::DeterministicParser parser(runtime.domain());
+        const firefly::actions::CompactV1Adapter outputCodec(runtime.domain().snapshot());
+        const auto cases = readCases(data, outputCodec);
         config.systemPrompt = firefly::cli::readFile(prompt);
         config.progress = [](std::string_view stage) { std::cerr << stage << std::endl; };
         firefly::cli::CliOutput output;
         firefly::RkllmEngine llm(std::move(config));
-        firefly::CommandEngine engine(llm);
+        firefly::CommandEngine engine(llm, parser, runtime.domain());
         int pass = 0, valid = 0, unsupported = 0, falseAccept = 0, falseReject = 0, wrong = 0;
         int invalid = 0, finalInvalid = 0, fast = 0, fallback = 0, inputRejected = 0, errors = 0;
         double totalMs = 0, fastMs = 0, fallbackMs = 0;
         for (const auto& test : cases) {
             const auto result = engine.process(test.input);
-            const auto final = result.compact();
+            const auto final = outputCodec.render(result.action);
             const bool correct = final == test.expected;
             pass += correct;
             valid += correct && test.expected != "U";
@@ -71,7 +74,7 @@ int main(int argc, char** argv) {
             falseReject += test.expected != "U" && final == "U";
             wrong += test.expected != "U" && final != "U" && !correct;
             invalid += result.invalidModelOutput;
-            finalInvalid += final != "U" && !firefly::ActionValidator::validate(final);
+            finalInvalid += std::holds_alternative<firefly::actions::CompactV1Error>(outputCodec.decode(final));
             errors += !result.error.empty();
             totalMs += result.latencyMs;
             const char* route = "INPUT REJECTED";

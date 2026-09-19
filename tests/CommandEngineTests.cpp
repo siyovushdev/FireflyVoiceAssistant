@@ -1,3 +1,4 @@
+#include "TestSupport.h"
 #include "firefly/CommandEngine.h"
 #include <iostream>
 #include <stdexcept>
@@ -27,7 +28,7 @@ int main() {
         if (!passed) { ++failures; std::cerr << "FAIL: " << name << '\n'; }
     };
     FakeLlm fake;
-    firefly::CommandEngine engine(fake);
+    test::Engine engine(fake);
     for (const auto& [text, expected] : std::vector<std::pair<std::string, std::string>>{
         {"На кухне поставь свет на 40 процентов", "L|K|40"},
         {"на кухне сделай свет наполовину", "L|K|50"},

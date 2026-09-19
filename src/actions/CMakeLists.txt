@@ -5,7 +5,7 @@ set_target_properties(firefly_generic_action PROPERTIES CXX_EXTENSIONS OFF)
 target_compile_options(firefly_generic_action PRIVATE -Wall -Wextra -Wpedantic)
 
 add_library(firefly_compact_v1_adapter STATIC CompactV1Adapter.cpp)
-target_link_libraries(firefly_compact_v1_adapter PUBLIC firefly_generic_action firefly_config PRIVATE firefly_core)
+target_link_libraries(firefly_compact_v1_adapter PUBLIC firefly_generic_action firefly_config PRIVATE firefly_legacy_compact)
 set_target_properties(firefly_compact_v1_adapter PROPERTIES CXX_EXTENSIONS OFF)
 target_compile_options(firefly_compact_v1_adapter PRIVATE -Wall -Wextra -Wpedantic)
 

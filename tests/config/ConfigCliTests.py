@@ -38,14 +38,14 @@ class ConfigCliTests(unittest.TestCase):
         config = json.loads(SAMPLE.read_text())
         rooms = {room["id"]: room for room in config["rooms"]}
         enum_ids = {"Kitchen": "room_kitchen", "Bedroom": "room_bedroom", "LivingRoom": "room_living", "Corridor": "room_corridor"}
-        action_header = (ROOT / "include/firefly/Action.h").read_text()
+        action_header = (ROOT / "include/firefly/legacy/Action.h").read_text()
         self.assertEqual(set(re.search(r"enum class Room \{([^}]+)\}", action_header)[1].replace(" ", "").split(",")), set(enum_ids))
-        gate = (ROOT / "src/SafetyGate.cpp").read_text()
+        gate = (ROOT / "tests/reference/FrozenSafetyGate.cpp").read_text()
         found = dict(re.findall(r"case Room::(\w+): rooms = \{([^}]+)\}", gate))
         self.assertEqual(set(found), set(enum_ids))
         for enum, room_id in enum_ids.items():
             self.assertEqual(re.findall(r'"([^"]+)"', found[enum]), rooms[room_id]["speech"]["mentions"])
-        parser = (ROOT / "src/DeterministicParser.cpp").read_text()
+        parser = (ROOT / "tests/reference/FrozenParser.cpp").read_text()
         locations = re.findall(r'\{"([^"]+)", \'([KBGC])\'\}', parser)
         devices = {device["id"]: device for device in config["devices"]}
         expected = {}

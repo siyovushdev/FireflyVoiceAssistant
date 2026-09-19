@@ -73,8 +73,7 @@ int runVoiceMode(int argc, char** argv) {
         const runtime::RuntimeConfig runtimeConfig(configPath);
         runtimeConfig.writeDiagnostics(std::cerr);
         const DeterministicParser parser(runtimeConfig.domain());
-        parser.requireLegacyRoomDomain();
-        std::cerr << "PARSER_ROOMS authoritative=config legacy_shadow=matched\n";
+        std::cerr << "PARSER_ROOMS authoritative=config action_model=generic\n";
         cli::CliOutput output;
         std::cerr << "Loading VAD...\n";
         SherpaVad detector(vad);
@@ -84,17 +83,19 @@ int runVoiceMode(int argc, char** argv) {
         rk.systemPrompt = cli::readFile(prompt);
         rk.progress = [](std::string_view stage) { std::cerr << stage << '\n'; };
         RkllmEngine llm(std::move(rk));
-        CommandEngine engine(llm, parser, runtimeConfig.domain(), runtimeConfig.domain());
+        CommandEngine engine(llm, parser, runtimeConfig.domain());
+        const firefly::actions::CompactV1Adapter outputCodec(runtimeConfig.domain().snapshot());
         VoiceProcessor processor(recognizer, engine);
         if (stopped) return 0;
         AlsaAudioSource capture(device);
         std::future<VoiceResult> worker; // destroyed/joined before all referenced engines
         auto emit = [&](const VoiceResult& r) {
+            const auto compact = outputCodec.render(r.action);
             std::cerr << "VOICE speech=" << r.speechSeconds << "s duration=" << r.durationSeconds << "s\n"
                       << "STT: " << r.recognition.text << "\nSTT_MS=" << r.recognition.latencyMs
-                      << "\nROUTE=" << r.route << "\nACTION=" << r.action << '\n';
+                      << "\nROUTE=" << r.route << "\nACTION=" << compact << '\n';
             if (!r.error.empty()) std::cerr << "VOICE_ERROR: " << r.error << '\n';
-            output.write(r.action + "\n");
+            output.write(compact + "\n");
         };
         std::cerr << "LISTENING device=" << device << " pre_ms=" << segments.preMs
                   << " post_ms=" << segments.postMs << '\n';

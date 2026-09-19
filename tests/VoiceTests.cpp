@@ -1,3 +1,4 @@
+#include "TestSupport.h"
 #include "firefly/voice/VoiceProcessor.h"
 #include <iostream>
 #include <stdexcept>
@@ -17,8 +18,8 @@ struct Recognizer : SpeechRecognizer {
     }
 };
 struct Llm : LlmEngine {
-    int calls = 0; std::string original;
-    std::string infer(std::string_view s) override { ++calls; original = s; return "U"; }
+    int calls = 0; std::string original, output = "U";
+    std::string infer(std::string_view s) override { ++calls; original = s; return output; }
 };
 int main() { try {
     float frame[512]; for (int i = 0; i < 512; ++i) frame[i] = float(i) / 512;
@@ -58,20 +59,27 @@ int main() { try {
     require(bad,"Invalid padding allowed");
     Detector invalid; VoiceSegmenter is(invalid); invalid.next.completed={{-1,100}};
     bad=false; try { is.accept(frame,512); } catch (...) { bad=true; } require(bad,"Bad boundary accepted");
-    Recognizer recognizer; Llm llm; CommandEngine engine(llm); VoiceProcessor processor(recognizer,engine);
+    Recognizer recognizer; Llm llm; CommandEngine engine(llm, test::fixture().parser, test::fixture().domain); VoiceProcessor processor(recognizer,engine);
     Utterance u{{0,512}, std::vector<float>(512), {}};
     recognizer.text="На кухне поставь свет на 40 процентов";
-    auto r=processor.process(u); require(r.action=="L|K|40" && llm.calls==0,"Fast route changed");
+    auto r=processor.process(u); require(test::wire(r.action)=="L|K|40" && llm.calls==0,"Fast route changed");
     recognizer.text="  Какая погода?  "; r=processor.process(u);
-    require(llm.original==recognizer.text && llm.calls==1 && r.action=="U","Transcript modified");
+    require(llm.original==recognizer.text && llm.calls==1 && test::wire(r.action)=="U","Transcript modified");
     recognizer.fail=true; recognizer.text="stale"; r=processor.process(u);
-    require(r.action=="U" && r.recognition.text.empty() && llm.calls==1,"Failed STT replayed output");
+    require(test::wire(r.action)=="U" && r.recognition.text.empty() && llm.calls==1,"Failed STT replayed output");
     recognizer.fail=false; recognizer.raises=true; r=processor.process(u);
-    require(r.action=="U" && llm.calls==1,"Exception reached LLM");
+    require(test::wire(r.action)=="U" && llm.calls==1,"Exception reached LLM");
     recognizer.raises=false; recognizer.text="в коридоре выключи свет";
-    r=processor.process(u); require(r.action=="L|C|0","STT did not recover");
+    r=processor.process(u); require(test::wire(r.action)=="L|C|0","STT did not recover");
     auto calls=recognizer.calls; u.error="too long"; r=processor.process(u);
-    require(r.action=="U" && recognizer.calls==calls,"Rejected audio reached STT");
+    require(test::wire(r.action)=="U" && recognizer.calls==calls,"Rejected audio reached STT");
     u.error.clear();u.audio.clear();r=processor.process(u);require(recognizer.calls==calls,"Empty audio reached STT");
+    u.audio.assign(512, 0);
+    llm.output="D"; recognizer.text="открой входную дверь";
+    r=processor.process(u);
+    const auto* door=std::get_if<actions::GenericAction>(&r.action);
+    require(door && door->actionId()=="action_open_entrance" && door->targetId()=="device_entrance_door" && door->arguments().empty(),"Voice lost typed entrance identity");
+    llm.output="L|K|50"; recognizer.text="На кухне выключи свет на 50 процентов";
+    r=processor.process(u); require(std::holds_alternative<actions::Unsupported>(r.action),"Voice bypassed contradiction safety");
     std::cout<<"Voice pipeline tests passed\n";
 } catch(const std::exception& e) {std::cerr<<e.what()<<'\n';return 1;} }

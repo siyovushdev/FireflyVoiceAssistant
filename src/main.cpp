@@ -62,14 +62,14 @@ int main(int argc, char** argv) {
         const firefly::runtime::RuntimeConfig runtimeConfig(configPath);
         runtimeConfig.writeDiagnostics(std::cerr);
         const firefly::DeterministicParser parser(runtimeConfig.domain());
-        parser.requireLegacyRoomDomain();
-        std::cerr << "PARSER_ROOMS authoritative=config legacy_shadow=matched\n";
+        std::cerr << "PARSER_ROOMS authoritative=config action_model=generic\n";
         config.systemPrompt = readFile(promptPath);
         const bool verbose = config.verbose;
         config.progress = [](std::string_view stage) { std::cerr << stage << std::endl; };
         CliOutput output;
         firefly::RkllmEngine llm(std::move(config));
-        firefly::CommandEngine engine(llm, parser, runtimeConfig.domain(), runtimeConfig.domain());
+        firefly::CommandEngine engine(llm, parser, runtimeConfig.domain());
+        const firefly::actions::CompactV1Adapter outputCodec(runtimeConfig.domain().snapshot());
         std::cerr << "READY" << std::endl;
         const bool interactive = isatty(STDIN_FILENO);
         std::string line;
@@ -83,13 +83,13 @@ int main(int argc, char** argv) {
                 if (control == "quit" || control == "exit") break;
             }
             const auto result = engine.process(line);
-            output.write(result.compact() + "\n");
+            output.write(outputCodec.render(result.action) + "\n");
             if (!result.error.empty()) std::cerr << "Rejected: " << result.error << '\n';
             if (result.latencyMs >= 2000) std::cerr << "Slow request: " << result.latencyMs << " ms\n";
             if (verbose) {
                 std::cerr << (result.path == firefly::CommandPath::FastPath ? "FAST PATH" :
                               result.path == firefly::CommandPath::LlmFallback ? "LLM FALLBACK" : "INPUT REJECTED")
-                          << " final=" << result.compact() << " command_ms=" << result.latencyMs << '\n';
+                          << " final=" << outputCodec.render(result.action) << " command_ms=" << result.latencyMs << '\n';
             }
         }
         if (std::cin.bad()) throw std::runtime_error("Failed reading stdin");

@@ -1,13 +1,12 @@
 #pragma once
 #include <string>
 #include <vector>
-
 namespace firefly {
-// Only the existing parser's location slot and its legacy output code.
-// No brightness, enablement, safety, persistence or request parsing API.
 struct ParserRoomLocation {
     std::string phrase;
-    char code;
+    std::string actionId;
+    std::string targetId;
+    std::string argumentId;
 };
 class ParserRoomDomain {
 public:

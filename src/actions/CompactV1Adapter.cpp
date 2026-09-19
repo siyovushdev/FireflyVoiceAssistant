@@ -1,11 +1,15 @@
 #include "firefly/actions/CompactV1Adapter.h"
-#include "firefly/Action.h"
-#include "firefly/ActionValidator.h"
+#include "firefly/legacy/Action.h"
+#include "firefly/legacy/ActionValidator.h"
 #include <algorithm>
 #include <stdexcept>
 #include <utility>
 
 namespace firefly::actions {
+using legacy::ActionValidator;
+using legacy::LightAction;
+using legacy::OpenEntranceDoor;
+using legacy::toCompact;
 CompactV1Adapter::CompactV1Adapter(config::Catalog snapshot) : snapshot_(std::move(snapshot)) {
     if (!snapshot_) throw std::invalid_argument("CompactV1Adapter requires a validated snapshot");
 }
@@ -72,4 +76,12 @@ CompactEncodeResult CompactV1Adapter::encode(const GenericAction& action) const 
     if (!legacy) return CompactV1Error::InvalidArguments;
     return toCompact(*legacy);
 }
+std::string CompactV1Adapter::render(const CandidateResult& result) const {
+    const auto* action = std::get_if<GenericAction>(&result);
+    if (!action) return "U";
+    const auto encoded = encode(*action);
+    if (const auto* compact = std::get_if<std::string>(&encoded)) return *compact;
+    throw std::invalid_argument("Generic action is not representable in compact v1");
+}
+
 }

@@ -41,22 +41,22 @@ class EntranceDoorCutoverCliTests(unittest.TestCase):
         return next(device for device in candidate["devices"]
                     if device["id"] == candidate["compatibility"]["door_target_id"])
 
-    def assert_ready(self, result, outputs, mismatches=0):
-        self.assertEqual(result.stderr.count("ENTRANCE_DOMAIN"), 1, result.stderr)
-        self.assertIn(f"ENTRANCE_DOMAIN authoritative=config checks=2 mismatches={mismatches} ", result.stderr)
-        self.assertIn("PARSER_ROOMS authoritative=config legacy_shadow=matched", result.stderr)
-        self.assertIn("BRIGHTNESS_DOMAIN authoritative=config checks=668 mismatches=0", result.stderr)
+    def assert_ready(self, result, outputs):
+        self.assertEqual(result.stderr.count("CONFIG_RUNTIME"), 1, result.stderr)
+        self.assertIn("action_model=generic domain_authority=config", result.stderr)
+        self.assertIn("PARSER_ROOMS authoritative=config action_model=generic", result.stderr)
+        self.assertNotIn("legacy_shadow", result.stderr)
         if VOICE:
             self.assertEqual(result.returncode, 1, result.stderr)
             self.assertEqual(result.stdout, "")
             self.assertIn("Missing speech model file:", result.stderr)
-            self.assertLess(result.stderr.index("ENTRANCE_DOMAIN"), result.stderr.index("Loading VAD"))
+            self.assertLess(result.stderr.index("CONFIG_RUNTIME"), result.stderr.index("Loading VAD"))
             for marker in ("Loading offline STT", "Loading RKLLM", "LISTENING"):
                 self.assertNotIn(marker, result.stderr)
         else:
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout.splitlines(), outputs)
-            self.assertLess(result.stderr.index("ENTRANCE_DOMAIN"), result.stderr.index("Loading RKLLM"))
+            self.assertLess(result.stderr.index("CONFIG_RUNTIME"), result.stderr.index("Loading RKLLM"))
 
     def test_door_safety_matrix_and_valid_metadata_edit(self):
         commands = ["дверь", "открой дверь", "открой входную дверь", "открыть дверь на входе",
@@ -100,17 +100,17 @@ class EntranceDoorCutoverCliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 1, result.stderr)
             self.assertEqual(result.stdout, "" if VOICE else "U\n")
             self.assertIn("Configuration startup failed", result.stderr)
-            for marker in ("ENTRANCE_DOMAIN", "CONFIG_SHADOW", "READY", "LISTENING", "Loading VAD", "Loading RKLLM"):
+            for marker in ("CONFIG_RUNTIME", "READY", "LISTENING", "Loading VAD", "Loading RKLLM"):
                 self.assertNotIn(marker, result.stderr)
 
-    def test_valid_extra_entity_shadow_drift_is_visible(self):
+    def test_extra_entity_cannot_replace_selected_target(self):
         candidate = copy.deepcopy(SAMPLE)
         extra = copy.deepcopy(self.door(candidate))
         extra.update(id="device_aaa_other_entrance", name="Иной вход (тест)")
         candidate["devices"].insert(0, extra)
         result = self.run_app(candidate, "открой входную дверь\nоткрой дверь\n")
-        self.assert_ready(result, ["D", "U"], mismatches=1)
-        self.assertIn("legacy_shadow=mismatch first=entrance_entity_set", result.stderr)
+        self.assert_ready(result, ["D", "U"])
+        self.assertNotIn("legacy_shadow", result.stderr)
 
     def test_enablement_and_deny_are_not_an_additional_cutover(self):
         candidate = copy.deepcopy(SAMPLE)

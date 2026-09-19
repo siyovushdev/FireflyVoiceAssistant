@@ -1,15 +1,16 @@
 #pragma once
 #include "firefly/config/Configuration.h"
 #include "firefly/ParserRoomDomain.h"
-#include "firefly/LightBrightnessDomain.h"
-#include "firefly/EntranceDoorDomain.h"
+#include "firefly/actions/GenericAction.h"
 #include <string_view>
-
 namespace firefly::runtime {
-// Read-only installation data, not a command parser or permission to execute.
-// Returned pointers remain valid for this view's lifetime. Alias inputs are
-// exact canonical keys; request tokenization/normalization is not migrated here.
-class DomainView final : public ParserRoomDomain, public LightBrightnessDomain, public EntranceDoorDomain {
+struct ActionDescription {
+    const config::Device* target;
+    const config::ActionDefinition* definition;
+    std::optional<std::int64_t> brightness;
+};
+// Immutable domain view. Borrowed descriptions live as long as this view.
+class DomainView final : public ParserRoomDomain {
 public:
     explicit DomainView(config::Catalog snapshot);
     const config::Catalog& snapshot() const { return snapshot_; }
@@ -18,20 +19,12 @@ public:
     const config::Room* roomMention(std::string_view alias) const;
     const config::Room* roomLocation(std::string_view alias) const;
     std::vector<ParserRoomLocation> parserLocations() const override;
-    const config::Device* legacyLightTarget(char code) const;
     const config::Device* entranceTarget() const;
-    const config::EffectiveAction* effectiveAction(std::string_view deviceId,
-                                                  std::string_view actionId) const;
-    std::optional<std::pair<std::int64_t, std::int64_t>> brightnessBounds(std::string_view deviceId) const;
-    bool allowsBrightness(std::string_view deviceId, std::int64_t value) const;
-    // Production range-only view. Enablement/deny flags are still observational;
-    // the permission-aware brightnessBounds/allowsBrightness above are unchanged.
-    std::optional<std::pair<std::int64_t, std::int64_t>> lightBrightnessBounds(char roomCode) const;
-    bool supportsBrightness(char roomCode, std::int64_t value) const override;
-    // Identity only. Enablement/deny metadata remains observational, as for
-    // the range-only view. Mandatory door intent policy remains in SafetyGate.
-    std::optional<EntranceDoorTarget> resolveEntranceDoor() const override;
-    bool entranceAvailable() const;
+    const config::EffectiveAction* effectiveAction(std::string_view deviceId, std::string_view actionId) const;
+    // Structural semantics, then installation range/selected target. This type
+    // cutover deliberately does not activate enablement/deny metadata.
+    std::optional<ActionDescription> describe(const actions::GenericAction& candidate) const;
+    actions::CandidateResult validate(const actions::CandidateResult& candidate) const;
 private:
     const config::Catalog snapshot_;
 };

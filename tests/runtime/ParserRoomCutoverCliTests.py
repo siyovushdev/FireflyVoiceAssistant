@@ -36,20 +36,22 @@ with tempfile.TemporaryDirectory(prefix="firefly-parser-cutover-") as directory:
         living["mentions"].remove(alias)
         bedroom["mentions"].append(alias)
     variants.append(moved)
-    for candidate in variants:
+    for candidate, expected in zip(variants, ("U", "L|G|40", "L|B|40")):
         path.write_text(json.dumps(candidate, ensure_ascii=False))
         result = subprocess.run(args, input="в зале свет 40\n", capture_output=True, text=True, timeout=15)
-        assert result.returncode == 1, result
-        assert result.stdout == ("" if voice else "U\n"), result
-        assert "CONFIG_SHADOW" in result.stderr, result.stderr
-        assert "Parser room lookup shadow mismatch at startup" in result.stderr, result.stderr
-        for marker in ("PARSER_ROOMS authoritative=config", "READY", "LISTENING", "Loading VAD", "Loading offline STT", "Loading model", "Loading RKLLM", "stub destroyed"):
-            assert marker not in result.stderr, result.stderr
+        assert "CONFIG_RUNTIME" in result.stderr and "legacy_shadow" not in result.stderr, result.stderr
+        if voice:
+            assert result.returncode == 1 and result.stdout == "", result
+            assert result.stderr.index("PARSER_ROOMS") < result.stderr.index("Loading VAD"), result.stderr
+            assert "Missing speech model file:" in result.stderr, result.stderr
+        else:
+            assert result.returncode == 0 and result.stdout == expected + "\n", result
+            assert "READY" in result.stderr, result.stderr
         checks += 1
     # Current configuration passes the new admission check in both entry points.
     path.write_text(json.dumps(sample, ensure_ascii=False))
     result = subprocess.run(args, input="на кухне поставь свет на 40 процентов\nв зале свет 40\n", capture_output=True, text=True, timeout=15)
-    assert result.stderr.count("PARSER_ROOMS authoritative=config legacy_shadow=matched") == 1, result.stderr
+    assert result.stderr.count("PARSER_ROOMS authoritative=config action_model=generic") == 1, result.stderr
     if voice:
         assert result.returncode == 1 and result.stdout == "", result
         assert result.stderr.index("PARSER_ROOMS") < result.stderr.index("Loading VAD"), result.stderr
@@ -58,4 +60,4 @@ with tempfile.TemporaryDirectory(prefix="firefly-parser-cutover-") as directory:
         assert result.returncode == 0 and result.stdout == "L|K|40\nL|G|40\n", result
         assert result.stderr.index("PARSER_ROOMS") < result.stderr.index("Loading RKLLM"), result.stderr
     checks += 1
-print(f"ParserRoomCutover {'voice' if voice else 'text'}: {checks} startup cases passed; valid lookup drift cannot initialize models")
+print(f"ParserRoomCutover {'voice' if voice else 'text'}: {checks} startup cases passed; configured semantic resolution, no legacy veto")

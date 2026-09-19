@@ -19,7 +19,7 @@ with tempfile.TemporaryDirectory(prefix="firefly-voice-config-") as directory:
         result = subprocess.run(args, capture_output=True, text=True, timeout=10)
         assert result.returncode == 1 and result.stdout == "", result
         assert "Voice error:" in result.stderr, result.stderr
-        for stage in ("Loading VAD", "Loading offline STT", "CONFIG_SHADOW", "LISTENING", "Loading RKLLM", "Loading model", "Building system KV"):
+        for stage in ("Loading VAD", "Loading offline STT", "CONFIG_RUNTIME", "LISTENING", "Loading RKLLM", "Loading model", "Building system KV"):
             assert stage not in result.stderr, result.stderr
     # A valid snapshot reaches the next startup stage, where a deliberately
     # absent speech model stops execution before any vendor model/capture opens.
@@ -27,8 +27,8 @@ with tempfile.TemporaryDirectory(prefix="firefly-voice-config-") as directory:
     args[args.index("--vad-model") + 1] = str(Path(directory) / "absent-vad.onnx")
     result = subprocess.run(args, capture_output=True, text=True, timeout=10)
     assert result.returncode == 1 and result.stdout == "", result
-    assert "mismatches=0 authoritative=legacy" in result.stderr, result.stderr
-    assert result.stderr.index("CONFIG_SHADOW") < result.stderr.index("Loading VAD"), result.stderr
+    assert "action_model=generic domain_authority=config" in result.stderr, result.stderr
+    assert result.stderr.index("CONFIG_RUNTIME") < result.stderr.index("Loading VAD"), result.stderr
     assert "Missing speech model file:" in result.stderr, result.stderr
     assert "Loading offline STT" not in result.stderr and "LISTENING" not in result.stderr, result.stderr
 print("4 voice startup checks: invalid config stops before speech; valid config precedes VAD")

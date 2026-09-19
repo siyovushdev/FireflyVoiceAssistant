@@ -1,6 +1,7 @@
+#include "TestSupport.h"
 #include "firefly/actions/CompactV1Adapter.h"
-#include "firefly/Action.h"
-#include "firefly/ActionValidator.h"
+#include "firefly/legacy/Action.h"
+#include "firefly/legacy/ActionValidator.h"
 #include "firefly/SafetyGate.h"
 #include "firefly/config/ConfigLoader.h"
 #include "firefly/config/ConfigValidator.h"
@@ -12,6 +13,7 @@
 
 namespace {
 using namespace firefly;
+using namespace firefly::legacy;
 using namespace firefly::actions;
 int checks = 0;
 int roundTrips = 0;
@@ -280,11 +282,11 @@ int main(int argc, char** argv) {
         // Actual gate, not a duplicate safety implementation. An encodable
         // semantic candidate alone is explicitly insufficient for execution.
         encodedAs(adapter, door, "D");
-        check(SafetyGate::apply("дверь", "D") == "U", "door safety is separate from codec success");
-        check(SafetyGate::apply("открой входную дверь", "D") == "D", "existing valid door control");
+        check(test::gate("дверь", "D") == "U", "door safety is separate from codec success");
+        check(test::gate("открой входную дверь", "D") == "D", "existing valid door control");
         for (const std::string wire : {"U", "L|K|50", "L|K|0"})
-            check(SafetyGate::apply("На кухне выключи свет на 50 процентов", wire) == "U", "6.4.1 remains mandatory, independent of adapter");
-        check(SafetyGate::apply("На кухне поставь свет на 40 процентов", "L|K|40") == "L|K|40", "existing valid light control");
+            check(test::gate("На кухне выключи свет на 50 процентов", wire) == "U", "6.4.1 remains mandatory, independent of adapter");
+        check(test::gate("На кухне поставь свет на 40 процентов", "L|K|40") == "L|K|40", "existing valid light control");
 
         std::cout << "CompactV1Adapter: " << checks << " checks passed\n"
                   << "Current-M4 exhaustive round-trips: " << roundTrips << " (404 light + 1 door), both directions\n"

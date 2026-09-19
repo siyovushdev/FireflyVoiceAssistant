@@ -2,7 +2,7 @@
 #include <string>
 #include <variant>
 
-namespace firefly {
+namespace firefly::legacy {
 enum class Room { Kitchen, Bedroom, LivingRoom, Corridor };
 struct LightAction { Room room; int brightness; };
 struct OpenEntranceDoor {};

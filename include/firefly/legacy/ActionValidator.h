@@ -1,9 +1,9 @@
 #pragma once
-#include "firefly/Action.h"
+#include "firefly/legacy/Action.h"
 #include <optional>
 #include <string_view>
 
-namespace firefly {
+namespace firefly::legacy {
 class ActionValidator {
 public:
     // Exact protocol only; U and malformed candidates produce no action.

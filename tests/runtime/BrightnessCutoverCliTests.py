@@ -46,21 +46,21 @@ class BrightnessCutoverCliTests(unittest.TestCase):
         return subprocess.run(self.args, input=commands, capture_output=True, text=True,
                               cwd=self.directory, timeout=15)
 
-    def assert_ready(self, result, outputs, mismatches=0):
-        self.assertEqual(result.stderr.count("BRIGHTNESS_DOMAIN"), 1, result.stderr)
-        self.assertIn(f"BRIGHTNESS_DOMAIN authoritative=config checks=668 mismatches={mismatches} ", result.stderr)
-        self.assertIn("PARSER_ROOMS authoritative=config legacy_shadow=matched", result.stderr)
+    def assert_ready(self, result, outputs):
+        self.assertEqual(result.stderr.count("CONFIG_RUNTIME"), 1, result.stderr)
+        self.assertIn("action_model=generic domain_authority=config", result.stderr)
+        self.assertIn("PARSER_ROOMS authoritative=config action_model=generic", result.stderr)
         if VOICE:
             self.assertEqual(result.returncode, 1, result.stderr)
             self.assertEqual(result.stdout, "")
             self.assertIn("Missing speech model file:", result.stderr)
-            self.assertLess(result.stderr.index("BRIGHTNESS_DOMAIN"), result.stderr.index("Loading VAD"))
+            self.assertLess(result.stderr.index("CONFIG_RUNTIME"), result.stderr.index("Loading VAD"))
             for marker in ("Loading offline STT", "Loading RKLLM", "LISTENING"):
                 self.assertNotIn(marker, result.stderr)
         else:
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout.splitlines(), outputs)
-            self.assertLess(result.stderr.index("BRIGHTNESS_DOMAIN"), result.stderr.index("Loading RKLLM"))
+            self.assertLess(result.stderr.index("CONFIG_RUNTIME"), result.stderr.index("Loading RKLLM"))
 
     def test_current_and_remapped_range_boundaries(self):
         for minimum, maximum in ((0,100), (10,90), (50,50)):
@@ -74,10 +74,10 @@ class BrightnessCutoverCliTests(unittest.TestCase):
                 expected.extend(f"L|{code}|{value}" if minimum <= value <= maximum else "U" for value in (0,100,50))
             candidate = self.configured(minimum, maximum)
             result = self.run_app(candidate, "\n".join(commands) + "\n")
-            self.assert_ready(result, expected, 4 * (minimum + 100 - maximum))
+            self.assert_ready(result, expected)
             if minimum and not VOICE:
-                self.assertIn("Rejected: Brightness outside configured domain", result.stderr)
-                self.assertIn("legacy_shadow=mismatch first=", result.stderr)
+                self.assertIn("Rejected: Action outside configured domain", result.stderr)
+                self.assertNotIn("legacy_shadow", result.stderr)
 
     def test_invalid_capability_fails_before_models(self):
         for invalid in ("missing_minimum", "negative", "too_large", "reversed", "wrong_parameter",
@@ -104,18 +104,16 @@ class BrightnessCutoverCliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 1, result.stderr)
             self.assertEqual(result.stdout, "" if VOICE else "U\n")
             self.assertIn("Configuration startup failed", result.stderr)
-            for marker in ("CONFIG_SHADOW", "BRIGHTNESS_DOMAIN", "READY", "LISTENING", "Loading VAD", "Loading RKLLM"):
+            for marker in ("CONFIG_RUNTIME", "READY", "LISTENING", "Loading VAD", "Loading RKLLM"):
                 self.assertNotIn(marker, result.stderr)
 
-    def test_room_guard_still_rejects_alias_drift(self):
+    def test_configured_locations_have_no_legacy_veto(self):
         candidate = self.configured(10,90)
         living = next(room for room in candidate["rooms"] if room["id"] == "room_living")
         living["speech"]["locations"].remove("в зале")
         result = self.run_app(candidate)
-        self.assertEqual(result.returncode, 1, result.stderr)
-        self.assertIn("Parser room lookup shadow mismatch at startup", result.stderr)
-        for marker in ("READY", "LISTENING", "Loading VAD", "Loading RKLLM"):
-            self.assertNotIn(marker, result.stderr)
+        self.assert_ready(result, ["L|K|40"])
+        self.assertNotIn("shadow mismatch", result.stderr)
 
     def test_permission_fields_remain_observational(self):
         candidate = self.configured(0,100)
@@ -147,7 +145,7 @@ class BrightnessCutoverCliTests(unittest.TestCase):
             stdout, stderr = process.communicate("на кухне свет 0\nна кухне свет 10\nна кухне свет 90\nна кухне свет 100\n".encode(), timeout=15)
             self.assertEqual(process.returncode, 0, stderr)
             self.assertEqual(stdout, b"U\nL|K|10\nL|K|90\nU\n")
-            self.assertEqual((startup + stderr).count(b"BRIGHTNESS_DOMAIN"), 1)
+            self.assertEqual((startup + stderr).count(b"CONFIG_RUNTIME"), 1)
             self.assert_ready(self.run_app(SAMPLE, "на кухне свет 0\nна кухне свет 100\n"), ["L|K|0", "L|K|100"])
         finally:
             if process.poll() is None:

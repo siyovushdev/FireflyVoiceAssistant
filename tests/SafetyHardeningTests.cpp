@@ -1,4 +1,5 @@
-#include "firefly/ActionValidator.h"
+#include "TestSupport.h"
+#include "firefly/legacy/ActionValidator.h"
 #include "firefly/CommandEngine.h"
 #include "firefly/DeterministicParser.h"
 #include "firefly/SafetyGate.h"
@@ -9,6 +10,7 @@
 
 namespace {
 using namespace firefly;
+using namespace firefly::legacy;
 int checks = 0;
 void check(bool condition, const std::string& label) {
     ++checks;
@@ -25,20 +27,11 @@ public:
         return output;
     }
 };
-// Explicit, immutable parser dependency for standalone core tests. The unchanged
-// 6.4 suites and actual assistant runs separately cover the validated snapshot.
-class TestLocations final : public ParserRoomDomain {
-public:
-    std::vector<ParserRoomLocation> parserLocations() const override {
-        return {{"на кухне", 'K'}, {"в спальне", 'B'}, {"в гостиной", 'G'},
-                {"в зале", 'G'}, {"в коридоре", 'C'}};
-    }
-};
 std::string compact(char room, int value) {
     return "L|" + std::string(1, room) + "|" + std::to_string(value);
 }
 void gate(const std::string& input, const std::string& candidate, const std::string& expected) {
-    const auto actual = SafetyGate::apply(input, candidate);
+    const auto actual = test::gate(input, candidate);
     check(actual == expected, "gate: " + input + " / " + candidate + " -> " + actual);
     check(actual == candidate || actual == "U", "gate must never repair a candidate");
     const auto action = ActionValidator::validate(actual);
@@ -57,12 +50,11 @@ void rejectEveryCandidate(const std::string& input) {
 int main(int argc, char** argv) {
     try {
         if (argc != 2) throw std::runtime_error("Frozen DEV path required");
-        TestLocations locations;
+        const auto& locations = test::fixture().domain;
         const DeterministicParser parser(locations);
-        parser.requireLegacyRoomDomain();
         FakeLlm fake;
-        CommandEngine configured(fake, parser);
-        CommandEngine reference(fake);
+        test::Engine configured(fake, parser);
+        test::Engine reference(fake);
         const auto fallback = [&](const std::string& input, const std::string& raw, const std::string& expected) {
             fake.output = raw;
             for (auto* engine : {&configured, &reference}) {
@@ -98,7 +90,7 @@ int main(int argc, char** argv) {
             }
             if (category == "contradiction") {
                 ++contradictions;
-                check(expected == "U" && !parser.parseChecked(input), "contradictions remain unresolved by parser");
+                check(expected == "U" && std::holds_alternative<actions::Unsupported>(parser.parse(input)), "contradictions remain unresolved by parser");
                 rejectEveryCandidate(input);
                 for (const auto* candidate : {"U", "D", "L|K|0", "L|K|50", "L|B|100", "L|G|20", "L|C|80"})
                     fallback(input, candidate, "U");

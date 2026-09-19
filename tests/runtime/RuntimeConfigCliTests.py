@@ -33,7 +33,7 @@ class RuntimeConfigCliTests(unittest.TestCase):
     def assert_startup_failure(self, result):
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertEqual(result.stdout, "U\n")
-        for stage in ("READY", "CONFIG_SHADOW", "stub destroyed", "Loading RKLLM", "Loading model", "Building system KV"):
+        for stage in ("READY", "CONFIG_RUNTIME", "stub destroyed", "Loading RKLLM", "Loading model", "Building system KV"):
             self.assertNotIn(stage, result.stderr)
         self.assertIn("Error:", result.stderr)
 
@@ -41,9 +41,9 @@ class RuntimeConfigCliTests(unittest.TestCase):
         result = self.run_app()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "L|K|40\n")
-        self.assertEqual(result.stderr.count("CONFIG_SHADOW"), 1)
-        self.assertIn("mismatches=0 authoritative=legacy", result.stderr)
-        self.assertLess(result.stderr.index("CONFIG_SHADOW"), result.stderr.index("READY"))
+        self.assertEqual(result.stderr.count("CONFIG_RUNTIME"), 1)
+        self.assertIn("action_model=generic domain_authority=config", result.stderr)
+        self.assertLess(result.stderr.index("CONFIG_RUNTIME"), result.stderr.index("READY"))
 
     def test_complete_current_output_domain(self):
         locations = {"K": "на кухне", "B": "в спальне", "G": "в гостиной", "C": "в коридоре"}
@@ -57,7 +57,7 @@ class RuntimeConfigCliTests(unittest.TestCase):
         result = self.run_app("--config", self.config, text="\n".join(commands) + "\n")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.splitlines(), expected)
-        self.assertIn("mismatches=0 authoritative=legacy", result.stderr)
+        self.assertIn("action_model=generic domain_authority=config", result.stderr)
 
     def test_invalid_files_fail_before_model_start(self):
         variants = ["{", "{}", '{"schema_version":1,"schema_version":1}']
@@ -102,12 +102,12 @@ class RuntimeConfigCliTests(unittest.TestCase):
         result = self.run_app("--config", self.config, text=commands)
         repeated = self.run_app("--config", self.config, text=commands)
         self.assertEqual(result.returncode, 0, result.stderr)
-        # 6.5 activates the narrower range, while door enablement is still shadow-only.
+        # 6.5 activates the narrower range; enablement policy is still inactive.
         self.assertEqual(result.stdout, "U\nD\nU\n")
-        diagnostic = next(line for line in result.stderr.splitlines() if line.startswith("CONFIG_SHADOW"))
-        self.assertNotIn("mismatches=0 ", diagnostic)
-        self.assertIn("authoritative=legacy first=legacy_profile", diagnostic)
-        self.assertEqual(diagnostic, next(line for line in repeated.stderr.splitlines() if line.startswith("CONFIG_SHADOW")))
+        diagnostic = next(line for line in result.stderr.splitlines() if line.startswith("CONFIG_RUNTIME"))
+        self.assertIn("action_model=generic domain_authority=config", diagnostic)
+        self.assertNotIn("legacy_shadow", diagnostic)
+        self.assertEqual(diagnostic, next(line for line in repeated.stderr.splitlines() if line.startswith("CONFIG_RUNTIME")))
 
     def test_snapshot_is_held_after_source_file_becomes_invalid(self):
         # Unbuffered bytes allow select() to observe each startup line reliably.
@@ -128,8 +128,8 @@ class RuntimeConfigCliTests(unittest.TestCase):
             stdout, stderr = process.communicate("на кухне свет 40\nОткрой входную дверь\n".encode(), timeout=15)
             self.assertEqual(process.returncode, 0, stderr)
             self.assertEqual(stdout, b"L|K|40\nD\n")
-            self.assertEqual((startup + stderr).count(b"CONFIG_SHADOW"), 1)
-            self.assertIn(b"mismatches=0 authoritative=legacy", startup)
+            self.assertEqual((startup + stderr).count(b"CONFIG_RUNTIME"), 1)
+            self.assertIn(b"action_model=generic domain_authority=config", startup)
             self.assert_startup_failure(self.run_app("--config", self.config))
         finally:
             if process.poll() is None:

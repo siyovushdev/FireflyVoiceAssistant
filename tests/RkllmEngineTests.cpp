@@ -1,5 +1,6 @@
 #include "firefly/RkllmEngine.h"
 #include "firefly/CommandEngine.h"
+#include "TestSupport.h"
 #include "rkllm.h"
 #include <atomic>
 #include <chrono>
@@ -27,7 +28,7 @@ int main() {
             config.systemPrompt = "frozen";
             config.requestTimeout = std::chrono::milliseconds(30);
             firefly::RkllmEngine llm(config);
-            firefly::CommandEngine engine(llm);
+            test::Engine engine(llm);
             check(stub.settings && stub.bootstrap && stub.run == 1 && stub.clear == 1, "bootstrap and frozen configuration");
             check(engine.process("Открой входную дверь").compact() == "D", "successful first action");
             stub.fault = fault;

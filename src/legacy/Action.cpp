@@ -1,7 +1,7 @@
-#include "firefly/Action.h"
+#include "firefly/legacy/Action.h"
 #include <stdexcept>
 
-namespace firefly {
+namespace firefly::legacy {
 std::string toCompact(const Action& action) {
     if (std::holds_alternative<OpenEntranceDoor>(action)) return "D";
     const auto light = std::get<LightAction>(action);

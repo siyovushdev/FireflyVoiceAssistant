@@ -1,6 +1,6 @@
-#include "firefly/ActionValidator.h"
+#include "firefly/legacy/ActionValidator.h"
 
-namespace firefly {
+namespace firefly::legacy {
 std::optional<Action> ActionValidator::validate(std::string_view candidate) {
     if (candidate == "D") return OpenEntranceDoor{};
     if (candidate.size() < 5 || candidate.substr(0, 2) != "L|" || candidate[3] != '|')

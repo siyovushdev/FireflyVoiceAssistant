@@ -16,7 +16,7 @@ enum class CompactV1Error {
 using CompactDecodeResult = std::variant<CandidateResult, CompactV1Error>;
 using CompactEncodeResult = std::variant<std::string, CompactV1Error>;
 
-// Offline compatibility codec bound to one explicitly supplied validated snapshot.
+// Compatibility codec bound to one explicitly supplied validated snapshot.
 // It checks representation/identity, not ORIGINAL-input safety, configured range
 // support or enabled/deny policy. Success is a candidate, never authorization.
 // No normalization, file access, model invocation, fallback mapping or JSON API.
@@ -28,6 +28,9 @@ public:
     // Only actions are encodable here. Rendering Unsupported as U belongs to a
     // presentation boundary; encoding failure must not become successful "U".
     CompactEncodeResult encode(const GenericAction& action) const;
+    // External CLI/log/regression boundary only. Encoding errors throw rather
+    // than substituting another action or claiming a successful U encoding.
+    std::string render(const CandidateResult& result) const;
 private:
     const config::Catalog snapshot_;
 };

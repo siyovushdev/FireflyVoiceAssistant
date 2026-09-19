@@ -4,7 +4,8 @@
 namespace firefly::voice {
 struct VoiceResult {
     RecognitionResult recognition;
-    std::string action = "U", route = "NOT_CALLED", error;
+    actions::CandidateResult action;
+    std::string route = "NOT_CALLED", error;
     double durationSeconds = 0, speechSeconds = 0;
 };
 class VoiceProcessor {
