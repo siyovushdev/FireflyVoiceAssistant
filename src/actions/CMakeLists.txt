@@ -1,0 +1,22 @@
+add_library(firefly_generic_action STATIC GenericAction.cpp)
+target_include_directories(firefly_generic_action PUBLIC "${PROJECT_SOURCE_DIR}/include")
+target_compile_features(firefly_generic_action PUBLIC cxx_std_17)
+set_target_properties(firefly_generic_action PROPERTIES CXX_EXTENSIONS OFF)
+target_compile_options(firefly_generic_action PRIVATE -Wall -Wextra -Wpedantic)
+
+add_library(firefly_compact_v1_adapter STATIC CompactV1Adapter.cpp)
+target_link_libraries(firefly_compact_v1_adapter PUBLIC firefly_generic_action firefly_config PRIVATE firefly_core)
+set_target_properties(firefly_compact_v1_adapter PROPERTIES CXX_EXTENSIONS OFF)
+target_compile_options(firefly_compact_v1_adapter PRIVATE -Wall -Wextra -Wpedantic)
+
+if(BUILD_TESTING)
+    add_executable(generic_action_tests "${PROJECT_SOURCE_DIR}/tests/actions/GenericActionTests.cpp")
+    target_link_libraries(generic_action_tests PRIVATE firefly_generic_action)
+    target_compile_options(generic_action_tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME GenericAction COMMAND generic_action_tests)
+
+    add_executable(compact_v1_adapter_tests "${PROJECT_SOURCE_DIR}/tests/actions/CompactV1AdapterTests.cpp")
+    target_link_libraries(compact_v1_adapter_tests PRIVATE firefly_compact_v1_adapter firefly_core)
+    target_compile_options(compact_v1_adapter_tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME CompactV1Adapter COMMAND compact_v1_adapter_tests "${PROJECT_SOURCE_DIR}")
+endif()

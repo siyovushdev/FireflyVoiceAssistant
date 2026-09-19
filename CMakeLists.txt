@@ -113,3 +113,12 @@ if(FIREFLY_BUILD_ASSISTANT)
         target_link_libraries(cli_tests_app PRIVATE firefly_runtime_config)
     endif()
 endif()
+
+# Offline Generic Action foundation. No existing target links these libraries.
+option(FIREFLY_BUILD_GENERIC_ACTION_FOUNDATION "Build offline Generic Action libraries and tests" OFF)
+if(FIREFLY_BUILD_GENERIC_ACTION_FOUNDATION)
+    if(NOT TARGET firefly_config)
+        add_subdirectory(src/config)
+    endif()
+    add_subdirectory(src/actions)
+endif()
