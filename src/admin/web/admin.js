@@ -82,7 +82,10 @@ async function load() {
 async function status() {
     try {
         const result = await api('/api/status');
-        $('status').textContent = `Runtime: ${result.runtime_busy?'занят':result.runtime_ready?'готов':'недоступен'} · active ${result.active?.revision ?? '—'} · stored ${result.stored?.revision ?? '—'} · ${result.needs_apply?'нужен Apply':'active = stored'}${result.store_error ? ' · '+result.store_error : ''}`;
+        $('status').textContent = `Runtime: ${result.runtime_busy?'занят':result.runtime_ready?'готов':'недоступен'} · active ${result.active?.revision ?? '—'} · stored ${result.stored?.revision ?? '—'} · ${result.needs_apply?'нужен Apply':'active = stored'}${result.store_error ? ' · '+result.store_error : ''}${result.executor ? ` · generation ${result.active?.generation_id ?? '—'} · ${result.device_count} mock devices · voice ${result.voice} · microphone ${result.microphone}` : ''}`;
+        const last = result.last_command;
+        $('last-command').textContent = last ? `Последняя команда: ${last.input || '—'} · ${last.result?.unsupported ? 'UNSUPPORTED' : last.result?.targetId || 'ERROR'} · ${last.execution?.success ? 'EXECUTED' : 'NOT EXECUTED'}` : '';
+        if (result.executor) await deviceState();
     } catch (_) { $('status').textContent = 'Нет соединения с Admin'; }
 }
 async function run(fn) {
@@ -95,19 +98,34 @@ $('reload').onclick=()=>run(async()=>{if(!dirty || confirm('Заменить н�
 $('validate').onclick=()=>run(async()=>{const r=await api('/api/config/validate','POST',{configuration:draft});$('validation').textContent=`Конфигурация валидна · context ${r.context_bytes} bytes · NPU preflight: ${r.runtime_preflight}. ${r.apply_ready?'Apply admission проверен.':'Точный token admission будет выполнен при Apply; runtime пока недоступен.'}`;});
 $('save').onclick=()=>run(async()=>{await api('/api/config','PUT',{configuration:draft,expected});await load();$('validation').textContent='Сохранено атомарно. Active runtime не изменён. Следующий шаг — Apply stored.';});
 $('apply').onclick=()=>run(async()=>{if(dirty) {errors([{code:'unsaved_draft',message:'Сначала Save или загрузите stored. Apply использует только сохранённую ревизию.'}]);return;}await api('/api/config/apply','POST',{expected});$('validation').textContent='Apply завершён: новая immutable generation активна.';});
+async function deviceState() {
+    const [states, history] = await Promise.all([api('/api/devices/state'), api('/api/executions')]);
+    $('device-state').replaceChildren();
+    const display = state => 'brightness' in state ? `${state.brightness}%` : state.state;
+    for (const device of states.devices) {
+        const node = card($('device-state'), device.name);
+        const p = document.createElement('p'); p.textContent = `${device.targetId} · ${display(device.state)}`; node.append(p);
+    }
+    $('execution-history').replaceChildren(...history.executions.slice().reverse().map(event => {
+        const p = document.createElement('p'), e = event.execution;
+        p.textContent = `${new Date(event.timestamp_ms).toLocaleTimeString()} · ${e.targetId} · ${e.previous ? display(e.previous) : '—'} → ${e.current ? display(e.current) : '—'} · ${event.source} · generation ${event.generation_id} · ${e.success ? 'SUCCESS' : e.error}`;
+        return p;
+    }));
+}
 function showCommand(r) {
-    $('test-summary').textContent = `${r.route} · ${r.result.unsupported?'UNSUPPORTED':'ACTION'} · Safety ${r.safety} · Domain ${r.domain} · revision ${r.revision}`;
+    $('test-summary').textContent = `${r.route} · ${r.result.unsupported?'UNSUPPORTED':'ACTION'} · Safety ${r.safety} · Domain ${r.domain} · revision ${r.revision} · Execution ${r.execution ? (r.execution.success ? 'SUCCESS' : r.execution.error) : 'NOT EXECUTED'}`;
     const diagnostic = {input:r.input,route:r.route,result:r.result,safety:r.safety,domain:r.domain,revision:r.revision,
-        latency_ms:r.latency_ms,candidate:r.candidate,decode:r.decode,safety_result:r.safety_result};
+        generation_id:r.generation_id,execution:r.execution,latency_ms:r.latency_ms,candidate:r.candidate,decode:r.decode,safety_result:r.safety_result};
     if ('raw_rkllm' in r) diagnostic.raw_rkllm = r.raw_rkllm;
     $('test-result').textContent = json(diagnostic);
 }
 $('test-form').onsubmit = event => {
     event.preventDefault();
+    const execute = event.submitter?.id === 'execute';
     run(async () => {
         $('test-summary').textContent = 'Выполняется…';
         $('test-result').textContent = '';
-        try { showCommand(await api('/api/test-command','POST',{text:$('command').value})); }
+        try { showCommand(await api('/api/test-command','POST',{text:$('command').value,execute})); }
         catch (error) {
             if (error.response?.result) showCommand(error.response);
             else $('test-summary').textContent = 'Запрос не выполнен. См. список ошибок; предыдущий результат сброшен.';

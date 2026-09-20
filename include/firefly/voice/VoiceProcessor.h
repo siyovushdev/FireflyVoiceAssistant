@@ -1,6 +1,7 @@
 #pragma once
 #include "firefly/voice/VoiceSegmenter.h"
 #include "firefly/CommandEngine.h"
+#include <functional>
 namespace firefly::voice {
 struct VoiceResult {
     RecognitionResult recognition;
@@ -10,10 +11,13 @@ struct VoiceResult {
 };
 class VoiceProcessor {
 public:
-    VoiceProcessor(SpeechRecognizer& recognizer, CommandEngine& engine) : recognizer_(recognizer), engine_(engine) {}
+    using CommandHandler = std::function<CommandResult(std::string_view)>;
+    VoiceProcessor(SpeechRecognizer& recognizer, CommandEngine& engine)
+        : VoiceProcessor(recognizer, [&engine](std::string_view text) { return engine.process(text); }) {}
+    VoiceProcessor(SpeechRecognizer& recognizer, CommandHandler handler) : recognizer_(recognizer), handler_(std::move(handler)) {}
     VoiceResult process(const Utterance& utterance);
 private:
     SpeechRecognizer& recognizer_;
-    CommandEngine& engine_;
+    CommandHandler handler_;
 };
 }

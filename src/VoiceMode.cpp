@@ -5,6 +5,7 @@
 #include "firefly/voice/AlsaAudioSource.h"
 #include "firefly/voice/SherpaSpeech.h"
 #include "firefly/voice/VoiceProcessor.h"
+#include "firefly/voice/VoiceLoop.h"
 #include "firefly/runtime/RuntimeConfig.h"
 #include "firefly/llm/LlmContext.h"
 #include "firefly/actions/CompactV1Adapter.h"
@@ -89,7 +90,6 @@ int runVoiceMode(int argc, char** argv) {
         VoiceProcessor processor(recognizer, engine);
         if (stopped) return 0;
         AlsaAudioSource capture(device);
-        std::future<VoiceResult> worker; // destroyed/joined before all referenced engines
         auto emit = [&](const VoiceResult& r) {
             const auto compact = outputCodec.render(r.action);
             std::cerr << "VOICE speech=" << r.speechSeconds << "s duration=" << r.durationSeconds << "s\n"
@@ -101,47 +101,9 @@ int runVoiceMode(int argc, char** argv) {
         std::cerr << "LISTENING device=" << device << " pre_ms=" << segments.preMs
                   << " post_ms=" << segments.postMs << '\n';
         const auto start = std::chrono::steady_clock::now();
-        std::array<float, FrameSamples> frame{};
-        int filled = 0;
-        bool waitingQuiet = false;
-        while (!stopped) {
-            if (runSeconds && std::chrono::steady_clock::now() - start >= std::chrono::seconds(runSeconds)) break;
-            if (worker.valid() && worker.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
-                auto result = worker.get();
-                if (stopped) break;
-                emit(result);
-                // Audio spoken during PROCESS is never queued for later execution. Require
-                // a fresh quiet interval before rearming, including a tail still in progress.
-                segmenter.discontinuity(); filled = 0; waitingQuiet = true;
-                std::cerr << "WAITING_FOR_QUIET\n";
-            }
-            int n;
-            try { n = capture.read(frame.data() + filled, FrameSamples - filled); }
-            catch (const AudioDiscontinuity& e) {
-                segmenter.discontinuity(); filled = 0; waitingQuiet = true;
-                VoiceResult rejected; rejected.error = e.what(); emit(rejected); continue;
-            }
-            filled += n;
-            if (filled != FrameSamples) continue;
-            auto utterances = segmenter.accept(frame.data(), filled); filled = 0;
-            if (waitingQuiet && !segmenter.active() && !worker.valid()) {
-                waitingQuiet = false; std::cerr << "LISTENING\n";
-            }
-            for (auto& u : utterances) {
-                if (worker.valid()) {
-                    VoiceResult rejected; rejected.error = "Speech while PROCESS busy was discarded"; emit(rejected);
-                } else if (!u.error.empty()) {
-                    waitingQuiet = true;
-                    VoiceResult rejected; rejected.error = u.error; emit(rejected);
-                } else {
-                    std::cerr << "PROCESS\n";
-                    worker = std::async(std::launch::async, [&processor, u = std::move(u)] { return processor.process(u); });
-                }
-            }
-        }
-        std::cerr << "Stopping voice capture; waiting for any in-flight inference...\n";
-        // No detached vendor call and no action emitted after a stop request.
-        if (worker.valid()) worker.get();
+        runVoiceLoop(capture, segmenter, [&](const Utterance& u) { return processor.process(u); }, emit,
+            [](const std::string& state) { std::cerr << "VOICE_STATE=" << state << '\n'; },
+            [&] { return stopped || (runSeconds && std::chrono::steady_clock::now() - start >= std::chrono::seconds(runSeconds)); });
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "Voice error: " << e.what() << '\n';

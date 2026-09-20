@@ -80,8 +80,9 @@ if(BUILD_TESTING AND FIREFLY_BUILD_ASSISTANT)
 endif()
 
 # Voice framing and orchestration tests do not depend on ALSA, STT models or NPU.
-add_library(firefly_voice_core src/VoiceSegmenter.cpp src/VoiceProcessor.cpp)
-target_link_libraries(firefly_voice_core PUBLIC firefly_core)
+find_package(Threads REQUIRED)
+add_library(firefly_voice_core src/VoiceSegmenter.cpp src/VoiceProcessor.cpp src/VoiceLoop.cpp)
+target_link_libraries(firefly_voice_core PUBLIC firefly_core Threads::Threads)
 target_compile_options(firefly_voice_core PRIVATE -Wall -Wextra -Wpedantic)
 if(BUILD_TESTING)
     add_executable(voice_tests tests/VoiceTests.cpp)

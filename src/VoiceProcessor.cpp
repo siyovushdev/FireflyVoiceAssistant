@@ -11,7 +11,7 @@ VoiceResult VoiceProcessor::process(const Utterance& u) {
         if (u.audio.empty()) { r.error = "Empty utterance"; return r; }
         r.recognition = recognizer_.recognize(u.audio);
         if (!r.recognition.success) { r.recognition.text.clear(); r.error = r.recognition.error; return r; }
-        auto command = engine_.process(r.recognition.text);
+        auto command = handler_(r.recognition.text);
         r.action = std::move(command.action); r.error = command.error;
         r.route = command.path == CommandPath::FastPath ? "FAST_PATH" :
                   command.path == CommandPath::LlmFallback ? "LLM_FALLBACK" : "INPUT_REJECTED";

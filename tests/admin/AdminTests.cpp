@@ -37,6 +37,10 @@ int main(int argc, char** argv) {
     model.raw=light("device_kitchen_light",0).dump();
     check(typed(runtime.process("На кухне выключи свет на 50 процентов").command.action)==Json{{"unsupported",true}},"contradiction02 cannot repair to zero");
     Json narrow=b; narrow["actions"][0]["parameters"][0]["minimum"]=10; narrow["actions"][0]["parameters"][0]["maximum"]=90;
+    // M10 adds retained mock state. Arrange a value valid in both domains;
+    // all original M9 understanding/range expectations below remain unchanged.
+    for (const auto& location : {"На кухне", "В спальне", "В гостиной", "В коридоре", "В ванной"})
+        runtime.process(std::string(location) + " поставь свет на 40 процентов", true);
     runtime.apply(catalog(narrow));
     for(const auto& room:std::vector<std::pair<std::string,std::string>>{{"На кухне","device_kitchen_light"},{"В спальне","device_bedroom_light"},{"В гостиной","device_living_light"},{"В коридоре","device_corridor_light"},{"В ванной","device_bathroom_light"}})
         for(int value:{0,9,10,40,90,91,100}) {

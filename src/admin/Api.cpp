@@ -100,7 +100,7 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
     int status = 200;
     Json reply;
     try {
-        const std::map<std::string, std::string> routes{{"/api/status", "GET"}, {"/api/config", "GET PUT"},
+        const std::map<std::string, std::string> routes{{"/api/devices/state", "GET"}, {"/api/executions", "GET"}, {"/api/status", "GET"}, {"/api/config", "GET PUT"},
             {"/api/config/active", "GET"}, {"/api/config/validate", "POST"}, {"/api/config/apply", "POST"},
             {"/api/config/revisions", "GET"}, {"/api/config/restore", "POST"}, {"/api/config/reconcile", "POST"}, {"/api/test-command", "POST"}};
         const auto route = routes.find(std::string(path));
@@ -109,17 +109,31 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
             throw ApiError(405, "method_not_allowed", "", "HTTP method is not supported for this endpoint.");
         if (method == "GET" && !body.empty()) throw std::invalid_argument("Unexpected body");
         Json request = method == "GET" ? Json::object() : parseMessage(body);
-        if (path == "/api/status") {
+        const auto observation = method == "GET" ? impl_->runtime.observe() : std::string{};
+        if (path == "/api/devices/state" || path == "/api/executions") {
+            const auto live = observation.empty() ? impl_->invoke({{"method","observe"}}) : parseMessage(observation);
+            const auto key = path == "/api/devices/state" ? "devices" : "executions";
+            reply = {{"ok",true},{key,live.at(key)},{"active",live.at("active")}};
+        } else if (path == "/api/status") {
             reply = {{"ok", true}, {"runtime_busy", impl_->busy.load()}};
             try { const auto stored = impl_->store.current(); reply["stored"] = {{"revision", stored->configuration().revision}, {"hash", stored->contentHash()}}; }
             catch (const config::ConfigError& error) { reply["store_error"] = error.code; }
             std::lock_guard<std::mutex> lock(impl_->state);
             reply["runtime_ready"] = impl_->ready; reply["worker_pid"] = impl_->workerPid; reply["runtime_error"] = impl_->lastError;
             reply["active"] = impl_->active.is_null() ? Json(nullptr) : Json{{"revision", impl_->active["revision"]}, {"hash", impl_->active["hash"]}};
+            if (!observation.empty()) {
+                const auto live = parseMessage(observation);
+                reply["runtime_ready"] = live["model_ready"]; reply["runtime_busy"] = live["runtime_busy"];
+                reply["worker_pid"] = live["worker_pid"];
+                reply["active"] = live["active"].is_null() ? Json(nullptr) : Json{{"revision",live["active"]["revision"]},
+                    {"hash",live["active"]["hash"]},{"generation_id",live["active"]["generation_id"]}};
+                for (const auto* key : {"voice","microphone","executor","last_command"}) reply[key] = live[key];
+                reply["device_count"] = live["devices"].size();
+            }
             reply["needs_apply"] = !reply.contains("stored") || reply["active"].is_null() || reply["stored"]["hash"] != reply["active"]["hash"];
         } else if (path == "/api/config/active") {
             std::lock_guard<std::mutex> lock(impl_->state);
-            reply = {{"ok", true}, {"active", impl_->active}};
+            reply = {{"ok", true}, {"active", observation.empty() ? impl_->active : parseMessage(observation).at("active")}};
         } else if (path == "/api/config" && method == "GET") { reply = describe(impl_->store.current()); reply["ok"] = true; }
         else if (path == "/api/config/validate") {
             members(request, {"configuration"}); reply = impl_->validate(request, true);
@@ -137,9 +151,12 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
             reply = impl_->invoke({{"method", "apply"}, {"configuration", Json::parse(stored->canonicalJson())}});
             if (!reply.value("ok", false)) status = 422;
         } else if (path == "/api/test-command") {
-            members(request, {"text"});
+            if (request.contains("execute")) members(request, {"text", "execute"});
+            else members(request, {"text"});
+            if (request.contains("execute") && !request["execute"].is_boolean()) throw std::invalid_argument("Execute must be boolean");
             if (!request["text"].is_string()) throw std::invalid_argument("Text must be string");
-            reply = impl_->invoke({{"method", "test"}, {"text", request["text"]}});
+            request["method"] = "test";
+            reply = impl_->invoke(request);
             if (!reply.value("ok", false)) status = 422;
         } else if (path == "/api/config/revisions") {
             reply = {{"ok", true}, {"revisions", Json::array()}};
