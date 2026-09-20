@@ -4,6 +4,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <exception>
 #include <thread>
 #include <iostream>
 #include <mutex>
@@ -135,7 +136,8 @@ struct RkllmEngine::Impl {
         // counts before READY / before returning any response; never estimate tokens.
         int cacheSize = -1;
         requireSuccess(rkllm_get_kv_cache_size(handle, &cacheSize), "read KV size");
-        const int ceiling = ready ? RkllmRequestReserve : RkllmBootstrapCeiling;
+        const int ceiling = ready ? config.requestTokenReserve :
+                            RkllmContextTokens - RkllmResponseTokens - config.requestTokenReserve;
         if (perf.prefill_tokens <= 0 || perf.prefill_tokens > ceiling ||
             perf.generate_tokens < 0 || perf.generate_tokens >= RkllmResponseTokens - 1 ||
             cacheSize <= 0 || cacheSize > RkllmContextTokens ||
@@ -145,7 +147,7 @@ struct RkllmEngine::Impl {
         if (!ready) {
             bootstrapPrefill = perf.prefill_tokens;
             std::cerr << "LLM_CONTEXT bootstrap_prefill=" << bootstrapPrefill << " bootstrap_kv=" << cacheSize
-                      << " ceiling=" << RkllmBootstrapCeiling << " request_reserve=" << RkllmRequestReserve
+                      << " ceiling=" << ceiling << " request_reserve=" << config.requestTokenReserve
                       << " response_budget=" << RkllmResponseTokens << " context=" << RkllmContextTokens << '\n';
         }
         if (config.verbose)
@@ -162,6 +164,8 @@ struct RkllmEngine::Impl {
         finished = false;
     }
     void initialize() {
+        if (config.requestTokenReserve < 128 || config.requestTokenReserve > RkllmRequestReserve)
+            throw std::invalid_argument("Invalid request token reservation");
         if (config.requestTimeout.count() <= 0) throw std::invalid_argument("Timeout must be positive");
         if (config.modelPath.empty() || config.systemPrompt.empty() ||
             config.modelPath.find('\0') != std::string::npos || config.systemPrompt.find('\0') != std::string::npos)
@@ -219,4 +223,40 @@ std::string RkllmEngine::infer(std::string_view original) {
         throw;
     }
 }
+void RkllmEngine::setSystemPrompt(std::string prompt) {
+    std::lock_guard<std::mutex> lock(impl_->requestMutex);
+    if (prompt.empty() || prompt.size() > 16384 || prompt.find('\0') != std::string::npos)
+        throw std::invalid_argument("Invalid system context");
+    if (!impl_->ready) throw std::runtime_error("RKLLM engine not ready; restart required");
+    if (prompt == impl_->config.systemPrompt) return;
+    const auto old = impl_->config.systemPrompt;
+    const auto install = [&](const std::string& value) {
+        impl_->ready = false;
+        impl_->resetOutput();
+        requireSuccess(rkllm_clear_kv_cache(impl_->handle, 0, nullptr, nullptr), "context full KV clear");
+        impl_->config.systemPrompt = value;
+        impl_->systemChat = "<|im_start|>system\n" + value + "<|im_end|>\n";
+        requireSuccess(rkllm_set_chat_template(impl_->handle, impl_->systemChat.c_str(),
+            "<|im_start|>user\n", "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"), "context chat template");
+        (void)impl_->run("", "context bootstrap");
+        requireSuccess(rkllm_clear_kv_cache(impl_->handle, 1, nullptr, nullptr), "context bootstrap clear");
+        impl_->ready = true;
+    };
+    try { install(prompt); }
+    catch (...) {
+        const auto failure = std::current_exception();
+        try { install(old); }
+        catch (...) {
+            impl_->ready = false;
+            throw std::runtime_error("RKLLM context restoration failed; restart required");
+        }
+        std::rethrow_exception(failure);
+    }
+}
+
+bool RkllmEngine::ready() const {
+    std::lock_guard<std::mutex> lock(impl_->requestMutex);
+    return impl_->ready;
+}
+
 }

@@ -20,6 +20,9 @@ int rkllm_init(LLMHandle* handle, RKLLMParam* param, RKLLMCallback* callback) {
     return 0;
 }
 int rkllm_set_chat_template(LLMHandle, const char* system, const char* prefix, const char* postfix) {
+    stub.system = system;
+    stub.events.push_back("template");
+    if ((!stub.rejectTemplate.empty() && stub.system.find(stub.rejectTemplate) != std::string::npos) || stub.failRestoration) return -7;
     stub.settings = stub.settings && std::string(system) == "<|im_start|>system\nfrozen<|im_end|>\n" &&
         std::string(prefix) == "<|im_start|>user\n" &&
         std::string(postfix) == "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n";
@@ -27,6 +30,7 @@ int rkllm_set_chat_template(LLMHandle, const char* system, const char* prefix, c
 }
 int rkllm_clear_kv_cache(LLMHandle, int keep, int* start, int* end) {
     ++stub.clear;
+    stub.events.push_back("clear:" + std::to_string(keep));
     stub.independent = stub.independent && keep == 1 && !start && !end;
     return stub.fault == Fault::Clear ? -2 : 0;
 }
@@ -43,6 +47,7 @@ int rkllm_abort(LLMHandle) {
 }
 int rkllm_run(LLMHandle, RKLLMInput* input, RKLLMInferParam* infer, void* userdata) {
     ++stub.run;
+    stub.events.push_back(std::string(input->prompt_input).empty() ? "bootstrap" : "request");
     stub.running = true;
     stub.independent = stub.independent && input->input_type == RKLLM_INPUT_PROMPT &&
         std::string(input->role) == "user" && !input->enable_thinking && infer->keep_history == 0 &&
@@ -53,6 +58,7 @@ int rkllm_run(LLMHandle, RKLLMInput* input, RKLLMInferParam* infer, void* userda
     RKLLMResult result{};
     result.text = R"({"actionId":"action_open_entrance","targetId":"device_entrance_door","arguments":{}})";
     result.perf.prefill_tokens = stub.run == 1 ? 565 : 30;
+    if (std::string(input->prompt_input).empty()) result.perf.prefill_tokens = stub.refreshBootstrapTokens;
     result.perf.generate_tokens = 25;
     if (stub.fault == Fault::Context)
         result.perf.prefill_tokens = stub.run == 1 ? firefly::RkllmBootstrapCeiling + 1 : firefly::RkllmRequestReserve + 1;
