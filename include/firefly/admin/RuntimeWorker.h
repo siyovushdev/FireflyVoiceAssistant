@@ -1,6 +1,7 @@
 #pragma once
 #include "firefly/admin/RuntimeGeneration.h"
 #include <string>
+#include <chrono>
 #include "firefly/voice/VoiceProcessor.h"
 namespace firefly::admin {
 class RuntimeWorker final {
@@ -14,6 +15,8 @@ public:
 private:
     void remember(std::string diagnostic);
     mutable std::mutex diagnostics_;
+    const std::chrono::steady_clock::time_point started_ = std::chrono::steady_clock::now();
+    std::string lastVoice_;
     std::string lastCommand_, voiceState_ = "disabled", microphone_ = "disabled";
 private:
     ContextModel& model_;

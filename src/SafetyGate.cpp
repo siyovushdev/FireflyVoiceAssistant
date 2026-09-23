@@ -3,6 +3,14 @@
 #include <algorithm>
 #include <regex>
 #include <vector>
+#include <sstream>
+#include <iomanip>
+#include <locale>
+#include <charconv>
+#include <cmath>
+#include <cerrno>
+#include <cstdlib>
+#include <set>
 
 namespace firefly {
 namespace {
@@ -36,7 +44,9 @@ int cardinal(std::string_view word) {
 struct LightState {
     int minimum = 0;
     int maximum = 100;
+    bool specified = false;
     void require(int low, int high) {
+        specified = true;
         minimum = std::max(minimum, low);
         maximum = std::min(maximum, high);
     }
@@ -45,14 +55,14 @@ struct LightState {
 LightState requestedLightState(std::string_view original, const std::vector<std::string>& words) {
     LightState state;
     if (std::none_of(words.begin(), words.end(), lightWord)) return state;
-    bool explicitState = false;
+    bool on = false;
+    bool amount = false;
     for (const auto& word : words) {
-        if (offWord(word)) { state.require(0, 0); explicitState = true; }
-        if (onWord(word)) { state.require(1, 100); explicitState = true; }
-        if (word == "максимум") { state.require(100, 100); explicitState = true; }
-        if (word == "наполовину") { state.require(50, 50); explicitState = true; }
+        if (offWord(word)) state.require(0, 0);
+        if (onWord(word)) { state.require(1, 100); on = true; }
+        if (word == "максимум") { state.require(100, 100); amount = true; }
+        if (word == "наполовину") { state.require(50, 50); amount = true; }
     }
-    if (!explicitState) return state; // Numeric-only interpretation is not migrated.
     const auto reject = [] { return LightState{1, 0}; };
     // words() splits decimal punctuation. Never reinterpret a fractional state
     // requirement as separate integers (especially 0.0 as an OFF repair).
@@ -101,9 +111,14 @@ LightState requestedLightState(std::string_view original, const std::vector<std:
         if (!attachedPercent && !unitFollows && !bare) continue;
         if (value < 0 || value > 100 || previous == "минус") return reject();
         state.require(value, value);
+        amount = true;
         percentageConsumed = unitFollows;
         i = last;
     }
+    // An unqualified ON has the established value 100; a model cannot invent
+    // another positive level. Numeric-only requests are checked independently
+    // of the model, including requests with an unrecognized intent/unit spelling.
+    if (on && !amount) state.require(100, 100);
     return state;
 }
 }
@@ -114,6 +129,14 @@ actions::CandidateResult SafetyGate::apply(std::string_view original, const acti
     const auto description = domain.describe(*action);
     if (!description) return actions::Unsupported{};
     const auto words = detail::words(original);
+    if (std::any_of(words.begin(), words.end(), [](const auto& word) {
+        return word == "не" || word == "нет" || word == "ни" || word == "или" || word == "либо";
+    })) return actions::Unsupported{};
+    // Do not execute one branch of a coordinated request. A conjunction can be
+    // part of a declared entity/action phrase only when the conservative parser
+    // accounts for the entire request and yields this exact candidate.
+    if (std::find(words.begin(), words.end(), "и") != words.end() &&
+        domain.parseDeclared(original) != candidate) return actions::Unsupported{};
     const auto state = requestedLightState(original, words);
     // Contradictory ORIGINAL requirements reject every candidate, including a
     // guessed OFF value. This shared boundary never chooses an interpretation.
@@ -133,19 +156,78 @@ actions::CandidateResult SafetyGate::apply(std::string_view original, const acti
             text.find("двер") == std::string::npos) return actions::Unsupported{};
         return candidate;
     }
+    const auto grounding = domain.resolve(original, true);
+    if (grounding.ambiguous) return actions::Unsupported{};
+    if (description->definition->operation == config::Operation::AssignState) {
+        static const std::set<std::string> nonCommands{"как","почему","зачем","если","когда","потом","через","сначала","отмени","запрети","нельзя","запрещено","расскажи","скажи"};
+        if(std::any_of(words.begin(),words.end(),[](const auto& word){return nonCommands.count(word);}))return actions::Unsupported{};
+        if (grounding.devices.size() != 1 || grounding.devices.front() != action->targetId()) return actions::Unsupported{};
+        const auto intents = domain.requestedActions(original, *description->target);
+        if (intents.size() != 1 || intents.front() != action->actionId()) return actions::Unsupported{};
+        struct Numeric { std::string text; std::size_t begin, end; bool consumed = false; };
+        std::vector<Numeric> numbers;
+        const std::string source(original);
+        static const std::regex numeric("[-+]?[0-9]+([.,][0-9]+)?([eE][-+]?[0-9]+)?");
+        for (auto i=std::sregex_iterator(source.begin(),source.end(),numeric);i!=std::sregex_iterator();++i) {
+            const auto begin=static_cast<std::size_t>(i->position()),end=begin+i->length();
+            const bool entity = std::any_of(grounding.mentions.begin(),grounding.mentions.end(),[&](const auto& m){return begin>=m.begin&&end<=m.end;});
+            if (!entity) numbers.push_back({i->str(),begin,end,false});
+        }
+        const auto literalPresent = [&](const std::string& literal) {
+            if (literal.empty()) return source.find("\"\"") != std::string::npos || source.find("''") != std::string::npos;
+            const auto wordByte=[](unsigned char c){return c>=128||(c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_';};
+            for (auto pos=source.find(literal);pos!=std::string::npos;pos=source.find(literal,pos+1))
+                if ((pos==0||!wordByte(source[pos-1]))&&(pos+literal.size()==source.size()||!wordByte(source[pos+literal.size()]))) return true;
+            return false;
+        };
+        for (const auto& [key, argument] : action->arguments()) {
+            const auto schema=std::find_if(description->definition->parameters.begin(),description->definition->parameters.end(),[&](const auto& p){return p.id==key;});
+            bool present = std::visit([&](const auto& value) {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T,std::string>) {
+                    if (schema->type=="enum") {
+                        int count=0;for(const auto& choice:schema->values)if(literalPresent(choice))++count;
+                        if(count!=1)return false;
+                    }
+                    if(!literalPresent(value))return false;
+                    for(auto pos=source.find(value);pos!=std::string::npos;pos=source.find(value,pos+1))
+                        for(auto& number:numbers)if(number.begin>=pos&&number.end<=pos+value.size())number.consumed=true;
+                    return true;
+                } else if constexpr (std::is_same_v<T,bool>) {
+                    return literalPresent(value?"true":"false")&&!literalPresent(value?"false":"true");
+                } else {
+                    std::size_t found=0;
+                    for(auto& number:numbers) {
+                        if(number.consumed)continue;
+                        bool matches=false;
+                        if constexpr (std::is_same_v<T,std::int64_t>) {
+                            std::int64_t parsed=0;const auto result=std::from_chars(number.text.data(),number.text.data()+number.text.size(),parsed);
+                            matches=result.ec==std::errc{}&&result.ptr==number.text.data()+number.text.size()&&parsed==value;
+                        } else {
+                            errno=0;char* end=nullptr;const auto parsed=std::strtod(number.text.c_str(),&end);
+                            matches=errno!=ERANGE&&std::isfinite(parsed)&&end==number.text.c_str()+number.text.size()&&parsed==value;
+                        }
+                        if(matches){number.consumed=true;++found;}
+                    }
+                    return found==1;
+                }
+            }, argument.data());
+            if (!present) return actions::Unsupported{};
+        }
+        if(std::any_of(numbers.begin(),numbers.end(),[](const auto& n){return !n.consumed;})) return actions::Unsupported{};
+        return candidate;
+    }
+    if (!description->brightness) return actions::Unsupported{};
+    // Relative/unspecified brightness is unresolved, even if scoped inference
+    // emits a structurally valid action. Never let model confidence supply a value.
+    if (!state.specified) return actions::Unsupported{};
     const auto brightness = *description->brightness;
     if (brightness < state.minimum || brightness > state.maximum) return actions::Unsupported{};
     // Ground the target through snapshot aliases. Multiple different room
     // identities are ambiguous even if one happens to match the candidate.
-    const config::Room* mentioned = nullptr;
-    for (const auto& word : words) {
-        const auto* room = domain.roomMention(word);
-        if (!room) continue;
-        if (mentioned && mentioned->id != room->id) return actions::Unsupported{};
-        mentioned = room;
-    }
-    if (!mentioned || !description->target->roomId || mentioned->id != *description->target->roomId)
-        return actions::Unsupported{};
+    if (grounding.locations.size() != 1 || !description->target->roomId ||
+        grounding.locations.front() != *description->target->roomId ||
+        (!grounding.devices.empty() && grounding.devices.front() != action->targetId())) return actions::Unsupported{};
     // Conservative stem detection also covers inflections and mixed case.
     if (brightness == 0 && detail::lowercase(original).find("включ") != std::string::npos)
         return actions::Unsupported{};

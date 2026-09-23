@@ -18,6 +18,18 @@ int main() {
         check(stub.events.empty(), "unchanged context no extra cache operation");
         (void)engine.infer("Открой входную дверь");
         check(stub.events == std::vector<std::string>{"clear:1", "request"}, "normal request lifecycle unchanged");
+        stub.refreshBootstrapTokens = 300;
+        engine.setSystemPrompt("admin draft",256);
+        check(stub.outputBudgets.back()==1,"Admin bootstrap establishes KV without generating a discarded draft");
+        (void)engine.infer("Название зоны");
+        check(stub.outputBudgets.back()==256,"Entity draft has separate measured response budget");
+        check(engine.metrics().outputBudget==256,"Metrics report actual admin budget");
+        engine.setSystemPrompt("admin draft",384);
+        (void)engine.infer("Связанный черновик");
+        check(stub.outputBudgets.back()==384,"Same instructions with a different budget refresh correctly");
+        engine.setSystemPrompt("next context");
+        (void)engine.infer("Открой входную дверь");
+        check(stub.outputBudgets.back()==128 && stub.init==1,"Command budget and context restored on the single handle");
         stub.events.clear(); stub.rejectTemplate = "reject_context";
         bool rejected = false;
         try { engine.setSystemPrompt("reject_context"); } catch (...) { rejected = true; }

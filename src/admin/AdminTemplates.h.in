@@ -1,0 +1,4 @@
+#pragma once
+namespace firefly::admin {
+inline constexpr char AdminTemplatesJson[] = R"FF_TEMPLATES(@FIREFLY_ADMIN_TEMPLATES@)FF_TEMPLATES";
+}

@@ -10,5 +10,5 @@ struct LlmContext {
 };
 // Canonical order and JSON-quoted data. No installation IDs, compact codes or
 // persistence access. Runtime admission additionally checks actual token usage.
-LlmContext generateContext(const runtime::DomainView& domain);
+LlmContext generateContext(const runtime::DomainView& domain, std::string_view target = {}, std::string_view action = {});
 }

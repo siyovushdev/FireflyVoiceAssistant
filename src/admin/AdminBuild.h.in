@@ -1,0 +1,6 @@
+#pragma once
+namespace firefly::admin {
+inline constexpr char BuildHead[] = "@FIREFLY_BUILD_HEAD@";
+inline constexpr char BuildSource[] = "@FIREFLY_BUILD_SOURCE@";
+inline constexpr char BuildTime[] = "@FIREFLY_BUILD_TIME@";
+}

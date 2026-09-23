@@ -4,18 +4,20 @@
 #include "firefly/runtime/DomainView.h"
 #include "firefly/llm/StructuredOutput.h"
 namespace firefly {
-enum class CommandPath { FastPath, LlmFallback, InputRejected };
+enum class CommandPath { FastPath, LlmFallback, InputRejected, GroundingRejected };
 struct CommandResult {
     CommandPath path = CommandPath::InputRejected;
     actions::CandidateResult action;
     // Diagnostic model bytes only; never the authoritative action representation.
     std::string rawOutput;
+    runtime::Grounding grounding;
     llm::DecodeStatus decodeStatus = llm::DecodeStatus::NotAttempted;
     actions::CandidateResult candidate;
     actions::CandidateResult safeCandidate;
     bool safetyRejected = false;
     bool domainRejected = false;
     std::string error;
+    std::string reason;
     bool invalidModelOutput = false;
     double latencyMs = 0;
 };

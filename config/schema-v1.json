@@ -224,7 +224,7 @@
                                 "minLength": 1,
                                 "maxLength": 96
                             },
-                            "minItems": 1,
+                            "minItems": 0,
                             "maxItems": 32
                         },
                         "locations": {
@@ -234,7 +234,7 @@
                                 "minLength": 1,
                                 "maxLength": 96
                             },
-                            "minItems": 1,
+                            "minItems": 0,
                             "maxItems": 32
                         }
                     },
@@ -242,6 +242,38 @@
                         "mentions",
                         "locations"
                     ],
+                    "additionalProperties": false
+                },
+                "metadata": {
+                    "type": "object",
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "maxLength": 64
+                        },
+                        "description": {
+                            "type": "string",
+                            "maxLength": 256
+                        },
+                        "aliases": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 96
+                            },
+                            "maxItems": 16
+                        },
+                        "parent_id": {
+                            "type": [
+                                "string",
+                                "null"
+                            ]
+                        },
+                        "container": {
+                            "type": "boolean"
+                        }
+                    },
                     "additionalProperties": false
                 }
             },
@@ -264,7 +296,8 @@
                 "kind": {
                     "enum": [
                         "light",
-                        "entrance_door"
+                        "entrance_door",
+                        "generic"
                     ]
                 },
                 "room_id": {
@@ -281,7 +314,7 @@
                     "items": {
                         "$ref": "#/$defs/id"
                     },
-                    "minItems": 1,
+                    "minItems": 0,
                     "maxItems": 32
                 },
                 "spoken_aliases": {
@@ -293,6 +326,29 @@
                     },
                     "minItems": 0,
                     "maxItems": 0
+                },
+                "metadata": {
+                    "type": "object",
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "maxLength": 64
+                        },
+                        "description": {
+                            "type": "string",
+                            "maxLength": 256
+                        },
+                        "aliases": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 96
+                            },
+                            "maxItems": 16
+                        }
+                    },
+                    "additionalProperties": false
                 }
             },
             "required": [

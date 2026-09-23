@@ -2,6 +2,7 @@
 #include "rkllm.h"
 #include "firefly/InputPolicy.h"
 #include <atomic>
+#include <algorithm>
 #include <chrono>
 #include <condition_variable>
 #include <exception>
@@ -78,6 +79,8 @@ struct RkllmEngine::Impl {
     bool finished = false;
     bool ready = false;
     int bootstrapPrefill = 0;
+    int responseTokens = RkllmResponseTokens;
+    InferenceMetrics lastMetrics;
 
     static int callback(RKLLMResult* result, void* userdata, LLMCallState state) noexcept {
         auto* self = static_cast<Impl*>(userdata);
@@ -121,10 +124,12 @@ struct RkllmEngine::Impl {
         RKLLMInferParam infer{};
         infer.mode = RKLLM_INFER_GENERATE;
         infer.keep_history = 0;
-        infer.max_new_tokens = RkllmResponseTokens;
+        // Admin bootstrap only establishes system KV; its answer is discarded.
+        // One token avoids spending a full draft budget on the empty bootstrap.
+        infer.max_new_tokens = !ready && responseTokens > RkllmResponseTokens ? 1 : responseTokens;
         resetOutput();
         const auto start = Clock::now();
-        RequestDeadline deadline(handle, config.requestTimeout);
+        RequestDeadline deadline(handle, responseTokens > RkllmResponseTokens ? std::max(config.requestTimeout,std::chrono::milliseconds(60000)) : config.requestTimeout);
         const int status = rkllm_run(handle, &input, &infer, this);
         deadline.finish();
         if (deadline.expired())
@@ -137,23 +142,24 @@ struct RkllmEngine::Impl {
         int cacheSize = -1;
         requireSuccess(rkllm_get_kv_cache_size(handle, &cacheSize), "read KV size");
         const int ceiling = ready ? config.requestTokenReserve :
-                            RkllmContextTokens - RkllmResponseTokens - config.requestTokenReserve;
+                            RkllmContextTokens - responseTokens - config.requestTokenReserve;
         if (perf.prefill_tokens <= 0 || perf.prefill_tokens > ceiling ||
-            perf.generate_tokens < 0 || perf.generate_tokens >= RkllmResponseTokens - 1 ||
+            perf.generate_tokens < 0 || perf.generate_tokens >= responseTokens - 1 ||
             cacheSize <= 0 || cacheSize > RkllmContextTokens ||
-            (ready && bootstrapPrefill + perf.prefill_tokens + RkllmResponseTokens > RkllmContextTokens))
+            (ready && bootstrapPrefill + perf.prefill_tokens + responseTokens > RkllmContextTokens))
             throw std::runtime_error("RKLLM context/output budget rejected: prefill=" + std::to_string(perf.prefill_tokens) +
                                      " generated=" + std::to_string(perf.generate_tokens) + " kv=" + std::to_string(cacheSize));
         if (!ready) {
             bootstrapPrefill = perf.prefill_tokens;
             std::cerr << "LLM_CONTEXT bootstrap_prefill=" << bootstrapPrefill << " bootstrap_kv=" << cacheSize
                       << " ceiling=" << ceiling << " request_reserve=" << config.requestTokenReserve
-                      << " response_budget=" << RkllmResponseTokens << " context=" << RkllmContextTokens << '\n';
+                      << " response_budget=" << responseTokens << " context=" << RkllmContextTokens << '\n';
         }
         if (config.verbose)
             std::cerr << label << " wall_ms=" << elapsed(start)
                       << " prefill_ms=" << perf.prefill_time_ms << " prefill_tokens=" << perf.prefill_tokens
                       << " generate_ms=" << perf.generate_time_ms << " generate_tokens=" << perf.generate_tokens << '\n';
+        if (ready) lastMetrics = {bootstrapPrefill, perf.prefill_tokens, perf.generate_tokens, responseTokens, static_cast<double>(elapsed(start)), "vendor_finish_below_limit"};
         return output;
     }
     void resetOutput() {
@@ -223,14 +229,16 @@ std::string RkllmEngine::infer(std::string_view original) {
         throw;
     }
 }
-void RkllmEngine::setSystemPrompt(std::string prompt) {
+void RkllmEngine::setSystemPrompt(std::string prompt, int responseTokens) {
     std::lock_guard<std::mutex> lock(impl_->requestMutex);
-    if (prompt.empty() || prompt.size() > 16384 || prompt.find('\0') != std::string::npos)
+    if ((responseTokens != 128 && responseTokens != 256 && responseTokens != 384) || prompt.empty() || prompt.size() > 16384 || prompt.find('\0') != std::string::npos)
         throw std::invalid_argument("Invalid system context");
     if (!impl_->ready) throw std::runtime_error("RKLLM engine not ready; restart required");
-    if (prompt == impl_->config.systemPrompt) return;
+    if (prompt == impl_->config.systemPrompt && responseTokens == impl_->responseTokens) return;
     const auto old = impl_->config.systemPrompt;
-    const auto install = [&](const std::string& value) {
+    const auto oldBudget = impl_->responseTokens;
+    const auto install = [&](const std::string& value, int budget) {
+        impl_->responseTokens = budget;
         impl_->ready = false;
         impl_->resetOutput();
         requireSuccess(rkllm_clear_kv_cache(impl_->handle, 0, nullptr, nullptr), "context full KV clear");
@@ -242,16 +250,26 @@ void RkllmEngine::setSystemPrompt(std::string prompt) {
         requireSuccess(rkllm_clear_kv_cache(impl_->handle, 1, nullptr, nullptr), "context bootstrap clear");
         impl_->ready = true;
     };
-    try { install(prompt); }
+    try { install(prompt, responseTokens); }
     catch (...) {
         const auto failure = std::current_exception();
-        try { install(old); }
+        try { install(old, oldBudget); }
         catch (...) {
             impl_->ready = false;
             throw std::runtime_error("RKLLM context restoration failed; restart required");
         }
         std::rethrow_exception(failure);
     }
+}
+
+int RkllmEngine::contextTokens() const {
+    std::lock_guard<std::mutex> lock(impl_->requestMutex);
+    return impl_->ready ? impl_->bootstrapPrefill : -1;
+}
+
+InferenceMetrics RkllmEngine::metrics() const {
+    std::lock_guard<std::mutex> lock(impl_->requestMutex);
+    return impl_->lastMetrics;
 }
 
 bool RkllmEngine::ready() const {

@@ -214,7 +214,9 @@ std::vector<StoredRevision> listBackups(int directory) {
         const auto catalog = readCatalog(backupDirectory.get(), name);
         if (backupName(catalog) != name) throw ConfigError("store_corrupt", "", "Backup name/hash/revision mismatch");
         const auto revision = catalog->configuration().revision;
-        if (!result.emplace(revision, StoredRevision{revision, catalog->contentHash()}).second)
+        struct stat info{};
+        if (::fstatat(backupDirectory.get(), name.c_str(), &info, AT_SYMLINK_NOFOLLOW) != 0) detail::ioError("stat backup time");
+        if (!result.emplace(revision, StoredRevision{revision, catalog->contentHash(), static_cast<std::int64_t>(info.st_mtime) * 1000}).second)
             throw ConfigError("store_corrupt", "", "Conflicting backups for one revision");
     }
     std::vector<StoredRevision> values;
@@ -242,6 +244,23 @@ Catalog ConfigStore::save(const Catalog& candidate, const ExpectedRevision& expe
 std::vector<StoredRevision> ConfigStore::revisions() const {
     LockedStore store(directory_); noPending(store.directory.get());
     return listBackups(store.directory.get());
+}
+Catalog ConfigStore::revision(std::int64_t revision) const {
+    LockedStore store(directory_); noPending(store.directory.get());
+    const auto current = readCatalog(store.directory.get(), CurrentFile);
+    if (current->configuration().revision == revision) return current;
+    const auto entries = listBackups(store.directory.get());
+    const auto found = std::find_if(entries.begin(), entries.end(), [&](const auto& entry) { return entry.revision == revision; });
+    if (found == entries.end()) throw ConfigError("unknown_revision", "", "No such revision");
+    auto directory = backups(store.directory.get());
+    return readCatalog(directory.get(), std::to_string(revision) + "-" + found->hash + ".json");
+}
+Catalog ConfigStore::restoreCandidate(std::int64_t revisionNumber, const ExpectedRevision& expected) const {
+    // Read the immutable revision first, then check the captured current identity.
+    const auto candidate = revision(revisionNumber);
+    LockedStore store(directory_); noPending(store.directory.get());
+    const auto current = readCatalog(store.directory.get(), CurrentFile); checkExpected(current, expected);
+    return nextRevision(candidate, current);
 }
 Catalog ConfigStore::restore(std::int64_t revision, const ExpectedRevision& expected) {
     LockedStore store(directory_); noPending(store.directory.get());

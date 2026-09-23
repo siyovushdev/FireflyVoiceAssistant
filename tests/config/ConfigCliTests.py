@@ -67,7 +67,13 @@ class ConfigCliTests(unittest.TestCase):
             self.assertTrue(set(node) <= supported)
             if node.get("type") == "object":
                 self.assertFalse(node["additionalProperties"])
-                self.assertEqual(set(node["required"]), set(node["properties"]))
+                # M11 adds a closed optional metadata extension; old required fields remain.
+                required = set(node.get("required", []))
+                properties = set(node["properties"])
+                self.assertTrue(required <= properties)
+                optional = properties - required
+                self.assertTrue(not optional or optional == {"metadata"} or
+                                properties <= {"type", "description", "aliases", "parent_id", "container"})
             if "$ref" in node:
                 self.assertTrue(node["$ref"].startswith("#/$defs/"))
                 self.assertIn(node["$ref"].split("/")[-1], schema["$defs"])

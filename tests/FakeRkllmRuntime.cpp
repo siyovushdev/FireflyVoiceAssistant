@@ -47,6 +47,7 @@ int rkllm_abort(LLMHandle) {
 }
 int rkllm_run(LLMHandle, RKLLMInput* input, RKLLMInferParam* infer, void* userdata) {
     ++stub.run;
+    stub.outputBudgets.push_back(infer->max_new_tokens);
     stub.events.push_back(std::string(input->prompt_input).empty() ? "bootstrap" : "request");
     stub.running = true;
     stub.independent = stub.independent && input->input_type == RKLLM_INPUT_PROMPT &&
@@ -59,7 +60,7 @@ int rkllm_run(LLMHandle, RKLLMInput* input, RKLLMInferParam* infer, void* userda
     result.text = R"({"actionId":"action_open_entrance","targetId":"device_entrance_door","arguments":{}})";
     result.perf.prefill_tokens = stub.run == 1 ? 565 : 30;
     if (std::string(input->prompt_input).empty()) result.perf.prefill_tokens = stub.refreshBootstrapTokens;
-    result.perf.generate_tokens = 25;
+    result.perf.generate_tokens = infer->max_new_tokens == 1 ? 1 : 25;
     if (stub.fault == Fault::Context)
         result.perf.prefill_tokens = stub.run == 1 ? firefly::RkllmBootstrapCeiling + 1 : firefly::RkllmRequestReserve + 1;
     if (stub.fault == Fault::OutputLimit) result.perf.generate_tokens = firefly::RkllmResponseTokens - 1;

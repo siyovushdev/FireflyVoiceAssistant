@@ -5,6 +5,7 @@
 #include <mutex>
 #include <atomic>
 #include <deque>
+#include <functional>
 #include "firefly/execution/ActionExecutor.h"
 
 namespace firefly::admin {
@@ -14,6 +15,9 @@ class ContextModel : public LlmEngine {
 public:
     virtual void useContext(const std::string& prompt) = 0;
     virtual bool ready() const = 0;
+    virtual int contextTokens() const { return -1; }
+    virtual void useAdminContext(const std::string& prompt, int) { useContext(prompt); }
+    virtual std::string inferenceMetrics() const { return "{}"; }
 };
 class RuntimeGeneration final {
 public:
@@ -23,6 +27,9 @@ public:
     const runtime::DomainView domain;
     const DeterministicParser parser;
     const std::string prompt;
+    const std::map<std::string, std::string> targetContexts;
+    std::string defaultPrompt() const;
+    std::string requestPrompt(std::string_view original) const;
 };
 struct GenerationResult {
     std::shared_ptr<const RuntimeGeneration> generation;
@@ -41,6 +48,11 @@ public:
     std::shared_ptr<const RuntimeGeneration> current() const;
     void apply(config::Catalog catalog);
     void preflight(config::Catalog catalog);
+    std::string suggest(std::string_view entity, std::string_view name);
+    std::string draft(std::string_view entity, std::string_view name);
+    using SuggestionDecoder = std::function<std::string(std::string_view)>;
+    std::string structuredSuggestion(const std::string& prompt, std::string_view input, int budget,
+                                    const SuggestionDecoder& decode);
     class Request final {
     public:
         ~Request();
@@ -50,7 +62,7 @@ public:
         friend class RuntimeGenerations;
         explicit Request(RuntimeGenerations& owner);
         RuntimeGenerations& owner_;
-        std::unique_lock<std::mutex> lock_;
+        std::unique_lock<std::timed_mutex> lock_;
         std::shared_ptr<const RuntimeGeneration> generation_;
         bool processed_ = false;
     };
@@ -58,17 +70,22 @@ public:
     GenerationResult process(std::string_view input, bool execute = false, std::string source = "text");
     std::vector<ExecutionEvent> history() const;
     bool modelReady() const { return ready_.load(); }
+    int contextTokens() const { return contextTokens_.load(); }
     bool busy() const { return busy_.load(); }
     void stop() { stopping_ = true; }
 private:
     friend class Request;
     std::atomic<bool> ready_{false}, busy_{false}, stopping_{false};
+    std::atomic<int> contextTokens_{-1};
     std::uint64_t nextGeneration_ = 1, nextEvent_ = 1;
     mutable std::mutex historyMutex_;
     std::deque<ExecutionEvent> history_;
     ContextModel& model_;
     std::shared_ptr<const RuntimeGeneration> active_;
     // Synchronous RKLLM: finish admitted old requests before context refresh.
-    std::mutex operation_;
+    std::timed_mutex operation_;
+    std::map<std::string,int> admittedContexts_; // Bounded successful prompt admissions, never KV or persistent state.
+    int admitContext(const std::string& prompt);
+    std::unique_lock<std::timed_mutex> lockOperation();
 };
 }

@@ -12,6 +12,7 @@ const char* decodeStatusName(DecodeStatus status);
 struct DecodedResult {
     actions::CandidateResult value;
     DecodeStatus status = DecodeStatus::InvalidJson;
+    std::string reason;
     bool valid() const { return status == DecodeStatus::Action || status == DecodeStatus::Unsupported; }
 };
 // The read-only DomainView must outlive this decoder (owned by RuntimeConfig).

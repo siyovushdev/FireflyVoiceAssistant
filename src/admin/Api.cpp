@@ -1,6 +1,8 @@
 #include "firefly/admin/Api.h"
 #include "firefly/config/ConfigLoader.h"
+#include "firefly/config/ConfigValidator.h"
 #include "Json.h"
+#include "firefly/admin/AdminDraft.h"
 #include <atomic>
 #include <iostream>
 #include <mutex>
@@ -36,7 +38,7 @@ std::shared_ptr<const RuntimeGeneration> candidate(const Json& root) {
     catch (const config::ConfigError&) { throw; }
     catch (const std::exception& error) {
         std::cerr << "Admin generation validation: " << error.what() << '\n';
-        throw ApiError(422, "invalid_runtime_domain", "", "Domain is ambiguous, lacks a required light target, or exceeds the LLM context resource limit.");
+        throw ApiError(422, "invalid_runtime_domain", "", "Domain is ambiguous or exceeds the LLM context resource limit.");
     }
 }
 }
@@ -100,7 +102,9 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
     int status = 200;
     Json reply;
     try {
-        const std::map<std::string, std::string> routes{{"/api/devices/state", "GET"}, {"/api/executions", "GET"}, {"/api/status", "GET"}, {"/api/config", "GET PUT"},
+        const std::map<std::string, std::string> routes{{"/api/admin/plan", "POST"}, {"/api/admin/action-draft", "POST"}, {"/api/admin/templates", "GET"}, {"/api/admin/draft", "POST"}, {"/api/config/migrate", "POST"}, {"/api/admin/id", "POST"}, {"/api/admin/suggest", "POST"}, {"/api/config/diff", "POST"},
+            {"/api/config/export", "GET"}, {"/api/config/import", "POST"}, {"/api/config/revision", "POST"},
+            {"/api/config/restore-candidate", "POST"}, {"/api/dashboard", "GET"}, {"/api/devices/state", "GET"}, {"/api/executions", "GET"}, {"/api/status", "GET"}, {"/api/config", "GET PUT"},
             {"/api/config/active", "GET"}, {"/api/config/validate", "POST"}, {"/api/config/apply", "POST"},
             {"/api/config/revisions", "GET"}, {"/api/config/restore", "POST"}, {"/api/config/reconcile", "POST"}, {"/api/test-command", "POST"}};
         const auto route = routes.find(std::string(path));
@@ -108,9 +112,82 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
         if ((" " + route->second + " ").find(" " + std::string(method) + " ") == std::string::npos)
             throw ApiError(405, "method_not_allowed", "", "HTTP method is not supported for this endpoint.");
         if (method == "GET" && !body.empty()) throw std::invalid_argument("Unexpected body");
-        Json request = method == "GET" ? Json::object() : parseMessage(body);
+        Json request = method == "GET" ? Json::object() : parseMessage(body,true);
         const auto observation = method == "GET" ? impl_->runtime.observe() : std::string{};
-        if (path == "/api/devices/state" || path == "/api/executions") {
+        if (path == "/api/admin/plan" || path == "/api/admin/action-draft") {
+            if (path == "/api/admin/plan") { members(request,{"text","configuration"}); request["method"] = "plan"; }
+            else { members(request,{"name","target","configuration"}); request["method"] = "action_draft"; }
+            (void)config::ConfigLoader::fromJson(request.at("configuration").dump());
+            reply = impl_->invoke(request);if(!reply.value("ok",false))status=422;
+        } else if (path == "/api/admin/templates") {
+            reply = {{"ok",true},{"templates",Json::parse(templatesJson())}};
+        } else if (path == "/api/config/migrate") {
+            members(request, {"configuration"});
+            const auto old = config::ConfigLoader::fromJson(request.at("configuration").dump());
+            const auto migrated = config::ConfigValidator::validate(config::migrateV2(old->configuration()));
+            reply = describe(migrated); reply["ok"] = true; reply["saved"] = false; reply["applied"] = false;
+            reply["from_version"] = old->configuration().schemaVersion;
+        } else if (path == "/api/admin/draft") {
+            members(request, {"entity","name"});
+            (void)deterministicId(request.at("entity").get<std::string>(),request.at("name").get<std::string>());
+            request["method"] = "draft"; reply = impl_->invoke(request);
+            if (!reply.value("ok",false)) status = 422;
+        } else if (path == "/api/admin/id") {
+            members(request, {"category","name","occupied"});
+            const auto occupied = request.at("occupied").get<std::set<std::string>>();
+            if (occupied.size() > 8192) throw std::invalid_argument("Too many IDs");
+            reply = {{"ok",true},{"id",deterministicId(request.at("category").get<std::string>(),request.at("name").get<std::string>(),occupied)},{"algorithm","transliteration_v1"}};
+        } else if (path == "/api/admin/suggest") {
+            members(request, {"entity","name"});
+            (void)deterministicId(request.at("entity").get<std::string>(),request.at("name").get<std::string>());
+            request["method"] = "suggest"; reply = impl_->invoke(request);
+            if (!reply.value("ok",false)) status = 422;
+        } else if (path == "/api/config/export") {
+            reply = Json::parse(impl_->store.current()->canonicalJson());
+        } else if (path == "/api/config/import") {
+            members(request, {"document"});
+            const auto imported = config::ConfigLoader::fromJson(request.at("document").get<std::string>());
+            RuntimeGeneration admission(imported);
+            reply = describe(imported);
+            reply["ok"] = true; reply["saved"] = false; reply["applied"] = false;
+        } else if (path == "/api/config/diff") {
+            members(request, {"configuration","base"});
+            const auto next = config::ConfigLoader::fromJson(request.at("configuration").dump());
+            Json previous;
+            if (request.at("base") == "stored") previous = Json::parse(impl_->store.current()->canonicalJson());
+            else if (request.at("base") == "active") {
+                const auto live = impl_->runtime.observe();
+                std::lock_guard<std::mutex> lock(impl_->state);
+                const auto active = live.empty() ? impl_->active : parseMessage(live).at("active");
+                if (active.is_null()) {
+                    // Initial activation/recovery must remain accessible when no
+                    // model generation has ever been admitted. Show all entities.
+                    previous = Json::parse(next->canonicalJson());
+                    for (const auto* key : {"rooms","devices","actions","bindings"}) previous[key] = Json::array();
+                    for (const auto* key : {"system","safety","compatibility"}) previous[key] = nullptr;
+                } else previous = active.at("configuration");
+            } else throw std::invalid_argument("Unknown diff base");
+            reply = {{"ok",true},{"changes",Json::parse(configurationDiff(previous.dump(),next->canonicalJson()))}};
+            if (request.at("base") == "active") {
+                const auto state = impl_->invoke({{"method","state_diff"},{"configuration",Json::parse(next->canonicalJson())}});
+                if (state.value("ok",false)) { reply["state_reconciliation"] = state;for(const auto& change:state.at("changes"))reply["changes"].push_back(change); }
+            }
+        } else if (path == "/api/config/revision" || path == "/api/config/restore-candidate") {
+            const bool restore = path == "/api/config/restore-candidate";
+            members(request, restore ? std::set<std::string>{"revision","expected"} : std::set<std::string>{"revision"});
+            if (!request.at("revision").is_number_integer()) throw std::invalid_argument("Integer revision required");
+            const auto number = request.at("revision").get<std::int64_t>();
+            reply = describe(restore ? impl_->store.restoreCandidate(number,expected(request)) : impl_->store.revision(number));
+            reply["ok"] = true; reply["saved"] = false; reply["applied"] = false;
+        } else if (path == "/api/dashboard") {
+            const auto live = observation.empty() ? impl_->invoke({{"method","observe"}}) : parseMessage(observation);
+            const auto stored = impl_->store.current();
+            const bool pending = live["active"].is_null() || live["active"]["hash"] != stored->contentHash();
+            reply = {{"ok",true},{"simple",{{"ready",live["model_ready"]},{"busy",live.value("runtime_busy",false)},
+                {"voice",live.value("voice","disabled")},{"executor","mock"},{"devices",live["devices"].size()},
+                {"pending_changes",pending}}},{"advanced",live}};
+            reply["advanced"]["stored_revision"] = stored->configuration().revision;
+        } else if (path == "/api/devices/state" || path == "/api/executions") {
             const auto live = observation.empty() ? impl_->invoke({{"method","observe"}}) : parseMessage(observation);
             const auto key = path == "/api/devices/state" ? "devices" : "executions";
             reply = {{"ok",true},{key,live.at(key)},{"active",live.at("active")}};
@@ -127,7 +204,7 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
                 reply["worker_pid"] = live["worker_pid"];
                 reply["active"] = live["active"].is_null() ? Json(nullptr) : Json{{"revision",live["active"]["revision"]},
                     {"hash",live["active"]["hash"]},{"generation_id",live["active"]["generation_id"]}};
-                for (const auto* key : {"voice","microphone","executor","last_command"}) reply[key] = live[key];
+                for (const auto* key : {"voice","microphone","executor","last_command","last_voice","uptime_seconds","context_tokens","context_limit","build"}) reply[key] = live[key];
                 reply["device_count"] = live["devices"].size();
             }
             reply["needs_apply"] = !reply.contains("stored") || reply["active"].is_null() || reply["stored"]["hash"] != reply["active"]["hash"];
@@ -160,7 +237,7 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
             if (!reply.value("ok", false)) status = 422;
         } else if (path == "/api/config/revisions") {
             reply = {{"ok", true}, {"revisions", Json::array()}};
-            for (const auto& entry : impl_->store.revisions()) reply["revisions"].push_back({{"revision", entry.revision}, {"hash", entry.hash}});
+            for (const auto& entry : impl_->store.revisions()) reply["revisions"].push_back({{"revision", entry.revision}, {"hash", entry.hash},{"timestamp_ms",entry.timestampMs}});
         } else if (path == "/api/config/restore") {
             members(request, {"revision", "expected"});
             if (!request["revision"].is_number_integer()) throw std::invalid_argument("Invalid revision");

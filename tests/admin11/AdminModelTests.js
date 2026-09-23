@@ -1,0 +1,67 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
+const root=process.argv[2],M=require(path.join(root,'src/admin/web/admin-model.js')),base=JSON.parse(fs.readFileSync(path.join(root,'config/current-m4.json')));
+let checks=0;const check=(x,msg)=>{checks++;assert.ok(x,msg);};
+const d=M.device('Конвейер подачи №2','device_conveyor_2',base);
+check(M.wizardErrors(d,'device',base).length===0,'generic wizard');
+const proposed={type:'conveyor',aliases:['второй конвейер'],mentions:[],locations:[],capabilities:['start','stop']};
+const suggested=M.suggestion(d,proposed,'device');
+check(suggested.metadata.type==='conveyor' && suggested.action_ids.length===0,'AI advisory never permissions');
+check(d.metadata.type==='generic','suggestion no source mutation');
+const light=M.device('Свет','device_new',base,'light');check(M.wizardErrors(light,'device',base).length===0,'template from candidate');
+light.room_id='unknown';check(M.wizardErrors(light,'device',base).length===1,'wizard rejects missing location');
+light.room_id='room_kitchen';light.id='device_kitchen_light';check(M.wizardErrors(light,'device',base).length===1,'ID collision');
+const location=M.location('Цех','location_tsekh');location.metadata.container=true;
+check(M.wizardErrors(location,'location',base).length===0,'grouping location');
+location.name='Участок';check(location.id==='location_tsekh','rename stable');
+const error=M.humanError({code:'ambiguous_alias',path:'/rooms/2/speech/mentions/3'},base);check(error.includes('зал') && error.includes('Гостиная'),'human alias conflict');
+check(M.humanError({code:'invalid_ai_response'},base).includes('Конфигурация не изменена'),'human AI error');
+check(M.humanError({code:'ai_unavailable'},base).includes('ручное'),'manual AI fallback');
+const action={input:'команда',result:{actionId:'action_set_brightness',targetId:'device_kitchen_light',arguments:{brightness:40}},safety:'PASS',execution:null};
+check(M.commandSummary(action,base).execution.includes('Не выполнялось'),'preview human result');
+check(M.commandSummary(action,base).device==='Свет на кухне','human names');
+action.execution={success:true};check(M.commandSummary(action,base).execution==='Выполнено','execute result');
+check(!M.commandSummary({result:{unsupported:true},safety:'REJECT'},base).understood,'unsafe result');
+check(M.stateText({speed:{value:3,unit:'m/s'}}).includes('3'),'unknown typed states graceful');
+const changes=[{entity:'location',change:'added',name:'Цех',after:location,before:null}];check(M.diffLines(changes,base)[0]==='+ Зона: Цех','human addition');
+const before=base.actions[0],after=M.clone(before);after.parameters[0].minimum=10;after.parameters[0].maximum=90;
+const diff=M.diffLines([{entity:'capability',change:'changed',name:after.name,before,after}],base).join('\n');check(diff.includes('10')&&diff.includes('90')&&diff.includes('→'),'human range diff');
+check(M.constraintErrors({minimum:90,maximum:10}).length===1,'inverted range rejected');
+check(M.constraintErrors({minimum:0,maximum:120}).length===1,'range bounds');
+const custom=M.constrainedAction(M.device('Цех','device_workshop',base,'light'),{minimum:10,maximum:90},base,'action_private');
+check(custom.parameters[0].minimum===10 && base.actions[0].parameters[0].minimum===0,'private range preserves shared capability');
+check(custom.id==='action_private','private stable action ID');
+const metaBefore=M.clone(location),metaAfter=M.clone(location);metaBefore.metadata.type='workshop';metaAfter.metadata.type='greenhouse';
+check(M.diffLines([{entity:'location',change:'changed',name:'Зона',before:metaBefore,after:metaAfter}],base).join(' ').includes('greenhouse'),'metadata type diff visible');
+check(M.diffLines([{entity:'location',change:'added',name:'Зона',before:null,after:{...location,speech:{mentions:['участке'],locations:['на участке']}}}],base).join(' ').includes('на участке'),'new aliases included in Apply review');
+assert.throws(()=>M.decodeImport(new Uint8Array([0xff])));checks++;
+check(M.decodeImport(new Uint8Array([0xef,0xbb,0xbf,123,125])).charCodeAt(0)===0xfeff,'BOM preserved for strict server rejection');
+console.log(`PASS ${checks} draft/UI model checks`);
+
+for(const raw of ["9007199254740993","0.12345678901234567","1e-400","1e400",""])assert.throws(()=>M.scalarNumber(raw));
+assert.equal(M.scalarNumber("35"),35);assert.equal(M.scalarNumber("0.125"),0.125);
+
+// Simple answers create the exact existing schema, without template-specific execution.
+const target={id:'device_doser',kind:'generic',state:[]},definition={id:'action_dose',name:'Установить дозу',enabled:true,description:'Доза виртуального дозатора.',speech_aliases:['установи дозу']};
+const answer={needsValue:true,required:true,fieldId:'',property:{name:'Доза',type:'number',description:'Количество реагента',required:true,unit:'мл',minimum:0,maximum:25}};
+const compiled=M.simpleAction(definition,target,answer);
+assert.equal(compiled.action.operation,'mock.assign.v1');assert.equal(compiled.action.parameters[0].type,'number');assert.equal(compiled.action.parameters[0].unit,'мл');
+assert.equal(compiled.added.id,'value_1');assert.equal(compiled.added.initial,0);assert.deepEqual(compiled.action.assignments,[{field:'value_1',argument:'value_1'}]);
+assert.deepEqual(target.state,[]);assert.equal(definition.parameters,undefined);
+assert.ok(M.effectLines(compiled.action,{...target,state:[compiled.added]}).join(' ').includes('Доза → указанное значение'));
+target.state.push(compiled.added);
+const next=M.simpleAction(definition,target,{...answer,needsValue:false,fixed:12.5});assert.equal(next.added.id,'value_2');assert.deepEqual(next.action.parameters,[]);
+const fixed=M.simpleAction(definition,target,{...answer,fieldId:'value_1',needsValue:false,fixed:12.5});assert.equal(fixed.added,null);assert.deepEqual(fixed.action.assignments,[{field:'value_1',value:12.5}]);
+for(const property of [{type:'boolean'},{type:'integer',minimum:1,maximum:9},{type:'string',min_length:0,max_length:16},{type:'enum',values:['normal','eco']}]) {
+    const typed=M.simpleAction(definition,{kind:'generic',state:[]},{...answer,property:{...property,name:'Характеристика',description:'',unit:'',required:true}});
+    assert.equal(typed.action.parameters[0].type,property.type);assert.equal(typed.added.type,property.type);
+    assert.equal(typed.action.parameters[0].initial,undefined);
+}
+for(const p of [{type:'integer',minimum:1,maximum:999},{type:'number',minimum:0.1,maximum:2.5,unit:'ml'},{type:'enum',values:['forward','reverse']},{type:'string',min_length:1,max_length:16},{type:'boolean'}])assert.ok(M.constraintText(p));
+assert.deepEqual(M.executorContract({actionId:'action_dose',targetId:'device_doser',arguments:{value_1:12.5}}),{actionId:'action_dose',targetId:'device_doser',arguments:{value_1:12.5}});
+assert.equal(M.executorContract({unsupported:true}),null);
+assert.equal(M.stateText({power:true},{state:[{id:'power',name:'Питание',type:'boolean'}]}),'Питание: Включено');
+assert.ok(!M.humanError({code:'invalid_ai_response',message:'[json.exception.parse_error.101]'},base).includes('parse_error'));
+const errorConfig={devices:[{state:[{name:'Громкость',type:'integer',minimum:0,maximum:100,unit:'percent'}]}]};
+assert.ok(M.humanError({code:'schema_error',path:'/devices/0/state/0/minimum'},errorConfig).includes('Громкость: целое число от 0 до 100 %'));
+console.log('PASS Simple action compiler, generic constraints, canonical contract and human presentation');

@@ -18,6 +18,7 @@ struct Stub {
     int refreshBootstrapTokens = 565;
     bool failRestoration = false;
     std::vector<std::string> events;
+    std::vector<int> outputBudgets;
 };
 extern Stub stub;
 }

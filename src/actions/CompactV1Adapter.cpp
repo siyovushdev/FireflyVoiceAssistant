@@ -69,7 +69,9 @@ CompactEncodeResult CompactV1Adapter::encode(const GenericAction& action) const 
         }
     }
     if (!code) return CompactV1Error::Unrepresentable;
-    const auto value = action.arguments().at(definition.parameters.at(0).id).value();
+    const auto& argument = action.arguments().at(definition.parameters.at(0).id);
+    if (!std::holds_alternative<std::int64_t>(argument.data())) return CompactV1Error::InvalidArguments;
+    const auto value = argument.value();
     // int64 -> decimal -> frozen decoder checks the protocol envelope without
     // truncation, narrowing, a duplicated 0..100 check or a configured-range check.
     const auto legacy = ActionValidator::validate(std::string("L|") + *code + "|" + std::to_string(value));

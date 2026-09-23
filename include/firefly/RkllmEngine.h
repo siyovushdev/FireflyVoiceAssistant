@@ -20,6 +20,11 @@ struct RkllmConfig {
     std::chrono::milliseconds requestTimeout{30000};
     std::function<void(std::string_view)> progress;
 };
+struct InferenceMetrics {
+    int contextTokens = 0, inputTokens = 0, outputTokens = 0, outputBudget = 128;
+    double wallMs = 0;
+    std::string finish = "not_run";
+};
 // Owns one synchronous runtime. Requests are serialized; do not destroy while in use.
 class RkllmEngine final : public LlmEngine {
 public:
@@ -30,8 +35,10 @@ public:
     std::string infer(std::string_view original) override;
     // Serialized full KV/context refresh. Restores the old context on failure.
     // A failed restoration makes inference unavailable until engine restart.
-    void setSystemPrompt(std::string prompt);
+    void setSystemPrompt(std::string prompt, int responseTokens = RkllmResponseTokens);
     bool ready() const;
+    int contextTokens() const;
+    InferenceMetrics metrics() const;
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

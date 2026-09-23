@@ -48,7 +48,7 @@ int main(int argc, char** argv) { try {
     changed=runtime.domain.snapshot()->configuration();auto duplicate=changed.devices.front();duplicate.id="test_extra_light";
     if(duplicate.kind!=config::DeviceKind::Light)duplicate=changed.devices.at(runtime.domain.snapshot()->deviceIndex().at("device_kitchen_light"));
     duplicate.id="test_extra_light";changed.devices.push_back(duplicate);
-    bool failed=false;try { Runtime ambiguous(config::ConfigValidator::validate(changed)); } catch(const std::invalid_argument&) {failed=true;}
+    bool failed=false;try { Runtime ambiguous(config::ConfigValidator::validate(changed)); } catch(const config::ConfigError& error) {failed=error.code=="ambiguous_target";}
     check(failed,"two light targets for one grammar location cannot select first target");
     return finish("ParserRoomCutover");
 } catch(const std::exception& e) {std::cerr<<e.what()<<'\n';return 1;} }

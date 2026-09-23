@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include "firefly/actions/GenericAction.h"
 
 namespace firefly::config {
 inline constexpr std::size_t MaxConfigBytes = 256 * 1024;
@@ -21,27 +22,53 @@ public:
 
 struct Identity { std::string id, name; };
 struct System : Identity { std::string locale, interpretationProfile; };
-struct Room : Identity { std::vector<std::string> mentions, locations; };
-enum class DeviceKind { Unknown, Light, EntranceDoor };
-enum class Operation { Unknown, SetBrightness, OpenEntranceDoor };
-// The only v1 argument contract is a required integer percentage. Other
-// parameter types/units cannot be represented or injected into this snapshot.
+// Location is universal; Room / rooms / roomId remain v1 wire/source compatibility names.
+struct EntityMetadata {
+    std::string type, description, origin;
+    bool confirmed = false;
+    std::vector<std::string> aliases;
+    std::optional<std::string> parentId;
+    bool container = false;
+    bool present = false;
+};
+struct Location : Identity {
+    std::vector<std::string> mentions, locations;
+    EntityMetadata metadata;
+};
+using Room = Location;
+enum class DeviceKind { Unknown, Light, EntranceDoor, Generic };
+enum class Operation { Unknown, SetBrightness, OpenEntranceDoor, AssignState };
+// v1 keeps its required integer percentage; v2 admits explicit scalar contracts.
 struct Parameter : Identity {
     std::int64_t minimum = 0, maximum = 100;
-    static constexpr const char* type = "integer";
-    static constexpr const char* unit = "percent";
-    static constexpr bool required = true;
+    std::string type = "integer", unit = "percent", description;
+    bool required = true;
+    double numberMinimum = 0, numberMaximum = 100;
+    std::size_t minLength = 0, maxLength = 128;
+    std::vector<std::string> values;
+};
+struct StateField : Parameter { actions::Scalar initial{std::int64_t{0}}; };
+struct Assignment {
+    std::string field;
+    std::optional<std::string> argument;
+    std::optional<actions::Scalar> value;
 };
 struct ActionDefinition : Identity {
     Operation operation = Operation::Unknown;
     bool enabled = false;
     std::vector<Parameter> parameters;
+    std::string description, origin;
+    std::vector<std::string> aliases;
+    std::vector<Assignment> assignments;
 };
 struct Device : Identity {
+    EntityMetadata metadata;
     DeviceKind kind = DeviceKind::Unknown;
     std::optional<std::string> roomId;
     bool enabled = false;
     std::vector<std::string> actionIds;
+    std::vector<std::string> spokenAliases;
+    std::vector<StateField> state;
 };
 struct DenyAction : Identity { std::string deviceId, actionId; };
 struct LegacyMapping {
@@ -92,4 +119,7 @@ private:
     std::string canonical_, hash_;
 };
 using Catalog = std::shared_ptr<const ValidatedCatalog>;
+bool accepts(const Parameter& schema, const actions::Scalar& value);
+// Explicit v1 -> v2 candidate migration. Does not write a store or change IDs.
+Configuration migrateV2(Configuration value);
 }

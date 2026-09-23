@@ -5,6 +5,8 @@
 #include "ConfigSchema.h"
 #include <algorithm>
 #include <regex>
+#include <cmath>
+#include "firefly/actions/ScalarJson.h"
 
 namespace firefly::config {
 ConfigError::ConfigError(std::string codeValue, std::string pathValue, std::string message)
@@ -12,7 +14,8 @@ ConfigError::ConfigError(std::string codeValue, std::string pathValue, std::stri
 Catalog ConfigLoader::fromJson(std::string_view bytes) {
     const auto document = detail::parseDocument(bytes);
     detail::validateStructure(document);
-    return ConfigValidator::validate(detail::decode(document));
+    try { return ConfigValidator::validate(detail::decode(document)); }
+    catch (const detail::Json::exception& error) { throw ConfigError("schema_error", "", error.what()); }
 }
 Catalog ConfigLoader::fromFile(const std::string& path) { return fromJson(detail::readFile(path)); }
 }
@@ -31,6 +34,7 @@ bool typeMatches(const Json& value, const std::string& type) {
     if (type == "boolean") return value.is_boolean();
     if (type == "null") return value.is_null();
     if (type == "integer") return value.is_number_integer();
+    if (type == "number") return value.is_number();
     throw std::logic_error("Unsupported bundled schema type");
 }
 // Deliberately limited to the vocabulary used by the bundled v1 schema.
@@ -48,6 +52,7 @@ void checkSchema(const Json& value, const Json& schema, const Json& root, const 
         bool valid = false;
         if (types.is_string()) valid = typeMatches(value, types.get<std::string>());
         else for (const auto& type : types) valid = typeMatches(value, type.get<std::string>()) || valid;
+        if (!valid && types == "integer" && value.is_number_float()) throw ConfigError("integer_required", path, "Integer token required");
         if (!valid) fail("Wrong JSON type");
     }
     if (schema.contains("const") && value != schema.at("const")) fail("Unsupported constant");
@@ -84,16 +89,35 @@ void checkSchema(const Json& value, const Json& schema, const Json& root, const 
         }
     }
     if (value.is_number()) {
-        if (!value.is_number_integer()) fail("Integer token required");
-        if (value.is_number_unsigned() && value.get<std::uint64_t>() > static_cast<std::uint64_t>(MaxRevision))
-            fail("Integer overflow/limit");
-        const auto number = value.get<std::int64_t>();
-        if ((schema.contains("minimum") && number < schema.at("minimum").get<std::int64_t>()) ||
-            (schema.contains("maximum") && number > schema.at("maximum").get<std::int64_t>())) fail("Integer outside schema bounds");
+        const auto number = value.get<double>();
+        if (!std::isfinite(number) || number < -static_cast<double>(MaxRevision) || number > static_cast<double>(MaxRevision))
+            fail("Number outside exact browser-safe bounds");
+        if ((schema.contains("minimum") && number < schema.at("minimum").get<double>()) ||
+            (schema.contains("maximum") && number > schema.at("maximum").get<double>())) fail("Number outside schema bounds");
     }
 }
 Identity identity(const Json& value) { return {value.at("id").get<std::string>(), value.at("name").get<std::string>()}; }
 Json identityJson(const Identity& value) { return {{"id", value.id}, {"name", value.name}}; }
+EntityMetadata metadata(const Json& item) {
+    EntityMetadata result;
+    if (!item.contains("metadata")) return result;
+    const auto& m = item.at("metadata"); result.present = true;
+    result.origin = m.value("origin", ""); result.confirmed = m.value("confirmed", false);
+    result.type = m.value("type", ""); result.description = m.value("description", "");
+    result.aliases = m.value("aliases", std::vector<std::string>{});
+    if (m.contains("parent_id") && !m.at("parent_id").is_null()) result.parentId = m.at("parent_id").get<std::string>();
+    result.container = m.value("container", false);
+    return result;
+}
+void encodeMetadata(Json& item, const EntityMetadata& m, bool location) {
+    if (!location && (m.parentId || m.container)) throw ConfigError("schema_error", "/devices/metadata", "Device metadata cannot contain hierarchy fields");
+    if (!m.present && m.type.empty() && m.description.empty() && m.aliases.empty() && !m.parentId && !m.container && m.origin.empty() && !m.confirmed) return;
+    auto& value = item["metadata"];
+    value = {{"type", m.type}, {"description", m.description}, {"aliases", m.aliases}};
+    if (!m.origin.empty()) { value["origin"] = m.origin; value["confirmed"] = m.confirmed; }
+    if (location) { value["parent_id"] = m.parentId ? Json(*m.parentId) : Json(nullptr); value["container"] = m.container; }
+}
+
 }
 Json parseDocument(std::string_view bytes) {
     if (bytes.size() > MaxConfigBytes) throw ConfigError("size_limit", "", "Configuration exceeds 256 KiB");
@@ -102,6 +126,7 @@ Json parseDocument(std::string_view bytes) {
         throw ConfigError("invalid_text", "", "Raw NUL/control byte forbidden");
     std::map<int, std::set<std::string>> keys;
     try {
+        actions::checkNumericLexemes(bytes);
         return Json::parse(bytes.begin(), bytes.end(), [&](int depth, Json::parse_event_t event, Json& value) {
             using Event = Json::parse_event_t;
             if ((event == Event::object_start || event == Event::array_start) && depth >= 16)
@@ -115,19 +140,40 @@ Json parseDocument(std::string_view bytes) {
                     throw ConfigError("duplicate_key", "/" + pointerToken(key), "Duplicate JSON member at depth " + std::to_string(depth));
             }
             if (event == Event::value && value.is_string()) checkText(value.get_ref<const std::string&>(), "");
-            if (event == Event::value && value.is_number_float())
-                throw ConfigError("integer_required", "", "Decimal/exponent/overflow numbers are unsupported in v1");
+
             return true;
         });
     } catch (const Json::exception& error) {
         throw ConfigError("malformed_json", "", error.what());
-    }
+    } catch (const std::invalid_argument& error) { throw ConfigError("numeric_range", "", error.what()); }
 }
 void validateStructure(const Json& value) {
-    if (value.is_object() && value.contains("schema_version") && value.at("schema_version").is_number_integer() && value.at("schema_version") != 1)
-        throw ConfigError("unsupported_version", "/schema_version", "Only schema version 1 is supported");
-    static const auto schema = Json::parse(SchemaJson);
+    const auto version = value.is_object() && value.contains("schema_version") ? value.at("schema_version") : Json(nullptr);
+    if (!version.is_null() && version.is_number_integer() && version != 1 && version != 2)
+        throw ConfigError("unsupported_version", "/schema_version", "Supported schema versions: 1, 2");
+    static const auto v1 = Json::parse(SchemaJson), v2 = Json::parse(SchemaV2Json);
+    const auto& schema = version == 2 ? v2 : v1;
     checkSchema(value, schema, schema, "");
+}
+Parameter decodeParameter(const Json& entry) {
+    Parameter p; static_cast<Identity&>(p) = identity(entry);
+    p.type = entry.at("type"); p.required = entry.at("required"); p.unit = entry.at("unit");
+    p.description = entry.value("description", "");
+    if (p.type == "integer") {
+        if (!entry.contains("minimum") || !entry.contains("maximum") || !entry.at("minimum").is_number_integer() || !entry.at("maximum").is_number_integer())
+            throw ConfigError("integer_required", "/parameters", "Integer bounds required");
+        p.minimum = entry.at("minimum"); p.maximum = entry.at("maximum");
+    } else if (p.type == "number") {
+        p.numberMinimum = entry.at("minimum"); p.numberMaximum = entry.at("maximum");
+    } else if (p.type == "string") {
+        p.minLength = entry.at("min_length"); p.maxLength = entry.at("max_length");
+    } else if (p.type == "enum") p.values = entry.at("values").get<std::vector<std::string>>();
+    for (const auto* key : {"minimum", "maximum", "min_length", "max_length", "values"}) {
+        const bool allowed = std::string(key) == "values" ? p.type == "enum" :
+            std::string(key).find("length") != std::string::npos ? p.type == "string" : p.type == "integer" || p.type == "number";
+        if (!allowed && entry.contains(key)) throw ConfigError("schema_error", "/parameters/" + std::string(key), "Constraint not applicable to scalar type");
+    }
+    return p;
 }
 Configuration decode(const Json& value) {
     Configuration result;
@@ -138,25 +184,40 @@ Configuration decode(const Json& value) {
     result.system.locale = system.at("locale"); result.system.interpretationProfile = system.at("interpretation_profile");
     for (const auto& item : value.at("rooms")) {
         Room room; static_cast<Identity&>(room) = identity(item);
+        room.metadata = metadata(item);
         room.mentions = item.at("speech").at("mentions").get<std::vector<std::string>>();
         room.locations = item.at("speech").at("locations").get<std::vector<std::string>>();
         result.rooms.push_back(std::move(room));
     }
     for (const auto& item : value.at("devices")) {
         Device device; static_cast<Identity&>(device) = identity(item);
-        device.kind = item.at("kind") == "light" ? DeviceKind::Light : DeviceKind::EntranceDoor;
+        device.metadata = metadata(item);
+        device.kind = item.at("kind") == "light" ? DeviceKind::Light : item.at("kind") == "generic" ? DeviceKind::Generic : DeviceKind::EntranceDoor;
         if (!item.at("room_id").is_null()) device.roomId = item.at("room_id").get<std::string>();
         device.enabled = item.at("enabled"); device.actionIds = item.at("action_ids").get<std::vector<std::string>>();
+        device.spokenAliases = item.at("spoken_aliases").get<std::vector<std::string>>();
+        if (result.schemaVersion == 2) for (const auto& entry : item.at("state")) {
+            StateField field; static_cast<Parameter&>(field) = decodeParameter(entry);
+            field.initial = actions::decodeTypedScalar(entry.at("initial"), field.type); device.state.push_back(std::move(field));
+        }
         result.devices.push_back(std::move(device));
     }
     for (const auto& item : value.at("actions")) {
         ActionDefinition action; static_cast<Identity&>(action) = identity(item);
-        action.operation = item.at("operation") == "light.set_brightness.v1" ? Operation::SetBrightness : Operation::OpenEntranceDoor;
+        action.operation = item.at("operation") == "light.set_brightness.v1" ? Operation::SetBrightness : item.at("operation") == "mock.assign.v1" ? Operation::AssignState : Operation::OpenEntranceDoor;
         action.enabled = item.at("enabled");
         for (const auto& entry : item.at("parameters")) {
-            Parameter parameter; static_cast<Identity&>(parameter) = identity(entry);
-            parameter.minimum = entry.at("minimum"); parameter.maximum = entry.at("maximum");
-            action.parameters.push_back(std::move(parameter));
+            action.parameters.push_back(decodeParameter(entry));
+        }
+        if (result.schemaVersion == 2) {
+            action.description = item.at("description"); action.origin = item.value("origin", "");
+            action.aliases = item.at("speech_aliases").get<std::vector<std::string>>();
+            for (const auto& entry : item.at("assignments")) {
+                Assignment assignment; assignment.field = entry.at("field");
+                if (entry.contains("argument")) assignment.argument = entry.at("argument").get<std::string>();
+                if (entry.contains("value")) assignment.value = actions::decodeScalar(entry.at("value"));
+                action.assignments.push_back(std::move(assignment));
+            }
         }
         result.actions.push_back(std::move(action));
     }
@@ -176,6 +237,7 @@ Configuration decode(const Json& value) {
 std::string operationName(Operation value) {
     switch (value) {
         case Operation::Unknown: break;
+        case Operation::AssignState: return "mock.assign.v1";
         case Operation::SetBrightness: return "light.set_brightness.v1";
         case Operation::OpenEntranceDoor: return "entrance_door.open.v1";
     }
@@ -185,9 +247,20 @@ std::string kindName(DeviceKind value) {
     switch (value) {
         case DeviceKind::Unknown: break;
         case DeviceKind::Light: return "light";
+        case DeviceKind::Generic: return "generic";
         case DeviceKind::EntranceDoor: return "entrance_door";
     }
     throw ConfigError("unsupported_kind", "/devices", "Unknown device kind enum");
+}
+Json encodeParameter(const Parameter& p, bool v2) {
+    auto entry = identityJson(p);
+    entry["type"] = p.type; entry["required"] = p.required; entry["unit"] = p.unit;
+    if (p.type == "integer") { entry["minimum"] = p.minimum; entry["maximum"] = p.maximum; }
+    if (p.type == "number") { entry["minimum"] = p.numberMinimum; entry["maximum"] = p.numberMaximum; }
+    if (p.type == "string") { entry["min_length"] = p.minLength; entry["max_length"] = p.maxLength; }
+    if (p.type == "enum") entry["values"] = p.values;
+    if (v2) entry["description"] = p.description;
+    return entry;
 }
 Json encode(const Configuration& value) {
     Json result = {{"schema_version", value.schemaVersion}, {"revision", value.revision}, {"retired_ids", value.retiredIds}};
@@ -197,22 +270,39 @@ Json encode(const Configuration& value) {
     for (const auto* key : {"rooms", "devices", "actions", "bindings"}) result[key] = Json::array();
     for (const auto& room : value.rooms) {
         auto item = identityJson(room); item["speech"] = {{"mentions", room.mentions}, {"locations", room.locations}};
+        encodeMetadata(item, room.metadata, true);
         result["rooms"].push_back(std::move(item));
     }
     for (const auto& device : value.devices) {
         auto item = identityJson(device);
         item["kind"] = kindName(device.kind); item["room_id"] = device.roomId ? Json(*device.roomId) : Json(nullptr);
-        item["enabled"] = device.enabled; item["action_ids"] = device.actionIds; item["spoken_aliases"] = Json::array();
+        item["enabled"] = device.enabled; item["action_ids"] = device.actionIds; item["spoken_aliases"] = device.spokenAliases;
+        if (value.schemaVersion == 2) {
+            item["state"] = Json::array();
+            for (const auto& field : device.state) {
+                auto entry = encodeParameter(field, true); entry["initial"] = actions::scalarJson(field.initial);
+                item["state"].push_back(std::move(entry));
+            }
+        }
+        encodeMetadata(item, device.metadata, false);
         result["devices"].push_back(std::move(item));
     }
     for (const auto& action : value.actions) {
         auto item = identityJson(action); item["operation"] = operationName(action.operation);
         item["enabled"] = action.enabled; item["parameters"] = Json::array(); item["speech_aliases"] = Json::object();
         for (const auto& parameter : action.parameters) {
-            auto entry = identityJson(parameter);
-            entry["type"] = "integer"; entry["required"] = true; entry["unit"] = "percent";
-            entry["minimum"] = parameter.minimum; entry["maximum"] = parameter.maximum;
-            item["parameters"].push_back(std::move(entry));
+            item["parameters"].push_back(encodeParameter(parameter, value.schemaVersion == 2));
+        }
+        if (value.schemaVersion == 2) {
+            if (!action.origin.empty()) item["origin"] = action.origin;
+            item["description"] = action.description; item["speech_aliases"] = action.aliases;
+            item["assignments"] = Json::array();
+            for (const auto& assignment : action.assignments) {
+                Json entry{{"field", assignment.field}};
+                if (assignment.argument) entry["argument"] = *assignment.argument;
+                if (assignment.value) entry["value"] = actions::scalarJson(*assignment.value);
+                item["assignments"].push_back(std::move(entry));
+            }
         }
         result["actions"].push_back(std::move(item));
     }

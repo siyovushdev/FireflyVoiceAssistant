@@ -1,14 +1,16 @@
 #pragma once
 #include <nlohmann/json.hpp>
+#include "firefly/actions/ScalarJson.h"
 #include <map>
 #include <set>
 #include <stdexcept>
 namespace firefly::admin {
 using Json = nlohmann::json;
 inline constexpr std::size_t MaxMessageBytes = 512 * 1024;
-inline Json parseMessage(std::string_view bytes) {
+inline Json parseMessage(std::string_view bytes, bool typedNumbers = false) {
     if (bytes.empty() || bytes.size() > MaxMessageBytes || bytes.substr(0, 3) == "\xef\xbb\xbf")
         throw std::invalid_argument("Invalid JSON message");
+    if (typedNumbers) actions::checkNumericLexemes(bytes);
     std::map<int, std::set<std::string>> keys;
     auto result = Json::parse(bytes.begin(), bytes.end(), [&](int depth, Json::parse_event_t event, Json& item) {
         using Event = Json::parse_event_t;

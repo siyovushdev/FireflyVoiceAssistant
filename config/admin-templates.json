@@ -1,0 +1,480 @@
+[
+  {
+    "id": "tv",
+    "name": "Телевизор (виртуальный)",
+    "type": "tv",
+    "aliases": [
+      "тв",
+      "телевизор",
+      "телевизоре",
+      "телевизора"
+    ],
+    "state": [
+      {
+        "id": "power",
+        "name": "Питание",
+        "type": "boolean",
+        "required": true,
+        "description": "Питание виртуального устройства.",
+        "unit": "",
+        "initial": false
+      },
+      {
+        "id": "volume",
+        "name": "Громкость",
+        "type": "integer",
+        "required": true,
+        "description": "Громкость виртуального устройства.",
+        "unit": "percent",
+        "minimum": 0,
+        "maximum": 100,
+        "initial": 0
+      },
+      {
+        "id": "channel",
+        "name": "Канал",
+        "type": "integer",
+        "required": true,
+        "description": "Канал виртуального устройства.",
+        "unit": "",
+        "minimum": 1,
+        "maximum": 999,
+        "initial": 1
+      }
+    ],
+    "actions": [
+      {
+        "id": "on",
+        "name": "Включить",
+        "operation": "mock.assign.v1",
+        "enabled": true,
+        "description": "Питание → Включено.",
+        "parameters": [],
+        "speech_aliases": [
+          "включи",
+          "включить",
+          "включите"
+        ],
+        "assignments": [
+          {
+            "field": "power",
+            "value": true
+          }
+        ]
+      },
+      {
+        "id": "off",
+        "name": "Выключить",
+        "operation": "mock.assign.v1",
+        "enabled": true,
+        "description": "Питание → Выключено.",
+        "parameters": [],
+        "speech_aliases": [
+          "выключи",
+          "выключить",
+          "выключите"
+        ],
+        "assignments": [
+          {
+            "field": "power",
+            "value": false
+          }
+        ]
+      },
+      {
+        "id": "volume",
+        "name": "Установить громкость",
+        "operation": "mock.assign.v1",
+        "enabled": true,
+        "description": "Меняет «Громкость» на указанное значение.",
+        "parameters": [
+          {
+            "id": "volume",
+            "name": "Громкость",
+            "type": "integer",
+            "required": true,
+            "description": "Желаемое значение «Громкость».",
+            "unit": "percent",
+            "minimum": 0,
+            "maximum": 100
+          }
+        ],
+        "speech_aliases": [
+          "установи громкость",
+          "поставь громкость"
+        ],
+        "assignments": [
+          {
+            "field": "volume",
+            "argument": "volume"
+          }
+        ]
+      },
+      {
+        "id": "channel",
+        "name": "Выбрать канал",
+        "operation": "mock.assign.v1",
+        "enabled": true,
+        "description": "Меняет «Канал» на указанное значение.",
+        "parameters": [
+          {
+            "id": "channel",
+            "name": "Канал",
+            "type": "integer",
+            "required": true,
+            "description": "Желаемое значение «Канал».",
+            "unit": "",
+            "minimum": 1,
+            "maximum": 999
+          }
+        ],
+        "speech_aliases": [
+          "включи канал",
+          "выбери канал",
+          "переключи канал"
+        ],
+        "assignments": [
+          {
+            "field": "channel",
+            "argument": "channel"
+          }
+        ]
+      }
+    ],
+    "noun": "телевизор"
+  },
+  {
+    "id": "switch",
+    "name": "Переключатель",
+    "type": "switch",
+    "aliases": [],
+    "state": [
+      {
+        "id": "power",
+        "name": "Питание",
+        "type": "boolean",
+        "required": true,
+        "description": "Питание виртуального устройства.",
+        "unit": "",
+        "initial": false
+      }
+    ],
+    "actions": [
+      {
+        "id": "on",
+        "name": "Включить",
+        "operation": "mock.assign.v1",
+        "enabled": true,
+        "description": "Питание → Включено.",
+        "parameters": [],
+        "speech_aliases": [
+          "включи",
+          "включить",
+          "включите"
+        ],
+        "assignments": [
+          {
+            "field": "power",
+            "value": true
+          }
+        ]
+      },
+      {
+        "id": "off",
+        "name": "Выключить",
+        "operation": "mock.assign.v1",
+        "enabled": true,
+        "description": "Питание → Выключено.",
+        "parameters": [],
+        "speech_aliases": [
+          "выключи",
+          "выключить",
+          "выключите"
+        ],
+        "assignments": [
+          {
+            "field": "power",
+            "value": false
+          }
+        ]
+      }
+    ],
+    "noun": "переключатель"
+  },
+  {
+    "id": "conveyor",
+    "name": "Конвейер (виртуальный)",
+    "type": "conveyor",
+    "aliases": [
+      "конвейер",
+      "конвейере"
+    ],
+    "state": [
+      {
+        "id": "running",
+        "name": "Работает",
+        "type": "boolean",
+        "required": true,
+        "description": "Работает виртуального устройства.",
+        "unit": "",
+        "initial": false
+      },
+      {
+        "id": "speed",
+        "name": "Скорость",
+        "type": "integer",
+        "required": true,
+        "description": "Скорость виртуального устройства.",
+        "unit": "percent",
+        "minimum": 0,
+        "maximum": 100,
+        "initial": 0
+      },
+      {
+        "id": "direction",
+        "name": "Направление",
+        "type": "enum",
+        "required": true,
+        "description": "Направление виртуального устройства.",
+        "unit": "",
+        "values": [
+          "forward",
+          "reverse"
+        ],
+        "initial": "forward"
+      }
+    ],
+    "actions": [
+      {
+        "id": "start",
+        "name": "Запустить",
+        "operation": "mock.assign.v1",
+        "enabled": true,
+        "description": "Работает → Да.",
+        "parameters": [],
+        "speech_aliases": [
+          "запусти",
+          "запустить"
+        ],
+        "assignments": [
+          {
+            "field": "running",
+            "value": true
+          }
+        ]
+      },
+      {
+        "id": "stop",
+        "name": "Остановить",
+        "operation": "mock.assign.v1",
+        "enabled": true,
+        "description": "Работает → Нет.",
+        "parameters": [],
+        "speech_aliases": [
+          "останови",
+          "остановить"
+        ],
+        "assignments": [
+          {
+            "field": "running",
+            "value": false
+          }
+        ]
+      },
+      {
+        "id": "speed",
+        "name": "Установить скорость",
+        "operation": "mock.assign.v1",
+        "enabled": true,
+        "description": "Меняет «Скорость» на указанное значение.",
+        "parameters": [
+          {
+            "id": "speed",
+            "name": "Скорость",
+            "type": "integer",
+            "required": true,
+            "description": "Желаемое значение «Скорость».",
+            "unit": "percent",
+            "minimum": 0,
+            "maximum": 100
+          }
+        ],
+        "speech_aliases": [
+          "установи скорость",
+          "поставь скорость"
+        ],
+        "assignments": [
+          {
+            "field": "speed",
+            "argument": "speed"
+          }
+        ]
+      },
+      {
+        "id": "direction",
+        "name": "Выбрать направление",
+        "operation": "mock.assign.v1",
+        "enabled": true,
+        "description": "Меняет «Направление» на указанное значение.",
+        "parameters": [
+          {
+            "id": "direction",
+            "name": "Направление",
+            "type": "enum",
+            "required": true,
+            "description": "Желаемое значение «Направление».",
+            "unit": "",
+            "values": [
+              "forward",
+              "reverse"
+            ]
+          }
+        ],
+        "speech_aliases": [
+          "выбери направление",
+          "установи направление"
+        ],
+        "assignments": [
+          {
+            "field": "direction",
+            "argument": "direction"
+          }
+        ]
+      }
+    ],
+    "noun": "конвейер"
+  },
+  {
+    "id": "numeric",
+    "name": "Числовой регулятор",
+    "type": "actuator",
+    "aliases": [],
+    "state": [
+      {
+        "id": "value",
+        "name": "Значение",
+        "type": "number",
+        "required": true,
+        "description": "Значение виртуального устройства.",
+        "unit": "",
+        "minimum": 0.0,
+        "maximum": 100.0,
+        "initial": 0.0
+      }
+    ],
+    "actions": [
+      {
+        "id": "value",
+        "name": "Задать значение",
+        "operation": "mock.assign.v1",
+        "enabled": true,
+        "description": "Меняет «Значение» на указанное значение.",
+        "parameters": [
+          {
+            "id": "value",
+            "name": "Значение",
+            "type": "number",
+            "required": true,
+            "description": "Желаемое значение «Значение».",
+            "unit": "",
+            "minimum": 0.0,
+            "maximum": 100.0
+          }
+        ],
+        "speech_aliases": [
+          "установи значение",
+          "задай значение"
+        ],
+        "assignments": [
+          {
+            "field": "value",
+            "argument": "value"
+          }
+        ]
+      }
+    ],
+    "noun": "регулятор"
+  },
+  {
+    "id": "enum",
+    "name": "Выбор режима",
+    "type": "actuator",
+    "aliases": [],
+    "state": [
+      {
+        "id": "mode",
+        "name": "Режим",
+        "type": "enum",
+        "required": true,
+        "description": "Режим виртуального устройства.",
+        "unit": "",
+        "values": [
+          "normal",
+          "eco"
+        ],
+        "initial": "normal"
+      }
+    ],
+    "actions": [
+      {
+        "id": "mode",
+        "name": "Выбрать режим",
+        "operation": "mock.assign.v1",
+        "enabled": true,
+        "description": "Меняет «Режим» на указанное значение.",
+        "parameters": [
+          {
+            "id": "mode",
+            "name": "Режим",
+            "type": "enum",
+            "required": true,
+            "description": "Желаемое значение «Режим».",
+            "unit": "",
+            "values": [
+              "normal",
+              "eco"
+            ]
+          }
+        ],
+        "speech_aliases": [
+          "выбери режим",
+          "установи режим"
+        ],
+        "assignments": [
+          {
+            "field": "mode",
+            "argument": "mode"
+          }
+        ]
+      }
+    ],
+    "noun": "переключатель режима"
+  },
+  {
+    "id": "custom",
+    "name": "Другое устройство · свои действия",
+    "type": "custom",
+    "aliases": [],
+    "state": [],
+    "actions": [],
+    "noun": ""
+  },
+  {
+    "id": "light",
+    "name": "Свет: яркость",
+    "type": "light",
+    "aliases": [],
+    "state": [],
+    "actions": [],
+    "noun": "свет"
+  },
+  {
+    "id": "door",
+    "name": "Защищённая входная дверь",
+    "type": "entrance_door",
+    "aliases": [],
+    "state": [],
+    "actions": [],
+    "noun": "дверь"
+  }
+]

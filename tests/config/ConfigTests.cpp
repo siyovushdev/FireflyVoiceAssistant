@@ -59,7 +59,7 @@ void validation(Checks& test, const std::string& root) {
     for (const auto& path : {"/schema_version", "/revision", "/retired_ids", "/system", "/rooms", "/devices", "/actions", "/safety", "/bindings", "/compatibility"}) {
         bad("missing_field", [&](auto& value) { value.erase(std::string(path).substr(1)); });
     }
-    bad("unsupported_version", [](auto& value) { value["schema_version"] = 2; });
+    bad("unsupported_version", [](auto& value) { value["schema_version"] = 3; });
     bad("unsupported_version", [](auto& value) { value["schema_version"] = -1; });
     bad("schema_error", [](auto& value) { value["schema_version"] = true; });
     bad("schema_error", [](auto& value) { value["schema_version"] = "1"; });
@@ -99,6 +99,25 @@ void validation(Checks& test, const std::string& root) {
     bad("ambiguous_alias", [](auto& value) { value["rooms"][1]["speech"]["locations"] = {"около кухни"}; });
     bad("invalid_alias", [](auto& value) { value["rooms"][0]["speech"]["locations"] = {"на  кухне"}; });
     bad("invalid_alias", [](auto& value) { value["rooms"][0]["speech"]["mentions"] = {"моя кухня"}; });
+    // Natural grammatical pairs belong to one location without literal substring equality.
+    {
+        auto officeBase = ConfigValidator::validate(migrateV2(ConfigLoader::fromJson(source.dump())->configuration()));
+        auto value = Json::parse(officeBase->canonicalJson());
+        value["rooms"].push_back({{"id","location_office_1"},{"name","Кабинет 1"},
+            {"speech",{{"mentions",{"кабинет 1"}},{"locations",{"в кабинете 1"}}}},
+            {"metadata",{{"type","office"},{"description","Офисный кабинет."},{"aliases",Json::array()},{"parent_id",nullptr},{"container",false}}}});
+        const auto accepted = ConfigLoader::fromJson(value.dump());
+        test.check(accepted->roomIndex().count("location_office_1"), "кабинет 1 + в кабинете 1 validates");
+        const auto& kitchen = accepted->configuration().rooms[accepted->roomIndex().at("room_kitchen")];
+        test.check(std::find(kitchen.locations.begin(), kitchen.locations.end(), "на кухне") != kitchen.locations.end() &&
+            std::find(kitchen.mentions.begin(), kitchen.mentions.end(), "кухня") != kitchen.mentions.end(),
+            "кухня / на кухне remains valid");
+        auto collision = Json::parse(accepted->canonicalJson());
+        collision["rooms"].push_back({{"id","location_office_2"},{"name","Кабинет 2"},
+            {"speech",{{"mentions",{"кабинет 2"}},{"locations",{"в кабинете 1"}}}},
+            {"metadata",{{"type","office"},{"description","Другой кабинет."},{"aliases",Json::array()},{"parent_id",nullptr},{"container",false}}}});
+        test.rejects("ambiguous_alias", [&] { (void)ConfigLoader::fromJson(collision.dump()); });
+    }
     bad("reserved_alias", [](auto& value) { value["rooms"][0]["speech"]["mentions"].push_back("открой"); });
     bad("reserved_alias", [](auto& value) { value["rooms"][0]["speech"]["mentions"].push_back("не"); });
     bad("dangling_reference", [](auto& value) { value["devices"][0]["room_id"] = "unknown"; });

@@ -37,7 +37,7 @@ with tempfile.TemporaryDirectory() as directory:
         assert status['executor']=='mock' and status['voice']=='disabled' and status['device_count']==5
         with urllib.request.urlopen(url) as response:
             html=response.read().decode()
-            assert 'Device State' in html and 'Execution History' in html and 'Execute' in html
+            assert 'Состояния устройств' in html and 'Последние действия' in html and 'Command Playground' in html and 'Execute' in html
         before=api('/api/devices/state')[1]['devices']
         preview=api('/api/test-command', {'text':'На кухне поставь свет на 40 процентов'})[1]
         assert preview['execution'] is None and api('/api/devices/state')[1]['devices']==before

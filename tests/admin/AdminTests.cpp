@@ -105,7 +105,7 @@ int main(int argc, char** argv) {
     auto bad=b;bad["rooms"].push_back(bad["rooms"][0]);invalid.push_back({"duplicate ID",bad});
     bad=b;bad["rooms"][4]["speech"]["mentions"].push_back("кухне");invalid.push_back({"alias collision",bad});
     bad=b;bad["devices"][5]["room_id"]="room_missing";invalid.push_back({"broken reference",bad});
-    bad=b;bad["devices"].erase(5);invalid.push_back({"missing new target",bad});
+    bad=b;bad["devices"].erase(5);check(call("POST","/api/config/validate",{{"configuration",bad}}).first==200,"Location without executable device is valid");
     bad=b;bad["devices"].erase(4);invalid.push_back({"missing entrance",bad});
     bad=b;bad["actions"][0]["parameters"][0]["minimum"]=101;invalid.push_back({"invalid range",bad});
     bad=b;bad["actions"][0]["operation"]="unsafe.anything";invalid.push_back({"malformed capability",bad});
