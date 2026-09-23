@@ -3,6 +3,7 @@
 #include "firefly/config/ConfigValidator.h"
 #include "Json.h"
 #include "firefly/admin/AdminDraft.h"
+#include "firefly/admin/AdminCopilot.h"
 #include <atomic>
 #include <iostream>
 #include <mutex>
@@ -102,7 +103,7 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
     int status = 200;
     Json reply;
     try {
-        const std::map<std::string, std::string> routes{{"/api/admin/plan", "POST"}, {"/api/admin/action-draft", "POST"}, {"/api/admin/templates", "GET"}, {"/api/admin/draft", "POST"}, {"/api/config/migrate", "POST"}, {"/api/admin/id", "POST"}, {"/api/admin/suggest", "POST"}, {"/api/config/diff", "POST"},
+        const std::map<std::string, std::string> routes{{"/api/admin/plan", "POST"}, {"/api/admin/copilot", "POST"}, {"/api/admin/copilot/accept", "POST"}, {"/api/admin/action-draft", "POST"}, {"/api/admin/templates", "GET"}, {"/api/admin/draft", "POST"}, {"/api/config/migrate", "POST"}, {"/api/admin/id", "POST"}, {"/api/admin/suggest", "POST"}, {"/api/config/diff", "POST"},
             {"/api/config/export", "GET"}, {"/api/config/import", "POST"}, {"/api/config/revision", "POST"},
             {"/api/config/restore-candidate", "POST"}, {"/api/dashboard", "GET"}, {"/api/devices/state", "GET"}, {"/api/executions", "GET"}, {"/api/status", "GET"}, {"/api/config", "GET PUT"},
             {"/api/config/active", "GET"}, {"/api/config/validate", "POST"}, {"/api/config/apply", "POST"},
@@ -114,11 +115,16 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
         if (method == "GET" && !body.empty()) throw std::invalid_argument("Unexpected body");
         Json request = method == "GET" ? Json::object() : parseMessage(body,true);
         const auto observation = method == "GET" ? impl_->runtime.observe() : std::string{};
-        if (path == "/api/admin/plan" || path == "/api/admin/action-draft") {
+        if (path == "/api/admin/plan" || path == "/api/admin/action-draft" || path == "/api/admin/copilot") {
             if (path == "/api/admin/plan") { members(request,{"text","configuration"}); request["method"] = "plan"; }
+            else if (path == "/api/admin/copilot") { members(request,{"text","configuration"}); request["method"] = "copilot"; }
             else { members(request,{"name","target","configuration"}); request["method"] = "action_draft"; }
             (void)config::ConfigLoader::fromJson(request.at("configuration").dump());
             reply = impl_->invoke(request);if(!reply.value("ok",false))status=422;
+        } else if (path == "/api/admin/copilot/accept") {
+            members(request,{"configuration","proposal"});
+            reply = Json::parse(acceptCopilotProposal(request.at("configuration").dump(), request.at("proposal").dump()));
+            reply["ok"] = true; status = 200;
         } else if (path == "/api/admin/templates") {
             reply = {{"ok",true},{"templates",Json::parse(templatesJson())}};
         } else if (path == "/api/config/migrate") {

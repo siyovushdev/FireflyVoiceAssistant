@@ -36,6 +36,10 @@ check(M.diffLines([{entity:'location',change:'changed',name:'Зона',before:me
 check(M.diffLines([{entity:'location',change:'added',name:'Зона',before:null,after:{...location,speech:{mentions:['участке'],locations:['на участке']}}}],base).join(' ').includes('на участке'),'new aliases included in Apply review');
 assert.throws(()=>M.decodeImport(new Uint8Array([0xff])));checks++;
 check(M.decodeImport(new Uint8Array([0xef,0xbb,0xbf,123,125])).charCodeAt(0)===0xfeff,'BOM preserved for strict server rejection');
+check(M.humanError({code:'stale_proposal'}).includes('устарело'),'copilot stale human');
+check(M.humanError({code:'ambiguous'}).includes('неоднозначен'),'copilot ambiguous human');
+const copilotChanges=[{entity:'device',change:'removed',name:'Телевизор',before:{name:'Телевизор'},after:null}];
+check(M.diffLines(copilotChanges,base)[0]==='− Устройство: Телевизор','copilot deletion visible');
 console.log(`PASS ${checks} draft/UI model checks`);
 
 for(const raw of ["9007199254740993","0.12345678901234567","1e-400","1e400",""])assert.throws(()=>M.scalarNumber(raw));

@@ -1,6 +1,6 @@
 'use strict';
 const $=id=>document.getElementById(id), M=window.AdminModel, json=v=>JSON.stringify(v,null,2);
-let draft, stored, expected, activeConfig, activeRevision, dirty=false, validated=false, operation=false, savedIds=new Set(), wizard, templates=[], pendingPlan;
+let draft, stored, expected, activeConfig, activeRevision, dirty=false, validated=false, operation=false, savedIds=new Set(), wizard, templates=[], pendingPlan, pendingCopilot;
 const advanced=()=>document.body.dataset.mode==='advanced';
 const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
 function errors(items=[]) {
@@ -245,6 +245,35 @@ $('describe-plan').onclick=()=>run(async()=>{const text=prompt('Опишите �
     $('plan-trace').textContent=json(r);$('plan-dialog').showModal();});
 $('plan-confirm').onclick=()=>run(async()=>{if(!validFields($('plan-dialog')))return;for(const key of ['rooms','devices'])for(const e of pendingPlan[key])if(!draft[key].some(old=>old.id===e.id))ensureMeta(e).confirmed=true;const r=await api('/api/config/import','POST',{document:JSON.stringify(pendingPlan)});draft=r.configuration;pendingPlan=null;modified();render();$('plan-dialog').close();$('validation').textContent='User confirmed · связанные сущности добавлены только в черновик.';});
 $('plan-close').onclick=()=>{pendingPlan=null;$('plan-dialog').close();};
+function clearCopilot(){
+    pendingCopilot=null;$('copilot-summary').textContent='';$('copilot-diff').replaceChildren();
+    $('copilot-raw').textContent='';$('copilot-accept').hidden=true;$('copilot-cancel').hidden=true;
+}
+function showCopilot(proposal, meta){
+    pendingCopilot=proposal;
+    $('copilot-summary').textContent=proposal.summary||'';
+    $('copilot-diff').replaceChildren(...M.diffLines(proposal.changes||[], proposal.configuration||draft).map(x=>node('li',x)));
+    if(!(proposal.changes||[]).length)$('copilot-diff').append(node('li','Изменений нет.'));
+    $('copilot-raw').textContent=json({proposal,meta});
+    $('copilot-accept').hidden=false;$('copilot-cancel').hidden=false;
+}
+$('copilot-propose').onclick=()=>run(async()=>{
+    const text=$('copilot-text').value.trim();
+    if(!text){$('copilot-status').textContent='Введите запрос.';return;}
+    clearCopilot();
+    $('copilot-status').textContent='Готовим предложение…';
+    const r=await api('/api/admin/copilot','POST',{text,configuration:draft});
+    showCopilot(r.draft,{retry_count:r.retry_count,trace:r.trace});
+    $('copilot-status').textContent='Проверьте предложение. «Применить к черновику» меняет только локальный черновик.';
+});
+$('copilot-cancel').onclick=()=>{clearCopilot();$('copilot-status').textContent='Предложение отменено.';};
+$('copilot-accept').onclick=()=>run(async()=>{
+    if(!pendingCopilot)return;
+    const r=await api('/api/admin/copilot/accept','POST',{configuration:draft,proposal:pendingCopilot});
+    draft=r.configuration;clearCopilot();modified();render();
+    $('copilot-status').textContent='Предложение принято в черновик. Сохранение и применение — отдельными кнопками.';
+    $('validation').textContent='User confirmed · Copilot изменил только черновик.';
+});
 async function revisions(){const r=await api('/api/config/revisions');const entries=[...r.revisions.slice(-9),{revision:expected.revision,hash:expected.hash,current:true}].reverse();$('revisions').replaceChildren();
     for(const entry of entries){const version=await api('/api/config/revision','POST',{revision:entry.revision});const change=await api('/api/config/diff','POST',{configuration:version.configuration,base:'stored'});const row=node('div',undefined,'revision-row');row.append(node('strong',`Версия ${entry.revision}${entry.current?' · сохранённая':''}`),node('span',`${entry.timestamp_ms?'Архивирована '+new Date(entry.timestamp_ms).toLocaleString():'Текущая версия'} · ${change.changes.length} изменений к сохранённой · ${entry.revision===activeRevision?'активна':entry.current?'ожидает применения':'архив'}`));const buttons=node('div',undefined,'buttons');row.append(buttons);
         button(buttons,'Изменения',()=>run(async()=>{const rev=await api('/api/config/revision','POST',{revision:entry.revision});const r=await api('/api/config/diff','POST',{configuration:rev.configuration,base:'stored'});showDiff(r.changes,`Версия ${entry.revision} относительно сохранённой`);}));

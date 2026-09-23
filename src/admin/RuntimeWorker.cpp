@@ -4,6 +4,7 @@
 #include "Json.h"
 #include "AdminBuild.h"
 #include "firefly/admin/AdminDraft.h"
+#include "firefly/admin/AdminCopilot.h"
 #include "firefly/actions/ScalarJson.h"
 #include <iostream>
 #include <algorithm>
@@ -102,18 +103,33 @@ std::string RuntimeWorker::handle(std::string_view bytes) {
                 changes.push_back({{"entity","state"},{"name","Apply будет отклонён"},{"change","changed"},{"before",{{"state","Рабочее состояние сохраняется"}}},{"after",{{"state",error.what()}}}});
                 reply = {{"ok",true},{"compatible",false},{"changes",changes},{"error",error.what()}};
             }
-        } else if (method == "plan" || method == "action_draft") {
+        } else if (method == "plan" || method == "action_draft" || method == "copilot") {
             if (method == "plan") members(request,{"method","text","configuration"});
+            else if (method == "copilot") members(request,{"method","text","configuration"});
             else members(request,{"method","name","target","configuration"});
             const auto candidate = config::ConfigLoader::fromJson(request.at("configuration").dump());
-            const auto prompt = method == "plan" ? planPrompt() : actionDraftPrompt(candidate,request.at("target").get<std::string>());
-            const auto input = request.at(method == "plan" ? "text" : "name").get<std::string>();
-            reply = Json::parse(generations_.structuredSuggestion(prompt,input,384,[&](std::string_view raw) {
-                return method == "plan" ? decodePlan(raw,candidate) :
+            if (method == "copilot" && request.contains("draft_hash")) {
+                if (!request.at("draft_hash").is_string() ||
+                    request.at("draft_hash").get<std::string>() != draftFingerprint(candidate))
+                    throw config::ConfigError("stale_proposal", "/draft_hash",
+                        "Copilot draft_hash does not match the submitted configuration. Regenerate.");
+            }
+            const auto prompt = method == "plan" ? planPrompt() : method == "copilot" ? copilotPrompt(candidate)
+                : actionDraftPrompt(candidate,request.at("target").get<std::string>());
+            const auto input = request.at(method == "action_draft" ? "name" : "text").get<std::string>();
+            const int budget = 384;
+            reply = Json::parse(generations_.structuredSuggestion(prompt,input,budget,[&](std::string_view raw) {
+                return method == "plan" ? decodePlan(raw,candidate) : method == "copilot" ? decodeCopilotProposal(raw,candidate) :
                     decodeActionDraft(raw,candidate,request.at("target").get<std::string>(),input);
             }));
-            if (method == "plan" && reply.contains("suggestion")) {
+            if ((method == "plan" || method == "copilot") && reply.contains("suggestion")) {
                 reply["draft"] = reply.at("suggestion"); reply.erase("suggestion");
+            }
+            if (method == "copilot" && reply.value("ok", false) && reply.contains("draft") &&
+                reply.at("draft").value("rejected", false)) {
+                reply["ok"] = false;
+                reply["errors"] = failure(reply.at("draft").at("status").get<std::string>(), "",
+                    reply.at("draft").at("summary").get<std::string>())["errors"];
             }
         } else if (method == "draft") {
             members(request, {"method", "entity", "name"});
@@ -197,7 +213,7 @@ std::string RuntimeWorker::observe() const {
         {"uptime_seconds",std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now()-started_).count()},
         {"context_tokens",generations_.contextTokens()},{"context_limit",1024},
         {"executor","mock"},{"devices",Json::array()},{"executions",Json::array()},{"active",nullptr}};
-    reply["build"] = {{"product","Firefly Milestone 11 · Final UX · typed mock"},{"head",BuildHead},{"source_sha256",BuildSource},{"built_utc",BuildTime}};
+    reply["build"] = {{"product","Firefly Milestone 12 · Local Admin Copilot · typed mock"},{"head",BuildHead},{"source_sha256",BuildSource},{"built_utc",BuildTime}};
     if (const auto active = generations_.current()) {
         const auto& catalog = active->domain.snapshot();
         reply["active"] = {{"configuration",Json::parse(catalog->canonicalJson())},{"revision",catalog->configuration().revision},

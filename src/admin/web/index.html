@@ -18,6 +18,7 @@
 </a>
 <nav aria-label="Разделы">
 <a href="#overview">Обзор</a>
+<a href="#copilot-section">Помощник</a>
 <a href="#locations-section">Зоны и места</a>
 <a href="#devices-section">Устройства</a>
 <a href="#capabilities-section">Действия</a>
@@ -66,6 +67,21 @@
 </ul>
 <div id="progress" role="status" hidden>Обработка запроса…</div>
 <p id="ai-notice" role="status"></p>
+</section>
+<section id="copilot-section">
+<h2>Помощник по настройке</h2>
+<p>Опишите изменение обычным языком. Предложение сначала появится здесь для проверки — в сохранённую конфигурацию оно не попадёт, пока вы сами не нажмёте «Сохранить» и «Применить».</p>
+<label for="copilot-text">Что изменить</label>
+<textarea id="copilot-text" rows="3" placeholder="Например: создай кабинет 1 и добавь свет, кондиционер и телевизор"></textarea>
+<div class="buttons">
+<button class="primary" id="copilot-propose">Предложить изменения</button>
+<button id="copilot-cancel" hidden>Отменить</button>
+<button id="copilot-accept" hidden>Применить к черновику</button>
+</div>
+<p id="copilot-status" role="status"></p>
+<p id="copilot-summary"></p>
+<ul id="copilot-diff"></ul>
+<pre id="copilot-raw" class="advanced"></pre>
 </section>
 <section id="locations-section">
 <div class="section-head">
