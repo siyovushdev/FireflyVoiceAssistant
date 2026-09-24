@@ -1,0 +1,32 @@
+{
+  "_comment": "Example only — not loaded by default. Merge the bindings array into a schema v2 configuration after creating matching device/action ids. URL hosts must be numeric IPv4 (no DNS). Human-controlled; Admin Copilot must not invent hardware bindings.",
+  "bindings": [
+    {
+      "target_id": "device_office_lamp",
+      "action_id": "action_lamp_on",
+      "executor": "http",
+      "http": {
+        "method": "POST",
+        "url": "http://192.168.1.50/relay",
+        "timeout_ms": 1500,
+        "content_type": "application/json",
+        "body": {
+          "power": true
+        }
+      }
+    },
+    {
+      "target_id": "device_kitchen_light",
+      "action_id": "action_set_brightness",
+      "executor": "http",
+      "http": {
+        "method": "POST",
+        "url": "http://192.168.1.50/brightness",
+        "timeout_ms": 1500,
+        "content_type": "application/json",
+        "body": {},
+        "argument": "brightness"
+      }
+    }
+  ]
+}

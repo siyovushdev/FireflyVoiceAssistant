@@ -88,9 +88,11 @@
         },
         "bindings": {
             "type": "array",
-            "items": {},
+            "items": {
+                "$ref": "#/$defs/binding"
+            },
             "minItems": 0,
-            "maxItems": 0
+            "maxItems": 256
         },
         "compatibility": {
             "type": "object",
@@ -611,6 +613,71 @@
             },
             "required": [
                 "field"
+            ],
+            "additionalProperties": false
+        },
+        "http_binding": {
+            "type": "object",
+            "properties": {
+                "method": {
+                    "enum": [
+                        "POST",
+                        "PUT"
+                    ]
+                },
+                "url": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 512,
+                    "description": "http://IPv4[:port]/path — numeric IPv4 only; DNS hostnames rejected because getaddrinfo is not covered by the HTTP socket deadline"
+                },
+                "timeout_ms": {
+                    "type": "integer",
+                    "minimum": 50,
+                    "maximum": 10000
+                },
+                "content_type": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                },
+                "body": {
+                    "type": "object"
+                },
+                "argument": {
+                    "$ref": "#/$defs/id"
+                }
+            },
+            "required": [
+                "method",
+                "url",
+                "timeout_ms"
+            ],
+            "additionalProperties": false
+        },
+        "binding": {
+            "type": "object",
+            "properties": {
+                "target_id": {
+                    "$ref": "#/$defs/id"
+                },
+                "action_id": {
+                    "$ref": "#/$defs/id"
+                },
+                "executor": {
+                    "enum": [
+                        "http"
+                    ]
+                },
+                "http": {
+                    "$ref": "#/$defs/http_binding"
+                }
+            },
+            "required": [
+                "target_id",
+                "action_id",
+                "executor",
+                "http"
             ],
             "additionalProperties": false
         }

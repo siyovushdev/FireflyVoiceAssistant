@@ -138,6 +138,23 @@ void validation(Checks& test, const std::string& root) {
     bad("duplicate_id", [](auto& value) { value["actions"][0]["parameters"].push_back(value["actions"][0]["parameters"][0]); });
     bad("unsafe_constraint", [](auto& value) { value["actions"][1]["parameters"] = value["actions"][0]["parameters"]; });
     bad("schema_error", [](auto& value) { value["bindings"] = {{{"driver", "gpio"}}}; });
+    // Schema v2 admits typed HTTP bindings; unknown executors and bad URLs fail closed.
+    {
+        auto migrated = Json::parse(ConfigValidator::validate(migrateV2(ConfigLoader::fromJson(source.dump())->configuration()))->canonicalJson());
+        migrated["bindings"] = Json::array({{{"target_id","device_kitchen_light"},{"action_id","action_set_brightness"},
+            {"executor","http"},{"http",{{"method","POST"},{"url","http://127.0.0.1:9/brightness"},{"timeout_ms",500},
+            {"content_type","application/json"},{"body",Json::object()},{"argument","brightness"}}}}});
+        const auto accepted = ConfigLoader::fromJson(migrated.dump());
+        test.check(accepted->bindingIndex().count({"device_kitchen_light","action_set_brightness"}), "v2 HTTP binding validates");
+        auto duplicate = migrated; duplicate["bindings"].push_back(migrated["bindings"][0]);
+        test.rejects("duplicate_binding", [&]{ (void)ConfigLoader::fromJson(duplicate.dump()); });
+        auto badUrl = migrated; badUrl["bindings"][0]["http"]["url"] = "https://example.com/x";
+        test.rejects("malformed_binding", [&]{ (void)ConfigLoader::fromJson(badUrl.dump()); });
+        auto hostname = migrated; hostname["bindings"][0]["http"]["url"] = "http://esp32.local/relay";
+        test.rejects("malformed_binding", [&]{ (void)ConfigLoader::fromJson(hostname.dump()); });
+        auto unknownTarget = migrated; unknownTarget["bindings"][0]["target_id"] = "device_missing";
+        test.rejects("dangling_reference", [&]{ (void)ConfigLoader::fromJson(unknownTarget.dump()); });
+    }
     bad("schema_error", [](auto& value) { value["devices"][0]["spoken_aliases"] = {"лампа"}; });
     bad("unknown_field", [](auto& value) { value["actions"][1]["speech_aliases"]["open_verb"] = {"запусти"}; });
     bad("legacy_incompatible", [](auto& value) { std::swap(value["compatibility"]["light_targets"]["K"], value["compatibility"]["light_targets"]["B"]); });

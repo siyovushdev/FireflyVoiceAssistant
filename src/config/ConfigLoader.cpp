@@ -226,6 +226,30 @@ Configuration decode(const Json& value) {
         deny.deviceId = item.at("device_id"); deny.actionId = item.at("action_id");
         result.restrictions.push_back(std::move(deny));
     }
+    if (result.schemaVersion == 2) {
+        for (const auto& item : value.at("bindings")) {
+            Binding binding;
+            binding.targetId = item.at("target_id");
+            binding.actionId = item.at("action_id");
+            binding.executor = item.at("executor") == "http" ? ExecutorKind::Http : ExecutorKind::Unknown;
+            const auto& http = item.at("http");
+            binding.http.method = http.at("method");
+            binding.http.url = http.at("url");
+            binding.http.timeoutMs = http.at("timeout_ms");
+            binding.http.contentType = http.value("content_type", "application/json");
+            if (http.contains("argument")) binding.http.argument = http.at("argument").get<std::string>();
+            if (http.contains("body")) {
+                for (auto field = http.at("body").begin(); field != http.at("body").end(); ++field) {
+                    try { binding.http.body.emplace(field.key(), actions::decodeScalar(field.value())); }
+                    catch (const std::exception&) {
+                        throw ConfigError("malformed_binding", "/bindings/http/body/" + field.key(),
+                            "HTTP body values must be JSON scalars");
+                    }
+                }
+            }
+            result.bindings.push_back(std::move(binding));
+        }
+    }
     const auto& mapping = value.at("compatibility");
     result.compatibility.lightActionId = mapping.at("light_action_id");
     result.compatibility.doorActionId = mapping.at("door_action_id");
@@ -251,6 +275,13 @@ std::string kindName(DeviceKind value) {
         case DeviceKind::EntranceDoor: return "entrance_door";
     }
     throw ConfigError("unsupported_kind", "/devices", "Unknown device kind enum");
+}
+std::string executorName(ExecutorKind value) {
+    switch (value) {
+        case ExecutorKind::Unknown: break;
+        case ExecutorKind::Http: return "http";
+    }
+    throw ConfigError("unsupported_executor", "/bindings", "Unknown executor kind");
 }
 Json encodeParameter(const Parameter& p, bool v2) {
     auto entry = identityJson(p);
@@ -310,6 +341,17 @@ Json encode(const Configuration& value) {
     for (const auto& deny : value.restrictions) {
         auto item = identityJson(deny); item["kind"] = "deny_action"; item["device_id"] = deny.deviceId; item["action_id"] = deny.actionId;
         result["safety"]["restrictions"].push_back(std::move(item));
+    }
+    if (value.schemaVersion == 2) {
+        for (const auto& binding : value.bindings) {
+            Json body = Json::object();
+            for (const auto& [key, scalar] : binding.http.body) body[key] = actions::scalarJson(scalar);
+            Json http{{"method", binding.http.method}, {"url", binding.http.url},
+                {"timeout_ms", binding.http.timeoutMs}, {"content_type", binding.http.contentType}, {"body", std::move(body)}};
+            if (binding.http.argument) http["argument"] = *binding.http.argument;
+            result["bindings"].push_back({{"target_id", binding.targetId}, {"action_id", binding.actionId},
+                {"executor", executorName(binding.executor)}, {"http", std::move(http)}});
+        }
     }
     const auto& mapping = value.compatibility;
     Json lights = Json::object();

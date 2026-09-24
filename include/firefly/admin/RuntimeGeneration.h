@@ -23,7 +23,9 @@ class RuntimeGeneration final {
 public:
     explicit RuntimeGeneration(config::Catalog catalog, std::uint64_t id = 0);
     const std::uint64_t id;
-    const std::shared_ptr<execution::MockDeviceExecutor> executor;
+    // Always BoundDeviceExecutor. Playground vs Production is chosen per request via
+    // ExecutionIntent — never by bindings.empty() or diagnostic source strings.
+    const std::shared_ptr<execution::BoundDeviceExecutor> executor;
     const runtime::DomainView domain;
     const DeterministicParser parser;
     const std::string prompt;
@@ -56,7 +58,9 @@ public:
     class Request final {
     public:
         ~Request();
-        GenerationResult process(std::string_view input, bool execute = false, std::string source = "text");
+        GenerationResult process(std::string_view input,
+            execution::ExecutionIntent execution = execution::ExecutionIntent::None,
+            std::string source = "text");
         const std::shared_ptr<const RuntimeGeneration>& generation() const { return generation_; }
     private:
         friend class RuntimeGenerations;
@@ -67,7 +71,9 @@ public:
         bool processed_ = false;
     };
     std::unique_ptr<Request> beginRequest();
-    GenerationResult process(std::string_view input, bool execute = false, std::string source = "text");
+    GenerationResult process(std::string_view input,
+        execution::ExecutionIntent execution = execution::ExecutionIntent::None,
+        std::string source = "text");
     std::vector<ExecutionEvent> history() const;
     bool modelReady() const { return ready_.load(); }
     int contextTokens() const { return contextTokens_.load(); }

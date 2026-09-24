@@ -102,7 +102,7 @@ std::string RuntimeGeneration::requestPrompt(std::string_view original) const {
 }
 
 RuntimeGeneration::RuntimeGeneration(config::Catalog catalog, std::uint64_t generationId)
-    : id(generationId), executor(std::make_shared<execution::MockDeviceExecutor>(catalog)), domain(std::move(catalog)), parser(domain), prompt(llm::generateContext(domain).systemPrompt()), targetContexts(contexts(domain)) {
+    : id(generationId), executor(std::make_shared<execution::BoundDeviceExecutor>(catalog)), domain(std::move(catalog)), parser(domain), prompt(llm::generateContext(domain).systemPrompt()), targetContexts(contexts(domain)) {
     // Enabling editable deny/disable policy would be a separate consumer change.
     // Do not accept configuration whose policy the current pipeline ignores.
     for (const auto& effective : domain.snapshot()->effectiveActions())
@@ -267,10 +267,10 @@ RuntimeGenerations::Request::~Request() { owner_.busy_ = false; }
 std::unique_ptr<RuntimeGenerations::Request> RuntimeGenerations::beginRequest() {
     return std::unique_ptr<Request>(new Request(*this));
 }
-GenerationResult RuntimeGenerations::process(std::string_view input, bool execute, std::string source) {
-    return beginRequest()->process(input, execute, std::move(source));
+GenerationResult RuntimeGenerations::process(std::string_view input, execution::ExecutionIntent execution, std::string source) {
+    return beginRequest()->process(input, execution, std::move(source));
 }
-GenerationResult RuntimeGenerations::Request::process(std::string_view input, bool execute, std::string source) {
+GenerationResult RuntimeGenerations::Request::process(std::string_view input, execution::ExecutionIntent execution, std::string source) {
     if (processed_) throw std::logic_error("Request already consumed");
     processed_ = true;
     const auto& generation = generation_;
@@ -290,9 +290,11 @@ GenerationResult RuntimeGenerations::Request::process(std::string_view input, bo
     CommandEngine engine(bound, generation->parser, generation->domain);
     GenerationResult result{generation, engine.process(input), std::nullopt};
     owner_.ready_ = owner_.model_.ready();
-    if (execute && !owner_.stopping_) {
+    if (execution != execution::ExecutionIntent::None && !owner_.stopping_) {
         if (const auto* action = std::get_if<actions::GenericAction>(&result.command.action)) {
-            result.execution = generation->executor->execute(*action);
+            // Intent is chosen by the typed call site (voice → Production,
+            // /api/test-command → Playground). Source is diagnostic only.
+            result.execution = generation->executor->execute(*action, execution);
             std::lock_guard<std::mutex> historyLock(owner_.historyMutex_);
             owner_.history_.push_back({owner_.nextEvent_++, generation->id,
                 std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count(),

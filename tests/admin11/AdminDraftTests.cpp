@@ -4,6 +4,7 @@
 #include <iostream>
 #include <chrono>
 using namespace admin_test;
+using namespace firefly;
 using namespace firefly::admin;
 namespace {
 int checks=0;
@@ -113,18 +114,18 @@ int main(int argc,char** argv){try{
     check(generations.current()->id==1,"active retained during AI");
     {std::lock_guard<std::mutex> lock(blocked.mutex);blocked.release=true;blocked.cv.notify_all();}suggestion.get();apply.get();
     check(generations.current()->id==2 && blocked.prompt==generations.current()->prompt,"Apply publishes after AI restoration");
-    check(generations.process(command,true).execution->current==firefly::execution::DeviceState{firefly::execution::LightState{60}},"next request new domain");
+    check(generations.process(command,execution::ExecutionIntent::Playground).execution->current==firefly::execution::DeviceState{firefly::execution::LightState{60}},"next request new domain");
     Model leased;RuntimeGenerations leaseRuntime(leased);leaseRuntime.apply(catalog(b));leased.raw=valid;
     auto held=leaseRuntime.beginRequest();
     auto waiting=std::async(std::launch::async,[&]{return leaseRuntime.suggest("location","Цех");});
     check(waiting.wait_for(std::chrono::milliseconds(30))==std::future_status::timeout,"AI waits for existing voice/request lease");
     check(leased.inferences==0,"no concurrent rkllm run while request admitted");
-    held->process("На кухне поставь свет на 40 процентов",true,"voice");held.reset();waiting.get();
+    held->process("На кухне поставь свет на 40 процентов",execution::ExecutionIntent::Playground,"voice");held.reset();waiting.get();
     check(leaseRuntime.history().size()==1 && leaseRuntime.history()[0].source=="voice","AI does not corrupt or execute voice event");
     class FailingModel : public Model { public: std::string infer(std::string_view) override { throw std::runtime_error("inference failure"); } } failing;
     RuntimeGenerations failureRuntime(failing);failureRuntime.apply(catalog(b));
     rejects([&]{failureRuntime.suggest("device","Насос");},"AI inference failure reported");
     check(failing.prompt==failureRuntime.current()->prompt,"failure restores command context");
-    check(failureRuntime.process("На кухне поставь свет на 40 процентов",true).execution->success,"deterministic command after AI failure");
+    check(failureRuntime.process("На кухне поставь свет на 40 процентов",execution::ExecutionIntent::Playground).execution->success,"deterministic command after AI failure");
     std::cout<<"PASS "<<checks<<" generalized admin checks\n";return 0;
 }catch(const std::exception& e){std::cerr<<"FAIL after "<<checks<<": "<<e.what()<<'\n';return 1;}}

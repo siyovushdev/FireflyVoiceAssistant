@@ -3,8 +3,10 @@
 #include "Platform.h"
 #include "firefly/actions/ScalarJson.h"
 #include <algorithm>
+#include <arpa/inet.h>
 #include <sstream>
 #include <cmath>
+#include <string_view>
 
 namespace firefly::config {
 namespace {
@@ -80,6 +82,45 @@ const std::vector<LegacyRoom>& legacyRooms() {
 }
 bool sameStrings(std::vector<std::string> a, std::vector<std::string> b) {
     std::sort(a.begin(), a.end()); std::sort(b.begin(), b.end()); return a == b;
+}
+// http://IPv4[:port]/path[?query] — numeric IPv4 only. DNS hostnames are rejected
+// because blocking getaddrinfo is not covered by the HTTP socket deadline (M14).
+void checkHttpUrl(const std::string& url, const std::string& path) {
+    static constexpr std::string_view prefix = "http://";
+    if (url.rfind(prefix.data(), 0) != 0)
+        throw ConfigError("malformed_binding", path, "HTTP binding URL must use http://");
+    const auto rest = url.substr(prefix.size());
+    if (rest.empty() || rest.find('@') != std::string::npos || rest.find('#') != std::string::npos)
+        throw ConfigError("malformed_binding", path, "HTTP binding URL rejects credentials and fragments");
+    const auto slash = rest.find('/');
+    const auto authority = slash == std::string::npos ? rest : rest.substr(0, slash);
+    const auto resource = slash == std::string::npos ? "/" : rest.substr(slash);
+    if (authority.empty() || authority.front() == '[' || authority.front() == ':')
+        throw ConfigError("malformed_binding", path, "HTTP binding host is required");
+    if (resource.empty() || resource.front() != '/')
+        throw ConfigError("malformed_binding", path, "HTTP binding path must begin with /");
+    for (unsigned char c : url) if (c < 0x20 || c == 0x7f)
+        throw ConfigError("malformed_binding", path, "HTTP binding URL contains control characters");
+    std::string host = authority;
+    const auto colon = authority.rfind(':');
+    if (colon != std::string::npos) {
+        host = authority.substr(0, colon);
+        const auto portText = authority.substr(colon + 1);
+        if (host.empty() || portText.empty() || portText.find_first_not_of("0123456789") != std::string::npos)
+            throw ConfigError("malformed_binding", path, "HTTP binding port must be decimal digits");
+        try {
+            const auto port = std::stoi(portText);
+            if (port <= 0 || port > 65535)
+                throw ConfigError("malformed_binding", path, "HTTP binding port is out of range");
+        } catch (const ConfigError&) { throw; }
+        catch (...) {
+            throw ConfigError("malformed_binding", path, "HTTP binding port is invalid");
+        }
+    }
+    in_addr address{};
+    if (::inet_pton(AF_INET, host.c_str(), &address) != 1)
+        throw ConfigError("malformed_binding", path,
+            "HTTP binding host must be a numeric IPv4 address (DNS hostnames are not supported in M14)");
 }
 }
 namespace {
@@ -165,6 +206,9 @@ Catalog ConfigValidator::validate(Configuration configuration) {
     sortIdentities(configuration.rooms); sortIdentities(configuration.devices);
     sortIdentities(configuration.actions); sortIdentities(configuration.restrictions);
     std::sort(configuration.retiredIds.begin(), configuration.retiredIds.end());
+    std::sort(configuration.bindings.begin(), configuration.bindings.end(), [](const Binding& a, const Binding& b) {
+        return std::tie(a.targetId, a.actionId) < std::tie(b.targetId, b.actionId);
+    });
     for (std::size_t i = 0; i < configuration.rooms.size(); ++i) {
         auto& room = configuration.rooms[i];
         std::sort(room.mentions.begin(), room.mentions.end()); std::sort(room.locations.begin(), room.locations.end());
@@ -267,6 +311,50 @@ Catalog ConfigValidator::validate(Configuration configuration) {
             throw ConfigError("dangling_reference", "/safety/restrictions", "Denied action is not on target");
         if (!denied.emplace(deny.deviceId, deny.actionId).second)
             throw ConfigError("duplicate_restriction", "/safety/restrictions", "Duplicate effective deny");
+    }
+    if (configuration.schemaVersion == 1 && !configuration.bindings.empty())
+        throw ConfigError("unsupported_version", "/bindings", "Hardware bindings require schema v2");
+    for (std::size_t i = 0; i < configuration.bindings.size(); ++i) {
+        const auto& binding = configuration.bindings[i];
+        const auto path = "/bindings/" + std::to_string(i);
+        if (binding.executor != ExecutorKind::Http)
+            throw ConfigError("unsupported_executor", path + "/executor", "Unknown hardware executor");
+        if (!catalog->devices_.count(binding.targetId))
+            throw ConfigError("dangling_reference", path + "/target_id", "Unknown binding target");
+        if (!catalog->actions_.count(binding.actionId))
+            throw ConfigError("dangling_reference", path + "/action_id", "Unknown binding action");
+        const auto& device = configuration.devices[catalog->devices_.at(binding.targetId)];
+        if (std::find(device.actionIds.begin(), device.actionIds.end(), binding.actionId) == device.actionIds.end())
+            throw ConfigError("dangling_reference", path, "Binding action is not available on the target");
+        if (denied.count({binding.targetId, binding.actionId}))
+            throw ConfigError("unsafe_constraint", path, "Binding cannot map a denied target/action pair");
+        if (!device.enabled || !configuration.actions[catalog->actions_.at(binding.actionId)].enabled)
+            throw ConfigError("unsafe_constraint", path, "Binding requires an enabled target and action");
+        const auto key = std::make_pair(binding.targetId, binding.actionId);
+        if (!catalog->bindings_.emplace(key, i).second)
+            throw ConfigError("duplicate_binding", path, "Duplicate binding for the same target and action");
+        const auto& http = binding.http;
+        if (http.method != "POST" && http.method != "PUT")
+            throw ConfigError("malformed_binding", path + "/http/method", "HTTP binding supports POST or PUT only");
+        checkHttpUrl(http.url, path + "/http/url");
+        if (http.timeoutMs < 50 || http.timeoutMs > 10000)
+            throw ConfigError("malformed_binding", path + "/http/timeout_ms", "HTTP timeout must be 50..10000 ms");
+        if (http.contentType.empty() || http.contentType.size() > 128)
+            throw ConfigError("malformed_binding", path + "/http/content_type", "HTTP content type is required");
+        for (const auto& [key, value] : http.body) {
+            if (key.empty() || key.size() > 64)
+                throw ConfigError("malformed_binding", path + "/http/body", "HTTP body keys must be 1..64 bytes");
+            (void)value;
+        }
+        if (http.argument) {
+            const auto& action = configuration.actions[catalog->actions_.at(binding.actionId)];
+            const auto found = std::find_if(action.parameters.begin(), action.parameters.end(),
+                [&](const auto& p) { return p.id == *http.argument; });
+            if (found == action.parameters.end())
+                throw ConfigError("dangling_reference", path + "/http/argument", "HTTP argument is not an action parameter");
+            if (http.body.count(*http.argument))
+                throw ConfigError("malformed_binding", path + "/http/argument", "HTTP argument collides with a fixed body field");
+        }
     }
     const auto& mapping = configuration.compatibility;
     if (!catalog->actions_.count(mapping.lightActionId) || !catalog->actions_.count(mapping.doorActionId) || !catalog->devices_.count(mapping.doorTargetId))

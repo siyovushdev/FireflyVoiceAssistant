@@ -75,6 +75,23 @@ struct LegacyMapping {
     std::string lightActionId, doorActionId, doorTargetId;
     std::map<char, std::string> lightTargets;
 };
+// Physical transport mapping only. Semantic GenericAction / SafetyGate never read this.
+enum class ExecutorKind { Unknown, Http };
+struct HttpBinding {
+    std::string method = "POST";
+    std::string url;
+    std::int64_t timeoutMs = 2000;
+    std::string contentType = "application/json";
+    // Fixed JSON object fields; values must be JSON scalars.
+    std::map<std::string, actions::Scalar> body;
+    // Optional validated GenericAction argument id copied into the request body.
+    std::optional<std::string> argument;
+};
+struct Binding {
+    std::string targetId, actionId;
+    ExecutorKind executor = ExecutorKind::Unknown;
+    HttpBinding http;
+};
 struct Configuration {
     std::int64_t schemaVersion = 1, revision = 1;
     std::vector<std::string> retiredIds;
@@ -83,6 +100,7 @@ struct Configuration {
     std::vector<Device> devices;
     std::vector<ActionDefinition> actions;
     std::vector<DenyAction> restrictions;
+    std::vector<Binding> bindings;
     LegacyMapping compatibility;
 };
 struct EffectiveAction {
@@ -102,6 +120,8 @@ public:
     const std::map<std::string, std::size_t>& actionIndex() const { return actions_; }
     const std::map<std::string, std::string>& mentionIndex() const { return mentions_; }
     const std::map<std::string, std::string>& locationIndex() const { return locations_; }
+    // Exactly one binding per (targetId, actionId) after validation.
+    const std::map<std::pair<std::string, std::string>, std::size_t>& bindingIndex() const { return bindings_; }
     const std::vector<EffectiveAction>& effectiveActions() const { return effective_; }
     const std::vector<std::string>& legacyDifferences() const { return legacyDifferences_; }
     bool matchesCurrentLegacyDomain() const { return legacyDifferences_.empty(); }
@@ -114,6 +134,7 @@ private:
     Configuration configuration_;
     std::map<std::string, std::size_t> rooms_, devices_, actions_;
     std::map<std::string, std::string> mentions_, locations_;
+    std::map<std::pair<std::string, std::string>, std::size_t> bindings_;
     std::vector<EffectiveAction> effective_;
     std::vector<std::string> legacyDifferences_;
     std::string canonical_, hash_;

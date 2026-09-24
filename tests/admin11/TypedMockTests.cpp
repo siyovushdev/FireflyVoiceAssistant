@@ -225,10 +225,10 @@ int main(int argc, char** argv) {
         auto lease=generations.beginRequest();
         auto apply=std::async(std::launch::async,[&]{generations.apply(config::ConfigLoader::fromJson(renamed.dump()));});
         check(apply.wait_for(std::chrono::milliseconds(30))==std::future_status::timeout,"Apply waits for admitted generation");
-        const auto completed=lease->process("Включи телевизор в детской",true);
+        const auto completed=lease->process("Включи телевизор в детской",execution::ExecutionIntent::Playground);
         check(completed.generation->id==1&&completed.execution&&completed.execution->success,"Old lease completes with old generation/executor");
         lease.reset();apply.get();
-        const auto next=generations.process("Выключи детский телевизор",true);
+        const auto next=generations.process("Выключи детский телевизор",execution::ExecutionIntent::Playground);
         check(next.generation->id==2&&next.execution&&next.execution->success,"Next request sees applied schema/aliases");
         check(std::get<execution::TypedState>(*next.execution->previous).at("power")==actions::Scalar(true),"State retained across generation");
         check(generations.current()->targetContexts.count("device_tv/action_tv_channel")&&generations.current()->requestPrompt("На детском телевизоре включи канал 7").find("action_tv_channel")!=std::string::npos,"Request context includes the complete explicitly requested binding");

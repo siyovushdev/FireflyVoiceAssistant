@@ -13,8 +13,13 @@ foreach(input IN LISTS FIREFLY_BUILD_INPUTS)
 endforeach()
 string(SHA256 FIREFLY_BUILD_SOURCE "${FIREFLY_SOURCE_MANIFEST}")
 configure_file(AdminBuild.h.in AdminBuild.h @ONLY)
-add_library(firefly_execution ../execution/MockDeviceExecutor.cpp)
+add_library(firefly_execution
+    ../execution/MockDeviceExecutor.cpp
+    ../execution/BoundDeviceExecutor.cpp
+    ../execution/BindingResolver.cpp
+    ../execution/HttpHardwareExecutor.cpp)
 target_link_libraries(firefly_execution PUBLIC firefly_domain)
+target_include_directories(firefly_execution SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
 target_compile_options(firefly_execution PRIVATE -Wall -Wextra -Wpedantic)
 add_library(firefly_admin_core RuntimeGeneration.cpp RuntimeWorker.cpp Api.cpp AdminDraft.cpp AdminPlan.cpp AdminCopilot.cpp AdminTranscriber.cpp)
 target_link_libraries(firefly_admin_core PUBLIC firefly_core firefly_execution firefly_voice_core Threads::Threads)
@@ -72,6 +77,12 @@ if(BUILD_TESTING)
     target_include_directories(execution_tests SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
     target_compile_options(execution_tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME MockExecutionUnifiedRuntime COMMAND execution_tests "${PROJECT_SOURCE_DIR}")
+    add_executable(hardware_binding_tests "${PROJECT_SOURCE_DIR}/tests/execution/HardwareBindingTests.cpp")
+    target_link_libraries(hardware_binding_tests PRIVATE firefly_admin_core)
+    target_include_directories(hardware_binding_tests SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
+    target_include_directories(hardware_binding_tests PRIVATE "${PROJECT_SOURCE_DIR}/tests")
+    target_compile_options(hardware_binding_tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME HardwareBindings COMMAND hardware_binding_tests "${PROJECT_SOURCE_DIR}")
 endif()
 
 if(BUILD_TESTING AND FIREFLY_BUILD_VOICE)

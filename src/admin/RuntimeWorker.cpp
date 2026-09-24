@@ -151,7 +151,11 @@ std::string RuntimeWorker::handle(std::string_view bytes) {
             if (request.contains("execute") && !request["execute"].is_boolean()) throw std::invalid_argument("Execute must be boolean");
             const auto input = request.at("text").get<std::string>();
             const auto admitted = generations_.beginRequest();
-            const auto result = admitted->process(input, request.value("execute", false), "admin-test");
+            // Admin playground must stay virtual even when real HTTP bindings exist.
+            const auto intent = request.value("execute", false)
+                ? execution::ExecutionIntent::Playground
+                : execution::ExecutionIntent::None;
+            const auto result = admitted->process(input, intent, "admin-test");
             reply = commandJson(input, result);
             remember(reply.dump());
         } else if (method == "observe") {
@@ -191,7 +195,7 @@ voice::VoiceResult RuntimeWorker::processVoice(voice::SpeechRecognizer& recogniz
         const auto request = generations_.beginRequest();
         std::string voiceCommand;
         voice::VoiceProcessor processor(recognizer, [&](std::string_view text) {
-            const auto result = request->process(text, true, "voice");
+            const auto result = request->process(text, execution::ExecutionIntent::Production, "voice");
             voiceCommand = commandJson(std::string(text), result).dump();
             remember(voiceCommand);
             return result.command;

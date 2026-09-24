@@ -70,10 +70,10 @@ int main(int argc, char** argv) {
         auto one = generations.current();
         auto preview = generations.process("На кухне поставь свет на 40 процентов");
         check(!preview.execution && brightness(one->executor->states()) == 0, "preview unchanged");
-        check(generations.process("На кухне поставь свет на 40 процентов",true).execution->success, "text executes");
+        check(generations.process("На кухне поставь свет на 40 процентов",execution::ExecutionIntent::Playground).execution->success, "text executes");
         for (const auto& text : {"Какая сегодня погода","Открой дверь","На кухне выключи свет на 50 процентов"}) {
             model.raw = light("device_kitchen_light",50).dump();
-            auto result = generations.process(text,true);
+            auto result = generations.process(text,execution::ExecutionIntent::Playground);
             check(!result.execution && std::holds_alternative<actions::Unsupported>(result.command.action), "unsafe not executed");
             check(brightness(one->executor->states()) == 40, "unsafe unchanged");
         }
@@ -82,7 +82,7 @@ int main(int argc, char** argv) {
         check(two->id == 2 && two != one, "generation swap");
         check(brightness(two->executor->states()) == 40 && brightness(two->executor->states(),"device_bathroom_light") == 0, "reconcile preserve/new");
         check(two->prompt.find("device_bathroom_light") != std::string::npos, "new LLM context");
-        check(generations.process("В ванной поставь свет на 40 процентов",true).execution->targetId == "device_bathroom_light", "new entity execution");
+        check(generations.process("В ванной поставь свет на 40 процентов",execution::ExecutionIntent::Playground).execution->targetId == "device_bathroom_light", "new entity execution");
         auto narrowed=b; narrowed["actions"][0]["parameters"][0]["maximum"]=30;
         bool rejected=false; try {generations.apply(catalog(narrowed));} catch (const config::ConfigError& e) {rejected=e.code=="state_conflict";}
         check(rejected && generations.current()==two && model.prompt==two->prompt,"range conflict before context swap");
@@ -97,19 +97,19 @@ int main(int argc, char** argv) {
         auto apply=std::async(std::launch::async,[&]{started.set_value();generations.apply(catalog(b));});
         started.get_future().wait();
         check(apply.wait_for(std::chrono::milliseconds(40))==std::future_status::timeout,"apply waits request lease");
-        auto result=request->process("На кухне поставь свет на 70 процентов",true,"voice");
+        auto result=request->process("На кухне поставь свет на 70 процентов",execution::ExecutionIntent::Playground,"voice");
         check(result.generation==old && result.execution->success,"request A executes N");
         request.reset(); apply.get();
         check(generations.current()!=old && brightness(generations.current()->executor->states())==70,"N+1 inherits completed A state");
-        check(generations.process("В ванне поставь свет на 30 процентов",true).generation==generations.current(),"request B uses N+1");
-        for (int i=0;i<105;++i) generations.process("На кухне поставь свет на 40 процентов",true);
+        check(generations.process("В ванне поставь свет на 30 процентов",execution::ExecutionIntent::Playground).generation==generations.current(),"request B uses N+1");
+        for (int i=0;i<105;++i) generations.process("На кухне поставь свет на 40 процентов",execution::ExecutionIntent::Playground);
         check(generations.history().size()==100 && generations.history().back().sequence>100,"bounded history");
-        generations.stop(); rejected=false; try {generations.process("На кухне выключи свет",true);} catch (...) {rejected=true;}
+        generations.stop(); rejected=false; try {generations.process("На кухне выключи свет",execution::ExecutionIntent::Playground);} catch (...) {rejected=true;}
         check(rejected,"shutdown rejects admission");
         // Real Api/Store/Worker/VoiceProcessor, only inference and STT mocked.
         Model stoppedModel; admin::RuntimeGenerations stoppingRuntime(stoppedModel); stoppingRuntime.apply(catalogA);
         auto stoppingRequest=stoppingRuntime.beginRequest(); stoppingRuntime.stop();
-        auto cancelled=stoppingRequest->process("На кухне поставь свет на 40 процентов",true);
+        auto cancelled=stoppingRequest->process("На кухне поставь свет на 40 процентов",execution::ExecutionIntent::Playground);
         check(!cancelled.execution && brightness(cancelled.generation->executor->states())==0,"shutdown suppresses admitted execution");
         Directory directory; config::ConfigStore store(directory.path); store.initialize(catalogA);
         Model apiModel; admin::RuntimeWorker worker(apiModel); admin::LocalRuntimeClient client(worker); admin::Api api(store,client);
@@ -129,15 +129,20 @@ int main(int argc, char** argv) {
         auto spoken=worker.processVoice(recognizer,utterance);
         check(std::get<actions::GenericAction>(spoken.action).targetId()=="device_bathroom_light","voice after Apply same runtime");
         auto state=call(api,"GET","/api/devices/state");
-        bool bathroom30=false; for (const auto& device:state["devices"]) if(device["targetId"]=="device_bathroom_light") bathroom30=device["state"]["brightness"]==30;
-        check(bathroom30,"voice executed30");
+        bool bathroomStill40=false; for (const auto& device:state["devices"]) if(device["targetId"]=="device_bathroom_light") bathroomStill40=device["state"]["brightness"]==40;
+        check(bathroomStill40,"production voice without binding leaves playground state unchanged");
         auto history=call(api,"GET","/api/executions");
         check(history["executions"].size()==2 && history["executions"].back()["source"]=="voice","history sources no preview");
+        check(history["executions"].back()["execution"]["success"]==false &&
+            history["executions"].back()["execution"]["error"]=="binding_missing","production voice fail-closed without binding");
         call(api,"POST","/api/test-command",{{"text",std::string(300000,'x')},{"execute",true}},422);
         check(call(api,"GET","/api/status")["last_command"]["input"]=="[oversized rejected input omitted]","bounded last diagnostics");
         worker.processVoice(recognizer,utterance);
         auto status=call(api,"GET","/api/status");
-        check(status["active"]["generation_id"]==2 && status["device_count"]==6 && status["last_command"]["execution"]["success"]==true,"live status after voice");
+        check(status["active"]["generation_id"]==2 && status["device_count"]==6 && status["last_command"]["execution"]["success"]==false,"live status after voice binding_missing");
+        // Playground execute still mutates shared virtual state when bindings are absent.
+        test=call(api,"POST","/api/test-command",{{"text","В ванной поставь свет на 30 процентов"},{"execute",true}});
+        check(test["execution"]["success"]==true && test["execution"]["current"]["brightness"]==30,"playground mock execute without bindings");
         call(api,"POST","/api/test-command",{{"text","Открой входную дверь"},{"execute","yes"}},400);
         // Actual VoiceProcessor STT lifecycle: Apply is requested while recognition
         // is in flight. Read-only status/state must remain available meanwhile.
