@@ -72,7 +72,11 @@
 <h2>Помощник по настройке</h2>
 <p>Опишите изменение обычным языком. Предложение сначала появится здесь для проверки — в сохранённую конфигурацию оно не попадёт, пока вы сами не нажмёте «Сохранить» и «Применить».</p>
 <label for="copilot-text">Что изменить</label>
+<div class="copilot-input-row">
 <textarea id="copilot-text" rows="3" placeholder="Например: создай кабинет 1 и добавь свет, кондиционер и телевизор"></textarea>
+<button type="button" id="copilot-mic" title="Голосовой ввод">Микрофон</button>
+</div>
+<p id="copilot-voice-status" role="status"></p>
 <div class="buttons">
 <button class="primary" id="copilot-propose">Предложить изменения</button>
 <button id="copilot-cancel" hidden>Отменить</button>

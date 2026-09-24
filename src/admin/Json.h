@@ -7,6 +7,8 @@
 namespace firefly::admin {
 using Json = nlohmann::json;
 inline constexpr std::size_t MaxMessageBytes = 512 * 1024;
+// Admin Copilot browser WAV upload: 15 s mono S16 @ 48 kHz + header.
+inline constexpr std::size_t MaxAudioBytes = 15 * 48000 * 2 + 256;
 inline Json parseMessage(std::string_view bytes, bool typedNumbers = false) {
     if (bytes.empty() || bytes.size() > MaxMessageBytes || bytes.substr(0, 3) == "\xef\xbb\xbf")
         throw std::invalid_argument("Invalid JSON message");

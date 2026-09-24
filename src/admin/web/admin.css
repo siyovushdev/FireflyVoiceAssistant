@@ -130,6 +130,31 @@ section {
     gap:10px;
     margin:14px 0
 }
+.copilot-input-row {
+    display:grid;
+    grid-template-columns:minmax(0,1fr) auto;
+    gap:10px;
+    align-items:start
+}
+.copilot-input-row textarea {
+    width:100%;
+    min-height:4.5em
+}
+#copilot-mic {
+    min-width:48px;
+    height:48px;
+    padding:0 12px
+}
+#copilot-mic[data-state="recording"] {
+    background:#a33;
+    color:#fff;
+    border-color:#a33
+}
+#copilot-voice-status {
+    min-height:1.2em;
+    color:#3a5a4f;
+    margin:6px 0 0
+}
 button,.file-button {
     font:inherit;
     background:#fff;

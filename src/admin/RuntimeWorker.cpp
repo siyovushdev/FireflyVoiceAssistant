@@ -128,8 +128,9 @@ std::string RuntimeWorker::handle(std::string_view bytes) {
             if (method == "copilot" && reply.value("ok", false) && reply.contains("draft") &&
                 reply.at("draft").value("rejected", false)) {
                 reply["ok"] = false;
-                reply["errors"] = failure(reply.at("draft").at("status").get<std::string>(), "",
-                    reply.at("draft").at("summary").get<std::string>())["errors"];
+                const auto& draft = reply.at("draft");
+                const auto code = draft.value("code", draft.at("status").get<std::string>());
+                reply["errors"] = failure(code, "", draft.at("summary").get<std::string>())["errors"];
             }
         } else if (method == "draft") {
             members(request, {"method", "entity", "name"});
@@ -213,7 +214,7 @@ std::string RuntimeWorker::observe() const {
         {"uptime_seconds",std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now()-started_).count()},
         {"context_tokens",generations_.contextTokens()},{"context_limit",1024},
         {"executor","mock"},{"devices",Json::array()},{"executions",Json::array()},{"active",nullptr}};
-    reply["build"] = {{"product","Firefly Milestone 12 · Local Admin Copilot · typed mock"},{"head",BuildHead},{"source_sha256",BuildSource},{"built_utc",BuildTime}};
+    reply["build"] = {{"product","Firefly Milestone 13 · Admin Copilot voice input · typed mock"},{"head",BuildHead},{"source_sha256",BuildSource},{"built_utc",BuildTime}};
     if (const auto active = generations_.current()) {
         const auto& catalog = active->domain.snapshot();
         reply["active"] = {{"configuration",Json::parse(catalog->canonicalJson())},{"revision",catalog->configuration().revision},

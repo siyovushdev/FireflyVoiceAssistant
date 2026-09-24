@@ -1,6 +1,7 @@
 'use strict';
 const $=id=>document.getElementById(id), M=window.AdminModel, json=v=>JSON.stringify(v,null,2);
 let draft, stored, expected, activeConfig, activeRevision, dirty=false, validated=false, operation=false, savedIds=new Set(), wizard, templates=[], pendingPlan, pendingCopilot;
+let voiceState='idle', voiceRec=null, sttReady=false, voiceIdleMessage='';
 const advanced=()=>document.body.dataset.mode==='advanced';
 const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
 function errors(items=[]) {
@@ -102,8 +103,10 @@ async function status(){
     if(!draft)return;
     try{const [r,states,history]=await Promise.all([api('/api/status'),api('/api/devices/state'),api('/api/executions')]);
         activeConfig=states.active?.configuration||activeConfig||stored;activeRevision=r.active?.revision;$('dashboard').replaceChildren();
+        sttReady=!!r.stt_ready;
         dashboardCard('Помощник',r.runtime_busy?'Обрабатывает запрос':r.runtime_ready?'Готов к командам':'Модель недоступна');
         dashboardCard('Голос',r.voice==='disabled'?'Выключен':r.voice==='unavailable'?'Микрофон недоступен':`Включён · ${r.microphone}`);
+        dashboardCard('Голос помощника',sttReady?'Локальный STT готов к записи из браузера':'STT недоступен — только текст');
         const executorCard=dashboardCard('Устройства',`${states.devices.length} · виртуальное исполнение`);const lastExecution=history.executions.at(-1);if(lastExecution)executorCard.append(node('small',`Последнее выполнение: ${new Date(lastExecution.timestamp_ms).toLocaleTimeString()} · ${activeConfig.devices.find(d=>d.id===lastExecution.execution.targetId)?.name||'Устройство'}`));
         dashboardCard('Конфигурация',dirty?'Есть изменения в черновике':r.needs_apply?'Сохранена новая версия — нужно применить':'Сохранённая версия применяется');
         $('status').textContent=`Время работы: ${Math.floor((r.uptime_seconds||0)/60)} мин. · AI ${r.runtime_ready?'доступен':'suggestions unavailable'}`;
@@ -111,6 +114,7 @@ async function status(){
         $('last-command').textContent=r.last_command?.input?`Последняя команда: ${r.last_command.input}`:'';
         $('voice-detail').textContent=r.last_voice?json(r.last_voice):'Голосовых запросов ещё не было.';
         renderStates(states.devices,history.executions);
+        if(voiceState==='idle') setVoiceUi();
     }catch(e){$('status').textContent='Нет соединения с Firefly';}
 }
 function renderStates(devices,history){$('device-state').replaceChildren();const config=activeConfig||stored;
@@ -249,6 +253,115 @@ function clearCopilot(){
     pendingCopilot=null;$('copilot-summary').textContent='';$('copilot-diff').replaceChildren();
     $('copilot-raw').textContent='';$('copilot-accept').hidden=true;$('copilot-cancel').hidden=true;
 }
+function setVoiceUi(){
+    const mic=$('copilot-mic'), statusEl=$('copilot-voice-status');
+    if(!mic||!statusEl)return;
+    mic.dataset.state=voiceState;
+    if(voiceState==='idle'){
+        mic.textContent='Микрофон';
+        mic.title='Голосовой ввод';
+        statusEl.textContent=M.idleVoiceStatus(sttReady, voiceIdleMessage);
+        mic.disabled=!sttReady;
+    } else if(voiceState==='requesting'){
+        mic.textContent='…';
+        mic.title='Подготовка микрофона';
+        statusEl.textContent='Запрос доступа к микрофону…';
+        mic.disabled=true;
+    } else if(voiceState==='recording'){
+        mic.textContent='Стоп';
+        mic.title='Остановить';
+        statusEl.textContent='Запись… Нажмите ещё раз, чтобы остановить.';
+        mic.disabled=false;
+    } else {
+        mic.textContent='…';
+        mic.title='Распознавание';
+        statusEl.textContent='Распознавание…';
+        mic.disabled=true;
+    }
+}
+async function releaseVoiceCapture(rec){
+    if(!rec)return;
+    try{rec.processor&&rec.processor.disconnect();}catch(_){}
+    try{rec.source&&rec.source.disconnect();}catch(_){}
+    try{rec.stream&&rec.stream.getTracks().forEach(t=>t.stop());}catch(_){}
+    try{if(rec.ctx)await rec.ctx.close();}catch(_){}
+}
+async function startCopilotVoice(){
+    if(voiceState!=='idle')return;
+    const gate=M.voiceGate();
+    if(!gate.ok){voiceIdleMessage=M.humanError({code:gate.code});setVoiceUi();return;}
+    if(!sttReady){voiceIdleMessage=M.humanError({code:'stt_unavailable'});setVoiceUi();return;}
+    voiceIdleMessage='';
+    voiceState=M.nextVoiceState('idle','start');
+    setVoiceUi();
+    let ctx=null, stream=null, source=null, processor=null;
+    try{
+        const AudioCtx=window.AudioContext||window.webkitAudioContext;
+        ctx=new AudioCtx();
+        stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true}});
+        source=ctx.createMediaStreamSource(stream);
+        processor=ctx.createScriptProcessor(4096,1,1);
+        const chunks=[], sampleRate=ctx.sampleRate, maxSamples=sampleRate*M.MaxCopilotVoiceSeconds;
+        let samples=0;
+        processor.onaudioprocess=e=>{
+            if(voiceState!=='recording')return;
+            const input=e.inputBuffer.getChannelData(0);
+            chunks.push(new Float32Array(input));
+            samples+=input.length;
+            if(samples>=maxSamples) stopCopilotVoice(true);
+        };
+        source.connect(processor);
+        processor.connect(ctx.destination);
+        voiceRec={ctx,stream,source,processor,chunks,sampleRate};
+        voiceState=M.nextVoiceState('requesting','ready');
+        setVoiceUi();
+    }catch(error){
+        await releaseVoiceCapture({ctx,stream,source,processor});
+        voiceRec=null;
+        voiceIdleMessage=M.humanError({code:M.mapMicError(error)});
+        voiceState=M.nextVoiceState('requesting','fail');
+        setVoiceUi();
+    }
+}
+async function stopCopilotVoice(tooLong){
+    if(voiceState!=='recording'||!voiceRec)return;
+    const rec=voiceRec; voiceRec=null;
+    await releaseVoiceCapture(rec);
+    if(tooLong){
+        voiceIdleMessage=M.humanError({code:'recording_too_long'});
+        voiceState=M.nextVoiceState('recording','too_long');
+        setVoiceUi();
+        return;
+    }
+    const total=rec.chunks.reduce((n,c)=>n+c.length,0);
+    const merged=new Float32Array(total);
+    let offset=0; for(const chunk of rec.chunks){merged.set(chunk,offset);offset+=chunk.length;}
+    const wav=M.encodeWavPcm16(merged, rec.sampleRate);
+    voiceState=M.nextVoiceState('recording','stop');
+    setVoiceUi();
+    try{
+        const response=await fetch('/api/admin/transcribe',{method:'POST',headers:{'Content-Type':'audio/wav','X-Firefly-Admin':'1'},body:wav});
+        const result=await response.json();
+        if(!response.ok||result.ok===false){
+            const err=new Error('stt'); err.response=result; throw err;
+        }
+        $('copilot-text').value=result.text||'';
+        voiceIdleMessage='Текст распознан. При необходимости исправьте и нажмите «Предложить изменения».';
+        voiceState=M.nextVoiceState('transcribing','done');
+    }catch(e){
+        const code=e.response?.errors?.[0]?.code||'stt_failed';
+        voiceIdleMessage=M.humanError({code});
+        if(e.response?.errors) errors(e.response.errors);
+        voiceState=M.nextVoiceState('transcribing','fail');
+    }
+    setVoiceUi();
+}
+$('copilot-mic').onclick=()=>{
+    if(operation||voiceState==='transcribing'||voiceState==='requesting')return;
+    if(voiceState==='recording') stopCopilotVoice(false);
+    else startCopilotVoice();
+};
+setVoiceUi();
 function showCopilot(proposal, meta){
     pendingCopilot=proposal;
     $('copilot-summary').textContent=proposal.summary||'';
@@ -262,9 +375,16 @@ $('copilot-propose').onclick=()=>run(async()=>{
     if(!text){$('copilot-status').textContent='Введите запрос.';return;}
     clearCopilot();
     $('copilot-status').textContent='Готовим предложение…';
-    const r=await api('/api/admin/copilot','POST',{text,configuration:draft});
-    showCopilot(r.draft,{retry_count:r.retry_count,trace:r.trace});
-    $('copilot-status').textContent='Проверьте предложение. «Применить к черновику» меняет только локальный черновик.';
+    try{
+        const r=await api('/api/admin/copilot','POST',{text,configuration:draft});
+        showCopilot(r.draft,{retry_count:r.retry_count,trace:r.trace});
+        $('copilot-status').textContent='Проверьте предложение. «Применить к черновику» меняет только локальный черновик.';
+    }catch(e){
+        clearCopilot();
+        const err=e.response?.errors?.[0]||{code:'invalid_ai_response'};
+        $('copilot-status').textContent=M.humanError(err,draft);
+        throw e;
+    }
 });
 $('copilot-cancel').onclick=()=>{clearCopilot();$('copilot-status').textContent='Предложение отменено.';};
 $('copilot-accept').onclick=()=>run(async()=>{

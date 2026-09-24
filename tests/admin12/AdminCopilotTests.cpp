@@ -167,8 +167,81 @@ int main(int argc, char** argv) {
         // Prompt contract no longer advertises ensure_integer_field.
         const auto prompt = firefly::admin::copilotPrompt(snap);
         check(prompt.find("ensure_integer_field") == std::string::npos, "Prompt omits ensure_integer_field");
+        check(prompt.find("\"op\":\"create_device\"") != std::string::npos, "Prompt shows canonical op discriminator");
         check(prompt.find("rename_location{") != std::string::npos, "Prompt lists rename_location contract");
         check(prompt.find("set_field_bounds{") != std::string::npos, "Prompt lists set_field_bounds contract");
+
+        // «добавь телевизор в гостиную»: only create_device; existing location speech unchanged.
+        const auto migratedBaseline = Json::parse(
+            firefly::config::ConfigValidator::validate(firefly::config::migrateV2(snap->configuration()))->canonicalJson());
+        Json livingSpeechBefore;
+        for (const auto& room : migratedBaseline.at("rooms"))
+            if (room.at("name") == "Гостиная") livingSpeechBefore = room.at("speech");
+        check(!livingSpeechBefore.is_null(), "Living speech captured from migrated baseline");
+        const auto livingTvOnly = Json::parse(firefly::admin::decodeCopilotProposal(
+            R"({"status":"ok","summary":"Телевизор в гостиной.","operations":[{"op":"create_device","location":"Гостиная","name":"Телевизор","template":"tv","description":"ТВ.","aliases":["телевизор"]}]})",
+            snap));
+        check(livingTvOnly.at("operations").size() == 1 && livingTvOnly.at("operations")[0].at("op") == "create_device",
+            "Living-room TV: only create_device");
+        bool livingTvPresent = false;
+        for (const auto& device : livingTvOnly.at("configuration").at("devices"))
+            if (device.at("name") == "Телевизор" && device.at("room_id") == "room_living") livingTvPresent = true;
+        check(livingTvPresent, "TV attached to living room");
+        for (const auto& room : livingTvOnly.at("configuration").at("rooms"))
+            if (room.at("name") == "Гостиная") {
+                check(room.at("speech").at("mentions") == livingSpeechBefore.at("mentions"), "Living mentions unchanged");
+                check(room.at("speech").at("locations") == livingSpeechBefore.at("locations"), "Living phrases unchanged");
+            }
+        for (const auto& change : livingTvOnly.at("changes"))
+            check(change.at("entity") != "location", "No location speech diff for device-only create");
+
+        // Side-effect speech ops with create_device are rejected.
+        const auto mixedSpeech = Json::parse(firefly::admin::decodeCopilotProposal(
+            R"({"status":"ok","summary":"ТВ.","operations":[
+              {"op":"create_device","location":"Гостиная","name":"Телевизор 2","template":"tv","description":"ТВ.","aliases":["телевизор 2"]},
+              {"op":"add_location_mention","location":"Гостиная","mention":"в гостиной"},
+              {"op":"add_location_phrase","location":"Гостиная","phrase":"в гостиной"}
+            ]})", snap));
+        check(mixedSpeech.at("rejected") == true && mixedSpeech.at("status") == "unsupported",
+            "create_device+speech edits rejected");
+        check(!mixedSpeech.contains("configuration"), "Mixed speech rejection does not mutate config");
+
+        // Exact duplicate phrase alone → no changes → rejected by decoder.
+        rejects([&] {
+            (void)firefly::admin::decodeCopilotProposal(
+                R"({"status":"ok","summary":"Дубль.","operations":[{"op":"add_location_phrase","location":"Гостиная","phrase":"в гостиной"}]})",
+                snap);
+        }, "Exact duplicate phrase produces no changes");
+
+        // Missing location: controlled unknown_location, no silent create.
+        const auto missingNursery = Json::parse(firefly::admin::decodeCopilotProposal(
+            R"({"status":"ok","summary":"ТВ в детской.","operations":[{"op":"create_device","location":"Детская комната","name":"Телевизор","template":"tv","description":"ТВ.","aliases":["телевизор"]}]})",
+            snap));
+        check(missingNursery.at("rejected") == true && missingNursery.at("code") == "unknown_location",
+            "Unknown nursery returns unknown_location");
+        check(std::string(missingNursery.at("summary").get<std::string>()).find("Детская комната") != std::string::npos,
+            "Unknown location names the missing zone");
+        check(!missingNursery.contains("configuration"), "Unknown location does not mutate config");
+
+        // Explicit create location + device remains atomic.
+        const auto nurseryCreate = Json::parse(firefly::admin::decodeCopilotProposal(
+            R"({"status":"ok","summary":"Детская и ТВ.","operations":[
+              {"op":"create_location","name":"Детская комната","type":"room","description":"Детская.","mentions":["детская комната","детская"],"locations":["в детской комнате","в детской"]},
+              {"op":"create_device","location":"Детская комната","name":"Телевизор детской","template":"tv","description":"ТВ.","aliases":["телевизор детской"]}
+            ]})", snap));
+        bool nurseryRoom = false, nurseryTv = false;
+        for (const auto& room : nurseryCreate.at("configuration").at("rooms"))
+            if (room.at("name") == "Детская комната") nurseryRoom = true;
+        for (const auto& device : nurseryCreate.at("configuration").at("devices"))
+            if (device.at("name") == "Телевизор детской") nurseryTv = true;
+        check(nurseryRoom && nurseryTv, "Explicit nursery+TV created atomically");
+        check(nurseryCreate.at("operations").size() == 2, "Nursery create keeps both ops");
+
+        rejects([&] {
+            (void)firefly::admin::decodeCopilotProposal(
+                R"({"status":"ok","summary":"bad","operations":[{"create_device":{"location":"Гостиная","name":"ТВ","template":"tv","description":"x"}}]})",
+                snap);
+        }, "Nested create_device without op discriminator rejected");
 
         const auto deleted = Json::parse(firefly::admin::decodeCopilotProposal(
             R"({"status":"ok","summary":"Телевизор гостиной будет удалён.","operations":[{"op":"delete_device","device":"Телевизор гостиной","location":"Гостиная"}]})",

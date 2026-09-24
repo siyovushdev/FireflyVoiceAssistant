@@ -76,6 +76,15 @@ bool protectedEntranceDoorSpeech(const Json& deviceLike) {
 [[noreturn]] void unsupported(const std::string& reason) {
     throw std::invalid_argument("unsupported: " + reason);
 }
+struct CopilotRejection : std::runtime_error {
+    std::string status;
+    std::string code;
+    explicit CopilotRejection(std::string status, std::string code, std::string summary)
+        : std::runtime_error(summary), status(std::move(status)), code(std::move(code)) {}
+};
+[[noreturn]] void rejectProposal(std::string code, std::string summary) {
+    throw CopilotRejection("unsupported", std::move(code), std::move(summary));
+}
 bool equalsFolded(std::string_view a, std::string_view b) { return detail::lowercase(a) == detail::lowercase(b); }
 Json* resolveLocation(Json& value, const std::string& ref, bool required = true) {
     if (ref.empty()) {
@@ -212,7 +221,13 @@ void applyOperation(Json& value, std::set<std::string>& ids, const Json& op, con
         Json deviceLike = op;
         deviceLike["aliases"] = aliases;
         if (protectedEntranceDoorSpeech(deviceLike)) rejectProtectedEntranceDoor();
-        const auto* location = resolveLocation(value, op.at("location").get<std::string>());
+        const auto locationRef = op.at("location").get<std::string>();
+        const auto* location = resolveLocation(value, locationRef, false);
+        if (!location) {
+            rejectProposal("unknown_location",
+                "Зона «" + locationRef + "» не найдена в черновике. Сначала явно создайте её "
+                "(create_location), затем добавьте устройство.");
+        }
         const auto& selected = templateById(templates, op.at("template"));
         const auto name = op.at("name").get<std::string>();
         const auto id = allocate(ids, "device", name);
@@ -329,16 +344,19 @@ std::string copilotPrompt(config::Catalog draft) {
     const auto value = migrated(draft);
     const auto scope = scopedInventory(value);
     return std::string(R"(Admin Copilot. Только JSON.
-{"status":"ok|ambiguous|unsupported","summary":"…","operations":[…]}
-≤8 ops; ≤2 create_location; ≤6 create_device.
-create_location{name,type,description,mentions?,locations?}
-create_device{location,name,template,description,aliases?}
-rename_location{location,name,keep_previous_as_alias}
-add_location_mention{location,mention}
-add_location_phrase{location,phrase}
-delete_device{device,location}
-set_field_bounds{device,location,field,minimum,maximum}
-Не угадывай. Не door/входную дверь как switch. Без ID/Save/Apply.
+{"status":"ok|ambiguous|unsupported","summary":"…","operations":[{"op":"…"}]}
+Каждый element operations — плоский объект с discriminator "op" (строка). Пример:
+{"op":"create_device","location":"Гостиная","name":"Телевизор","template":"tv","description":"ТВ.","aliases":["телевизор"]}
+≠ {"create_device":{…}}. ≤8 ops; ≤2 create_location; ≤6 create_device.
+create_location{op,name,type,description,mentions?,locations?}
+create_device{op,location,name,template,description,aliases?}
+rename_location{op,location,name,keep_previous_as_alias}
+add_location_mention{op,location,mention}
+add_location_phrase{op,location,phrase}
+delete_device{op,device,location}
+set_field_bounds{op,device,location,field,minimum,maximum}
+create_device не меняет speech зоны. add_location_* только если пользователь просил речь.
+Не угадывай location. Не door/входную дверь как switch. Без ID/Save/Apply.
 )") + scope;
 }
 
@@ -361,20 +379,33 @@ std::string decodeCopilotProposal(std::string_view raw, config::Catalog draft) {
     if (proposal.at("operations").empty()) throw std::invalid_argument("ok status requires operations");
 
     std::size_t createLocations = 0, createDevices = 0;
+    bool speechEdit = false;
     for (const auto& op : proposal.at("operations")) {
-        if (!op.is_object() || !op.contains("op")) throw std::invalid_argument("Invalid operation");
+        if (!op.is_object() || !op.contains("op") || !op.at("op").is_string())
+            throw std::invalid_argument("Invalid operation: each item needs string discriminator \"op\"");
         const auto kind = op.at("op").get<std::string>();
         if (kind == "create_location") ++createLocations;
         if (kind == "create_device") ++createDevices;
+        if (kind == "add_location_mention" || kind == "add_location_phrase") speechEdit = true;
     }
     if (createLocations > 2) unsupported("At most two new locations per Copilot proposal");
     if (createDevices > 6) unsupported("At most six new devices per Copilot proposal");
+    if (createDevices > 0 && speechEdit)
+        return Json{{"rejected", true}, {"status", "unsupported"}, {"code", "unsupported"},
+            {"summary", "Добавление устройства не должно менять speech зоны. Уберите add_location_mention/phrase."},
+            {"operations", Json::array()}, {"base_hash", baseHash}, {"saved", false}, {"applied", false}}.dump();
 
     auto value = migrated(draft);
     auto ids = occupied(value);
     const auto before = value.dump();
     const auto templates = Json::parse(templatesJson());
-    for (const auto& op : proposal.at("operations")) applyOperation(value, ids, op, templates);
+    try {
+        for (const auto& op : proposal.at("operations")) applyOperation(value, ids, op, templates);
+    } catch (const CopilotRejection& rejection) {
+        return Json{{"rejected", true}, {"status", rejection.status}, {"code", rejection.code},
+            {"summary", rejection.what()}, {"operations", Json::array()},
+            {"base_hash", baseHash}, {"saved", false}, {"applied", false}}.dump();
+    }
 
     const auto validated = config::ConfigLoader::fromJson(value.dump());
     const auto after = validated->canonicalJson();

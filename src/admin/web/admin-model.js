@@ -63,7 +63,7 @@
             runtime_busy:'Сейчас обрабатывается другой запрос. Повторите после его завершения.',runtime_unavailable:'Модель недоступна. Ручное редактирование и сохранение доступны.',
             revision_conflict:'Конфигурация уже изменена. Загрузите сохранённую версию перед сохранением.',hierarchy_cycle:'Зона не может быть родителем самой себя или своего предка.',
             retired_id:'Этот постоянный идентификатор ранее удалён. Создайте сущность с новым идентификатором.',identity_conflict:'Нельзя изменить категорию существующего идентификатора.',
-            invalid_alias:'Проверьте речевые обозначения: строчные слова, один пробел; слово зоны должно присутствовать в её фразе.',
+            invalid_alias:'Проверьте речевые обозначения: строчные слова, один пробел между словами; без лишних пробелов и управляющих символов.',
             reserved_alias:'Речевое обозначение содержит служебное слово команды или безопасности.',
             unsupported_runtime_policy:'Политики безопасности обязательны. Отключённые действия и дополнительные запреты пока не поддерживаются.',
             unsupported_runtime_target:'Открытие доступно только для настроенной входной двери.',
@@ -81,7 +81,18 @@
             stale_proposal:'Предложение устарело: черновик уже изменился. Запросите новое предложение.',
             ambiguous:'Запрос неоднозначен. Уточните зону или устройство. Черновик не изменён.',
             unsupported:'Запрос нельзя безопасно выполнить через помощника. Черновик не изменён.',
-            context_overflow:'Конфигурация слишком велика для контекста помощника. Упростите черновик или запрос.'};
+            unknown_location:'Указанная зона не найдена в черновике. Сначала явно создайте её, затем добавьте устройство.',
+            context_overflow:'Конфигурация слишком велика для контекста помощника. Упростите черновик или запрос.',
+            stt_unavailable:'Голосовой ввод недоступен на этом Firefly. Введите запрос текстом.',
+            stt_busy:'Распознавание уже выполняется. Дождитесь завершения.',
+            stt_failed:'Не удалось распознать речь. Повторите или введите текст.',
+            empty_speech:'Речь не распознана. Произнесите короткий запрос и попробуйте снова.',
+            invalid_audio:'Аудиозапись отклонена. Допустима короткая моно WAV/PCM запись до 15 секунд.',
+            mic_denied:'Доступ к микрофону запрещён. Разрешите микрофон в браузере или введите текст.',
+            mic_missing:'Микрофон не найден. Проверьте устройство или введите текст.',
+            mic_unsupported:'Этот браузер не поддерживает нужный API записи. Введите текст.',
+            insecure_context:'Голосовой ввод требует безопасный контекст браузера. Откройте Admin через SSH tunnel: http://localhost:…',
+            recording_too_long:'Запись длиннее 15 секунд. Остановите раньше и повторите.'};
         if (code==='ambiguous_alias') {
             const alias=typeof value==='string'?value:'';
             const owners=(config?.rooms||[]).filter(r=>[...r.speech.mentions,...r.speech.locations].includes(alias)).map(r=>r.name);
@@ -146,6 +157,52 @@
     }
     const executorContract=result=>result?.actionId&&result?.targetId?clone(result):null;
     const stateText=(s,device)=>!s?'—':s.brightness!==undefined?`${s.brightness}%`:s.state==='OPEN'?'OPEN · Открыто':s.state==='CLOSED'?'CLOSED · Закрыто':s.status==='unconfigured'?'Операции не настроены':Object.entries(s).map(([k,v])=>{const p=device?.state?.find(p=>p.id===k);return `${p?.name||k}: ${valueText(v,p)}`;}).join(', ');
-    const result={scalarNumber,decodeImport,clone,list,metadata,typeName,occupied,location,device,suggestion,wizardErrors,constraintErrors,constrainedAction,humanError,diffLines,commandSummary,stateText,unitText,valueText,constraintText,effectLines,initialValue,simpleAction,executorContract};
+    const MaxCopilotVoiceSeconds=15;
+    function voiceGate() {
+        if (typeof window!=='undefined' && window.isSecureContext===false)
+            return {ok:false, code:'insecure_context'};
+        if (typeof navigator==='undefined' || !navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia!=='function')
+            return {ok:false, code:'mic_unsupported'};
+        if (typeof AudioContext==='undefined' && typeof webkitAudioContext==='undefined')
+            return {ok:false, code:'mic_unsupported'};
+        return {ok:true};
+    }
+    function mapMicError(error) {
+        const name=error&&error.name||'';
+        if (name==='NotAllowedError' || name==='PermissionDeniedError') return 'mic_denied';
+        if (name==='NotFoundError' || name==='DevicesNotFoundError') return 'mic_missing';
+        if (name==='SecurityError') return 'insecure_context';
+        if (name==='NotSupportedError') return 'mic_unsupported';
+        return 'mic_unsupported';
+    }
+    function encodeWavPcm16(float32, sampleRate) {
+        const samples=float32.length;
+        const buffer=new ArrayBuffer(44+samples*2);
+        const view=new DataView(buffer);
+        const write=(offset, text)=>{for(let i=0;i<text.length;i++) view.setUint8(offset+i, text.charCodeAt(i));};
+        write(0,'RIFF'); view.setUint32(4, 36+samples*2, true); write(8,'WAVE'); write(12,'fmt ');
+        view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+        view.setUint32(24, sampleRate, true); view.setUint32(28, sampleRate*2, true);
+        view.setUint16(32, 2, true); view.setUint16(34, 16, true); write(36,'data');
+        view.setUint32(40, samples*2, true);
+        let offset=44;
+        for (let i=0;i<samples;i++) {
+            const s=Math.max(-1, Math.min(1, float32[i]));
+            view.setInt16(offset, s<0 ? s*0x8000 : s*0x7fff, true);
+            offset+=2;
+        }
+        return buffer;
+    }
+    function nextVoiceState(state, event) {
+        const table={idle:{start:'requesting'}, requesting:{ready:'recording', fail:'idle', cancel:'idle'},
+            recording:{stop:'transcribing', cancel:'idle', too_long:'idle'},
+            transcribing:{done:'idle', fail:'idle'}};
+        return (table[state]||{})[event] || state;
+    }
+    function idleVoiceStatus(sttReady, lastMessage) {
+        if (lastMessage) return lastMessage;
+        return sttReady ? '' : 'Голосовой ввод недоступен — введите текст.';
+    }
+    const result={scalarNumber,decodeImport,clone,list,metadata,typeName,occupied,location,device,suggestion,wizardErrors,constraintErrors,constrainedAction,humanError,diffLines,commandSummary,stateText,unitText,valueText,constraintText,effectLines,initialValue,simpleAction,executorContract,voiceGate,mapMicError,encodeWavPcm16,nextVoiceState,idleVoiceStatus,MaxCopilotVoiceSeconds};
     if(typeof module!=='undefined')module.exports=result; else root.AdminModel=result;
 })(typeof window!=='undefined'?window:globalThis);

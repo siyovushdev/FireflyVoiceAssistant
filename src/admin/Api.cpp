@@ -1,4 +1,5 @@
 #include "firefly/admin/Api.h"
+#include "firefly/admin/AdminTranscriber.h"
 #include "firefly/config/ConfigLoader.h"
 #include "firefly/config/ConfigValidator.h"
 #include "Json.h"
@@ -46,13 +47,15 @@ std::shared_ptr<const RuntimeGeneration> candidate(const Json& root) {
 struct Api::Impl {
     config::ConfigStore& store;
     RuntimeClient& runtime;
+    AdminTranscriber* transcriber = nullptr;
     std::mutex writes, runtimeOperation, state;
     std::atomic<bool> busy{false};
     Json active = nullptr;
     bool ready = false;
     int workerPid = 0;
     std::string lastError;
-    Impl(config::ConfigStore& store, RuntimeClient& runtime) : store(store), runtime(runtime) {}
+    Impl(config::ConfigStore& store, RuntimeClient& runtime, AdminTranscriber* transcriber)
+        : store(store), runtime(runtime), transcriber(transcriber) {}
     Json invoke(const Json& request) {
         std::unique_lock<std::mutex> operation(runtimeOperation, std::try_to_lock);
         if (!operation.owns_lock()) throw ApiError(409, "runtime_busy", "", "Runtime is processing another command or Apply. Retry when idle.");
@@ -93,7 +96,8 @@ struct Api::Impl {
         return result;
     }
 };
-Api::Api(config::ConfigStore& store, RuntimeClient& runtime) : impl_(std::make_unique<Impl>(store, runtime)) {}
+Api::Api(config::ConfigStore& store, RuntimeClient& runtime, AdminTranscriber* transcriber)
+    : impl_(std::make_unique<Impl>(store, runtime, transcriber)) {}
 Api::~Api() = default;
 void Api::initializeRuntime() {
     try { (void)impl_->invoke({{"method", "apply"}, {"configuration", Json::parse(impl_->store.current()->canonicalJson())}}); }
@@ -103,7 +107,7 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
     int status = 200;
     Json reply;
     try {
-        const std::map<std::string, std::string> routes{{"/api/admin/plan", "POST"}, {"/api/admin/copilot", "POST"}, {"/api/admin/copilot/accept", "POST"}, {"/api/admin/action-draft", "POST"}, {"/api/admin/templates", "GET"}, {"/api/admin/draft", "POST"}, {"/api/config/migrate", "POST"}, {"/api/admin/id", "POST"}, {"/api/admin/suggest", "POST"}, {"/api/config/diff", "POST"},
+        const std::map<std::string, std::string> routes{{"/api/admin/plan", "POST"}, {"/api/admin/copilot", "POST"}, {"/api/admin/copilot/accept", "POST"}, {"/api/admin/transcribe", "POST"}, {"/api/admin/action-draft", "POST"}, {"/api/admin/templates", "GET"}, {"/api/admin/draft", "POST"}, {"/api/config/migrate", "POST"}, {"/api/admin/id", "POST"}, {"/api/admin/suggest", "POST"}, {"/api/config/diff", "POST"},
             {"/api/config/export", "GET"}, {"/api/config/import", "POST"}, {"/api/config/revision", "POST"},
             {"/api/config/restore-candidate", "POST"}, {"/api/dashboard", "GET"}, {"/api/devices/state", "GET"}, {"/api/executions", "GET"}, {"/api/status", "GET"}, {"/api/config", "GET PUT"},
             {"/api/config/active", "GET"}, {"/api/config/validate", "POST"}, {"/api/config/apply", "POST"},
@@ -113,6 +117,15 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
         if ((" " + route->second + " ").find(" " + std::string(method) + " ") == std::string::npos)
             throw ApiError(405, "method_not_allowed", "", "HTTP method is not supported for this endpoint.");
         if (method == "GET" && !body.empty()) throw std::invalid_argument("Unexpected body");
+        if (path == "/api/admin/transcribe") {
+            if (!impl_->transcriber || !impl_->transcriber->ready())
+                throw ApiError(503, "stt_unavailable", "", "Local speech recognition is not available on this Firefly.");
+            reply = Json::parse(impl_->transcriber->transcribe(body));
+            if (!reply.value("ok", false)) status = reply.contains("errors") &&
+                reply["errors"].is_array() && !reply["errors"].empty() &&
+                reply["errors"][0].value("code", "") == "stt_busy" ? 409 : 422;
+            return {status, "application/json; charset=utf-8", reply.dump(-1, ' ', false, Json::error_handler_t::replace)};
+        }
         Json request = method == "GET" ? Json::object() : parseMessage(body,true);
         const auto observation = method == "GET" ? impl_->runtime.observe() : std::string{};
         if (path == "/api/admin/plan" || path == "/api/admin/action-draft" || path == "/api/admin/copilot") {
@@ -214,6 +227,7 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
                 reply["device_count"] = live["devices"].size();
             }
             reply["needs_apply"] = !reply.contains("stored") || reply["active"].is_null() || reply["stored"]["hash"] != reply["active"]["hash"];
+            reply["stt_ready"] = impl_->transcriber != nullptr && impl_->transcriber->ready();
         } else if (path == "/api/config/active") {
             std::lock_guard<std::mutex> lock(impl_->state);
             reply = {{"ok", true}, {"active", observation.empty() ? impl_->active : parseMessage(observation).at("active")}};

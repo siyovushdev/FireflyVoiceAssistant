@@ -93,7 +93,8 @@ HttpReply request(int socket, Api& api, const std::map<std::string, HttpReply>& 
         const auto result = std::from_chars(value.data(), value.data() + value.size(), length);
         if (result.ec != std::errc{} || result.ptr != value.data() + value.size()) throw HttpError(400, "Invalid Content-Length.");
     }
-    if (length > MaxMessageBytes) throw HttpError(413, "Request body too large.");
+    if (length > (path == "/api/admin/transcribe" ? MaxAudioBytes : MaxMessageBytes))
+        throw HttpError(413, "Request body too large.");
     const bool mutation = method != "GET" && method != "HEAD";
     if (mutation) {
         if (headers["x-firefly-admin"] != "1") throw HttpError(403, "X-Firefly-Admin: 1 is required.");
@@ -101,7 +102,11 @@ HttpReply request(int socket, Api& api, const std::map<std::string, HttpReply>& 
             throw HttpError(403, "Cross-origin mutation rejected.");
         if (headers.count("sec-fetch-site") && headers["sec-fetch-site"] == "cross-site")
             throw HttpError(403, "Cross-site mutation rejected.");
-        if (headers["content-type"] != "application/json" && headers["content-type"] != "application/json; charset=utf-8")
+        const auto& type = headers["content-type"];
+        if (path == "/api/admin/transcribe") {
+            if (type != "audio/wav" && type != "audio/x-wav" && type != "application/octet-stream")
+                throw HttpError(415, "Use audio/wav for Admin Copilot transcription.");
+        } else if (type != "application/json" && type != "application/json; charset=utf-8")
             throw HttpError(415, "Use application/json.");
     }
     const std::size_t bodyStart = end + 4;

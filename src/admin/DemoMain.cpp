@@ -1,5 +1,6 @@
 #include "HttpServer.h"
 #include "RuntimeModel.h"
+#include "firefly/admin/AdminTranscriber.h"
 #include "firefly/config/ConfigLoader.h"
 #ifdef FIREFLY_WITH_VOICE
 #include "firefly/voice/AlsaAudioSource.h"
@@ -27,8 +28,11 @@ int main(int argc, char** argv) {
             if (flag == "--help") {
                 std::cout << "firefly-demo --store DIR --model FILE [--init-config FILE]\n"
                     "  [--admin-bind 127.0.0.1] [--admin-port 8080]\n"
-                    "  [--voice --stt-model-dir DIR --vad-model FILE --audio-device plughw:CARD=H340,DEV=0]\n"
+                    "  [--stt-model-dir DIR]\n"
+                    "  [--voice --vad-model FILE --audio-device plughw:CARD=H340,DEV=0]\n"
                     "One process, one model, one generation; mock devices only. DIR must be private/user-owned.\n"
+                    "--stt-model-dir enables Admin Copilot browser transcription (no Firefly mic required).\n"
+                    "--voice enables the separate ALSA assistant loop; it does not feed Admin Copilot.\n"
                     "No auth/TLS: explicit LAN binding is for trusted development networks only.\n";
                 return 0;
             }
@@ -51,9 +55,10 @@ int main(int argc, char** argv) {
         }
         if (storePath.empty()) throw std::invalid_argument("--store is required");
 #ifndef FIREFLY_WITH_VOICE
-        if (voice) throw std::invalid_argument("Build with FIREFLY_BUILD_VOICE=ON");
+        if (voice || !stt.empty()) throw std::invalid_argument("Build with FIREFLY_BUILD_VOICE=ON for STT/voice");
 #else
-        if (voice && (stt.empty() || vad.empty() || modelPath.empty())) throw std::invalid_argument("Voice requires model, STT and VAD paths");
+        if (voice && (stt.empty() || vad.empty() || modelPath.empty()))
+            throw std::invalid_argument("Voice requires model, STT and VAD paths");
 #endif
         firefly::config::ConfigStore store(storePath);
         if (!initial.empty() && !std::filesystem::exists(std::filesystem::symlink_status(std::filesystem::path(storePath) / "configuration.json")))
@@ -61,7 +66,19 @@ int main(int argc, char** argv) {
         firefly::admin::RuntimeModel model(modelPath);
         firefly::admin::RuntimeWorker runtime(model);
         firefly::admin::LocalRuntimeClient client(runtime);
-        firefly::admin::Api api(store, client);
+        std::unique_ptr<firefly::admin::AdminTranscriber> transcriber;
+#ifdef FIREFLY_WITH_VOICE
+        if (!stt.empty()) {
+            try {
+                transcriber = std::make_unique<firefly::admin::AdminTranscriber>(
+                    std::make_unique<firefly::voice::SherpaRecognizer>(stt));
+                std::cerr << "Admin Copilot STT ready (browser upload path)\n";
+            } catch (const std::exception& error) {
+                std::cerr << "Admin Copilot STT unavailable; typing remains available: " << error.what() << '\n';
+            }
+        }
+#endif
+        firefly::admin::Api api(store, client, transcriber.get());
         firefly::admin::HttpServer server(api, bind, port);
         std::signal(SIGTERM, stop); std::signal(SIGINT, stop);
         std::cout << "DEMO_LISTEN http://" << bind << ':' << server.port() << '\n' << std::flush;
@@ -74,6 +91,7 @@ int main(int argc, char** argv) {
                     runtime.voiceStatus("loading", "opening");
                     firefly::voice::SherpaVad detector(vad);
                     firefly::voice::VoiceSegmenter segmenter(detector); // frozen 300/300 padding
+                    // Separate recognizer from AdminTranscriber: ALSA assistant ≠ Copilot upload.
                     firefly::voice::SherpaRecognizer recognizer(stt);
                     firefly::voice::AlsaAudioSource capture(device); // persistent 16k mono S16_LE
                     firefly::voice::runVoiceLoop(capture, segmenter,
