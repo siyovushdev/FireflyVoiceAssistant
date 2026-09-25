@@ -334,10 +334,11 @@ int main(int argc, char** argv) {
         check(reply.first == 422 && reply.second.at("errors")[0].at("code") == "ambiguous", "Ambiguous HTTP controlled error");
 
         // Explicit HTTP connection values may become bindings; missing IP/path must not invent.
+        // Use a custom raw-string delimiter — JSON ending in }] )" would truncate at )".
         auto v2 = Json::parse(firefly::config::ConfigValidator::validate(
             firefly::config::migrateV2(snap->configuration()))->canonicalJson());
         const auto kitchenBound = Json::parse(firefly::admin::decodeCopilotProposal(
-            std::string(R"({"status":"ok","summary":"Kitchen light HTTP.","operations":[{"op":"set_http_binding","device":"device_kitchen_light","location":"room_kitchen","action":"action_set_brightness","method":"POST","url":"http://192.168.68.50/light","argument":"brightness","timeout_ms":2000}])"),
+            std::string(R"JSON({"status":"ok","summary":"Kitchen light HTTP.","operations":[{"op":"set_http_binding","device":"device_kitchen_light","location":"room_kitchen","action":"action_set_brightness","method":"POST","url":"http://192.168.68.50/light","argument":"brightness","timeout_ms":2000}]})JSON"),
             catalog(v2)));
         check(kitchenBound.at("saved") == false && kitchenBound.at("applied") == false, "Binding proposal never saves");
         bool bindingOk = false;
@@ -349,12 +350,12 @@ int main(int argc, char** argv) {
         }
         check(bindingOk, "Explicit URL/argument become HTTP binding");
         const auto missingUrl = Json::parse(firefly::admin::decodeCopilotProposal(
-            std::string(R"({"status":"ok","summary":"Need explicit URL.","operations":[{"op":"set_http_binding","device":"device_kitchen_light","location":"room_kitchen","action":"action_set_brightness","method":"POST","url":"esp32-local/light"}]})"),
+            std::string(R"JSON({"status":"ok","summary":"Need explicit URL.","operations":[{"op":"set_http_binding","device":"device_kitchen_light","location":"room_kitchen","action":"action_set_brightness","method":"POST","url":"esp32-local/light"}]})JSON"),
             catalog(v2)));
         check(missingUrl.value("rejected", false) == true, "Non-http URL rejected without inventing host");
         check(missingUrl.value("code", "") == "incomplete_connection", "incomplete_connection code");
         const auto cleared = Json::parse(firefly::admin::decodeCopilotProposal(
-            std::string(R"({"status":"ok","summary":"Clear binding.","operations":[{"op":"clear_http_binding","device":"device_kitchen_light","location":"room_kitchen","action":"action_set_brightness"}]})"),
+            std::string(R"JSON({"status":"ok","summary":"Clear binding.","operations":[{"op":"clear_http_binding","device":"device_kitchen_light","location":"room_kitchen","action":"action_set_brightness"}]})JSON"),
             catalog(kitchenBound.at("configuration"))));
         check(cleared.at("configuration").at("bindings").empty(), "clear_http_binding removes binding");
 

@@ -95,6 +95,14 @@ check(M.humanError({code:'duplicate_binding'}).includes('дубликат'),'dup
 check(M.humanError({code:'unsupported_executor'}).includes('HTTP'),'unsupported_executor human');
 check(M.actionNeedsArgument({parameters:[{id:'brightness'}]}),'brightness needs argument');
 check(M.preferredArgument({parameters:[{id:'brightness'}]})==='brightness','preferred argument');
+
+// M17 health presentation (status.health → dashboard copy).
+check(M.healthSummary({health:{overall:'ready',stopping:false,config_recovered:false,subsystems:{}}}).title==='Система готова','ready title');
+check(M.healthSummary({health:{overall:'degraded',stopping:false,config_recovered:false,subsystems:{llm:{status:'failed'}}}}).title==='Ограниченный режим','degraded title');
+check(M.healthSummary({health:{overall:'degraded',stopping:false,config_recovered:false,subsystems:{llm:{status:'failed'}}}}).detail.includes('LLM'),'degraded LLM detail');
+check(M.healthSummary({health:{overall:'degraded',stopping:false,config_recovered:true,subsystems:{}}}).detail.includes('восстановлена'),'LKG recovered copy');
+check(M.healthSummary({health:{overall:'degraded',stopping:true,config_recovered:false,subsystems:{}}}).title==='Остановка…','stopping title');
+check(M.healthSummary({runtime_ready:true}).title==='Система готова','legacy ready without health');
 console.log(`PASS ${checks} draft/UI model checks`);
 
 for(const raw of ["9007199254740993","0.12345678901234567","1e-400","1e400",""])assert.throws(()=>M.scalarNumber(raw));

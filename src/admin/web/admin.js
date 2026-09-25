@@ -106,6 +106,8 @@ async function status(){
         activeConfig=states.active?.configuration||activeConfig||stored;activeRevision=r.active?.revision;$('dashboard').replaceChildren();
         sttReady=!!r.stt_ready;
         dashboardCard('Помощник',r.runtime_busy?'Обрабатывает запрос':r.runtime_ready?'Готов к командам':'Модель недоступна');
+        const health=M.healthSummary?M.healthSummary(r):{tone:'degraded',title:'Статус',detail:''};
+        const healthCard=dashboardCard('Состояние системы',health.title);if(health.detail)healthCard.append(node('small',health.detail));
         dashboardCard('Голос',r.voice==='disabled'?'Выключен':r.voice==='unavailable'?'Микрофон недоступен':`Включён · ${r.microphone}`);
         dashboardCard('Голос помощника',sttReady?'Локальный STT готов к записи из браузера':'STT недоступен — только текст');
         const executorCard=dashboardCard('Устройства',`${states.devices.length} · playground: Mock`);const lastExecution=history.executions.at(-1);if(lastExecution)executorCard.append(node('small',`Последнее выполнение: ${new Date(lastExecution.timestamp_ms).toLocaleTimeString()} · ${activeConfig.devices.find(d=>d.id===lastExecution.execution.targetId)?.name||'Устройство'}`));

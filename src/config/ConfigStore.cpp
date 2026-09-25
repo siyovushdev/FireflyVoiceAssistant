@@ -17,6 +17,8 @@ namespace {
 using detail::FileDescriptor;
 constexpr char CurrentFile[] = "configuration.json";
 constexpr char PendingFile[] = ".pending.json";
+constexpr char LastKnownGoodFile[] = "last_known_good.json";
+constexpr char LastKnownGoodSnapshot[] = "last_known_good_snapshot.json";
 void secure(int descriptor, bool directory) {
     struct stat status{};
     if (::fstat(descriptor, &status) != 0) detail::ioError("stat store");
@@ -296,5 +298,60 @@ Catalog ConfigStore::reconcile() {
     if (::unlinkat(store.directory.get(), PendingFile, 0) != 0) detail::ioError("remove reconciled transaction marker");
     sync(store.directory.get());
     return current;
+}
+
+void ConfigStore::recordLastKnownGood(const Catalog& applied) {
+    if (!applied) throw ConfigError("invalid_request", "", "Cannot record empty Last Known Good");
+    LockedStore store(directory_);
+    noPending(store.directory.get());
+    // Dedicated snapshot — do not write into backups/ (revision history stays save/restore only).
+    bool snapshotPublished = false;
+    publish(store.directory.get(), LastKnownGoodSnapshot, applied->canonicalJson(), fault_, false, snapshotPublished);
+    const auto marker = detail::Json{
+        {"revision", applied->configuration().revision},
+        {"hash", applied->contentHash()}}.dump();
+    bool published = false;
+    publish(store.directory.get(), LastKnownGoodFile, marker, fault_, false, published);
+}
+
+std::optional<Catalog> ConfigStore::lastKnownGood() const {
+    LockedStore store(directory_);
+    noPending(store.directory.get());
+    if (!exists(store.directory.get(), LastKnownGoodFile)) return std::nullopt;
+    FileDescriptor file(::openat(store.directory.get(), LastKnownGoodFile, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC));
+    if (file.get() < 0) detail::ioError("open last known good marker");
+    secure(file.get(), false);
+    const auto marker = detail::parseDocument(detail::readDescriptor(file.get()));
+    if (!marker.is_object() || !marker.contains("revision") || !marker.contains("hash") ||
+        !marker["revision"].is_number_integer() || !marker["hash"].is_string())
+        throw ConfigError("store_corrupt", "", "Malformed last_known_good marker");
+    const auto revision = marker["revision"].get<std::int64_t>();
+    const auto hash = marker["hash"].get<std::string>();
+    if (exists(store.directory.get(), CurrentFile)) {
+        try {
+            const auto current = readCatalog(store.directory.get(), CurrentFile);
+            if (current->configuration().revision == revision && current->contentHash() == hash)
+                return current;
+        } catch (const ConfigError&) {
+        } catch (const std::exception&) {
+        }
+    }
+    if (exists(store.directory.get(), LastKnownGoodSnapshot)) {
+        try {
+            const auto snapshot = readCatalog(store.directory.get(), LastKnownGoodSnapshot);
+            if (snapshot->configuration().revision == revision && snapshot->contentHash() == hash)
+                return snapshot;
+        } catch (const ConfigError&) {
+        } catch (const std::exception&) {
+        }
+    }
+    // Older markers may point only at save() backups.
+    const auto entries = listBackups(store.directory.get());
+    const auto found = std::find_if(entries.begin(), entries.end(), [&](const auto& entry) {
+        return entry.revision == revision && entry.hash == hash;
+    });
+    if (found == entries.end()) return std::nullopt;
+    auto directory = backups(store.directory.get());
+    return readCatalog(directory.get(), std::to_string(revision) + "-" + hash + ".json");
 }
 }

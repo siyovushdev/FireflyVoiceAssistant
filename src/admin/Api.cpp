@@ -48,6 +48,7 @@ struct Api::Impl {
     config::ConfigStore& store;
     RuntimeClient& runtime;
     AdminTranscriber* transcriber = nullptr;
+    HealthModel health;
     std::mutex writes, runtimeOperation, state;
     std::atomic<bool> busy{false};
     Json active = nullptr;
@@ -56,9 +57,29 @@ struct Api::Impl {
     std::string lastError;
     Impl(config::ConfigStore& store, RuntimeClient& runtime, AdminTranscriber* transcriber)
         : store(store), runtime(runtime), transcriber(transcriber) {}
+    void syncHealthFromRuntime(const Json& live) {
+        const bool modelReady = live.value("model_ready", false);
+        if (modelReady) health.setSubsystem("llm", SubsystemStatus::Ready);
+        else if (live.contains("active") && !live.at("active").is_null())
+            health.setSubsystem("llm", SubsystemStatus::Failed, "model_unavailable",
+                live.value("runtime_error", std::string("Model not ready")));
+        else health.setSubsystem("llm", SubsystemStatus::Starting);
+        if (live.contains("active") && !live.at("active").is_null()) {
+            health.setSubsystem("runtime", SubsystemStatus::Ready);
+            health.setSubsystem("hardware_execution", SubsystemStatus::Ready);
+        }
+        if (transcriber && transcriber->ready())
+            health.setSubsystem("stt", SubsystemStatus::Ready);
+        else if (transcriber)
+            health.setSubsystem("stt", SubsystemStatus::Failed, "stt_unavailable");
+        else health.setSubsystem("stt", SubsystemStatus::Unavailable, "", "not_configured");
+        health.refreshOverall();
+    }
     Json invoke(const Json& request) {
         std::unique_lock<std::mutex> operation(runtimeOperation, std::try_to_lock);
         if (!operation.owns_lock()) throw ApiError(409, "runtime_busy", "", "Runtime is processing another command or Apply. Retry when idle.");
+        if (health.snapshot().stopping)
+            throw ApiError(503, "runtime_stopping", "", "Runtime is shutting down.");
         struct Busy { std::atomic<bool>& flag; explicit Busy(std::atomic<bool>& f) : flag(f) { flag = true; } ~Busy() { flag = false; } } guard(busy);
         Json reply;
         try {
@@ -68,6 +89,7 @@ struct Api::Impl {
             std::cerr << "Admin runtime IPC: " << error.what() << '\n';
             std::lock_guard<std::mutex> lock(state);
             ready = false; lastError = "Inference worker unavailable. Configuration editing remains available.";
+            health.setSubsystem("llm", SubsystemStatus::Failed, "runtime_unavailable", lastError);
             throw ApiError(503, "runtime_unavailable", "", lastError);
         }
         {
@@ -99,9 +121,113 @@ struct Api::Impl {
 Api::Api(config::ConfigStore& store, RuntimeClient& runtime, AdminTranscriber* transcriber)
     : impl_(std::make_unique<Impl>(store, runtime, transcriber)) {}
 Api::~Api() = default;
+HealthModel& Api::health() { return impl_->health; }
+const HealthModel& Api::health() const { return impl_->health; }
+void Api::noteAdminListening() {
+    impl_->health.setSubsystem("admin", SubsystemStatus::Ready);
+    impl_->health.setPhase("http_listening");
+    std::cerr << "STARTUP admin HTTP listening\n";
+}
+void Api::noteStt(bool ready, std::string detail) {
+    if (ready) impl_->health.setSubsystem("stt", SubsystemStatus::Ready);
+    else impl_->health.setSubsystem("stt",
+        detail.empty() ? SubsystemStatus::Unavailable : SubsystemStatus::Failed,
+        detail.empty() ? "" : "stt_unavailable", detail);
+}
+void Api::attachTranscriber(AdminTranscriber* transcriber) {
+    impl_->transcriber = transcriber;
+}
+void Api::beginShutdown() {
+    std::cerr << "SHUTDOWN requested\n";
+    impl_->health.setStopping(true);
+}
 void Api::initializeRuntime() {
-    try { (void)impl_->invoke({{"method", "apply"}, {"configuration", Json::parse(impl_->store.current()->canonicalJson())}}); }
-    catch (const std::exception& error) { std::cerr << "Admin initial runtime: " << error.what() << '\n'; }
+    impl_->health.setPhase("configuration_loading");
+    std::cerr << "STARTUP configuration loading\n";
+    try {
+        try { (void)impl_->store.reconcile(); }
+        catch (const config::ConfigError& error) {
+            std::cerr << "STARTUP store reconcile: " << error.code << " " << error.what() << '\n';
+        }
+
+        config::Catalog catalog;
+        bool recovered = false;
+        std::string configError;
+        try {
+            catalog = impl_->store.current();
+            (void)std::make_shared<const RuntimeGeneration>(catalog);
+            impl_->health.setSubsystem("configuration", SubsystemStatus::Ready);
+        } catch (const std::exception& error) {
+            configError = error.what();
+            std::cerr << "STARTUP current config unusable: " << configError << '\n';
+            try {
+                auto lkg = impl_->store.lastKnownGood();
+                if (lkg) {
+                    (void)std::make_shared<const RuntimeGeneration>(*lkg);
+                    catalog = *lkg;
+                    recovered = true;
+                    impl_->health.setConfigRecovered(true);
+                    impl_->health.setSubsystem("configuration", SubsystemStatus::Ready, "config_recovered",
+                        "Active store invalid; runtime using Last Known Good");
+                    std::cerr << "STARTUP config recovered from Last Known Good revision="
+                              << catalog->configuration().revision << '\n';
+                }
+            } catch (const std::exception& lkgError) {
+                std::cerr << "STARTUP Last Known Good unusable: " << lkgError.what() << '\n';
+            }
+        }
+
+        if (!catalog) {
+            impl_->health.setSubsystem("configuration", SubsystemStatus::Failed, "config_unusable", configError);
+            impl_->health.setSubsystem("runtime", SubsystemStatus::Failed, "no_active_generation");
+            impl_->health.setSubsystem("hardware_execution", SubsystemStatus::Unavailable, "config_unusable");
+            impl_->health.setSubsystem("llm", SubsystemStatus::Unavailable, "config_unusable");
+            impl_->health.setPhase("recovery_mode");
+            std::cerr << "STARTUP recovery mode: Admin available, execution disabled\n";
+            return;
+        }
+
+        impl_->health.setPhase("runtime_initializing");
+        std::cerr << "STARTUP runtime/domain initializing\n";
+        try {
+            auto reply = impl_->invoke({{"method", "apply"}, {"configuration", Json::parse(catalog->canonicalJson())}});
+            if (!reply.value("ok", false)) {
+                impl_->health.setSubsystem("runtime", SubsystemStatus::Failed, "apply_rejected");
+                impl_->health.setSubsystem("llm", SubsystemStatus::Failed, "apply_rejected");
+                impl_->health.setSubsystem("hardware_execution", SubsystemStatus::Unavailable);
+                impl_->health.setPhase("degraded_startup");
+                std::cerr << "STARTUP apply rejected; Admin remains available\n";
+                return;
+            }
+            if (!recovered) {
+                try { impl_->store.recordLastKnownGood(catalog); }
+                catch (const std::exception& error) {
+                    std::cerr << "STARTUP LKG record failed: " << error.what() << '\n';
+                }
+            }
+            impl_->health.setSubsystem("runtime", SubsystemStatus::Ready);
+            impl_->health.setSubsystem("hardware_execution", SubsystemStatus::Ready);
+            if (reply.value("model_ready", false))
+                impl_->health.setSubsystem("llm", SubsystemStatus::Ready);
+            else
+                impl_->health.setSubsystem("llm", SubsystemStatus::Failed, "model_unavailable",
+                    "Runtime admitted without ready model");
+            impl_->health.setPhase(recovered ? "degraded_startup" : "ready");
+            std::cerr << "STARTUP runtime ready recovered=" << (recovered ? "yes" : "no")
+                      << " model_ready=" << reply.value("model_ready", false) << '\n';
+        } catch (const std::exception& error) {
+            std::cerr << "STARTUP runtime apply: " << error.what() << '\n';
+            impl_->health.setSubsystem("runtime", SubsystemStatus::Failed, "runtime_unavailable", error.what());
+            impl_->health.setSubsystem("llm", SubsystemStatus::Failed, "runtime_unavailable");
+            impl_->health.setSubsystem("hardware_execution", SubsystemStatus::Unavailable);
+            impl_->health.setPhase("degraded_startup");
+        }
+    } catch (const std::exception& error) {
+        std::cerr << "STARTUP fatal: " << error.what() << '\n';
+        impl_->health.setSubsystem("configuration", SubsystemStatus::Failed, "startup_fatal", error.what());
+        impl_->health.setPhase("failed");
+    }
+    impl_->health.refreshOverall();
 }
 HttpReply Api::handle(std::string_view method, std::string_view path, std::string_view body) {
     int status = 200;
@@ -234,9 +360,15 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
                     {"hash",live["active"]["hash"]},{"generation_id",live["active"]["generation_id"]}};
                 for (const auto* key : {"voice","microphone","executor","last_command","last_voice","uptime_seconds","context_tokens","context_limit","build"}) reply[key] = live[key];
                 reply["device_count"] = live["devices"].size();
+                impl_->syncHealthFromRuntime(live);
             }
             reply["needs_apply"] = !reply.contains("stored") || reply["active"].is_null() || reply["stored"]["hash"] != reply["active"]["hash"];
             reply["stt_ready"] = impl_->transcriber != nullptr && impl_->transcriber->ready();
+            const auto health = Json::parse(HealthModel::toJson(impl_->health.snapshot()));
+            reply["health"] = health;
+            reply["startup_phase"] = health.at("phase");
+            reply["config_recovered"] = health.at("config_recovered");
+            reply["stopping"] = health.at("stopping");
         } else if (path == "/api/config/active") {
             std::lock_guard<std::mutex> lock(impl_->state);
             reply = {{"ok", true}, {"active", observation.empty() ? impl_->active : parseMessage(observation).at("active")}};
@@ -256,6 +388,20 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
             const auto stored = impl_->store.current(); checkExpected(stored, expected(request));
             reply = impl_->invoke({{"method", "apply"}, {"configuration", Json::parse(stored->canonicalJson())}});
             if (!reply.value("ok", false)) status = 422;
+            else {
+                try {
+                    impl_->store.recordLastKnownGood(stored);
+                    impl_->health.setConfigRecovered(false);
+                    impl_->health.setSubsystem("configuration", SubsystemStatus::Ready);
+                    impl_->health.setSubsystem("runtime", SubsystemStatus::Ready);
+                    impl_->health.setSubsystem("hardware_execution", SubsystemStatus::Ready);
+                    if (reply.value("model_ready", false))
+                        impl_->health.setSubsystem("llm", SubsystemStatus::Ready);
+                    impl_->health.setPhase("ready");
+                } catch (const std::exception& error) {
+                    std::cerr << "Apply LKG record: " << error.what() << '\n';
+                }
+            }
         } else if (path == "/api/test-command") {
             if (request.contains("execute")) members(request, {"text", "execute"});
             else members(request, {"text"});

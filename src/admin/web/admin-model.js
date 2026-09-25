@@ -229,6 +229,26 @@
         return [...parts, connectivity].join(' · ');
     };
     const MaxCopilotVoiceSeconds=15;
+    function healthSummary(status) {
+        const health=status?.health;
+        if (!health) {
+            if (status?.runtime_ready) return {tone:'ready', title:'Система готова', detail:''};
+            return {tone:'degraded', title:'Ограниченный режим', detail:status?.runtime_error||'Модель недоступна'};
+        }
+        const overall=health.overall;
+        if (health.stopping) return {tone:'degraded', title:'Остановка…', detail:'Сервис завершает работу'};
+        if (overall==='ready') return {tone:'ready', title:'Система готова', detail:''};
+        if (overall==='starting') return {tone:'starting', title:'Запуск…', detail:health.phase||''};
+        if (overall==='failed') return {tone:'failed', title:'Сбой запуска', detail:health.subsystems?.configuration?.detail||health.subsystems?.runtime?.detail||''};
+        const parts=[];
+        if (health.config_recovered) parts.push('Конфигурация восстановлена из последней рабочей версии');
+        const llm=health.subsystems?.llm;
+        if (llm && llm.status!=='ready') parts.push('LLM недоступна');
+        const stt=health.subsystems?.stt;
+        if (stt && (stt.status==='failed'||stt.status==='unavailable') && stt.error) parts.push('STT недоступен');
+        if (health.subsystems?.configuration?.status==='failed') parts.push('Конфигурация недоступна');
+        return {tone:'degraded', title:'Ограниченный режим', detail:parts.join(' · ')||'Часть подсистем недоступна'};
+    }
     function voiceGate() {
         if (typeof window!=='undefined' && window.isSecureContext===false)
             return {ok:false, code:'insecure_context'};
@@ -275,6 +295,6 @@
         return sttReady ? '' : 'Голосовой ввод недоступен — введите текст.';
     }
     const result={scalarNumber,decodeImport,clone,list,metadata,typeName,occupied,location,device,suggestion,wizardErrors,constraintErrors,constrainedAction,humanError,diffLines,commandSummary,stateText,productionStateText,unitText,valueText,constraintText,effectLines,initialValue,simpleAction,executorContract,voiceGate,mapMicError,encodeWavPcm16,nextVoiceState,idleVoiceStatus,MaxCopilotVoiceSeconds,
-        executableActionIds,bindingFor,connectionCompleteness,connectionStatusText,defaultHttpBinding,upsertBinding,removeBinding,actionNeedsArgument,preferredArgument};
+        executableActionIds,bindingFor,connectionCompleteness,connectionStatusText,defaultHttpBinding,upsertBinding,removeBinding,actionNeedsArgument,preferredArgument,healthSummary};
     if(typeof module!=='undefined')module.exports=result; else root.AdminModel=result;
 })(typeof window!=='undefined'?window:globalThis);

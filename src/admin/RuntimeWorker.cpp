@@ -265,7 +265,7 @@ std::string RuntimeWorker::observe() const {
         {"context_tokens",generations_.contextTokens()},{"context_limit",1024},
         {"executor","bound"},{"devices",Json::array()},{"playground_devices",Json::array()},
         {"executions",Json::array()},{"active",nullptr}};
-    reply["build"] = {{"product","Firefly Milestone 15 · Execution lifecycle + DeviceStateStore"},{"head",BuildHead},{"source_sha256",BuildSource},{"built_utc",BuildTime}};
+    reply["build"] = {{"product","Firefly Milestone 17 · Runtime service reliability"},{"head",BuildHead},{"source_sha256",BuildSource},{"built_utc",BuildTime}};
     if (const auto active = generations_.current()) {
         const auto& catalog = active->domain.snapshot();
         reply["active"] = {{"configuration",Json::parse(catalog->canonicalJson())},{"revision",catalog->configuration().revision},

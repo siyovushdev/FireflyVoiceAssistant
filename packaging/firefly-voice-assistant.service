@@ -1,0 +1,57 @@
+# Firefly Voice Assistant — production systemd unit (M17)
+#
+# Install manually (do not enable from build/tests):
+#   sudo install -d -m 700 -o firefly -g firefly /var/lib/firefly/store
+#   sudo install -m 644 packaging/firefly-voice-assistant.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now firefly-voice-assistant
+#
+# Logs: journalctl -u firefly-voice-assistant -f
+# Stop:  sudo systemctl stop firefly-voice-assistant
+# Undo:  sudo systemctl disable --now firefly-voice-assistant
+#
+# Adjust ExecStart paths, User, and library location for the board image.
+# RKLLM / librkllmrt.so must be discoverable via Environment=LD_LIBRARY_PATH
+# (never rely on interactive .bashrc).
+
+[Unit]
+Description=Firefly Voice Assistant
+Documentation=file:///home/firefly/FireflyVoiceAssistantLinux/docs/milestone-17-runtime-service-reliability.md
+After=network-online.target sound.target
+Wants=network-online.target
+# Avoid rapid crash loops from bad config / missing model
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=firefly
+Group=firefly
+WorkingDirectory=/home/firefly/FireflyVoiceAssistantLinux
+# Private store directory (mode 0700, owned by User)
+Environment=LD_LIBRARY_PATH=/home/firefly/demo_Linux_aarch64/lib
+ExecStart=/home/firefly/FireflyVoiceAssistantLinux/build/firefly-demo \
+  --store /var/lib/firefly/store \
+  --init-config /home/firefly/FireflyVoiceAssistantLinux/config/current-m4.json \
+  --model /home/firefly/demo_Linux_aarch64/Qwen3-4B_W8A8_RK3588_3core.rkllm \
+  --admin-bind 127.0.0.1 \
+  --admin-port 8080
+# Process supervision — Firefly does not restart itself
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=45
+KillMode=mixed
+KillSignal=SIGTERM
+# Capture application logs in journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=firefly-voice-assistant
+# Hardening (board-appropriate; tighten further in product images)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/firefly/store
+ProtectHome=read-only
+
+[Install]
+WantedBy=multi-user.target

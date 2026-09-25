@@ -1,6 +1,7 @@
 #pragma once
 #include "firefly/config/Configuration.h"
 #include <functional>
+#include <optional>
 
 namespace firefly::config {
 struct ExpectedRevision { std::int64_t revision; std::string hash; };
@@ -22,6 +23,12 @@ public:
     // Explicitly reconcile an interrupted transaction; never promotes temp files.
     // A null result means an interrupted initialization left no committed file.
     Catalog reconcile();
+
+    // Last Known Good: configuration that passed ConfigValidator and successful Apply.
+    // Durable marker in the store directory; not DeviceState knowledge.
+    void recordLastKnownGood(const Catalog& applied);
+    std::optional<Catalog> lastKnownGood() const;
+
 private:
     std::string directory_;
     StoreFault fault_;
