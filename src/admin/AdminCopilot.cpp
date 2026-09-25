@@ -332,6 +332,91 @@ void applyOperation(Json& value, std::set<std::string>& ids, const Json& op, con
                     }
             }
         }
+    } else if (kind == "set_http_binding") {
+        // Explicit hardware connection only — never invent IP/path/protocol.
+        for (const auto* key : {"op", "device", "location", "action", "method", "url"})
+            if (!op.contains(key)) throw std::invalid_argument(std::string("Missing field ") + key);
+        requireText(op.at("device"), 128); requireText(op.at("location"), 128, true);
+        requireText(op.at("action"), 128); requireText(op.at("method"), 16);
+        requireText(op.at("url"), 512, true);
+        auto* device = resolveDevice(value, op.at("device").get<std::string>(),
+            op.at("location").is_null() ? "" : op.at("location").get<std::string>());
+        const auto actionRef = op.at("action").get<std::string>();
+        Json* action = nullptr;
+        for (auto& item : value.at("actions")) {
+            if (equalsFolded(item.at("id").get<std::string>(), actionRef) ||
+                equalsFolded(item.at("name").get<std::string>(), actionRef)) {
+                if (action) ambiguous("Multiple actions match \"" + actionRef + "\"");
+                action = &item;
+            }
+        }
+        if (!action) ambiguous("No action matches \"" + actionRef + "\"");
+        bool onDevice = false;
+        for (const auto& id : device->at("action_ids"))
+            if (id == action->at("id")) onDevice = true;
+        if (!onDevice) unsupported("Action is not available on the selected device");
+        const auto method = op.at("method").get<std::string>();
+        if (method != "POST" && method != "PUT")
+            unsupported("HTTP binding supports POST or PUT only");
+        const auto url = op.at("url").is_null() ? std::string{} : op.at("url").get<std::string>();
+        if (url.empty() || url.rfind("http://", 0) != 0)
+            rejectProposal("incomplete_connection",
+                "Укажите полный URL вида http://IPv4/путь. IP, порт и путь не выдумываются.");
+        std::int64_t timeout = 1500;
+        if (op.contains("timeout_ms")) {
+            if (!op.at("timeout_ms").is_number_integer())
+                throw std::invalid_argument("timeout_ms must be integer");
+            timeout = op.at("timeout_ms").get<std::int64_t>();
+        }
+        std::string contentType = "application/json";
+        if (op.contains("content_type")) {
+            requireText(op.at("content_type"), 128);
+            contentType = op.at("content_type").get<std::string>();
+        }
+        Json body = Json::object();
+        if (op.contains("body")) {
+            if (!op.at("body").is_object()) throw std::invalid_argument("HTTP body must be an object");
+            body = op.at("body");
+        }
+        Json binding{{"target_id", device->at("id")}, {"action_id", action->at("id")}, {"executor", "http"},
+            {"http", {{"method", method}, {"url", url}, {"timeout_ms", timeout},
+                {"content_type", contentType}, {"body", body}}}};
+        if (op.contains("argument") && !op.at("argument").is_null()) {
+            requireText(op.at("argument"), 64);
+            binding["http"]["argument"] = op.at("argument");
+        }
+        if (!value.contains("bindings") || !value.at("bindings").is_array()) value["bindings"] = Json::array();
+        auto& bindings = value.at("bindings");
+        bool replaced = false;
+        for (auto& existing : bindings) {
+            if (existing.at("target_id") == binding.at("target_id") &&
+                existing.at("action_id") == binding.at("action_id")) {
+                existing = binding;
+                replaced = true;
+                break;
+            }
+        }
+        if (!replaced) bindings.push_back(binding);
+    } else if (kind == "clear_http_binding") {
+        members(op, {"op", "device", "location", "action"});
+        requireText(op.at("device"), 128); requireText(op.at("location"), 128, true); requireText(op.at("action"), 128);
+        auto* device = resolveDevice(value, op.at("device").get<std::string>(),
+            op.at("location").is_null() ? "" : op.at("location").get<std::string>());
+        const auto actionRef = op.at("action").get<std::string>();
+        std::string actionId;
+        for (auto& item : value.at("actions")) {
+            if (equalsFolded(item.at("id").get<std::string>(), actionRef) ||
+                equalsFolded(item.at("name").get<std::string>(), actionRef)) {
+                if (!actionId.empty()) ambiguous("Multiple actions match \"" + actionRef + "\"");
+                actionId = item.at("id").get<std::string>();
+            }
+        }
+        if (actionId.empty()) ambiguous("No action matches \"" + actionRef + "\"");
+        if (!value.contains("bindings") || !value.at("bindings").is_array()) return;
+        auto& bindings = value.at("bindings");
+        bindings.erase(std::remove_if(bindings.begin(), bindings.end(), [&](const Json& b) {
+            return b.at("target_id") == device->at("id") && b.at("action_id") == actionId;
+        }), bindings.end());
     } else unsupported("Unknown operation \"" + kind + "\"");
 }
 } // namespace
@@ -355,8 +440,13 @@ add_location_mention{op,location,mention}
 add_location_phrase{op,location,phrase}
 delete_device{op,device,location}
 set_field_bounds{op,device,location,field,minimum,maximum}
+set_http_binding{op,device,location,action,method,url,timeout_ms?,content_type?,body?,argument?}
+clear_http_binding{op,device,location,action}
 create_device не меняет speech зоны. add_location_* только если пользователь просил речь.
 Не угадывай location. Не door/входную дверь как switch. Без ID/Save/Apply.
+HTTP-подключение: только из явно указанных пользователем method+URL (http://IPv4/…).
+Не выдумывай IP, порт, path, protocol, credentials, GPIO, RS-485, payload.
+Если данных мало → status unsupported/ambiguous и пустые operations.
 )") + scope;
 }
 

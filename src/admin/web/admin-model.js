@@ -92,7 +92,12 @@
             mic_missing:'Микрофон не найден. Проверьте устройство или введите текст.',
             mic_unsupported:'Этот браузер не поддерживает нужный API записи. Введите текст.',
             insecure_context:'Голосовой ввод требует безопасный контекст браузера. Откройте Admin через SSH tunnel: http://localhost:…',
-            recording_too_long:'Запись длиннее 15 секунд. Остановите раньше и повторите.'};
+            recording_too_long:'Запись длиннее 15 секунд. Остановите раньше и повторите.',
+            malformed_binding:'Проверьте подключение: URL должен быть http://IPv4/путь, method POST или PUT, timeout 50…10000 мс.',
+            duplicate_binding:'Для этого устройства и действия уже есть подключение. Удалите дубликат.',
+            unsupported_executor:'Этот тип подключения пока не поддерживается. Доступен только HTTP.',
+            binding_missing:'У устройства нет настроенного подключения для этого действия. Настройте подключение в карточке устройства.',
+            stale_observation:'Показание устарело относительно уже известного состояния устройства.'};
         if (code==='ambiguous_alias') {
             const alias=typeof value==='string'?value:'';
             const owners=(config?.rooms||[]).filter(r=>[...r.speech.mentions,...r.speech.locations].includes(alias)).map(r=>r.name);
@@ -106,7 +111,58 @@
         }
         return messages[code] || (error.human || 'Не удалось завершить операцию. Проверьте заполненные поля; подробности доступны в Advanced.');
     }
-    const fieldNames={state:'Виртуальное состояние',assignments:'Присваивания',schema_version:'Версия формата',name:'Название',speech:'Речевые обозначения',mentions:'Слова зоны',locations:'Фразы зоны',metadata:'Описание',type:'Тип',description:'Описание',aliases:'Обозначения',parent_id:'Родитель',container:'Группа зон',parameters:'Параметры',minimum:'Минимум',maximum:'Максимум',action_ids:'Действия',room_id:'Зона',enabled:'Включено',kind:'Шаблон'};
+    const fieldNames={state:'Виртуальное состояние',assignments:'Присваивания',schema_version:'Версия формата',name:'Название',speech:'Речевые обозначения',mentions:'Слова зоны',locations:'Фразы зоны',metadata:'Описание',type:'Тип',description:'Описание',aliases:'Обозначения',parent_id:'Родитель',container:'Группа зон',parameters:'Параметры',minimum:'Минимум',maximum:'Максимум',action_ids:'Действия',room_id:'Зона',enabled:'Включено',kind:'Шаблон',
+        target_id:'Устройство',action_id:'Действие',executor:'Транспорт',http:'HTTP',url:'URL',method:'Метод',timeout_ms:'Timeout, мс',content_type:'Content-Type',body:'Фиксированное тело',argument:'Аргумент команды'};
+    // User-facing «подключение»; internal representation remains bindings[].
+    function deniedPairs(config) {
+        return new Set((config.safety?.restrictions||[]).map(r=>`${r.device_id}:${r.action_id}`));
+    }
+    function executableActionIds(device, config) {
+        if (!device?.enabled) return [];
+        const denied=deniedPairs(config);
+        return (device.action_ids||[]).filter(id=>{
+            const action=(config.actions||[]).find(a=>a.id===id);
+            return !!action && action.enabled!==false && !denied.has(`${device.id}:${id}`);
+        });
+    }
+    function bindingFor(config, targetId, actionId) {
+        return (config.bindings||[]).find(b=>b.target_id===targetId && b.action_id===actionId)||null;
+    }
+    function connectionCompleteness(device, config) {
+        const actions=executableActionIds(device, config);
+        const configured=actions.filter(id=>!!bindingFor(config, device.id, id)).length;
+        const status=configured===0?'Unconfigured':configured===actions.length?'Configured':'PartiallyConfigured';
+        const transport=configured>0?'HTTP':null;
+        return {status, configured, total:actions.length, transport};
+    }
+    function connectionStatusText(info) {
+        if (!info || info.status==='Unconfigured' || info.total===0) return 'Подключение: не настроено';
+        return `Подключение: HTTP · ${info.configured} из ${info.total} действий настроены`;
+    }
+    function defaultHttpBinding(targetId, actionId, opts={}) {
+        const binding={target_id:targetId, action_id:actionId, executor:'http',
+            http:{method:opts.method||'POST', url:opts.url||'', timeout_ms:opts.timeout_ms||1500,
+                content_type:opts.content_type||'application/json', body:opts.body?clone(opts.body):{}}};
+        if (opts.argument) binding.http.argument=opts.argument;
+        return binding;
+    }
+    function upsertBinding(config, binding) {
+        if (!config.bindings) config.bindings=[];
+        const index=config.bindings.findIndex(b=>b.target_id===binding.target_id && b.action_id===binding.action_id);
+        if (index>=0) config.bindings[index]=binding; else config.bindings.push(binding);
+        return config;
+    }
+    function removeBinding(config, targetId, actionId) {
+        if (!config.bindings) return config;
+        config.bindings=config.bindings.filter(b=>!(b.target_id===targetId && b.action_id===actionId));
+        return config;
+    }
+    function actionNeedsArgument(action) {
+        return !!(action?.parameters||[]).length;
+    }
+    function preferredArgument(action) {
+        return action?.parameters?.[0]?.id||null;
+    }
     function diffLines(changes, config) {
         const names=new Map(['rooms','devices','actions'].flatMap(k=>(config[k]||[]).map(x=>[x.id,x.name])));
         const display=(v,key)=>v===null?'—':Array.isArray(v)?v.map(x=>display(x,key)).join(', '):typeof v==='object'?Object.entries(v).filter(([k])=>!['id','required','unit','origin','confirmed'].includes(k)).map(([k,v])=>`${fieldNames[k]||({min_length:'Минимальная длина',max_length:'Максимальная длина',initial:'Начальное значение',values:'Варианты'}[k])||k}: ${display(v,k)}`).join('; '):key==='type'?typeName(v):names.get(v)||String(v);
@@ -218,6 +274,7 @@
         if (lastMessage) return lastMessage;
         return sttReady ? '' : 'Голосовой ввод недоступен — введите текст.';
     }
-    const result={scalarNumber,decodeImport,clone,list,metadata,typeName,occupied,location,device,suggestion,wizardErrors,constraintErrors,constrainedAction,humanError,diffLines,commandSummary,stateText,productionStateText,unitText,valueText,constraintText,effectLines,initialValue,simpleAction,executorContract,voiceGate,mapMicError,encodeWavPcm16,nextVoiceState,idleVoiceStatus,MaxCopilotVoiceSeconds};
+    const result={scalarNumber,decodeImport,clone,list,metadata,typeName,occupied,location,device,suggestion,wizardErrors,constraintErrors,constrainedAction,humanError,diffLines,commandSummary,stateText,productionStateText,unitText,valueText,constraintText,effectLines,initialValue,simpleAction,executorContract,voiceGate,mapMicError,encodeWavPcm16,nextVoiceState,idleVoiceStatus,MaxCopilotVoiceSeconds,
+        executableActionIds,bindingFor,connectionCompleteness,connectionStatusText,defaultHttpBinding,upsertBinding,removeBinding,actionNeedsArgument,preferredArgument};
     if(typeof module!=='undefined')module.exports=result; else root.AdminModel=result;
 })(typeof window!=='undefined'?window:globalThis);

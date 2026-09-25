@@ -45,15 +45,17 @@ async function unchanged(text){const before=(await fetchApi('/api/devices/state'
     await shot('simple-tv-capabilities');await next();assert.equal(await noInternals(),true);await shot('simple-tv-values');await next();
     const tv=await evaluate('wizard.entity.id');evidence.push({tvProposal:await evaluate('wizard.entity'),actions:await evaluate('wizard.pendingActions')});await click('wizard-confirm');await saveApply();
     assert.equal(await evaluate(`document.querySelector('#devices [aria-label="Ключ поля"]')===null`),true);
-    assert.ok(await evaluate(`document.getElementById('devices').textContent.includes('Mock · Доступно')`));
+    assert.ok(await evaluate(`document.getElementById('devices').textContent.includes('Подключение: не настроено')`));
+    assert.ok(await evaluate(`document.getElementById('devices').textContent.includes('Настроить подключение')`));
     const before=(await fetchApi('/api/devices/state')).devices,history=(await fetchApi('/api/executions')).executions;
     let r=await command('Включи телевизор в детской',false);assert.equal(r.result.targetId,tv);assert.equal(r.execution,null);assert.equal(r.predicted_execution.previous.power,false);assert.equal(r.predicted_execution.current.power,true);
     assert.deepEqual((await fetchApi('/api/devices/state')).devices,before);assert.deepEqual((await fetchApi('/api/executions')).executions,history);
     assert.ok(await evaluate(`document.getElementById('test-summary').textContent.includes('Питание: Выключено')`));
     await fill('mode','advanced');assert.deepEqual(await evaluate(`JSON.parse(document.getElementById('executor-contract').textContent)`),r.result);await shot('executor-contract-preview');
     assert.ok(await evaluate(`document.querySelector('#devices [aria-label="Ключ поля"]')!==null`));
-    assert.ok(await evaluate(`Array.from(document.querySelectorAll('[data-planned-binding]')).length===8*draft.devices.length && Array.from(document.querySelectorAll('[data-planned-binding]')).every(x=>x.disabled)`));
-    assert.ok(await evaluate(`document.getElementById('devices').textContent.includes('RS-485 — Planned')`));await shot('advanced-execution');await fill('mode','simple');
+    assert.ok(await evaluate(`Array.from(document.querySelectorAll('[data-planned-binding]')).length===7*draft.devices.length && Array.from(document.querySelectorAll('[data-planned-binding]')).every(x=>x.disabled)`));
+    assert.ok(await evaluate(`document.getElementById('devices').textContent.includes('RS-485 — Planned')`));
+    assert.ok(await evaluate(`!document.getElementById('devices').textContent.includes('HTTP — Planned')`));await shot('advanced-execution');await fill('mode','simple');
     for(const [text,key,value] of [['Включи телевизор в детской','power',true],['Выключи детский телевизор','power',false],['Установи громкость детского телевизора на 35 процентов','volume',35],['На телевизоре в детской включи канал 7','channel',7]]){r=await command(text);assert.equal(r.result.targetId,tv,JSON.stringify(r));assert.equal(r.execution?.current[key],value,JSON.stringify(r));}
     await shot('simple-tv-playground');await unchanged('На телевизоре в детской установи громкость 120 процентов');await unchanged('На кухне выключи свет на 50 процентов');
     for(const text of ['В гостинной включи свет на 55 процентов','В гостинной включии свет на 55 проццентов']){r=await command(text);assert.equal(r.execution?.current.brightness,55);assert.ok(r.matching_evidence.some(x=>x.distance===1));}
@@ -80,7 +82,7 @@ async function unchanged(text){const before=(await fetchApi('/api/devices/state'
     await fill('mode','advanced');assert.ok(await evaluate(`document.getElementById('errors').innerText.includes('parse_error.101')`));await evaluate('errors()');
     const finalStatus=await fetchApi('/api/status');assert.equal(finalStatus.worker_pid,admin.pid);assert.equal(finalStatus.active.generation_id,3);assert.deepEqual(exceptions,[]);
     fs.writeFileSync(path.join(artifacts,'review-config.json'),JSON.stringify(saved.configuration,null,2));fs.writeFileSync(path.join(artifacts,'evidence.json'),JSON.stringify({url,pid:admin.pid,evidence,exceptions,ids:{children,tv,custom,customAction}},null,2));
-    console.log('PASS Final UX: Simple TV, custom number action, full AI, four-device plan, modes, contract, Mock/planned, preview/execute, errors, safety and typos');
+    console.log('PASS Final UX: Simple TV, custom number action, full AI, four-device plan, modes, contract, connections/planned, preview/execute, errors, safety and typos');
 })().catch(async e=>{console.error(e);process.exitCode=1;if(socket)try{console.error(await evaluate(`document.getElementById('errors').textContent`));await shot('failure');fs.writeFileSync(path.join(artifacts,'failure-evidence.json'),JSON.stringify(evidence,null,2));}catch(_){};}).finally(async()=>{
     if(socket)socket.close();if(chrome&&chrome.exitCode===null&&chrome.signalCode===null){const done=new Promise(r=>chrome.once('exit',r));chrome.kill('SIGTERM');await done;}
     if(admin.exitCode===null&&admin.signalCode===null){const done=new Promise(r=>admin.once('exit',r));admin.kill('SIGINT');await done;}

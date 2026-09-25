@@ -63,6 +63,7 @@ if(BUILD_TESTING)
     target_include_directories(admin_fake_worker SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
     add_test(NAME AdminHttp COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tests/admin/HttpTests.py" $<TARGET_FILE:firefly-admin> $<TARGET_FILE:admin_fake_worker> "${PROJECT_SOURCE_DIR}")
+    add_test(NAME ConnectionAdmin COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tests/admin/ConnectionAdminTests.py" $<TARGET_FILE:firefly-admin> $<TARGET_FILE:admin_fake_worker> "${PROJECT_SOURCE_DIR}")
     if(FIREFLY_BUILD_ASSISTANT)
         add_executable(rkllm_context_refresh_tests "${PROJECT_SOURCE_DIR}/tests/admin/RkllmContextRefreshTests.cpp"
             "${PROJECT_SOURCE_DIR}/tests/FakeRkllmRuntime.cpp" "${PROJECT_SOURCE_DIR}/src/RkllmEngine.cpp")

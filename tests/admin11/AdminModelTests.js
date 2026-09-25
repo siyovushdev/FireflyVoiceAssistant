@@ -69,6 +69,32 @@ const view=new DataView(wav);check(String.fromCharCode(...new Uint8Array(wav,0,4
 check(view.getUint16(22,true)===1 && view.getUint32(24,true)===16000,'wav mono 16k');
 const copilotChanges=[{entity:'device',change:'removed',name:'Телевизор',before:{name:'Телевизор'},after:null}];
 check(M.diffLines(copilotChanges,base)[0]==='− Устройство: Телевизор','copilot deletion visible');
+
+// M16 connection completeness (draft.bindings UX helpers; no runtime I/O).
+const kitchen=base.devices.find(d=>d.id==='device_kitchen_light');
+const bare={...base,bindings:[]};
+check(M.connectionCompleteness(kitchen,bare).status==='Unconfigured','no bindings → Unconfigured');
+check(M.connectionStatusText(M.connectionCompleteness(kitchen,bare))==='Подключение: не настроено','unconfigured text');
+const one=M.clone(bare);M.upsertBinding(one,M.defaultHttpBinding('device_kitchen_light','action_set_brightness',{url:'http://192.168.1.50/b',argument:'brightness'}));
+check(M.connectionCompleteness(kitchen,one).status==='Configured','light 1/1 → Configured');
+check(M.connectionStatusText(M.connectionCompleteness(kitchen,one)).includes('HTTP'),'configured mentions HTTP');
+const tvDevice={id:'device_tv',enabled:true,action_ids:['a1','a2','a3','a4']};
+const tvConfig={actions:[{id:'a1',enabled:true},{id:'a2',enabled:true},{id:'a3',enabled:true},{id:'a4',enabled:true}],safety:{restrictions:[]},bindings:[
+    M.defaultHttpBinding('device_tv','a1',{url:'http://10.0.0.1/on'}),
+    M.defaultHttpBinding('device_tv','a2',{url:'http://10.0.0.1/off'})
+]};
+check(M.connectionCompleteness(tvDevice,tvConfig).status==='PartiallyConfigured','2/4 → PartiallyConfigured');
+check(M.connectionCompleteness(tvDevice,tvConfig).configured===2&&M.connectionCompleteness(tvDevice,tvConfig).total===4,'partial counts');
+const draftOnly=M.clone(bare);const beforeBindings=JSON.stringify(bare.bindings||[]);
+M.upsertBinding(draftOnly,M.defaultHttpBinding('device_kitchen_light','action_set_brightness',{url:'http://192.168.1.50/x'}));
+check(JSON.stringify(bare.bindings||[])===beforeBindings,'upsert mutates only target draft');
+M.removeBinding(draftOnly,'device_kitchen_light','action_set_brightness');
+check((draftOnly.bindings||[]).length===0,'removeBinding clears');
+check(M.humanError({code:'malformed_binding'}).includes('http://'),'malformed_binding human');
+check(M.humanError({code:'duplicate_binding'}).includes('дубликат'),'duplicate_binding human');
+check(M.humanError({code:'unsupported_executor'}).includes('HTTP'),'unsupported_executor human');
+check(M.actionNeedsArgument({parameters:[{id:'brightness'}]}),'brightness needs argument');
+check(M.preferredArgument({parameters:[{id:'brightness'}]})==='brightness','preferred argument');
 console.log(`PASS ${checks} draft/UI model checks`);
 
 for(const raw of ["9007199254740993","0.12345678901234567","1e-400","1e400",""])assert.throws(()=>M.scalarNumber(raw));

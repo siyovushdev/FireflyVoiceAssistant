@@ -386,6 +386,10 @@ footer {
 .typed-field { padding: 1rem; margin: .6rem 0; border: 1px solid #ccd9d2; border-radius: .5rem; background: #f8fbf9; }
 .execution-section { border-top: 1px solid #d8e3dd; margin-top: 1rem; padding-top: .7rem; }
 .execution-section p, .effect-description { color: #345e51; }
+.connection-status { display: block; margin: .35rem 0; }
+.connection-action { padding: .85rem; margin: .7rem 0; border: 1px solid #ccd9d2; border-radius: .5rem; background: #f8fbf9; }
+.connection-action h4 { margin: 0 0 .45rem; }
 .value-description { font-weight: 600; }
 #ai-notice:empty { display: none; }
 .planned-bindings { display: flex; flex-wrap: wrap; gap: .4rem; }
+.planned-bindings button { opacity: .65; cursor: not-allowed; }

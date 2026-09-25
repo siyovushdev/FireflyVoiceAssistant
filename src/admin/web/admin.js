@@ -84,7 +84,8 @@ function render(){
             button(n,'Добавить действие',()=>openActionWizard(d.id));
         }
         if(d.kind==='entrance_door')n.append(node('p','Открыть входную дверь · только явная команда с указанием входа.'));
-        simple.execution(n,advanced());
+        if(!Array.isArray(draft.bindings))draft.bindings=[];
+        simple.execution(n,advanced(),d,draft,openConnectionEditor);
         removeEntity(n,draft.devices,d,pinnedTargets.includes(d.id)||d.id===draft.compatibility.door_target_id);
     }
     for(const a of draft.actions){const n=card($('actions'),a.name);stableField(n,a);field(n,'Название действия',a.name,v=>a.name=v);n.append(node('small',a.operation,'advanced'));
@@ -107,7 +108,8 @@ async function status(){
         dashboardCard('Помощник',r.runtime_busy?'Обрабатывает запрос':r.runtime_ready?'Готов к командам':'Модель недоступна');
         dashboardCard('Голос',r.voice==='disabled'?'Выключен':r.voice==='unavailable'?'Микрофон недоступен':`Включён · ${r.microphone}`);
         dashboardCard('Голос помощника',sttReady?'Локальный STT готов к записи из браузера':'STT недоступен — только текст');
-        const executorCard=dashboardCard('Устройства',`${states.devices.length} · виртуальное исполнение`);const lastExecution=history.executions.at(-1);if(lastExecution)executorCard.append(node('small',`Последнее выполнение: ${new Date(lastExecution.timestamp_ms).toLocaleTimeString()} · ${activeConfig.devices.find(d=>d.id===lastExecution.execution.targetId)?.name||'Устройство'}`));
+        const executorCard=dashboardCard('Устройства',`${states.devices.length} · playground: Mock`);const lastExecution=history.executions.at(-1);if(lastExecution)executorCard.append(node('small',`Последнее выполнение: ${new Date(lastExecution.timestamp_ms).toLocaleTimeString()} · ${activeConfig.devices.find(d=>d.id===lastExecution.execution.targetId)?.name||'Устройство'}`));
+        const connected=(draft.bindings||[]).length;dashboardCard('Подключения',connected?`${connected} HTTP в черновике`:'Не настроены');
         dashboardCard('Конфигурация',dirty?'Есть изменения в черновике':r.needs_apply?'Сохранена новая версия — нужно применить':'Сохранённая версия применяется');
         $('status').textContent=`Время работы: ${Math.floor((r.uptime_seconds||0)/60)} мин. · AI ${r.runtime_ready?'доступен':'suggestions unavailable'}`;
         $('status-detail').textContent=json({...r,vad:r.voice==='disabled'?'disabled':r.voice==='unavailable'?'unavailable':'Silero',stt:r.voice==='disabled'?'disabled':r.voice==='unavailable'?'unavailable':'Russian Zipformer'});
@@ -119,11 +121,22 @@ async function status(){
 }
 function renderStates(devices,history){$('device-state').replaceChildren();const config=activeConfig||stored;
     for(const d of devices){const def=config.devices.find(x=>x.id===d.targetId),zone=config.rooms.find(x=>x.id===def?.room_id),last=history.filter(x=>x.execution.targetId===d.targetId).at(-1),n=card($('device-state'),d.name);
-        n.append(node('p',`${zone?.name||'Общая зона'} · ${M.typeName(M.metadata(def||{}).type||def?.kind||'Устройство')}`),node('h3',M.productionStateText?M.productionStateText(d,def):M.stateText(d.state,def)),node('small',def?.action_ids.map(id=>config.actions.find(a=>a.id===id)?.name||id).join(', ')||'Нет исполняемых операций'),node('small',last?`Последнее действие: ${config.actions.find(a=>a.id===last.execution.actionId)?.name||'Действие'} · ${new Date(last.timestamp_ms).toLocaleString()}`:'С момента запуска действий не было'));
+        n.append(node('p',`${zone?.name||'Общая зона'} · ${M.typeName(M.metadata(def||{}).type||def?.kind||'Устройство')}`),
+            node('h3',M.productionStateText?M.productionStateText(d,def):M.stateText(d.state,def)));
+        if(def)n.append(node('small',M.connectionStatusText(M.connectionCompleteness(def,config))));
+        n.append(node('small',def?.action_ids.map(id=>config.actions.find(a=>a.id===id)?.name||id).join(', ')||'Нет исполняемых операций'),
+            node('small',last?`Последнее действие: ${config.actions.find(a=>a.id===last.execution.actionId)?.name||'Действие'} · ${new Date(last.timestamp_ms).toLocaleString()}`:'С момента запуска действий не было'));
         n.append(node('pre',json(d),'advanced'));}
     $('execution-history').replaceChildren(...history.slice().reverse().map(e=>{const n=node('p'),x=e.execution;n.textContent=`${new Date(e.timestamp_ms).toLocaleTimeString()} · ${config.devices.find(d=>d.id===x.targetId)?.name||'Удалённое устройство'} · ${M.stateText(x.previous,config.devices.find(d=>d.id===x.targetId))} → ${M.stateText(x.current,config.devices.find(d=>d.id===x.targetId))} · ${x.success?'Выполнено':'Ошибка'}`;n.append(node('small',`${e.source} · generation ${e.generation_id} · event ${e.sequence}`,'advanced'));return n;}));
     if(!history.length)$('execution-history').append(node('p','Действий пока нет. Предварительные проверки сюда не добавляются.'));
 }
+function openConnectionEditor(device){
+    if(!Array.isArray(draft.bindings))draft.bindings=[];
+    const current=draft.devices.find(d=>d.id===device.id)||device;
+    simple.connectionEditor($('connection-content'),current,draft,advanced());
+    $('connection-dialog').showModal();
+}
+$('connection-close').onclick=$('connection-done').onclick=()=>{$('connection-dialog').close();render();};
 async function validate(){if(!validFields(document))throw Object.assign(new Error('invalid form'),{response:{errors:[{code:'invalid_form',human:'Исправьте отмеченные поля.'}]}});const r=await api('/api/config/validate','POST',{configuration:draft});validated=true;$('validation').textContent=r.apply_ready?'✓ Конфигурация проверена. Можно сохранить.':'✓ Структура конфигурации проверена. Модель недоступна; можно сохранить, а применить после её восстановления.';return r;}
 async function diff(base='active'){return api('/api/config/diff','POST',{configuration:draft,base});}
 function showDiff(changes,title,canApply=false){$('diff-title').textContent=title;$('diff-list').replaceChildren(...M.diffLines(changes,draft).map(x=>node('li',x)));if(!changes.length)$('diff-list').append(node('li','Изменений нет.'));$('diff-raw').textContent=json(changes);$('confirm-apply').hidden=!canApply;$('diff-dialog').showModal();}

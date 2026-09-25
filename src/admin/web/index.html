@@ -32,7 +32,7 @@
 <option value="advanced">Advanced · Подробный</option>
 </select>
 </label>
-<p>Полностью локально<br>Исполнение: виртуальные устройства</p>
+<p>Полностью локально<br>Исполнение: Mock playground · HTTP после Apply</p>
 </aside>
 <main>
 <header>
@@ -104,7 +104,7 @@
 <h2>Устройства</h2>
 <button id="add-device">+ Добавить устройство</button>
 </div>
-<p>Выберите готовый набор возможностей или создайте свои действия. Пока все устройства виртуальные.</p>
+<p>Выберите готовый набор возможностей или создайте свои действия. Подключение к оборудованию настраивается отдельно и применяется через Save → Apply.</p>
 <div id="devices" class="cards">
 </div>
 </section>
@@ -181,7 +181,7 @@
 </pre>
 <button id="reconcile">Восстановить прерванное сохранение</button>
 </section>
-<footer>Firefly · Offline · Mock execution · Для доверенной локальной сети</footer>
+<footer>Firefly · Offline · Mock playground · HTTP bindings после Apply</footer>
 </main>
 <dialog id="wizard">
 <form id="wizard-form">
@@ -227,6 +227,17 @@
 <div id="plan-content"></div>
 <pre id="plan-trace" class="advanced"></pre>
 <div class="buttons"><button id="plan-confirm">Подтвердить в черновик</button><button id="plan-close">Отмена</button></div>
+</dialog>
+<dialog id="connection-dialog">
+<div class="section-head">
+<h2>Подключение устройства</h2>
+<button id="connection-close" type="button" aria-label="Закрыть">×</button>
+</div>
+<p>Настройка меняет только черновик конфигурации. HTTP-команды оборудованию при редактировании, Validate, Save и Apply не отправляются.</p>
+<div id="connection-content"></div>
+<div class="buttons">
+<button id="connection-done" type="button" class="primary">Готово</button>
+</div>
 </dialog>
 </body>
 </html>
