@@ -43,7 +43,7 @@ void ExecutorRegistry::registerExecutor(config::ExecutorKind kind, std::shared_p
 HardwareResult ExecutorRegistry::execute(const config::Binding& binding, const actions::GenericAction& action) const {
     const auto found = executors_.find(binding.executor);
     if (found == executors_.end() || !found->second)
-        return {false, "unsupported_executor", {}};
+        return {false, "unsupported_executor", {}, ReachabilityEvidence::None};
     return found->second->execute(binding, action);
 }
 }

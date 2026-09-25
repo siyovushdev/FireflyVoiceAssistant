@@ -34,7 +34,7 @@ with tempfile.TemporaryDirectory() as directory:
             time.sleep(.02)
         assert status['runtime_ready'] and status['worker_pid'] == p.pid
         assert subprocess.run(['ps','-o','pid=','--ppid',str(p.pid)],capture_output=True,text=True).stdout.strip() == ''
-        assert status['executor']=='mock' and status['voice']=='disabled' and status['device_count']==5
+        assert status['executor']=='bound' and status['voice']=='disabled' and status['device_count']==5
         with urllib.request.urlopen(url) as response:
             html=response.read().decode()
             assert 'Состояния устройств' in html and 'Последние действия' in html and 'Command Playground' in html and 'Execute' in html

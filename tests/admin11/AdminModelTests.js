@@ -23,6 +23,9 @@ check(M.commandSummary(action,base).device==='Свет на кухне','human n
 action.execution={success:true};check(M.commandSummary(action,base).execution==='Выполнено','execute result');
 check(!M.commandSummary({result:{unsupported:true},safety:'REJECT'},base).understood,'unsafe result');
 check(M.stateText({speed:{value:3,unit:'m/s'}}).includes('3'),'unknown typed states graceful');
+check(M.productionStateText({properties:{brightness:{value:null,knowledge:'unknown',stale:false}},connectivity:'unknown'}).includes('неизвестно'),'production unknown knowledge');
+check(M.productionStateText({properties:{brightness:{value:40,knowledge:'predicted',stale:false}},connectivity:'reachable'}).includes('Ожидается'),'production predicted label');
+check(M.productionStateText({properties:{brightness:{value:40,knowledge:'confirmed',stale:true}},connectivity:'reachable'}).includes('Подтверждено')&&M.productionStateText({properties:{brightness:{value:40,knowledge:'confirmed',stale:true}},connectivity:'reachable'}).includes('устарело'),'production confirmed stale');
 const changes=[{entity:'location',change:'added',name:'Цех',after:location,before:null}];check(M.diffLines(changes,base)[0]==='+ Зона: Цех','human addition');
 const before=base.actions[0],after=M.clone(before);after.parameters[0].minimum=10;after.parameters[0].maximum=90;
 const diff=M.diffLines([{entity:'capability',change:'changed',name:after.name,before,after}],base).join('\n');check(diff.includes('10')&&diff.includes('90')&&diff.includes('→'),'human range diff');

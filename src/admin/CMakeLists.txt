@@ -17,7 +17,8 @@ add_library(firefly_execution
     ../execution/MockDeviceExecutor.cpp
     ../execution/BoundDeviceExecutor.cpp
     ../execution/BindingResolver.cpp
-    ../execution/HttpHardwareExecutor.cpp)
+    ../execution/HttpHardwareExecutor.cpp
+    ../execution/DeviceStateStore.cpp)
 target_link_libraries(firefly_execution PUBLIC firefly_domain)
 target_include_directories(firefly_execution SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
 target_compile_options(firefly_execution PRIVATE -Wall -Wextra -Wpedantic)
@@ -83,6 +84,12 @@ if(BUILD_TESTING)
     target_include_directories(hardware_binding_tests PRIVATE "${PROJECT_SOURCE_DIR}/tests")
     target_compile_options(hardware_binding_tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME HardwareBindings COMMAND hardware_binding_tests "${PROJECT_SOURCE_DIR}")
+    add_executable(device_state_tests "${PROJECT_SOURCE_DIR}/tests/execution/DeviceStateTests.cpp")
+    target_link_libraries(device_state_tests PRIVATE firefly_admin_core)
+    target_include_directories(device_state_tests SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
+    target_include_directories(device_state_tests PRIVATE "${PROJECT_SOURCE_DIR}/tests")
+    target_compile_options(device_state_tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME DeviceStateLifecycle COMMAND device_state_tests "${PROJECT_SOURCE_DIR}")
 endif()
 
 if(BUILD_TESTING AND FIREFLY_BUILD_VOICE)

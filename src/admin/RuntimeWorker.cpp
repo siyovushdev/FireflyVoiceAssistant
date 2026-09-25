@@ -22,10 +22,40 @@ Json stateJson(const execution::DeviceState& state) {
     if (std::holds_alternative<execution::InventoryState>(state)) return {{"status", "unconfigured"}};
     return {{"state", std::get<execution::DoorState>(state).position == execution::DoorPosition::Open ? "OPEN" : "CLOSED"}};
 }
+Json propertyKnowledgeJson(const execution::PropertyKnowledge& property, std::int64_t nowMs) {
+    Json value = nullptr;
+    if (property.value) value = actions::scalarJson(*property.value);
+    return {{"value", value},
+        {"knowledge", execution::DeviceStateStore::knowledgeName(property.knowledge)},
+        {"stale", execution::isStale(property, nowMs)},
+        {"updated_at_ms", property.updatedAtMs},
+        {"observed_at_ms", property.observedAtMs > 0 ? Json(property.observedAtMs) : Json(nullptr)}};
+}
+Json deviceKnowledgeJson(const execution::DeviceKnowledge& device, std::int64_t nowMs) {
+    Json properties = Json::object();
+    Json legacy = Json::object();
+    for (const auto& [key, property] : device.properties) {
+        properties[key] = propertyKnowledgeJson(property, nowMs);
+        if (property.value) {
+            if (key == "position") legacy["state"] = actions::scalarJson(*property.value);
+            else legacy[key] = actions::scalarJson(*property.value);
+        }
+    }
+    if (device.properties.empty()) legacy = {{"status", "unconfigured"}};
+    return {{"targetId", device.targetId}, {"name", device.name},
+        {"properties", properties},
+        {"state", legacy},
+        {"connectivity", execution::DeviceStateStore::connectivityName(device.connectivity)},
+        {"last_success_at_ms", device.lastSuccessAtMs > 0 ? Json(device.lastSuccessAtMs) : Json(nullptr)},
+        {"last_failure_at_ms", device.lastFailureAtMs > 0 ? Json(device.lastFailureAtMs) : Json(nullptr)}};
+}
 Json executionJson(const execution::ExecutionResult& result) {
-    return {{"success", result.success}, {"actionId", result.actionId}, {"targetId", result.targetId},
+    return {{"success", result.success},
+        {"status", result.status == execution::ExecutionStatus::Accepted ? "accepted" : "failed"},
+        {"actionId", result.actionId}, {"targetId", result.targetId},
         {"previous", result.previous ? stateJson(*result.previous) : Json(nullptr)},
-        {"current", result.current ? stateJson(*result.current) : Json(nullptr)}, {"error", result.error}};
+        {"current", result.current ? stateJson(*result.current) : Json(nullptr)},
+        {"error", result.error}, {"timestamp_ms", result.timestampMs}};
 }
 Json commandJson(const std::string& input, const GenerationResult& result) {
     const auto& command = result.command;
@@ -158,6 +188,22 @@ std::string RuntimeWorker::handle(std::string_view bytes) {
             const auto result = admitted->process(input, intent, "admin-test");
             reply = commandJson(input, result);
             remember(reply.dump());
+        } else if (method == "observe_state") {
+            // Simulated telemetry/readback for M15 offline verification — not a transport.
+            members(request, {"method", "target_id", "properties"});
+            if (!request["target_id"].is_string() || !request["properties"].is_object())
+                throw std::invalid_argument("observe_state requires target_id string and properties object");
+            execution::StateObservation observation;
+            observation.targetId = request.at("target_id").get<std::string>();
+            for (auto it = request.at("properties").begin(); it != request.at("properties").end(); ++it)
+                observation.properties.emplace(it.key(), actions::decodeScalar(it.value()));
+            if (request.contains("timestamp_ms")) {
+                if (!request["timestamp_ms"].is_number_integer())
+                    throw std::invalid_argument("timestamp_ms must be integer");
+                observation.timestampMs = request["timestamp_ms"].get<std::int64_t>();
+            }
+            generations_.observe(observation);
+            reply = {{"ok", true}, {"target_id", observation.targetId}};
         } else if (method == "observe") {
             members(request, {"method"}); reply = Json::parse(observe());
         } else throw std::invalid_argument("Unknown runtime method");
@@ -217,14 +263,19 @@ std::string RuntimeWorker::observe() const {
         {"model_ready",generations_.modelReady()},{"runtime_busy",generations_.busy()},
         {"uptime_seconds",std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now()-started_).count()},
         {"context_tokens",generations_.contextTokens()},{"context_limit",1024},
-        {"executor","mock"},{"devices",Json::array()},{"executions",Json::array()},{"active",nullptr}};
-    reply["build"] = {{"product","Firefly Milestone 13 · Admin Copilot voice input · typed mock"},{"head",BuildHead},{"source_sha256",BuildSource},{"built_utc",BuildTime}};
+        {"executor","bound"},{"devices",Json::array()},{"playground_devices",Json::array()},
+        {"executions",Json::array()},{"active",nullptr}};
+    reply["build"] = {{"product","Firefly Milestone 15 · Execution lifecycle + DeviceStateStore"},{"head",BuildHead},{"source_sha256",BuildSource},{"built_utc",BuildTime}};
     if (const auto active = generations_.current()) {
         const auto& catalog = active->domain.snapshot();
         reply["active"] = {{"configuration",Json::parse(catalog->canonicalJson())},{"revision",catalog->configuration().revision},
             {"hash",catalog->contentHash()},{"context",active->prompt},{"context_strategy",active->targetContexts.empty()?"full_catalog":"explicit_target_action_scopes"},{"context_scope_count",active->targetContexts.size()},{"generation_id",active->id}};
-        for (const auto& device : active->executor->states()) reply["devices"].push_back(
-            {{"targetId",device.targetId},{"name",device.name},{"state",stateJson(device.state)}});
+        const auto now = active->executor->production().nowMs();
+        for (const auto& device : active->executor->production().devices())
+            reply["devices"].push_back(deviceKnowledgeJson(device, now));
+        for (const auto& device : active->executor->states())
+            reply["playground_devices"].push_back(
+                {{"targetId",device.targetId},{"name",device.name},{"state",stateJson(device.state)}});
     }
     for (const auto& event : generations_.history()) reply["executions"].push_back(
         {{"sequence",event.sequence},{"generation_id",event.generation},{"timestamp_ms",event.timestampMs},

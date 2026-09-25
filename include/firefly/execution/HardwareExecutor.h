@@ -6,6 +6,14 @@
 #include <string>
 
 namespace firefly::execution {
+// Transport-neutral reachability evidence. Independent of Accepted|Failed:
+// a failed command can still prove the endpoint was reachable.
+enum class ReachabilityEvidence {
+    None,        // no transport attempt (malformed / unsupported / missing)
+    Reachable,   // transport endpoint answered (e.g. any valid HTTP status)
+    Unreachable  // connect/timeout/connection failure
+};
+
 // Physical transport outcome only. Semantic SafetyGate / domain rejections never
 // become HardwareResult — those stop in CommandEngine before any executor call.
 struct HardwareResult {
@@ -15,6 +23,9 @@ struct HardwareResult {
     // Optional transport diagnostic (e.g. HTTP status digits). Never interpreted
     // by generic BoundDeviceExecutor beyond opaque append for logs/UI.
     std::string detail;
+    // Connectivity evidence only. BoundDeviceExecutor applies this independently
+    // of success; HTTP status codes stay in detail, never branched on here.
+    ReachabilityEvidence reachability = ReachabilityEvidence::None;
 };
 
 class HardwareExecutor {

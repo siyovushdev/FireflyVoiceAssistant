@@ -1,6 +1,7 @@
 #pragma once
 #include "firefly/runtime/DomainView.h"
 #include "firefly/execution/HardwareExecutor.h"
+#include "firefly/execution/DeviceStateStore.h"
 #include <mutex>
 #include <variant>
 
@@ -8,8 +9,8 @@ namespace firefly::execution {
 // Explicit execution intent. Never inferred from bindings[] or diagnostic source labels.
 enum class ExecutionIntent {
     None,        // parse / SafetyGate / validate only
-    Playground,  // Admin test-command: MockDeviceExecutor only, never HTTP
-    Production   // voice / runtime command: BoundDeviceExecutor hardware path
+    Playground,  // Admin test-command: MockDeviceExecutor only, never HTTP / production store
+    Production   // voice / runtime command: hardware path + DeviceStateStore
 };
 struct LightState { std::int64_t brightness; };
 enum class DoorPosition { Closed, Open };
@@ -23,15 +24,17 @@ inline bool operator==(DoorState a, DoorState b) { return a.position == b.positi
 struct DeviceRecord { std::string targetId, name; DeviceState state; };
 struct ExecutionResult {
     bool success = false;
+    ExecutionStatus status = ExecutionStatus::Failed;
     std::string actionId, targetId, error;
     std::optional<DeviceState> previous, current;
+    std::int64_t timestampMs = 0;
 };
 class ActionExecutor {
 public:
     virtual ~ActionExecutor() = default;
     virtual ExecutionResult execute(const actions::GenericAction& action) = 0;
 };
-// Generation-owned state + execute surface shared by offline mock and hardware paths.
+// Generation-owned playground simulation + domain preview surface.
 class DeviceStateExecutor : public ActionExecutor {
 public:
     virtual ExecutionResult preview(const actions::GenericAction& action) const = 0;
@@ -55,20 +58,25 @@ private:
     mutable std::mutex mutex_;
     std::map<std::string, DeviceRecord> devices_;
 };
-// Generation-owned production executor. Local mock state is shared for observe /
-// reconcile / playground virtual execute. SafetyGate runs in CommandEngine only.
-// Playground intent never reaches BindingResolver or HardwareExecutor.
+// Generation-owned facade:
+//   Playground → MockDeviceExecutor only (no HTTP, no production store/connectivity)
+//   Production → BindingResolver → HardwareExecutor → DeviceStateStore Predicted/connectivity
 class BoundDeviceExecutor final : public DeviceStateExecutor {
 public:
-    explicit BoundDeviceExecutor(config::Catalog catalog);
-    // ActionExecutor default is Production (fail-closed hardware path).
+    explicit BoundDeviceExecutor(config::Catalog catalog, SteadyClockMs clock = {});
     ExecutionResult execute(const actions::GenericAction& action) override;
     ExecutionResult execute(const actions::GenericAction& action, ExecutionIntent intent);
     ExecutionResult preview(const actions::GenericAction& action) const override;
+    // Playground virtual states (simulation / Apply preview). Not production knowledge.
     std::vector<DeviceRecord> states() const override;
     void reconcile(const std::vector<DeviceRecord>& previous) override;
+    void reconcile(const BoundDeviceExecutor& previous);
+    DeviceStateStore& production();
+    const DeviceStateStore& production() const;
+    void observe(const StateObservation& observation);
 private:
-    MockDeviceExecutor mock_;
+    MockDeviceExecutor playground_;
+    DeviceStateStore production_;
     BindingResolver resolver_;
     ExecutorRegistry registry_;
 };

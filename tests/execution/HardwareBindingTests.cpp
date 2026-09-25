@@ -216,11 +216,16 @@ int main(int argc, char** argv) {
             check(preview.success, "preview semantic success");
             check(std::get<execution::TypedState>(executor.states().back().state).at("power") == actions::Scalar(false), "preview no mutation");
             const auto result = executor.execute(action);
-            check(result.success, "hardware execute success");
+            check(result.success && result.status == execution::ExecutionStatus::Accepted, "hardware execute success");
             check(server.lastMethod == "POST" && server.lastPath == "/gpio/led", "correct path");
             check(server.lastBody.find("\"power\":true") != std::string::npos, "correct body");
-            check(std::get<execution::TypedState>(executor.states().back().state).at("power") == actions::Scalar(true),
-                "local state follows accepted command");
+            // Production Accepted → Predicted in DeviceStateStore; playground mock unchanged.
+            check(std::get<execution::TypedState>(executor.states().back().state).at("power") == actions::Scalar(false),
+                "playground unchanged after production accept");
+            const auto knowledge = executor.production().device("device_office_lamp");
+            check(knowledge && knowledge->properties.at("power").knowledge == execution::StateKnowledge::Predicted &&
+                knowledge->properties.at("power").value == actions::Scalar(true), "production Predicted ON");
+            check(knowledge->connectivity == execution::Connectivity::Reachable, "production Reachable");
         }
         {
             FakeHttpServer server(500);
@@ -229,7 +234,10 @@ int main(int argc, char** argv) {
             execution::BoundDeviceExecutor executor(config::ConfigLoader::fromJson(value.dump()));
             const auto result = executor.execute({"action_lamp_on", "device_office_lamp", {}});
             check(!result.success && result.error.find("http_error") != std::string::npos, "http error");
-            check(std::get<execution::TypedState>(executor.states().back().state).at("power") == actions::Scalar(false), "http error no state");
+            check(std::get<execution::TypedState>(executor.states().back().state).at("power") == actions::Scalar(false), "http error no playground state");
+            const auto knowledge = executor.production().device("device_office_lamp");
+            check(knowledge && knowledge->properties.at("power").knowledge == execution::StateKnowledge::Unknown, "http error no prediction");
+            check(knowledge->connectivity == execution::Connectivity::Reachable, "HTTP 500 → Reachable");
         }
         {
             FakeHttpServer server;
@@ -239,6 +247,7 @@ int main(int argc, char** argv) {
             execution::BoundDeviceExecutor executor(config::ConfigLoader::fromJson(value.dump()));
             const auto result = executor.execute({"action_lamp_on", "device_office_lamp", {}});
             check(!result.success && (result.error == "timeout" || result.error == "connection_failure"), "timeout");
+            check(executor.production().device("device_office_lamp")->connectivity == execution::Connectivity::Unreachable, "timeout Unreachable");
         }
         {
             auto value = baseV2(root); addPowerAction(value);
@@ -246,6 +255,7 @@ int main(int argc, char** argv) {
             execution::BoundDeviceExecutor executor(config::ConfigLoader::fromJson(value.dump()));
             const auto result = executor.execute({"action_lamp_on", "device_office_lamp", {}});
             check(!result.success && (result.error == "connection_failure" || result.error == "timeout"), "connection failure");
+            check(executor.production().device("device_office_lamp")->connectivity == execution::Connectivity::Unreachable, "connection Unreachable");
         }
         {
             // --- Required intent separation regressions ---
@@ -263,6 +273,8 @@ int main(int argc, char** argv) {
                 check(!direct.success && direct.error == "binding_missing", "1 production empty bindings → binding_missing");
                 check(std::get<execution::TypedState>(generations.current()->executor->states().back().state).at("power") ==
                     actions::Scalar(false), "1 production empty bindings no state change");
+                check(generations.current()->executor->production().device("device_office_lamp")->connectivity ==
+                    execution::Connectivity::Unknown, "1 binding_missing leaves connectivity unchanged");
                 (void)result; (void)before;
             }
             // 2) Production + valid HTTP binding → fake device receives request.
@@ -277,6 +289,8 @@ int main(int argc, char** argv) {
                     {"action_lamp_on", "device_office_lamp", {}}, execution::ExecutionIntent::Production);
                 check(result.success, "2 production binding success");
                 check(server.lastMethod == "POST" && server.lastPath == "/gpio/led", "2 production HTTP received");
+                check(generations.current()->executor->production().device("device_office_lamp")->properties.at("power").knowledge ==
+                    execution::StateKnowledge::Predicted, "2 production Predicted");
             }
             // 3) Admin playground + empty bindings → virtual Mock execution works.
             {
@@ -289,6 +303,8 @@ int main(int argc, char** argv) {
                 check(result.success, "3 playground empty bindings mock success");
                 check(std::get<execution::TypedState>(generations.current()->executor->states().back().state).at("power") ==
                     actions::Scalar(true), "3 playground mutates virtual state");
+                check(generations.current()->executor->production().device("device_office_lamp")->properties.at("power").knowledge ==
+                    execution::StateKnowledge::Unknown, "3 playground leaves production Unknown");
             }
             // 4) Admin playground + valid real binding → still Mock; fake HTTP gets nothing.
             {
@@ -304,6 +320,8 @@ int main(int argc, char** argv) {
                 check(server.lastMethod.empty() && server.lastBody.empty(), "4 playground issues no HTTP");
                 check(std::get<execution::TypedState>(generations.current()->executor->states().back().state).at("power") ==
                     actions::Scalar(true), "4 playground virtual state only");
+                check(generations.current()->executor->production().device("device_office_lamp")->connectivity ==
+                    execution::Connectivity::Unknown, "4 playground leaves connectivity Unknown");
             }
         }
         {
@@ -322,6 +340,8 @@ int main(int argc, char** argv) {
                 {{"brightness", actions::IntegerArgument(std::int64_t{40})}}}, execution::ExecutionIntent::Production);
             check(result.success, "brightness binding success");
             check(server.lastBody.find("\"brightness\":40") != std::string::npos, "scalar argument forwarded");
+            check(executor.production().device("device_kitchen_light")->properties.at("brightness").knowledge ==
+                execution::StateKnowledge::Predicted, "brightness Predicted");
         }
         {
             // DNS hostnames rejected at validation (M14 numeric IPv4 only).

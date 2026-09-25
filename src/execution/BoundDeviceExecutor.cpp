@@ -2,19 +2,31 @@
 #include "firefly/execution/HttpHardwareExecutor.h"
 
 namespace firefly::execution {
-BoundDeviceExecutor::BoundDeviceExecutor(config::Catalog catalog)
-    : mock_(catalog), resolver_(catalog) {
+BoundDeviceExecutor::BoundDeviceExecutor(config::Catalog catalog, SteadyClockMs clock)
+    : playground_(catalog), production_(catalog, std::move(clock)), resolver_(catalog) {
     registry_.registerExecutor(config::ExecutorKind::Http, std::make_shared<HttpHardwareExecutor>());
 }
 
 ExecutionResult BoundDeviceExecutor::preview(const actions::GenericAction& action) const {
-    return mock_.preview(action);
+    return playground_.preview(action);
 }
 
-std::vector<DeviceRecord> BoundDeviceExecutor::states() const { return mock_.states(); }
+std::vector<DeviceRecord> BoundDeviceExecutor::states() const { return playground_.states(); }
 
 void BoundDeviceExecutor::reconcile(const std::vector<DeviceRecord>& previous) {
-    mock_.reconcile(previous);
+    playground_.reconcile(previous);
+}
+
+void BoundDeviceExecutor::reconcile(const BoundDeviceExecutor& previous) {
+    playground_.reconcile(previous.playground_.states());
+    production_.reconcile(previous.production_);
+}
+
+DeviceStateStore& BoundDeviceExecutor::production() { return production_; }
+const DeviceStateStore& BoundDeviceExecutor::production() const { return production_; }
+
+void BoundDeviceExecutor::observe(const StateObservation& observation) {
+    production_.applyObservation(observation);
 }
 
 ExecutionResult BoundDeviceExecutor::execute(const actions::GenericAction& action) {
@@ -22,42 +34,75 @@ ExecutionResult BoundDeviceExecutor::execute(const actions::GenericAction& actio
 }
 
 ExecutionResult BoundDeviceExecutor::execute(const actions::GenericAction& action, ExecutionIntent intent) {
+    const auto now = production_.nowMs();
     if (intent == ExecutionIntent::None)
-        return {false, action.actionId(), action.targetId(), "execution_intent_none", std::nullopt, std::nullopt};
+        return {false, ExecutionStatus::Failed, action.actionId(), action.targetId(),
+            "execution_intent_none", std::nullopt, std::nullopt, now};
 
     // Domain capability / argument validation only. SafetyGate already ran in
     // CommandEngine; neither playground nor production may bypass that reject.
-    auto predicted = mock_.preview(action);
+    auto predicted = playground_.preview(action);
+    predicted.timestampMs = now;
+    predicted.status = predicted.success ? ExecutionStatus::Accepted : ExecutionStatus::Failed;
     if (!predicted.success) return predicted;
 
-    if (intent == ExecutionIntent::Playground)
-        return mock_.execute(action);
+    if (intent == ExecutionIntent::Playground) {
+        // Virtual simulation only — never touches DeviceStateStore / connectivity / HTTP.
+        auto result = playground_.execute(action);
+        result.timestampMs = now;
+        result.status = result.success ? ExecutionStatus::Accepted : ExecutionStatus::Failed;
+        return result;
+    }
 
-    // Production: fail closed without a binding. Never fall back to mock success.
+    // Production: fail closed without a binding. Never fall back to playground success.
+    // binding_missing / ambiguous → no connectivity evidence (no transport attempt).
     const auto lookup = resolver_.resolve(action.targetId(), action.actionId());
     if (lookup.status == BindingResolver::Status::Missing) {
         predicted.success = false;
+        predicted.status = ExecutionStatus::Failed;
         predicted.error = "binding_missing";
         predicted.current = std::nullopt;
         return predicted;
     }
     if (lookup.status == BindingResolver::Status::Ambiguous) {
         predicted.success = false;
+        predicted.status = ExecutionStatus::Failed;
         predicted.error = "binding_ambiguous";
         predicted.current = std::nullopt;
         return predicted;
     }
 
     const auto hardware = registry_.execute(*lookup.binding, action);
+    // Connectivity follows transport evidence, independent of Accepted|Failed.
+    if (hardware.reachability == ReachabilityEvidence::Reachable)
+        production_.markReachable(action.targetId(), now);
+    else if (hardware.reachability == ReachabilityEvidence::Unreachable)
+        production_.markUnreachable(action.targetId(), now);
+
     if (!hardware.success) {
         predicted.success = false;
+        predicted.status = ExecutionStatus::Failed;
         predicted.error = hardware.error;
         if (!hardware.detail.empty()) predicted.error += ":" + hardware.detail;
         predicted.current = std::nullopt;
         return predicted;
     }
-    // Command accepted by the transport. Local mock state follows the existing
-    // deterministic action model; this is not independent physical telemetry.
-    return mock_.execute(action);
+
+    // Accepted ≠ Confirmed. Record Predicted knowledge only after transport accept.
+    if (predicted.current) {
+        std::map<std::string, actions::Scalar> expected;
+        if (const auto* light = std::get_if<LightState>(&*predicted.current))
+            expected.emplace("brightness", actions::Scalar(light->brightness));
+        else if (const auto* door = std::get_if<DoorState>(&*predicted.current))
+            expected.emplace("position", actions::Scalar(std::string(
+                door->position == DoorPosition::Open ? "OPEN" : "CLOSED")));
+        else if (const auto* typed = std::get_if<TypedState>(&*predicted.current))
+            expected = *typed;
+        production_.applyPrediction(action.targetId(), expected, now);
+    }
+    predicted.status = ExecutionStatus::Accepted;
+    predicted.success = true;
+    // Do not mutate playground simulation from production hardware acceptance.
+    return predicted;
 }
 }

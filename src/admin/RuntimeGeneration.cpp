@@ -148,7 +148,7 @@ void RuntimeGenerations::apply(config::Catalog catalog) {
     Busy busy(busy_);
     if (stopping_) throw std::runtime_error("Runtime stopping");
     const auto next = std::make_shared<const RuntimeGeneration>(std::move(catalog), nextGeneration_);
-    if (const auto old = current()) next->executor->reconcile(old->executor->states());
+    if (const auto old = current()) next->executor->reconcile(*old->executor);
     int nextContextTokens = -1;
     try {
         for (const auto& [id,context] : next->targetContexts) { (void)id; nextContextTokens = std::max(nextContextTokens,admitContext(context)); }
@@ -168,7 +168,7 @@ void RuntimeGenerations::preflight(config::Catalog catalog) {
     Busy busy(busy_);
     const auto old = current();
     if (!old) throw std::runtime_error("No active runtime for context preflight");
-    next->executor->reconcile(old->executor->states());
+    next->executor->reconcile(*old->executor);
     try {
         for (const auto& [id,context] : next->targetContexts) { (void)id; (void)admitContext(context); }
         model_.useContext(next->defaultPrompt()); model_.useContext(old->defaultPrompt()); ready_ = model_.ready();
@@ -269,6 +269,14 @@ std::unique_ptr<RuntimeGenerations::Request> RuntimeGenerations::beginRequest() 
 }
 GenerationResult RuntimeGenerations::process(std::string_view input, execution::ExecutionIntent execution, std::string source) {
     return beginRequest()->process(input, execution, std::move(source));
+}
+void RuntimeGenerations::observe(execution::StateObservation observation) {
+    auto lock = lockOperation();
+    Busy busy(busy_);
+    const auto active = current();
+    if (!active) throw std::runtime_error("No active runtime");
+    if (observation.timestampMs <= 0) observation.timestampMs = active->executor->production().nowMs();
+    active->executor->observe(observation);
 }
 GenerationResult RuntimeGenerations::Request::process(std::string_view input, execution::ExecutionIntent execution, std::string source) {
     if (processed_) throw std::logic_error("Request already consumed");

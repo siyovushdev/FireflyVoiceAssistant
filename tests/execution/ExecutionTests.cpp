@@ -129,8 +129,9 @@ int main(int argc, char** argv) {
         auto spoken=worker.processVoice(recognizer,utterance);
         check(std::get<actions::GenericAction>(spoken.action).targetId()=="device_bathroom_light","voice after Apply same runtime");
         auto state=call(api,"GET","/api/devices/state");
-        bool bathroomStill40=false; for (const auto& device:state["devices"]) if(device["targetId"]=="device_bathroom_light") bathroomStill40=device["state"]["brightness"]==40;
-        check(bathroomStill40,"production voice without binding leaves playground state unchanged");
+        bool productionUnknown=false; for (const auto& device:state["devices"]) if(device["targetId"]=="device_bathroom_light")
+            productionUnknown = device["properties"]["brightness"]["knowledge"]=="unknown";
+        check(productionUnknown,"playground execute does not mutate production DeviceStateStore");
         auto history=call(api,"GET","/api/executions");
         check(history["executions"].size()==2 && history["executions"].back()["source"]=="voice","history sources no preview");
         check(history["executions"].back()["execution"]["success"]==false &&
@@ -140,9 +141,13 @@ int main(int argc, char** argv) {
         worker.processVoice(recognizer,utterance);
         auto status=call(api,"GET","/api/status");
         check(status["active"]["generation_id"]==2 && status["device_count"]==6 && status["last_command"]["execution"]["success"]==false,"live status after voice binding_missing");
-        // Playground execute still mutates shared virtual state when bindings are absent.
+        // Playground execute still mutates virtual simulation when bindings are absent.
         test=call(api,"POST","/api/test-command",{{"text","В ванной поставь свет на 30 процентов"},{"execute",true}});
         check(test["execution"]["success"]==true && test["execution"]["current"]["brightness"]==30,"playground mock execute without bindings");
+        state=call(api,"GET","/api/devices/state");
+        productionUnknown=false; for (const auto& device:state["devices"]) if(device["targetId"]=="device_bathroom_light")
+            productionUnknown = device["properties"]["brightness"]["knowledge"]=="unknown";
+        check(productionUnknown,"second playground execute still leaves production Unknown");
         call(api,"POST","/api/test-command",{{"text","Открой входную дверь"},{"execute","yes"}},400);
         // Actual VoiceProcessor STT lifecycle: Apply is requested while recognition
         // is in flight. Read-only status/state must remain available meanwhile.

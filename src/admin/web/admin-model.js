@@ -157,6 +157,21 @@
     }
     const executorContract=result=>result?.actionId&&result?.targetId?clone(result):null;
     const stateText=(s,device)=>!s?'—':s.brightness!==undefined?`${s.brightness}%`:s.state==='OPEN'?'OPEN · Открыто':s.state==='CLOSED'?'CLOSED · Закрыто':s.status==='unconfigured'?'Операции не настроены':Object.entries(s).map(([k,v])=>{const p=device?.state?.find(p=>p.id===k);return `${p?.name||k}: ${valueText(v,p)}`;}).join(', ');
+    const knowledgeLabel={unknown:'Состояние неизвестно',predicted:'Ожидается',confirmed:'Подтверждено'};
+    const productionStateText=(device,def)=>{
+        if(!device?.properties) return stateText(device?.state,def);
+        const parts=Object.entries(device.properties).map(([key,prop])=>{
+            const schema=def?.state?.find(p=>p.id===key);
+            const name=key==='brightness'?'Яркость':key==='position'?'Положение':(schema?.name||key);
+            if(prop.knowledge==='unknown'||prop.value===null||prop.value===undefined)
+                return `${name}: ${knowledgeLabel.unknown}`;
+            const rendered=key==='brightness'?`${prop.value}%`:key==='position'?String(prop.value):valueText(prop.value,schema);
+            const stale=prop.stale?' · устарело':'';
+            return `${knowledgeLabel[prop.knowledge]||prop.knowledge}: ${name} ${rendered}${stale}`;
+        });
+        const connectivity=device.connectivity==='reachable'?'Связь: есть':device.connectivity==='unreachable'?'Связь: нет':'Связь: неизвестна';
+        return [...parts, connectivity].join(' · ');
+    };
     const MaxCopilotVoiceSeconds=15;
     function voiceGate() {
         if (typeof window!=='undefined' && window.isSecureContext===false)
@@ -203,6 +218,6 @@
         if (lastMessage) return lastMessage;
         return sttReady ? '' : 'Голосовой ввод недоступен — введите текст.';
     }
-    const result={scalarNumber,decodeImport,clone,list,metadata,typeName,occupied,location,device,suggestion,wizardErrors,constraintErrors,constrainedAction,humanError,diffLines,commandSummary,stateText,unitText,valueText,constraintText,effectLines,initialValue,simpleAction,executorContract,voiceGate,mapMicError,encodeWavPcm16,nextVoiceState,idleVoiceStatus,MaxCopilotVoiceSeconds};
+    const result={scalarNumber,decodeImport,clone,list,metadata,typeName,occupied,location,device,suggestion,wizardErrors,constraintErrors,constrainedAction,humanError,diffLines,commandSummary,stateText,productionStateText,unitText,valueText,constraintText,effectLines,initialValue,simpleAction,executorContract,voiceGate,mapMicError,encodeWavPcm16,nextVoiceState,idleVoiceStatus,MaxCopilotVoiceSeconds};
     if(typeof module!=='undefined')module.exports=result; else root.AdminModel=result;
 })(typeof window!=='undefined'?window:globalThis);

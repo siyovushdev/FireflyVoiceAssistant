@@ -74,6 +74,8 @@ public:
     GenerationResult process(std::string_view input,
         execution::ExecutionIntent execution = execution::ExecutionIntent::None,
         std::string source = "text");
+    // Simulated independent telemetry into the active generation's DeviceStateStore.
+    void observe(execution::StateObservation observation);
     std::vector<ExecutionEvent> history() const;
     bool modelReady() const { return ready_.load(); }
     int contextTokens() const { return contextTokens_.load(); }

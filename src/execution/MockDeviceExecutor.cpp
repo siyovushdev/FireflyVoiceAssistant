@@ -33,12 +33,17 @@ MockDeviceExecutor::MockDeviceExecutor(config::Catalog catalog) : domain_(std::m
 ExecutionResult MockDeviceExecutor::execute(const actions::GenericAction& action) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto result = evaluate(action);
-    if (result.success) devices_.at(action.targetId()).state = *result.current;
+    if (result.success) {
+        devices_.at(action.targetId()).state = *result.current;
+        result.status = ExecutionStatus::Accepted;
+    } else result.status = ExecutionStatus::Failed;
     return result;
 }
 ExecutionResult MockDeviceExecutor::preview(const actions::GenericAction& action) const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return evaluate(action);
+    auto result = evaluate(action);
+    result.status = result.success ? ExecutionStatus::Accepted : ExecutionStatus::Failed;
+    return result;
 }
 ExecutionResult MockDeviceExecutor::evaluate(const actions::GenericAction& action) const {
     ExecutionResult result;

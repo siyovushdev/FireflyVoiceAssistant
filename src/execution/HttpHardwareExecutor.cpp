@@ -42,7 +42,7 @@ std::string buildBody(const config::HttpBinding& http, const actions::GenericAct
     if (http.argument) {
         const auto found = action.arguments().find(*http.argument);
         if (found == action.arguments().end()) {
-            error = {false, "malformed_binding", {}};
+            error = {false, "malformed_binding", {}, ReachabilityEvidence::None};
             return {};
         }
         body[*http.argument] = actions::scalarJson(found->second);
@@ -73,7 +73,7 @@ HardwareResult request(const ParsedUrl& url, const config::HttpBinding& http, co
     hints.ai_flags = AI_NUMERICHOST;
     const auto port = std::to_string(url.port);
     if (::getaddrinfo(url.host.c_str(), port.c_str(), &hints, &list) != 0 || !list)
-        return {false, "connection_failure", {}};
+        return {false, "connection_failure", {}, ReachabilityEvidence::Unreachable};
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(http.timeoutMs);
     int fd = -1;
     for (auto* item = list; item; item = item->ai_next) {
@@ -88,7 +88,10 @@ HardwareResult request(const ParsedUrl& url, const config::HttpBinding& http, co
         ::close(fd); fd = -1;
     }
     ::freeaddrinfo(list);
-    if (fd < 0) return {false, std::chrono::steady_clock::now() >= deadline ? "timeout" : "connection_failure", {}};
+    if (fd < 0) {
+        const auto code = std::chrono::steady_clock::now() >= deadline ? "timeout" : "connection_failure";
+        return {false, code, {}, ReachabilityEvidence::Unreachable};
+    }
 
     std::ostringstream message;
     message << http.method << ' ' << url.path << " HTTP/1.1\r\n"
@@ -99,21 +102,33 @@ HardwareResult request(const ParsedUrl& url, const config::HttpBinding& http, co
     const auto payload = message.str();
     std::size_t sent = 0;
     while (sent < payload.size()) {
-        if (!waitWritable(fd, deadline)) { ::close(fd); return {false, "timeout", {}}; }
+        if (!waitWritable(fd, deadline)) {
+            ::close(fd);
+            return {false, "timeout", {}, ReachabilityEvidence::Unreachable};
+        }
         const auto count = ::send(fd, payload.data() + sent, payload.size() - sent, MSG_NOSIGNAL);
         if (count < 0 && errno == EINTR) continue;
-        if (count <= 0) { ::close(fd); return {false, "connection_failure", {}}; }
+        if (count <= 0) {
+            ::close(fd);
+            return {false, "connection_failure", {}, ReachabilityEvidence::Unreachable};
+        }
         sent += static_cast<std::size_t>(count);
     }
 
     std::string response;
     while (response.size() < 65536) {
-        if (!waitReadable(fd, deadline)) { ::close(fd); return {false, "timeout", {}}; }
+        if (!waitReadable(fd, deadline)) {
+            ::close(fd);
+            return {false, "timeout", {}, ReachabilityEvidence::Unreachable};
+        }
         char buffer[4096];
         const auto count = ::recv(fd, buffer, sizeof(buffer), 0);
         if (count < 0 && errno == EINTR) continue;
         if (count == 0) break;
-        if (count < 0) { ::close(fd); return {false, "connection_failure", {}}; }
+        if (count < 0) {
+            ::close(fd);
+            return {false, "connection_failure", {}, ReachabilityEvidence::Unreachable};
+        }
         response.append(buffer, static_cast<std::size_t>(count));
         if (response.find("\r\n\r\n") != std::string::npos && response.size() > 16) {
             // Enough of the status line for a bounded response.
@@ -121,21 +136,26 @@ HardwareResult request(const ParsedUrl& url, const config::HttpBinding& http, co
         }
     }
     ::close(fd);
-    if (response.rfind("HTTP/1.", 0) != 0) return {false, "http_error", {}};
+    // Unparseable payload is not valid HTTP evidence → no connectivity claim.
+    if (response.rfind("HTTP/1.", 0) != 0) return {false, "http_error", {}, ReachabilityEvidence::None};
     const auto space = response.find(' ');
-    if (space == std::string::npos) return {false, "http_error", {}};
+    if (space == std::string::npos) return {false, "http_error", {}, ReachabilityEvidence::None};
     int status = 0;
     try { status = std::stoi(response.substr(space + 1, 3)); }
-    catch (...) { return {false, "http_error", {}}; }
-    if (status < 200 || status > 299) return {false, "http_error", std::to_string(status)};
-    return {true, {}, std::to_string(status)};
+    catch (...) { return {false, "http_error", {}, ReachabilityEvidence::None}; }
+    // Any valid HTTP status proves the transport endpoint was reached.
+    if (status < 200 || status > 299)
+        return {false, "http_error", std::to_string(status), ReachabilityEvidence::Reachable};
+    return {true, {}, std::to_string(status), ReachabilityEvidence::Reachable};
 }
 }
 
 HardwareResult HttpHardwareExecutor::execute(const config::Binding& binding, const actions::GenericAction& action) {
-    if (binding.executor != config::ExecutorKind::Http) return {false, "unsupported_executor", {}};
+    if (binding.executor != config::ExecutorKind::Http)
+        return {false, "unsupported_executor", {}, ReachabilityEvidence::None};
     ParsedUrl url;
-    if (!parseUrl(binding.http.url, url)) return {false, "malformed_binding", {}};
+    if (!parseUrl(binding.http.url, url))
+        return {false, "malformed_binding", {}, ReachabilityEvidence::None};
     HardwareResult error;
     const auto body = buildBody(binding.http, action, error);
     if (!error.success && !error.error.empty()) return error;

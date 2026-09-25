@@ -109,7 +109,8 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
     try {
         const std::map<std::string, std::string> routes{{"/api/admin/plan", "POST"}, {"/api/admin/copilot", "POST"}, {"/api/admin/copilot/accept", "POST"}, {"/api/admin/transcribe", "POST"}, {"/api/admin/action-draft", "POST"}, {"/api/admin/templates", "GET"}, {"/api/admin/draft", "POST"}, {"/api/config/migrate", "POST"}, {"/api/admin/id", "POST"}, {"/api/admin/suggest", "POST"}, {"/api/config/diff", "POST"},
             {"/api/config/export", "GET"}, {"/api/config/import", "POST"}, {"/api/config/revision", "POST"},
-            {"/api/config/restore-candidate", "POST"}, {"/api/dashboard", "GET"}, {"/api/devices/state", "GET"}, {"/api/executions", "GET"}, {"/api/status", "GET"}, {"/api/config", "GET PUT"},
+            {"/api/config/restore-candidate", "POST"}, {"/api/dashboard", "GET"}, {"/api/devices/state", "GET"},
+            {"/api/devices/observe", "POST"}, {"/api/executions", "GET"}, {"/api/status", "GET"}, {"/api/config", "GET PUT"},
             {"/api/config/active", "GET"}, {"/api/config/validate", "POST"}, {"/api/config/apply", "POST"},
             {"/api/config/revisions", "GET"}, {"/api/config/restore", "POST"}, {"/api/config/reconcile", "POST"}, {"/api/test-command", "POST"}};
         const auto route = routes.find(std::string(path));
@@ -210,6 +211,14 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
             const auto live = observation.empty() ? impl_->invoke({{"method","observe"}}) : parseMessage(observation);
             const auto key = path == "/api/devices/state" ? "devices" : "executions";
             reply = {{"ok",true},{key,live.at(key)},{"active",live.at("active")}};
+            if (path == "/api/devices/state" && live.contains("playground_devices"))
+                reply["playground_devices"] = live.at("playground_devices");
+        } else if (path == "/api/devices/observe") {
+            members(request, {"target_id", "properties"});
+            Json payload{{"method","observe_state"},{"target_id",request.at("target_id")},{"properties",request.at("properties")}};
+            if (request.contains("timestamp_ms")) payload["timestamp_ms"] = request.at("timestamp_ms");
+            reply = impl_->invoke(payload);
+            if (!reply.value("ok", false)) status = 422;
         } else if (path == "/api/status") {
             reply = {{"ok", true}, {"runtime_busy", impl_->busy.load()}};
             try { const auto stored = impl_->store.current(); reply["stored"] = {{"revision", stored->configuration().revision}, {"hash", stored->contentHash()}}; }
