@@ -181,9 +181,37 @@
     function commandSummary(result, config) {
         if (result.result?.unsupported) return {understood:false,message:result.reason|| (result.ambiguous?'Указано несколько подходящих устройств или зон. Уточните команду.':({grounding:'Не найдено однозначное устройство по обозначениям и зоне.',safety:'Команда отклонена: намерение или устройство не подтверждены исходным текстом.',decoder:'Модель вернула некорректный ответ.',model_unsupported:'Модель не смогла однозначно понять команду.',domain:'Аргументы не соответствуют ограничениям действия.',runtime:'Не удалось выполнить распознавание.'}[result.rejection_stage]||'Команда не поддерживается.')),execution:'Не выполнялось'};
         const action=result.result||{}, target=config.devices.find(d=>d.id===action.targetId), capability=config.actions.find(a=>a.id===action.actionId);
+        const expectedState=()=>{
+            const state=result.execution?.current||result.predicted_execution?.current;
+            if(!state)return '';
+            if(state.brightness!==undefined)return `Ожидается: brightness ${state.brightness}`;
+            if(state.state==='OPEN')return 'Ожидается: OPEN';
+            if(state.state==='CLOSED')return 'Ожидается: CLOSED';
+            return '';
+        };
+        const failureReason=()=>{
+            const code=result.execution?.error||'';
+            if(code==='binding_missing')return 'binding_missing · нет подключения устройства';
+            if(code==='binding_ambiguous')return 'binding_ambiguous · неоднозначное подключение';
+            if(code.startsWith('connection_failure')||code.startsWith('timeout'))return code;
+            if(code.startsWith('http_error'))return code;
+            if(code==='invalid_state_assignment')return 'Значения несовместимы с ограничениями виртуального состояния';
+            return code||'validation error';
+        };
+        let execution='Не выполнялось — предварительная проверка';
+        let state='';
+        if(result.execution){
+            if(result.execution.success||result.execution.status==='accepted'){
+                execution='Accepted';
+                state=expectedState();
+            }else{
+                execution='Не выполнено';
+                state=`Причина: ${failureReason()}`;
+            }
+        }
         return {understood:true,message:'✓ Команда понятна',device:target?.name||'Неизвестное устройство',action:capability?.name||'Действие',
             value:Object.entries(action.arguments||{}).map(([id,v])=>{const p=capability?.parameters.find(p=>p.id===id);return `${p?.name||id}: ${v}${p?.unit==='percent'?'%':p?.unit?' '+p.unit:''}`;}).join(', '),safety:result.safety==='PASS'?'✓ Проверено':'Не пройдено',
-            execution:result.execution?(result.execution.success?'Выполнено':result.execution.error==='invalid_state_assignment'?'Значения несовместимы с ограничениями виртуального состояния. Изменений нет.':'Виртуальное действие отклонено. Изменений нет.'):'Не выполнялось — предварительная проверка'};
+            execution,state};
     }
     const unitText=p=>p?.unit==='percent'?'%':p?.unit||'';
     const valueText=(v,p)=>typeof v==='boolean'?(p?.name==='Питание'?(v?'Включено':'Выключено'):(v?'Да':'Нет')):typeof v==='object'?JSON.stringify(v):String(v)+(unitText(p)?' '+unitText(p):'');

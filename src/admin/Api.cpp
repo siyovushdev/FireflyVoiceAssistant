@@ -403,9 +403,11 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
                 }
             }
         } else if (path == "/api/test-command") {
-            if (request.contains("execute")) members(request, {"text", "execute"});
+            if (request.contains("production")) members(request, {"text", "execute", "production"});
+            else if (request.contains("execute")) members(request, {"text", "execute"});
             else members(request, {"text"});
             if (request.contains("execute") && !request["execute"].is_boolean()) throw std::invalid_argument("Execute must be boolean");
+            if (request.contains("production") && !request["production"].is_boolean()) throw std::invalid_argument("Production must be boolean");
             if (!request["text"].is_string()) throw std::invalid_argument("Text must be string");
             request["method"] = "test";
             reply = impl_->invoke(request);

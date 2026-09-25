@@ -115,7 +115,17 @@ async function status(){
         dashboardCard('Конфигурация',dirty?'Есть изменения в черновике':r.needs_apply?'Сохранена новая версия — нужно применить':'Сохранённая версия применяется');
         $('status').textContent=`Время работы: ${Math.floor((r.uptime_seconds||0)/60)} мин. · AI ${r.runtime_ready?'доступен':'suggestions unavailable'}`;
         $('status-detail').textContent=json({...r,vad:r.voice==='disabled'?'disabled':r.voice==='unavailable'?'unavailable':'Silero',stt:r.voice==='disabled'?'disabled':r.voice==='unavailable'?'unavailable':'Russian Zipformer'});
-        $('last-command').textContent=r.last_command?.input?`Последняя команда: ${r.last_command.input}`:'';
+        $('last-command').textContent=(()=>{
+            const c=r.last_command;if(!c?.input)return '';
+            const ex=c.execution;
+            if(!ex)return `Последняя команда: ${c.input}`;
+            if(ex.success||ex.status==='accepted'){
+                const brightness=ex.current?.brightness;
+                const expected=brightness===undefined?'':' · Ожидается: brightness '+brightness;
+                return `Команда: ${c.input} · Результат: Accepted${expected}`;
+            }
+            return `Команда: ${c.input} · Не выполнено · ${ex.error||'ошибка'}`;
+        })();
         $('voice-detail').textContent=r.last_voice?json(r.last_voice):'Голосовых запросов ещё не было.';
         renderStates(states.devices,history.executions);
         if(voiceState==='idle') setVoiceUi();
@@ -148,8 +158,16 @@ $('save').onclick=()=>run(async()=>{if(!validated)await validate();await api('/a
 $('apply').onclick=()=>run(async()=>{if(dirty){$('validation').textContent='Сначала проверьте и сохраните черновик.';return;}showDiff((await diff()).changes,'Будет применено',true);});
 $('confirm-apply').onclick=()=>run(async()=>{await api('/api/config/apply','POST',{expected});$('diff-dialog').close();$('validation').textContent='✓ Изменения применены. Помощник продолжает работать.';await status();});
 $('diff-close').onclick=()=>$('diff-dialog').close();
-$('test-form').onsubmit=e=>{e.preventDefault();const execute=e.submitter?.id==='execute';run(async()=>{$('test-summary').textContent=execute?'Выполняется команда…':'Проверка без выполнения…';$('test-result').textContent='';$('executor-contract').textContent='Проверка…';
-    try{const r=await api('/api/test-command','POST',{text:$('command').value,execute});const summary=M.commandSummary(r,activeConfig||stored),device=(activeConfig||stored).devices.find(d=>d.id===r.result?.targetId);$('executor-contract').textContent=M.executorContract(r.result)?json(M.executorContract(r.result)):'Исполняемое действие не сформировано (Unsupported).';$('test-summary').replaceChildren();const box=node('div',undefined,'success');for(const [key,label]of Object.entries({message:'Результат',device:'Устройство',action:'Действие',value:'Значение',safety:'Безопасность',execution:'Выполнение'}))if(summary[key])box.append(node('p',`${label}: ${summary[key]}`));if(r.execution)box.append(node('p',`${M.stateText(r.execution.previous,device)} → ${M.stateText(r.execution.current,device)}`));else if(summary.understood)box.append(node('p',`Предполагаемое изменение: ${M.stateText(r.predicted_execution?.previous,device)} → ${M.stateText(r.predicted_execution?.current,device)}. Состояние и история не изменены.`));box.append(node('p','Режим: Виртуальное устройство'));for(const m of r.matching_evidence||[])if(m.distance){const entity=(m.category==='location'?(activeConfig||stored).rooms:(activeConfig||stored).devices).find(e=>e.id===m.entity_id);box.append(node('p',`«${m.span}» сопоставлено с ${m.category==='location'?'зоной':'устройством'} «${entity?.name||m.alias}»`));}$('test-summary').append(box);$('test-result').textContent=json(r);}
+$('test-form').onsubmit=e=>{e.preventDefault();const execute=e.submitter?.id==='execute';const production=!!$('production-execute')?.checked;
+run(async()=>{$('test-summary').textContent=execute?(production?'Production-выполнение…':'Виртуальное выполнение…'):'Проверка без выполнения…';$('test-result').textContent='';$('executor-contract').textContent='Проверка…';
+    try{const body={text:$('command').value,execute};if(execute&&production)body.production=true;
+    const r=await api('/api/test-command','POST',body);const summary=M.commandSummary(r,activeConfig||stored),device=(activeConfig||stored).devices.find(d=>d.id===r.result?.targetId);$('executor-contract').textContent=M.executorContract(r.result)?json(M.executorContract(r.result)):'Исполняемое действие не сформировано (Unsupported).';$('test-summary').replaceChildren();const box=node('div',undefined,summary.execution==='Не выполнено'?'error':'success');
+    box.append(node('p',`Команда: ${$('command').value}`));
+    for(const [key,label]of Object.entries({message:'Понимание',device:'Устройство',action:'Действие',value:'Значение',safety:'Безопасность',execution:'Результат',state:'Состояние'}))if(summary[key])box.append(node('p',`${label}: ${summary[key]}`));
+    if(r.execution&&!production)box.append(node('p',`${M.stateText(r.execution.previous,device)} → ${M.stateText(r.execution.current,device)}`));
+    else if(!r.execution&&summary.understood)box.append(node('p',`Предполагаемое изменение: ${M.stateText(r.predicted_execution?.previous,device)} → ${M.stateText(r.predicted_execution?.current,device)}. Состояние и история не изменены.`));
+    box.append(node('p',production?'Режим: Production (binding → Predicted)':'Режим: Виртуальное устройство'));
+    for(const m of r.matching_evidence||[])if(m.distance){const entity=(m.category==='location'?(activeConfig||stored).rooms:(activeConfig||stored).devices).find(e=>e.id===m.entity_id);box.append(node('p',`«${m.span}» сопоставлено с ${m.category==='location'?'зоной':'устройством'} «${entity?.name||m.alias}»`));}$('test-summary').append(box);$('test-result').textContent=json(r);await status();}
     catch(error){$('executor-contract').textContent='Исполняемое действие не сформировано.';$('test-summary').textContent='Не удалось обработать команду.';$('test-result').textContent=json(error.response||{});throw error;}});};
 function wizardField(label,key,opts={}){return field($('wizard-content'),label,wizard.entity[key],v=>wizard.entity[key]=v,{local:true,...opts});}
 function wizardMeta(label,key,opts={}){return field($('wizard-content'),label,wizard.entity.metadata[key],v=>wizard.entity.metadata[key]=v,{local:true,...opts});}

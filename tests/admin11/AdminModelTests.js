@@ -20,7 +20,8 @@ check(M.humanError({code:'ai_unavailable'},base).includes('ручное'),'manua
 const action={input:'команда',result:{actionId:'action_set_brightness',targetId:'device_kitchen_light',arguments:{brightness:40}},safety:'PASS',execution:null};
 check(M.commandSummary(action,base).execution.includes('Не выполнялось'),'preview human result');
 check(M.commandSummary(action,base).device==='Свет на кухне','human names');
-action.execution={success:true};check(M.commandSummary(action,base).execution==='Выполнено','execute result');
+action.execution={success:true,status:'accepted',current:{brightness:40}};check(M.commandSummary(action,base).execution==='Accepted','execute result');
+check(M.commandSummary(action,base).state.includes('brightness 40'),'execute predicted state copy');
 check(!M.commandSummary({result:{unsupported:true},safety:'REJECT'},base).understood,'unsafe result');
 check(M.stateText({speed:{value:3,unit:'m/s'}}).includes('3'),'unknown typed states graceful');
 check(M.productionStateText({properties:{brightness:{value:null,knowledge:'unknown',stale:false}},connectivity:'unknown'}).includes('неизвестно'),'production unknown knowledge');
@@ -103,6 +104,16 @@ check(M.healthSummary({health:{overall:'degraded',stopping:false,config_recovere
 check(M.healthSummary({health:{overall:'degraded',stopping:false,config_recovered:true,subsystems:{}}}).detail.includes('восстановлена'),'LKG recovered copy');
 check(M.healthSummary({health:{overall:'degraded',stopping:true,config_recovered:false,subsystems:{}}}).title==='Остановка…','stopping title');
 check(M.healthSummary({runtime_ready:true}).title==='Система готова','legacy ready without health');
+
+// V1 commandSummary Predicted / failure copy.
+const kitchenCfg={devices:[{id:'device_kitchen_light',name:'Kitchen Light'}],actions:[{id:'action_set_brightness',name:'Установить яркость света',parameters:[{id:'brightness',name:'Яркость',unit:'percent'}]}]};
+const okSummary=M.commandSummary({result:{actionId:'action_set_brightness',targetId:'device_kitchen_light',arguments:{brightness:100}},safety:'PASS',execution:{success:true,status:'accepted',current:{brightness:100}}},kitchenCfg);
+check(okSummary.execution==='Accepted','V1 success Accepted label');
+check(okSummary.state.includes('Ожидается')&&okSummary.state.includes('brightness 100'),'V1 Predicted expected state');
+check(!okSummary.state.includes('Включено')&&!/Свет включ/.test(okSummary.state),'V1 does not claim device is on');
+const failSummary=M.commandSummary({result:{actionId:'action_set_brightness',targetId:'device_kitchen_light',arguments:{brightness:100}},safety:'PASS',execution:{success:false,status:'failed',error:'binding_missing'}},kitchenCfg);
+check(failSummary.execution==='Не выполнено','V1 failure execution label');
+check(failSummary.state.includes('binding_missing'),'V1 binding_missing reason');
 console.log(`PASS ${checks} draft/UI model checks`);
 
 for(const raw of ["9007199254740993","0.12345678901234567","1e-400","1e400",""])assert.throws(()=>M.scalarNumber(raw));

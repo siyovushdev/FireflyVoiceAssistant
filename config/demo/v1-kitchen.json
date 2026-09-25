@@ -1,0 +1,207 @@
+{
+    "actions": [
+        {
+            "assignments": [],
+            "description": "",
+            "enabled": true,
+            "id": "action_open_entrance",
+            "name": "Открыть входную дверь",
+            "operation": "entrance_door.open.v1",
+            "parameters": [],
+            "speech_aliases": []
+        },
+        {
+            "assignments": [],
+            "description": "",
+            "enabled": true,
+            "id": "action_set_brightness",
+            "name": "Установить яркость света",
+            "operation": "light.set_brightness.v1",
+            "parameters": [
+                {
+                    "description": "",
+                    "id": "brightness",
+                    "maximum": 100,
+                    "minimum": 0,
+                    "name": "Яркость",
+                    "required": true,
+                    "type": "integer",
+                    "unit": "percent"
+                }
+            ],
+            "speech_aliases": []
+        }
+    ],
+    "bindings": [
+        {
+            "action_id": "action_set_brightness",
+            "executor": "http",
+            "http": {
+                "argument": "brightness",
+                "body": {},
+                "content_type": "application/json",
+                "method": "POST",
+                "timeout_ms": 1500,
+                "url": "http://127.0.0.1:8765/brightness"
+            },
+            "target_id": "device_kitchen_light"
+        }
+    ],
+    "compatibility": {
+        "codec": "compact_v1",
+        "door_action_id": "action_open_entrance",
+        "door_target_id": "device_entrance_door",
+        "light_action_id": "action_set_brightness",
+        "light_targets": {
+            "B": "device_bedroom_light",
+            "C": "device_corridor_light",
+            "G": "device_living_light",
+            "K": "device_kitchen_light"
+        }
+    },
+    "devices": [
+        {
+            "action_ids": [
+                "action_set_brightness"
+            ],
+            "enabled": true,
+            "id": "device_bedroom_light",
+            "kind": "light",
+            "name": "Свет в спальне",
+            "room_id": "room_bedroom",
+            "spoken_aliases": [],
+            "state": []
+        },
+        {
+            "action_ids": [
+                "action_set_brightness"
+            ],
+            "enabled": true,
+            "id": "device_corridor_light",
+            "kind": "light",
+            "name": "Свет в коридоре",
+            "room_id": "room_corridor",
+            "spoken_aliases": [],
+            "state": []
+        },
+        {
+            "action_ids": [
+                "action_open_entrance"
+            ],
+            "enabled": true,
+            "id": "device_entrance_door",
+            "kind": "entrance_door",
+            "name": "Входная дверь",
+            "room_id": null,
+            "spoken_aliases": [],
+            "state": []
+        },
+        {
+            "action_ids": [
+                "action_set_brightness"
+            ],
+            "enabled": true,
+            "id": "device_kitchen_light",
+            "kind": "light",
+            "name": "Kitchen Light",
+            "room_id": "room_kitchen",
+            "spoken_aliases": [],
+            "state": []
+        },
+        {
+            "action_ids": [
+                "action_set_brightness"
+            ],
+            "enabled": true,
+            "id": "device_living_light",
+            "kind": "light",
+            "name": "Свет в гостиной",
+            "room_id": "room_living",
+            "spoken_aliases": [],
+            "state": []
+        }
+    ],
+    "retired_ids": [],
+    "revision": 1,
+    "rooms": [
+        {
+            "id": "room_bedroom",
+            "name": "Спальня",
+            "speech": {
+                "locations": [
+                    "в спальне"
+                ],
+                "mentions": [
+                    "спальне",
+                    "спальней",
+                    "спальни",
+                    "спальню",
+                    "спальня"
+                ]
+            }
+        },
+        {
+            "id": "room_corridor",
+            "name": "Коридор",
+            "speech": {
+                "locations": [
+                    "в коридоре"
+                ],
+                "mentions": [
+                    "коридор",
+                    "коридора",
+                    "коридоре",
+                    "коридором",
+                    "коридору"
+                ]
+            }
+        },
+        {
+            "id": "room_kitchen",
+            "name": "Кухня",
+            "speech": {
+                "locations": [
+                    "на кухне"
+                ],
+                "mentions": [
+                    "кухне",
+                    "кухней",
+                    "кухни",
+                    "кухню",
+                    "кухня"
+                ]
+            }
+        },
+        {
+            "id": "room_living",
+            "name": "Гостиная",
+            "speech": {
+                "locations": [
+                    "в гостиной",
+                    "в зале"
+                ],
+                "mentions": [
+                    "гостиная",
+                    "гостиной",
+                    "гостиную",
+                    "зал",
+                    "зала",
+                    "зале",
+                    "залом",
+                    "залу"
+                ]
+            }
+        }
+    ],
+    "safety": {
+        "restrictions": []
+    },
+    "schema_version": 2,
+    "system": {
+        "id": "system_home",
+        "interpretation_profile": "legacy_m4_v1",
+        "locale": "ru-RU",
+        "name": "Firefly V1 Prototype"
+    }
+}
+

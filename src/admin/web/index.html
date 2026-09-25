@@ -121,20 +121,23 @@
 <section id="playground">
 <h2>Command Playground</h2>
 <p>
-<strong>Проверить / Preview</strong> — понять команду без изменения устройства. <strong>Выполнить / Execute</strong> — изменить состояние виртуального устройства.</p>
+<strong>Проверить / Preview</strong> — понять команду без изменения устройства.
+<strong>Выполнить / Execute</strong> — по умолчанию виртуальный Mock.
+Отметьте <strong>Production (binding)</strong> для пути Binding → HTTP → Predicted (V1 demo).</p>
 <form id="test-form">
 <label for="command">Команда</label>
 <div class="command-row">
-<input id="command" required placeholder="В нужной зоне поставь освещение на 40 процентов">
+<input id="command" required placeholder="Включи свет на кухне">
 <button id="test" type="submit">Проверить · Preview</button>
 <button class="primary" id="execute" type="submit">Выполнить · Execute</button>
 </div>
+<label class="command-row"><input type="checkbox" id="production-execute"> Production (binding) · DeviceState Predicted</label>
 </form>
 <div id="test-summary" role="status">
 </div>
 <div class="advanced">
 <h3>Результат команды для исполнителя</h3>
-<p>Сейчас действие выполняет Mock Executor. Позже этот контракт может быть привязан к реальному устройству. Это GenericAction, независимо от аппаратного протокола.</p>
+<p>Playground = Mock. Production = существующий HttpHardwareExecutor по binding (например scripts/v1-mock-device.py).</p>
 <pre id="executor-contract">Команда ещё не проверялась.</pre>
 </div>
 <pre id="test-result" class="advanced">

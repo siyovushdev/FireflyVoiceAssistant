@@ -176,16 +176,21 @@ std::string RuntimeWorker::handle(std::string_view bytes) {
             reply["latency_ms"] = std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();
             reply["saved"] = false; reply["applied"] = false;
         } else if (method == "test") {
-            if (request.contains("execute")) members(request, {"method", "text", "execute"});
+            if (request.contains("production")) members(request, {"method", "text", "execute", "production"});
+            else if (request.contains("execute")) members(request, {"method", "text", "execute"});
             else members(request, {"method", "text"});
             if (request.contains("execute") && !request["execute"].is_boolean()) throw std::invalid_argument("Execute must be boolean");
+            if (request.contains("production") && !request["production"].is_boolean()) throw std::invalid_argument("Production must be boolean");
             const auto input = request.at("text").get<std::string>();
             const auto admitted = generations_.beginRequest();
-            // Admin playground must stay virtual even when real HTTP bindings exist.
-            const auto intent = request.value("execute", false)
-                ? execution::ExecutionIntent::Playground
-                : execution::ExecutionIntent::None;
-            const auto result = admitted->process(input, intent, "admin-test");
+            // Default Admin execute stays Playground. Explicit production=true exercises
+            // BindingResolver → HardwareExecutor → DeviceStateStore (V1 demo / voice parity).
+            execution::ExecutionIntent intent = execution::ExecutionIntent::None;
+            if (request.value("execute", false))
+                intent = request.value("production", false)
+                    ? execution::ExecutionIntent::Production
+                    : execution::ExecutionIntent::Playground;
+            const auto result = admitted->process(input, intent, request.value("production", false) ? "admin-production" : "admin-test");
             reply = commandJson(input, result);
             remember(reply.dump());
         } else if (method == "observe_state") {
