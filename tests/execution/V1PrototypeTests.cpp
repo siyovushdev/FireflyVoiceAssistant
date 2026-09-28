@@ -3,6 +3,7 @@
 #include "firefly/config/ConfigValidator.h"
 #include "firefly/execution/ActionExecutor.h"
 #include "firefly/execution/DeviceStateStore.h"
+#include "firefly/voice/WakeVoiceLoop.h"
 #include <atomic>
 #include <arpa/inet.h>
 #include <cstring>
@@ -198,6 +199,67 @@ int main(int argc, char** argv) {
                 check(found, "kitchen light in production store");
             }
             check(!server.lastBody.empty(), "mock HTTP received body");
+        }
+
+        // Wake admission uses the SAME production STT -> SafetyGate -> binding -> HTTP path.
+        {
+            Model model;
+            admin::RuntimeWorker worker(model);
+            admin::LocalRuntimeClient client(worker);
+            Directory dir;
+            config::ConfigStore store(dir.path);
+            store.initialize(snap);
+            admin::Api api(store, client);
+            api.initializeRuntime();
+            for (const std::string text : {"Включи свет на кухне", "Выключи свет на кухне",
+                                          "Поставь свет на кухне на 40 процентов", "", "абракадабра"}) {
+                struct Recognizer : voice::SpeechRecognizer {
+                    std::string text; int calls = 0;
+                    voice::RecognitionResult recognize(const std::vector<float>&) override {
+                        ++calls; return {true, text, {}, 0};
+                    }
+                } recognizer;
+                recognizer.text = text;
+                struct Wake : voice::WakeDetector {
+                    bool accept(const float* pcm, int) override { return pcm[0] == 1; }
+                    void reset() override {}
+                } wake;
+                struct Vad : voice::SpeechDetector {
+                    voice::Detection accept(const float*, int) override { return {false, {{0, 256}}}; }
+                    void reset() override {}
+                } vad;
+                struct Source : voice::AudioSource {
+                    int reads = 0, after = 0; bool completed = false, stopped = false;
+                    int read(float* pcm, int count) override {
+                        ++reads;
+                        if (completed && ++after == 30) stopped = true;
+                        if (reads > 1000000) throw std::runtime_error("Wake pipeline test stalled");
+                        std::fill(pcm, pcm + count, reads == 10 ? 1.0f : 0.1f);
+                        std::this_thread::yield();
+                        return count;
+                    }
+                } source;
+                voice::VoiceSegmenter segmenter(vad, {0, 0, 15000});
+                int sessions = 0, waits = 0, results = 0;
+                voice::runWakeVoiceLoop(source, wake, segmenter, {},
+                    [&](const voice::Utterance& u) { return worker.processVoice(recognizer, u); },
+                    [&](const voice::VoiceResult& result) {
+                        ++results;
+                        if (text.empty() || text == "абракадабра")
+                            check(std::holds_alternative<actions::Unsupported>(result.action), "unknown remains unsupported");
+                        else check(std::holds_alternative<actions::GenericAction>(result.action), "wake command lost GenericAction");
+                    }, [&](const std::string& state) {
+                        if (state == "LISTENING_COMMAND") ++sessions;
+                        if (state == "WAITING_WAKE" && ++waits == 2) source.completed = true;
+                    }, [&] { return source.stopped; });
+                check(recognizer.calls == 1 && sessions == 1 && results == 1 && waits == 2,
+                    "one wake one STT, post-command speech ignored, rearmed");
+                if (!text.empty() && text != "абракадабра") {
+                    const auto status = Json::parse(worker.observe());
+                    check(status.at("last_command").at("execution").at("status") == "accepted",
+                        "wake session reached HTTP Production Accepted");
+                }
+            }
         }
 
         // --- binding_missing → Failed, no Predicted mutation ---

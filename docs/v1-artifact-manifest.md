@@ -86,3 +86,11 @@ a6f550b56375326ee4a67dcac2cac027035e2dc137c08fff3557f4ffdc5cbc3e  build/stt/mode
 5997c35aa68c8843b2ddfa6208b6961a07f171fa636633dd8941270e1aaacf5f  build/stt/sherpa-onnx-v1.13.7-linux-aarch64-shared-cpu/lib/libsherpa-onnx-c-api.so
 d860f5968f5a1ed63533e9ed198aa747ca9fe289028129877f428556089f6874  build/stt/sherpa-onnx-v1.13.7-linux-aarch64-shared-cpu/lib/libonnxruntime.so
 ```
+
+## V1 production wake artifact (post-prototype integration)
+
+Small versioned artifact: `assets/wake/amina-v3.tflite` (60,912 bytes).
+SHA256: `bc42cb869d2aace69c5bdf9333c502b96dedfa85df97676be85f5c289dc057d1`.
+Frozen cutoff 0.99, mean window 7, XVF3800 ASR channel index 1.
+Runtime checks verified model bytes and quantization metadata. Packaging, pinned
+worker dependencies and current acceptance status: [Amina V1](v1-amina-wake.md).

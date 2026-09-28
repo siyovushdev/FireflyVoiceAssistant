@@ -72,7 +72,8 @@ curl -s http://127.0.0.1:8080/api/test-command -H 'Content-Type: application/jso
 ```
 
 Voice (optional, real mic/STT/RKLLM): add `--voice --stt-model-dir … --vad-model …`.
-Voice always uses `ExecutionIntent::Production`.
+Voice always uses `ExecutionIntent::Production`. Production voice now defaults to
+[Amina wake gating](v1-amina-wake.md); say «Амина» before each command.
 
 ## Admin result copy (M15)
 

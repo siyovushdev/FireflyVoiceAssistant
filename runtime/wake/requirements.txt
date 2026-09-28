@@ -1,0 +1,4 @@
+# Frozen versions available on the acceptance board; installer must stage offline.
+ai-edge-litert==1.2.0
+pymicro-features==2.0.2
+numpy==2.2.6

@@ -59,6 +59,12 @@ int main(int argc, char** argv) {
             health.refreshOverall();
             check(health.snapshot().overall == admin::HealthOverall::Ready, "recovered subsystems → READY");
 
+            health.setSubsystem("wake", admin::SubsystemStatus::Failed, "wake_voice_unavailable");
+            check(health.snapshot().overall == admin::HealthOverall::Degraded, "wake failure degrades overall");
+            check(Json::parse(admin::HealthModel::toJson(health.snapshot())).at("subsystems").at("wake").at("status") == "failed",
+                "wake health separately exposed");
+            health.setSubsystem("wake", admin::SubsystemStatus::Ready, {}, "WAITING_WAKE");
+            check(health.snapshot().overall == admin::HealthOverall::Ready, "wake recovery ready");
             health.setStopping(true);
             check(health.snapshot().overall == admin::HealthOverall::Degraded, "stopping → DEGRADED");
             const auto json = admin::HealthModel::toJson(health.snapshot());

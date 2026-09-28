@@ -81,6 +81,9 @@ Do **not** say «Свет включён» from Predicted alone (M15).
 
 ## Voice smoke checklist (do not change STT/LLM)
 
+Production voice now requires «Амина» before each command. Use the
+[V1 wake acceptance guide](v1-amina-wake.md) and `scripts/v1-wake-live.sh`.
+
 Prepare live phrases (mic + STT + optional RKLLM fallback):
 
 1. `Включи свет на кухне` → brightness 100 (deterministic)  
@@ -100,7 +103,7 @@ Frozen eval WAV transcript `на кухне поставь свет на сор�
 | …сорок процентов | | | | | often LLM |
 | …40 процентов (typed) | n/a | fast | yes | yes | `./scripts/v1-demo-run.sh` |
 
-Other limits: room-less `включи свет` → U; no wake-word; do not start a second Qwen while demo holds the NPU.
+Other limits: room-less `включи свет` → U; wake gating enabled by default; do not start a second Qwen while demo holds the NPU.
 
 ## Pipeline
 

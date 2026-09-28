@@ -69,3 +69,5 @@ Abort is best effort: the header does not guarantee bounded return time. The cal
 This executes the production CommandEngine. The 48-row DEV dataset is balanced between 24 valid actions and 24 expected U responses; it is not a hidden evaluation. Per-case routes/final results and aggregate metrics go to stdout; original input, raw structured output, decode status, typed candidate, safety result, final result and errors remain distinguishable in stderr diagnostics. Exit status is 0 for a clean pass, 1 for regression failures, and 2 for harness/startup errors. See `tests/data/README.md` for metric definitions.
 
 Unit tests need no NPU. Wrapper/CLI tests link stub C functions against the exact SDK header and require Python 3 for subprocess checks; the runtime library is not linked to these tests. A core-only build runs the core and configuration/GenericAction suites without the SDK. No dependency is downloaded automatically.
+
+Production wake gating and XVF3800 acceptance: [V1 Amina wake](docs/v1-amina-wake.md).

@@ -8,8 +8,9 @@ using Json = nlohmann::json;
 }
 
 HealthModel::HealthModel() {
-    for (const char* name : {"configuration", "runtime", "admin", "stt", "llm", "hardware_execution"})
+    for (const char* name : {"configuration", "runtime", "admin", "stt", "llm", "hardware_execution", "wake"})
         state_.subsystems[name] = {};
+    state_.subsystems["wake"].status = SubsystemStatus::Unavailable;
     state_.subsystems["admin"].status = SubsystemStatus::Starting;
     state_.subsystems["stt"].status = SubsystemStatus::Unavailable;
     state_.subsystems["llm"].status = SubsystemStatus::Starting;

@@ -6,8 +6,11 @@
 #include "firefly/voice/AlsaAudioSource.h"
 #include "firefly/voice/SherpaSpeech.h"
 #include "firefly/voice/VoiceLoop.h"
+#include "firefly/voice/WakeVoiceLoop.h"
+#include "firefly/voice/AminaWakeDetector.h"
 #include "firefly/llm/StructuredOutput.h"
 #endif
+#include "firefly/voice/WakeDetector.h"
 #include <charconv>
 #include <csignal>
 #include <filesystem>
@@ -23,7 +26,13 @@ void stop(int) { stopping = 1; }
 int main(int argc, char** argv) {
     try {
         std::string storePath, initial, bind = "127.0.0.1", modelPath, stt, vad;
-        std::string device = "plughw:CARD=H340,DEV=0";
+        std::string device = "plughw:CARD=Array,DEV=0";
+        firefly::voice::WakeConfig wakeConfig;
+        std::string wakePython = "python3";
+        const auto executableDir = std::filesystem::canonical("/proc/self/exe").parent_path();
+        auto wakeData = executableDir / "share/firefly/wake";
+        if (!std::filesystem::exists(wakeData)) wakeData = executableDir.parent_path() / "share/firefly/wake";
+        wakeConfig.modelPath = (wakeData / "amina-v3.tflite").string();
         unsigned short port = 8080;
         bool voice = false;
         for (int i = 1; i < argc; ++i) {
@@ -32,7 +41,9 @@ int main(int argc, char** argv) {
                 std::cout << "firefly-demo --store DIR --model FILE [--init-config FILE]\n"
                     "  [--admin-bind 127.0.0.1] [--admin-port 8080]\n"
                     "  [--stt-model-dir DIR]\n"
-                    "  [--voice --vad-model FILE --audio-device plughw:CARD=H340,DEV=0]\n"
+                    "  [--voice --vad-model FILE --audio-device plughw:CARD=Array,DEV=0]\n"
+                    "  [--wake-enabled true|false] [--wake-model FILE] [--wake-python EXECUTABLE]\n"
+                    "  [--wake-cutoff 0.99] [--wake-window 7] [--command-listen-timeout-ms 10000]\n"
                     "One process appliance runtime supervised by systemd in production.\n"
                     "DIR must be private/user-owned. HTTP status remains available when LLM/STT fail.\n";
                 return 0;
@@ -47,6 +58,25 @@ int main(int argc, char** argv) {
             else if (flag == "--stt-model-dir") stt = value;
             else if (flag == "--vad-model") vad = value;
             else if (flag == "--audio-device") device = value;
+            else if (flag == "--wake-enabled") {
+                if (value != "true" && value != "false") throw std::invalid_argument("Invalid wake-enabled boolean");
+                wakeConfig.enabled = value == "true";
+            }
+            else if (flag == "--wake-model") wakeConfig.modelPath = value;
+            else if (flag == "--wake-python") wakePython = value;
+            else if (flag == "--wake-cutoff") {
+                if (value != "0.99") throw std::invalid_argument("V1 wake cutoff is frozen at 0.99");
+            }
+            else if (flag == "--wake-window") {
+                if (value != "7") throw std::invalid_argument("V1 wake window is frozen at 7");
+            }
+            else if (flag == "--command-listen-timeout-ms") {
+                int number;
+                const auto parsed = std::from_chars(value.data(), value.data() + value.size(), number);
+                if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size())
+                    throw std::invalid_argument("Invalid command listen timeout");
+                wakeConfig.commandTimeout = std::chrono::milliseconds(number);
+            }
             else if (flag == "--admin-port") {
                 unsigned number;
                 const auto result = std::from_chars(value.data(), value.data() + value.size(), number);
@@ -55,6 +85,7 @@ int main(int argc, char** argv) {
                 port = static_cast<unsigned short>(number);
             } else throw std::invalid_argument("Unknown option: " + flag);
         }
+        wakeConfig.validate();
         if (storePath.empty()) throw std::invalid_argument("--store is required");
 #ifndef FIREFLY_WITH_VOICE
         if (voice || !stt.empty()) throw std::invalid_argument("Build with FIREFLY_BUILD_VOICE=ON for STT/voice");
@@ -74,6 +105,9 @@ int main(int argc, char** argv) {
         firefly::admin::Api api(store, client, nullptr);
         api.health().setPhase("process_started");
         api.noteStt(false);
+        using firefly::admin::SubsystemStatus;
+        api.health().setSubsystem("wake", voice && wakeConfig.enabled ? SubsystemStatus::Starting : SubsystemStatus::Unavailable,
+            {}, voice && !wakeConfig.enabled ? "explicitly_disabled" : "");
 
         firefly::admin::HttpServer server(api, bind, port);
         std::signal(SIGTERM, stop); std::signal(SIGINT, stop);
@@ -102,24 +136,50 @@ int main(int argc, char** argv) {
             api.initializeRuntime();
 #ifdef FIREFLY_WITH_VOICE
             if (voice && !stopping) {
+                bool speechReady = false;
                 try {
                     runtime.voiceStatus("loading", "opening");
                     firefly::voice::SherpaVad detector(vad);
                     firefly::voice::VoiceSegmenter segmenter(detector);
                     firefly::voice::SherpaRecognizer recognizer(stt);
-                    firefly::voice::AlsaAudioSource capture(device);
-                    firefly::voice::runVoiceLoop(capture, segmenter,
-                        [&](const firefly::voice::Utterance& u) { return runtime.processVoice(recognizer, u); },
-                        [](const firefly::voice::VoiceResult& result) {
+                    speechReady = true;
+                    std::unique_ptr<firefly::voice::AminaWakeDetector> wake;
+                    if (wakeConfig.enabled)
+                        wake = std::make_unique<firefly::voice::AminaWakeDetector>(wakeConfig, wakePython,
+                            (wakeData / "amina_worker.py").string());
+                    // One ALSA owner for wake AND command audio; XVF3800 ASR is channel index 1.
+                    firefly::voice::AlsaAudioSource capture(device, 2, 1);
+                    const auto process = [&](const firefly::voice::Utterance& u) { return runtime.processVoice(recognizer, u); };
+                    const auto emit = [](const firefly::voice::VoiceResult& result) {
                             std::cerr << "VOICE text=" << result.recognition.text << " route=" << result.route
                                 << " result=" << firefly::llm::structuredResult(result.action)
-                                << " error=" << result.error << '\n';
-                        }, [&](const std::string& state) { runtime.voiceStatus(state, "connected"); },
-                        [] { return stopping != 0; });
+                                << " error=" << result.error
+                                << " audio_s=" << result.durationSeconds << " speech_s=" << result.speechSeconds
+                                << " stt_ms=" << result.recognition.latencyMs << '\n';
+                        };
+                    const auto state = [&](const std::string& value) {
+                        runtime.voiceStatus(value, "connected");
+                        std::cerr << "VOICE_STATE " << value << '\n';
+                        if (wakeConfig.enabled) {
+                            const bool unavailable = value == "WAKE_UNAVAILABLE";
+                            api.health().setSubsystem("wake", unavailable ? SubsystemStatus::Failed : SubsystemStatus::Ready,
+                                unavailable ? "wake_path_failed" : "", value);
+                        }
+                    };
+                    if (wakeConfig.enabled)
+                        firefly::voice::runWakeVoiceLoop(capture, *wake, segmenter, wakeConfig,
+                            process, emit, state, [] { return stopping != 0; });
+                    else {
+                        std::cerr << "VOICE wake gating explicitly disabled by configuration\n";
+                        firefly::voice::runVoiceLoop(capture, segmenter, process, emit, state, [] { return stopping != 0; });
+                    }
                     runtime.voiceStatus("stopped", "closed");
+                    api.health().setSubsystem("wake", SubsystemStatus::Unavailable, {}, "stopped");
                 } catch (const std::exception& error) {
                     runtime.voiceStatus("unavailable", "unavailable");
-                    api.noteStt(false, error.what());
+                    if (wakeConfig.enabled)
+                        api.health().setSubsystem("wake", SubsystemStatus::Failed, "wake_voice_unavailable", error.what());
+                    if (!speechReady) api.noteStt(false, error.what());
                     std::cerr << "STARTUP voice unavailable; admin/text remain available: " << error.what() << '\n';
                 }
             }

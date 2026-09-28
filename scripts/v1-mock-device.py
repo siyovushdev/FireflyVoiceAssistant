@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
@@ -40,9 +42,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--ready-file", type=Path,
+                        help="Write owned listener identity after successful bind (live helper)")
     args = parser.parse_args()
     server = ThreadingHTTPServer((args.host, args.port), Handler)
-    print(f"v1-mock-device listening on http://{args.host}:{args.port}/brightness")
+    if args.ready_file:
+        args.ready_file.write_text(json.dumps({"pid": os.getpid(), "host": args.host,
+                                              "port": server.server_address[1]}) + "\n")
+    print(f"v1-mock-device listening on http://{args.host}:{server.server_address[1]}/brightness")
     server.serve_forever()
 
 

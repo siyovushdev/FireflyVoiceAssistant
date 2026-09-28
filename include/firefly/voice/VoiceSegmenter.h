@@ -14,6 +14,8 @@ public:
     VoiceSegmenter(SpeechDetector& detector, SegmentConfig config = {});
     std::vector<Utterance> accept(const float* samples, int count);
     void discontinuity();
+    // Begin a newly admitted wake session with fresh VAD coordinates and no history.
+    void startSession();
     bool active() const { return active_ || !pending_.empty() || discarding_; }
     size_t bufferedSamples() const { return history_.size(); }
 private:

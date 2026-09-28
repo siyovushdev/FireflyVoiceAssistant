@@ -11,6 +11,7 @@ void VoiceSegmenter::reset(bool quarantine) {
     detector_.reset(); history_.clear(); pending_.clear();
     received_ = base_ = quiet_ = 0; activeStart_ = -1; active_ = false; discarding_ = quarantine;
 }
+void VoiceSegmenter::startSession() { reset(false); }
 void VoiceSegmenter::discontinuity() { reset(true); }
 std::vector<Utterance> VoiceSegmenter::accept(const float* samples, int count) {
     if (count <= 0 || count > FrameSamples) throw std::invalid_argument("Invalid audio block");
