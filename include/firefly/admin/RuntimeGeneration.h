@@ -1,6 +1,7 @@
 #pragma once
 #include "firefly/CommandEngine.h"
 #include "firefly/llm/LlmContext.h"
+#include "firefly/llm/CompactActionDecoder.h"
 #include <memory>
 #include <mutex>
 #include <atomic>
@@ -13,6 +14,8 @@ namespace firefly::admin {
 // old context on failure. No model implementation or persistence in this layer.
 class ContextModel : public LlmEngine {
 public:
+    virtual llm::CommandProtocol commandProtocol() const { return llm::CommandProtocol::Structured; }
+    virtual std::string inferCommand(std::string_view original, std::string_view) { return infer(original); }
     virtual void useContext(const std::string& prompt) = 0;
     virtual bool ready() const = 0;
     virtual int contextTokens() const { return -1; }
@@ -21,8 +24,9 @@ public:
 };
 class RuntimeGeneration final {
 public:
-    explicit RuntimeGeneration(config::Catalog catalog, std::uint64_t id = 0);
+    explicit RuntimeGeneration(config::Catalog catalog, std::uint64_t id = 0, llm::CommandProtocol protocol = llm::CommandProtocol::Structured);
     const std::uint64_t id;
+    const llm::CommandProtocol protocol;
     // Always BoundDeviceExecutor. Playground vs Production is chosen per request via
     // ExecutionIntent — never by bindings.empty() or diagnostic source strings.
     const std::shared_ptr<execution::BoundDeviceExecutor> executor;

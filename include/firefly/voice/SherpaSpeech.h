@@ -8,6 +8,7 @@ public:
     ~SherpaVad() override;
     Detection accept(const float*, int) override;
     void reset() override;
+    int startConfirmationMs() const override { return 288; } // 250 ms + one 32 ms frame, rounded up.
 private:
     struct Impl; std::unique_ptr<Impl> impl_;
 };

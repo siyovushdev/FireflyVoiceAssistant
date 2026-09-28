@@ -12,6 +12,8 @@ public:
     virtual ~SpeechDetector() = default;
     virtual Detection accept(const float* samples, int count) = 0;
     virtual void reset() = 0;
+    // Confirmation delay inherent in the unchanged detector, not a VAD tuning knob.
+    virtual int startConfirmationMs() const { return 0; }
 };
 struct RecognitionResult {
     bool success = false;

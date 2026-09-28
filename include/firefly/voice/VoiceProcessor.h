@@ -7,6 +7,8 @@ struct VoiceResult {
     RecognitionResult recognition;
     actions::CandidateResult action;
     std::string route = "NOT_CALLED", error;
+    CommandTimings llmTimings;
+    double processingMs = 0;
     double durationSeconds = 0, speechSeconds = 0;
 };
 class VoiceProcessor {

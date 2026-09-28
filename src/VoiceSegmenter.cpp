@@ -8,7 +8,7 @@ VoiceSegmenter::VoiceSegmenter(SpeechDetector& d, SegmentConfig c) : detector_(d
         throw std::invalid_argument("Padding must be 0..1000 ms; maximum speech 1000..15000 ms");
 }
 void VoiceSegmenter::reset(bool quarantine) {
-    detector_.reset(); history_.clear(); pending_.clear();
+    speechSeen_ = false; detector_.reset(); history_.clear(); pending_.clear();
     received_ = base_ = quiet_ = 0; activeStart_ = -1; active_ = false; discarding_ = quarantine;
 }
 void VoiceSegmenter::startSession() { reset(false); }
@@ -19,6 +19,7 @@ std::vector<Utterance> VoiceSegmenter::accept(const float* samples, int count) {
     auto detection = detector_.accept(samples, count);
     std::vector<Utterance> out;
     active_ = detection.active;
+    speechSeen_ = speechSeen_ || active_ || !detection.completed.empty();
     if (active_ && activeStart_ < 0) activeStart_ = received_ - count;
     if (discarding_) {
         quiet_ = active_ || !detection.completed.empty() ? 0 : quiet_ + count;

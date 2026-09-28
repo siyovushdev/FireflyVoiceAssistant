@@ -80,7 +80,7 @@ printf 'Watch states: tail -f %s/voice.log\n' "$RUN_DIR"
     --vad-model "$ROOT/build/stt/vad-ab/silero_vad.onnx" \
     --wake-enabled true --wake-python "$WAKE_PYTHON" \
     --wake-model "$ROOT/assets/wake/amina-v3.tflite" \
-    --wake-cutoff 0.99 --wake-window 7 --command-listen-timeout-ms 10000 \
+    --wake-cutoff 0.99 --wake-window 7 --command-start-timeout-ms 5000 \
     >"$RUN_DIR/voice.log" 2>&1 &
 runtime_pid=$!
 wait "$runtime_pid"

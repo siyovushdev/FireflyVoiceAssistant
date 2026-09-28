@@ -1,7 +1,10 @@
 # V1 Amina wake gating
 
-**Milestone complete. Live acceptance passed on 2026-09-28**, confirmed by the
-operator and the production voice / HTTP mock logs described below.
+**Amina Wake V1 live acceptance passed on 2026-09-28**, confirmed by the operator
+and the production voice / HTTP mock logs below. The subsequent
+[Qwen latency / command-session UX milestone](v1-qwen-latency-command-ux.md)
+adds native beep acknowledgement and split speech-start/capture timing. Its
+acceptance is automated replay; the historical human pass below predates beep.
 
 Production entry point: `firefly-demo --voice`. Wake gating is enabled by default.
 The legacy `firefly-assistant --voice` diagnostic CLI remains an ungated, non-hardware
@@ -13,8 +16,9 @@ requests are explicit user operations and are not microphone wake sessions.
 ```text
 one native ALSA capture (XVF3800, stereo S16_LE, 16000 Hz, channel index 1)
     WAITING_WAKE -> PCM-only Amina worker
-    WAKE_DETECTED (acknowledgement event/log)
-    LISTENING_COMMAND -> existing SherpaVad / VoiceSegmenter (fresh history)
+    WAKE_DETECTED -> ACKNOWLEDGING_WAKE -> native ALSA beep (PCM drain/discard)
+    250 ms input drain -> LISTENING_COMMAND (fresh VAD/history; wait for speech)
+    CAPTURING_COMMAND -> existing SherpaVad / VoiceSegmenter until endpoint
     PROCESSING -> existing SherpaRecognizer -> RuntimeWorker::processVoice
         -> CommandEngine -> SafetyGate / ActionValidator -> GenericAction
         -> BindingResolver -> HttpHardwareExecutor -> Predicted state
@@ -31,10 +35,15 @@ the wake detection block, including that block, is excluded from the command.
 
 One wake admits the first complete utterance only, even if VAD returns multiple
 boundaries. Success, empty/unsupported STT, STT error and oversized speech return
-to WAITING_WAKE. The listen deadline covers capture/VAD, including endpoint and
-post-roll; expiration discards the session and returns to WAITING_WAKE. It is not
-an inference deadline: the existing STT/RKLLM/runtime lifecycle still governs an
-already admitted command. Ordinary subsequent speech needs another wake.
+to WAITING_WAKE. The default 5000 ms deadline waits for speech **start** only;
+Silero's unchanged 250 ms confirmation delay gets a bounded 288 ms allowance.
+After speech is confirmed, this start deadline is disabled. Existing VAD endpoint
+and post-roll end capture; a separate 15000 ms speech guard and 17000 ms capture
+bound prevent endless speech/noise. No speech yields COMMAND_START_TIMEOUT;
+oversized speech yields COMMAND_MAX_DURATION. The explicit deprecated
+`--command-listen-timeout-ms` retains its old total listening deadline (including
+endpoint/post-roll), and is disabled by default. Inference keeps its existing
+STT/RKLLM deadlines. Ordinary subsequent speech needs another wake.
 
 The reference smoothing rule is **mean of the last seven scores >= 0.99**.
 “Window/consecutive 7” is not reinterpreted as seven individual threshold crossings.
@@ -46,17 +55,21 @@ frames per invoke, float32-to-int8 input conversion. Output uses the model's
 by the interpreter between invokes; resource handles are never read as values.
 Frontend pending samples, feature frames and smoothing history are bounded.
 
-There is no safe product playback subsystem. V1 acknowledgement is
-`VOICE_STATE WAKE_DETECTED` followed by `VOICE_STATE LISTENING_COMMAND`, also
-visible in runtime status. Say “Амина”, wait for LISTENING_COMMAND, then say the
-command.
+Acknowledgement is a native nonblocking 100 ms, 880 Hz beep, with 10 ms fades
+and moderate PCM amplitude. Default output is `plughw:CARD=rockchipes8388,DEV=0`.
+One capture owner drains/discards PCM during playback and for 250 ms afterwards;
+only then is fresh command VAD armed. Say “Амина”, hear the beep, then speak.
+There is no per-wake shell/process or playback worker. Playback failure is logged
+and exposed separately in health; a healthy microphone/VAD/STT may continue the
+already wake-admitted session.
 
 **Known limitation V1 — command timing:** command STT can sometimes capture a
 remaining part of the wake phrase or lose the beginning of the command when the
 pause/timing is imperfect. The accepted live run includes `афина включи свет на
 кухне` and a truncated `свет на кухне`. Wait for LISTENING_COMMAND before speaking
 the command. Seamless continuous “Амина включи…” is not guaranteed; no transcript
-correction, model tuning or boundary redesign is introduced in this milestone.
+correction or wake/STT model tuning is introduced. Beep separates the two phases,
+but does not guarantee continuous wake-plus-command speech.
 
 ## Artifact and runtime packaging
 
@@ -94,7 +107,9 @@ fake tests need none of these packages.
 | `--wake-python` | `python3`; pass packaged venv interpreter when needed |
 | `--wake-cutoff` | `0.99`, other values rejected in V1 |
 | `--wake-window` | `7`, other values rejected in V1 |
-| `--command-listen-timeout-ms` | `10000`, allowed 1000..60000 |
+| `--command-start-timeout-ms` | `5000`, allowed 1000..15000; speech-start only |
+| `--command-listen-timeout-ms` | deprecated explicit total listening cap, 1000..60000; absent by default |
+| `--playback-device` | `plughw:CARD=rockchipes8388,DEV=0` |
 | `--audio-device` | `plughw:CARD=Array,DEV=0` |
 
 The production voice input is now stereo with channel index 1 for both KWS and
@@ -168,14 +183,15 @@ For every case, wait for WAITING_WAKE first. Check both voice and HTTP mock logs
 | «Амина», then «Выключи свет на кухне» | one Accepted, Predicted brightness 0; WAITING_WAKE |
 | ordinary speech without wake | no additional HTTP request |
 | «Амина», then «Поставь свет на кухне на сорок процентов» | one Accepted, Predicted brightness 40; WAITING_WAKE |
-| «Амина», then silence for 10 s | COMMAND_TIMEOUT, WAITING_WAKE; no HTTP request |
+| «Амина», then silence for ~5 s | COMMAND_START_TIMEOUT, WAITING_WAKE; no HTTP request |
 | «Амина», then «Какая погода?» | Unsupported, WAITING_WAKE; no HTTP request |
 | Ctrl-C | SHUTDOWN complete; no remaining worker/runtime/capture |
 
 Record actual STT, route, action, Accepted/Predicted and request counts. Word-form
 “сорок” normally uses the existing RKLLM fallback. Do not claim physical device
 confirmation from HTTP mock acceptance, or live phrase acceptance from startup-only
-or fake tests. No prompt/parser/model/STT tuning belongs in this milestone.
+or fake tests. Wake/STT models, parser and SafetyGate remain unchanged; the follow-up milestone
+changes only the Qwen output contract and context lifecycle.
 
 ## Accepted human live results — 2026-09-28
 

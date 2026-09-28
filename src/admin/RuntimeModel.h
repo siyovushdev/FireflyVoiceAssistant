@@ -6,6 +6,7 @@ namespace firefly::admin {
 class RuntimeModel final : public firefly::admin::ContextModel {
 public:
     explicit RuntimeModel(std::string path) : path_(std::move(path)) {}
+    llm::CommandProtocol commandProtocol() const override { return llm::CommandProtocol::StableCompact; }
     void useContext(const std::string& prompt) override {
         if (path_.empty()) throw std::runtime_error("Model not configured");
         if (!engine_ || !engine_->ready()) {
@@ -28,10 +29,15 @@ public:
         std::ostringstream out;
         out << "{\"context_tokens\":" << m.contextTokens << ",\"input_tokens\":" << m.inputTokens
             << ",\"output_tokens\":" << m.outputTokens << ",\"output_budget\":" << m.outputBudget
+            << ",\"prefill_ms\":" << m.prefillMs << ",\"generation_ms\":" << m.generationMs
             << ",\"wall_ms\":" << m.wallMs << ",\"finish\":\"" << m.finish << "\"}";
         return out.str();
     }
     bool ready() const override { return engine_ && engine_->ready(); }
+    std::string inferCommand(std::string_view text, std::string_view contract) override {
+        if (!engine_) throw std::runtime_error("Model unavailable");
+        return engine_->inferCommand(text, contract);
+    }
     std::string infer(std::string_view text) override {
         if (!engine_) throw std::runtime_error("Model unavailable");
         return engine_->infer(text);

@@ -70,6 +70,8 @@ Json commandJson(const std::string& input, const GenerationResult& result) {
             std::holds_alternative<actions::GenericAction>(command.safeCandidate) ? "PASS" : "NO_ACTION"},
         {"domain", command.domainRejected || command.decodeStatus == llm::DecodeStatus::OutsideDomain ? "REJECT" :
             std::holds_alternative<actions::GenericAction>(command.action) ? "PASS" : "NO_ACTION"},
+        {"llm", {{"context_ms",command.llmTimings.contextMs},{"prefill_ms",command.llmTimings.prefillMs},
+            {"generation_ms",command.llmTimings.generationMs},{"output_tokens",command.llmTimings.outputTokens}}},
         {"latency_ms", command.latencyMs}, {"revision", result.generation->domain.snapshot()->configuration().revision},
         {"hash", result.generation->domain.snapshot()->contentHash()}};
     if (command.path == CommandPath::LlmFallback) {
@@ -240,6 +242,8 @@ void RuntimeWorker::voiceStatus(std::string state, std::string microphone) {
     voiceState_ = std::move(state); microphone_ = std::move(microphone);
 }
 voice::VoiceResult RuntimeWorker::processVoice(voice::SpeechRecognizer& recognizer, const voice::Utterance& utterance) {
+    const auto started = std::chrono::steady_clock::now();
+    const auto elapsedMs = [&] { return std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now() - started).count(); };
     // Admission precedes STT. The request lease survives recognition, understanding
     // and execution, so Apply cannot splice two generations into one utterance.
     try {
@@ -252,15 +256,16 @@ voice::VoiceResult RuntimeWorker::processVoice(voice::SpeechRecognizer& recogniz
             return result.command;
         });
         auto result = processor.process(utterance);
+        result.processingMs = elapsedMs(); // Includes serialized admission wait, STT and execution.
         { std::lock_guard<std::mutex> lock(diagnostics_);
           lastVoice_ = Json{{"audio_detected",true},{"duration_seconds",result.durationSeconds},
-              {"speech_seconds",result.speechSeconds},{"stt_ms",result.recognition.latencyMs},{"transcript",result.recognition.text},
+              {"processing_ms",result.processingMs},{"speech_seconds",result.speechSeconds},{"stt_ms",result.recognition.latencyMs},{"transcript",result.recognition.text},
               {"error",result.error},{"command",voiceCommand.empty()?Json(nullptr):Json::parse(voiceCommand)}}.dump(); }
         if (!result.error.empty()) remember(Json{{"input",result.recognition.text},{"error",result.error},{"result",{{"unsupported",true}}},
             {"generation_id",request->generation()->id},{"execution",nullptr}}.dump());
         return result;
     } catch (const std::exception&) {
-        voice::VoiceResult result; result.error = "Voice runtime unavailable or stopping"; return result;
+        voice::VoiceResult result; result.error = "Voice runtime unavailable or stopping"; result.processingMs = elapsedMs(); return result;
     }
 }
 std::string RuntimeWorker::observe() const {

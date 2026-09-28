@@ -16,12 +16,13 @@ ctest --test-dir build --output-on-failure
 - `ConfigSnapshot` / `DomainView`: immutable validated configuration retained for process lifetime. Rooms/aliases, brightness domain and entrance target are config-authoritative.
 - `DeterministicParser`: conservative existing Russian grammar, producing GenericAction directly without guessing.
 - `LlmContext`: deterministic static instructions plus domain data generated from the same snapshot. No administrator-edited system prompt.
-- `StructuredDecoder`: strict JSON ingress into GenericAction/Unsupported. Rejects malformed output, duplicate keys, prose, unknown identities, invalid arguments and out-of-domain values without repair.
+- `CompactActionDecoder`: production schema-driven `[integer]` / `[]` / `null`, locked to deterministically selected IDs; one warm command context.
+- `StructuredDecoder`: legacy and complex-schema strict JSON ingress into GenericAction/Unsupported. Rejects malformed output, duplicate keys, prose, unknown identities, invalid arguments and out-of-domain values without repair.
 - `SafetyGate`: checks original text and typed candidate. Explicit target grounding, contradictory light-state rejection and explicit entrance-door opening requirements remain compiled deterministic policy.
 - `CommandEngine`: parser or RKLLM → typed candidate → SafetyGate → config-backed domain validation → typed final result.
 - `CompactV1Adapter`: outward CLI/debug/regression compatibility only. `D`, `L|K/B/G/C|N`, `U` are not the model output or internal semantic representation.
 
-No hardware execution is implemented. The gate enforces the documented specific rules; it is not a general natural-language safety classifier. See [Milestone 8](docs/milestone-8-config-driven-llm.md) and the [voice guide](docs/live-voice.md).
+Production execution requires explicit bindings; V1 acceptance uses the loopback HTTP mock. The gate enforces the documented specific rules; it is not a general natural-language safety classifier. See [Milestone 8](docs/milestone-8-config-driven-llm.md) and the [voice guide](docs/live-voice.md).
 
 Public headers are in `include/firefly`, implementations in `src`, tests in `tests`. Reference files under `~/demo_Linux_aarch64` remain read-only. JSON v3.12.0 and its MIT license are vendored; builds download nothing.
 
@@ -71,3 +72,4 @@ This executes the production CommandEngine. The 48-row DEV dataset is balanced b
 Unit tests need no NPU. Wrapper/CLI tests link stub C functions against the exact SDK header and require Python 3 for subprocess checks; the runtime library is not linked to these tests. A core-only build runs the core and configuration/GenericAction suites without the SDK. No dependency is downloaded automatically.
 
 Production wake gating and XVF3800 acceptance: [V1 Amina wake](docs/v1-amina-wake.md).
+Measured Qwen optimization, beep and split command timing: [V1 latency / command UX](docs/v1-qwen-latency-command-ux.md).

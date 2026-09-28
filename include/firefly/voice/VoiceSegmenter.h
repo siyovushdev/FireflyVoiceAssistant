@@ -17,6 +17,9 @@ public:
     // Begin a newly admitted wake session with fresh VAD coordinates and no history.
     void startSession();
     bool active() const { return active_ || !pending_.empty() || discarding_; }
+    bool speechSeen() const { return speechSeen_; }
+    int startConfirmationMs() const { return detector_.startConfirmationMs(); }
+    int maxSpeechMs() const { return config_.maxSpeechMs; }
     size_t bufferedSamples() const { return history_.size(); }
 private:
     void reset(bool quarantine);
@@ -25,6 +28,6 @@ private:
     std::deque<float> history_;
     std::deque<SpeechBoundary> pending_;
     int64_t received_ = 0, base_ = 0, activeStart_ = -1, quiet_ = 0;
-    bool active_ = false, discarding_ = false;
+    bool active_ = false, discarding_ = false, speechSeen_ = false;
 };
 }

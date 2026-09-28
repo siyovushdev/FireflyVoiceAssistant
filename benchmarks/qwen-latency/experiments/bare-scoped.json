@@ -1,0 +1,823 @@
+{
+  "mode": "compact-scoped",
+  "requests": [
+    {
+      "category": "first",
+      "context_bootstrap_ms": 4087.290604,
+      "context_installs": 1,
+      "correct": false,
+      "error": "",
+      "expected": {
+        "actionId": "action_set_brightness",
+        "arguments": {
+          "brightness": 40
+        },
+        "targetId": "device_kitchen_light"
+      },
+      "fallback": true,
+      "generation_ms": 500.5830078125,
+      "index": 0,
+      "inference_wall_ms": 908.0,
+      "input": "Поставь свет на кухне на сорок процентов",
+      "output_tokens": 2,
+      "prefill_ms": 390.9100036621094,
+      "prefill_tokens": 27,
+      "raw": "50",
+      "result": {
+        "unsupported": true
+      },
+      "selected_action": "action_set_brightness",
+      "selected_target": "device_kitchen_light",
+      "total_llm_wall_ms": 4995.290604,
+      "total_request_ms": 5014.351051
+    },
+    {
+      "category": "same_target",
+      "context_bootstrap_ms": 0.0,
+      "context_installs": 0,
+      "correct": true,
+      "error": "",
+      "expected": {
+        "actionId": "action_set_brightness",
+        "arguments": {
+          "brightness": 0
+        },
+        "targetId": "device_kitchen_light"
+      },
+      "fallback": true,
+      "generation_ms": 245.10699462890625,
+      "index": 1,
+      "inference_wall_ms": 642.0,
+      "input": "Поставь свет на кухне на ноль процентов",
+      "output_tokens": 1,
+      "prefill_ms": 386.1669921875,
+      "prefill_tokens": 26,
+      "raw": "0",
+      "result": {
+        "actionId": "action_set_brightness",
+        "arguments": {
+          "brightness": 0
+        },
+        "targetId": "device_kitchen_light"
+      },
+      "selected_action": "action_set_brightness",
+      "selected_target": "device_kitchen_light",
+      "total_llm_wall_ms": 642.0,
+      "total_request_ms": 648.491402
+    },
+    {
+      "category": "same_target",
+      "context_bootstrap_ms": 0.0,
+      "context_installs": 0,
+      "correct": true,
+      "error": "",
+      "expected": {
+        "actionId": "action_set_brightness",
+        "arguments": {
+          "brightness": 100
+        },
+        "targetId": "device_kitchen_light"
+      },
+      "fallback": true,
+      "generation_ms": 743.5079956054688,
+      "index": 2,
+      "inference_wall_ms": 1144.0,
+      "input": "Поставь свет на кухне на сто процентов",
+      "output_tokens": 3,
+      "prefill_ms": 384.6969909667969,
+      "prefill_tokens": 25,
+      "raw": "100",
+      "result": {
+        "actionId": "action_set_brightness",
+        "arguments": {
+          "brightness": 100
+        },
+        "targetId": "device_kitchen_light"
+      },
+      "selected_action": "action_set_brightness",
+      "selected_target": "device_kitchen_light",
+      "total_llm_wall_ms": 1144.0,
+      "total_request_ms": 1157.494739
+    },
+    {
+      "category": "target_switch",
+      "context_bootstrap_ms": 4093.022026,
+      "context_installs": 1,
+      "correct": false,
+      "error": "",
+      "expected": {
+        "actionId": "action_set_brightness",
+        "arguments": {
+          "brightness": 1
+        },
+        "targetId": "device_bedroom_light"
+      },
+      "fallback": true,
+      "generation_ms": 245.3260040283203,
+      "index": 3,
+      "inference_wall_ms": 646.0,
+      "input": "Поставь свет в спальне на один процентов",
+      "output_tokens": 1,
+      "prefill_ms": 383.79901123046875,
+      "prefill_tokens": 25,
+      "raw": "U",
+      "result": {
+        "unsupported": true
+      },
+      "selected_action": "action_set_brightness",
+      "selected_target": "device_bedroom_light",
+      "total_llm_wall_ms": 4739.022026000001,
+      "total_request_ms": 4749.873004
+    },
+    {
+      "category": "same_target",
+      "context_bootstrap_ms": 0.0,
+      "context_installs": 0,
+      "correct": false,
+      "error": "",
+      "expected": {
+        "actionId": "action_set_brightness",
+        "arguments": {
+          "brightness": 25
+        },
+        "targetId": "device_bedroom_light"
+      },
+      "fallback": true,
+      "generation_ms": 493.7900085449219,
+      "index": 4,
+      "inference_wall_ms": 910.0,
+      "input": "Поставь свет в спальне на двадцать пять процентов",
+      "output_tokens": 2,
+      "prefill_ms": 404.9949951171875,
+      "prefill_tokens": 30,
+      "raw": "50",
+      "result": {
+        "unsupported": true
+      },
+      "selected_action": "action_set_brightness",
+      "selected_target": "device_bedroom_light",
+      "total_llm_wall_ms": 910.0,
+      "total_request_ms": 920.889447
+    },
+    {
+      "category": "same_target",
+      "context_bootstrap_ms": 0.0,
+      "context_installs": 0,
+      "correct": true,
+      "error": "",
+      "expected": {
+        "actionId": "action_set_brightness",
+        "arguments": {
+          "brightness": 75
+        },
+        "targetId": "device_bedroom_light"
+      },
+      "fallback": true,
+      "generation_ms": 499.3450012207031,
+      "index": 5,
+      "inference_wall_ms": 918.0,
+      "input": "Поставь свет в спальне на семьдесят пять процентов",
+      "output_tokens": 2,
+      "prefill_ms": 402.1369934082031,
+      "prefill_tokens": 28,
+      "raw": "75",
+      "result": {
+        "actionId": "action_set_brightness",
+        "arguments": {
+          "brightness": 75
+        },
+        "targetId": "device_bedroom_light"
+      },
+      "selected_action": "action_set_brightness",
+      "selected_target": "device_bedroom_light",
+      "total_llm_wall_ms": 918.0,
+      "total_request_ms": 934.017839
+    },
+    {
+      "category": "target_switch",
+      "context_bootstrap_ms": 4114.849213,
+      "context_installs": 1,
+      "correct": true,
+      "error": "",
+      "expected": {
+        "actionId": "action_set_brightness",
+        "arguments": {
+          "brightness": 60
+        },
+        "targetId": "device_kitchen_light"
+      },
+      "fallback": true,
+      "generation_ms": 515.7340087890625,
+      "index": 6,
+      "inference_wall_ms": 935.0,
+      "input": "Поставь свет на кухне на шестьдесят процентов",
+      "output_tokens": 2,
+      "prefill_ms": 402.8160095214844,
+      "prefill_tokens": 27,
+      "raw": "60",
+      "result": {
+        "actionId": "action_set_brightness",
+        "arguments": {
+          "brightness": 60
+        },
+        "targetId": "device_kitchen_light"
+      },
+      "selected_action": "action_set_brightness",
+      "selected_target": "device_kitchen_light",
+      "total_llm_wall_ms": 5049.849213,
+      "total_request_ms": 5056.815454
+    },
+    {
+      "category": "same_target",
+      "context_bootstrap_ms": 0.0,
+      "context_installs": 0,
+      "correct": true,
+      "error": "",
+      "expected": {
+        "actionId": "action_set_brightness",
+        "arguments": {
+          "brightness": 99
+        },
+        "targetId": "device_kitchen_light"
+      },
+      "fallback": true,
+      "generation_ms": 506.7179870605469,
+      "index": 7,
+      "inference_wall_ms": 947.0,
+      "input": "Поставь свет на кухне на девяносто девять процентов",
+      "output_tokens": 2,
+      "prefill_ms": 424.489013671875,
+      "prefill_tokens": 30,
+      "raw": "99",
+      "result": {
+        "actionId": "action_set_brightness",
+        "arguments": {
+          "brightness": 99
+        },
+        "targetId": "device_kitchen_light"
+      },
+      "selected_action": "action_set_brightness",
+      "selected_target": "device_kitchen_light",
+      "total_llm_wall_ms": 947.0,
+      "total_request_ms": 962.967701
+    },
+    {
+      "category": "same_target",
+      "context_bootstrap_ms": 0.0,
+      "context_installs": 0,
+      "correct": true,
+      "error": "",
+      "expected": {
+        "actionId": "action_set_brightness",
+        "arguments": {
+          "brightness": 10
+        },
+        "targetId": "device_kitchen_light"
+      },
+      "fallback": true,
+      "generation_ms": 496.6239929199219,
+      "index": 8,
+      "inference_wall_ms": 921.0,
+      "input": "Поставь свет на кухне на десять процентов",
+      "output_tokens": 2,
+      "prefill_ms": 408.6260070800781,
+      "prefill_tokens": 27,
+      "raw": "10",
+      "result": {
+        "actionId": "action_set_brightness",
+        "arguments": {
+          "brightness": 10
+        },
+        "targetId": "device_kitchen_light"
+      },
+      "selected_action": "action_set_brightness",
+      "selected_target": "device_kitchen_light",
+      "total_llm_wall_ms": 921.0,
+      "total_request_ms": 933.948673
+    },
+    {
+      "category": "target_switch",
+      "context_bootstrap_ms": 4582.065811,
+      "context_installs": 1,
+      "correct": false,
+      "error": "",
+      "expected": {
+        "actionId": "action_set_brightness",
+        "arguments": {
+          "brightness": 30
+        },
+        "targetId": "device_living_light"
+      },
+      "fallback": true,
+      "generation_ms": 498.9049987792969,
+      "index": 9,
+      "inference_wall_ms": 918.0,
+      "input": "Поставь свет в гостиной на тридцать процентов",
+      "output_tokens": 2,
+      "prefill_ms": 402.2359924316406,
+      "prefill_tokens": 29,
+      "raw": "50",
+      "result": {
+        "unsupported": true
+      },
+      "selected_action": "action_set_brightness",
+      "selected_target": "device_living_light",
+      "total_llm_wall_ms": 5500.065811,
+      "total_request_ms": 5511.40913
+    },
+    {
+      "category": "same_target",
+      "context_bootstrap_ms": 0.0,
+      "context_installs": 0,
+      "correct": true,
+      "error": "",
+      "expected": {
+        "actionId": "action_set_brightness",
+        "arguments": {
+          "brightness": 80
+        },
+        "targetId": "device_living_light"
+      },
+      "fallback": true,
+      "generation_ms": 492.07000732421875,
+      "index": 10,
+      "inference_wall_ms": 904.0,
+      "input": "Поставь свет в гостиной на восемьдесят процентов",
+      "output_tokens": 2,
+      "prefill_ms": 400.2179870605469,
+      "prefill_tokens": 29,
+      "raw": "80",
+      "result": {
+        "actionId": "action_set_brightness",
+        "arguments": {
+          "brightness": 80
+        },
+        "targetId": "device_living_light"
+      },
+      "selected_action": "action_set_brightness",
+      "selected_target": "device_living_light",
+      "total_llm_wall_ms": 904.0,
+      "total_request_ms": 910.585182
+    },
+    {
+      "category": "same_target",
+      "context_bootstrap_ms": 0.0,
+      "context_installs": 0,
+      "correct": true,
+      "error": "",
+      "expected": {
+        "actionId": "action_set_brightness",
+        "arguments": {
+          "brightness": 50
+        },
+        "targetId": "device_living_light"
+      },
+      "fallback": true,
+      "generation_ms": 492.0010070800781,
+      "index": 11,
+      "inference_wall_ms": 909.0,
+      "input": "Поставь свет в гостиной на пятьдесят процентов",
+      "output_tokens": 2,
+      "prefill_ms": 400.9289855957031,
+      "prefill_tokens": 28,
+      "raw": "50",
+      "result": {
+        "actionId": "action_set_brightness",
+        "arguments": {
+          "brightness": 50
+        },
+        "targetId": "device_living_light"
+      },
+      "selected_action": "action_set_brightness",
+      "selected_target": "device_living_light",
+      "total_llm_wall_ms": 909.0,
+      "total_request_ms": 923.89991
+    },
+    {
+      "category": "target_switch",
+      "context_bootstrap_ms": 4060.242512,
+      "context_installs": 1,
+      "correct": false,
+      "error": "",
+      "expected": {
+        "actionId": "action_set_brightness",
+        "arguments": {
+          "brightness": 20
+        },
+        "targetId": "device_corridor_light"
+      },
+      "fallback": true,
+      "generation_ms": 490.1239929199219,
+      "index": 12,
+      "inference_wall_ms": 905.0,
+      "input": "Поставь свет в коридоре на двадцать процентов",
+      "output_tokens": 2,
+      "prefill_ms": 398.5360107421875,
+      "prefill_tokens": 29,
+      "raw": "50",
+      "result": {
+        "unsupported": true
+      },
+      "selected_action": "action_set_brightness",
+      "selected_target": "device_corridor_light",
+      "total_llm_wall_ms": 4965.242512,
+      "total_request_ms": 4972.976976
+    },
+    {
+      "category": "same_target",
+      "context_bootstrap_ms": 0.0,
+      "context_installs": 0,
+      "correct": true,
+      "error": "",
+      "expected": {
+        "actionId": "action_set_brightness",
+        "arguments": {
+          "brightness": 90
+        },
+        "targetId": "device_corridor_light"
+      },
+      "fallback": true,
+      "generation_ms": 496.31201171875,
+      "index": 13,
+      "inference_wall_ms": 907.0,
+      "input": "Поставь свет в коридоре на девяносто процентов",
+      "output_tokens": 2,
+      "prefill_ms": 398.697998046875,
+      "prefill_tokens": 29,
+      "raw": "90",
+      "result": {
+        "actionId": "action_set_brightness",
+        "arguments": {
+          "brightness": 90
+        },
+        "targetId": "device_corridor_light"
+      },
+      "selected_action": "action_set_brightness",
+      "selected_target": "device_corridor_light",
+      "total_llm_wall_ms": 907.0,
+      "total_request_ms": 913.751478
+    },
+    {
+      "category": "same_target",
+      "context_bootstrap_ms": 0.0,
+      "context_installs": 0,
+      "correct": false,
+      "error": "",
+      "expected": {
+        "actionId": "action_set_brightness",
+        "arguments": {
+          "brightness": 5
+        },
+        "targetId": "device_corridor_light"
+      },
+      "fallback": true,
+      "generation_ms": 242.38400268554688,
+      "index": 14,
+      "inference_wall_ms": 644.0,
+      "input": "Поставь свет в коридоре на пять процентов",
+      "output_tokens": 1,
+      "prefill_ms": 389.9949951171875,
+      "prefill_tokens": 27,
+      "raw": "U",
+      "result": {
+        "unsupported": true
+      },
+      "selected_action": "action_set_brightness",
+      "selected_target": "device_corridor_light",
+      "total_llm_wall_ms": 644.0,
+      "total_request_ms": 647.635563
+    },
+    {
+      "category": "target_switch",
+      "context_bootstrap_ms": 4074.451426,
+      "context_installs": 1,
+      "correct": false,
+      "error": "",
+      "expected": {
+        "actionId": "action_set_brightness",
+        "arguments": {
+          "brightness": 40
+        },
+        "targetId": "device_bedroom_light"
+      },
+      "fallback": true,
+      "generation_ms": 494.1289978027344,
+      "index": 15,
+      "inference_wall_ms": 901.0,
+      "input": "Поставь свет в спальне на сорок процентов",
+      "output_tokens": 2,
+      "prefill_ms": 389.7170104980469,
+      "prefill_tokens": 27,
+      "raw": "50",
+      "result": {
+        "unsupported": true
+      },
+      "selected_action": "action_set_brightness",
+      "selected_target": "device_bedroom_light",
+      "total_llm_wall_ms": 4975.451426,
+      "total_request_ms": 4983.629925
+    },
+    {
+      "category": "same_target",
+      "context_bootstrap_ms": 0.0,
+      "context_installs": 0,
+      "correct": true,
+      "error": "",
+      "expected": {
+        "actionId": "action_set_brightness",
+        "arguments": {
+          "brightness": 0
+        },
+        "targetId": "device_bedroom_light"
+      },
+      "fallback": true,
+      "generation_ms": 249.45399475097656,
+      "index": 16,
+      "inference_wall_ms": 645.0,
+      "input": "Поставь свет в спальне на ноль процентов",
+      "output_tokens": 1,
+      "prefill_ms": 384.8810119628906,
+      "prefill_tokens": 26,
+      "raw": "0",
+      "result": {
+        "actionId": "action_set_brightness",
+        "arguments": {
+          "brightness": 0
+        },
+        "targetId": "device_bedroom_light"
+      },
+      "selected_action": "action_set_brightness",
+      "selected_target": "device_bedroom_light",
+      "total_llm_wall_ms": 645.0,
+      "total_request_ms": 652.001
+    },
+    {
+      "category": "same_target",
+      "context_bootstrap_ms": 0.0,
+      "context_installs": 0,
+      "correct": true,
+      "error": "",
+      "expected": {
+        "actionId": "action_set_brightness",
+        "arguments": {
+          "brightness": 100
+        },
+        "targetId": "device_bedroom_light"
+      },
+      "fallback": true,
+      "generation_ms": 755.1240234375,
+      "index": 17,
+      "inference_wall_ms": 1169.0,
+      "input": "Поставь свет в спальне на сто процентов",
+      "output_tokens": 3,
+      "prefill_ms": 398.39300537109375,
+      "prefill_tokens": 25,
+      "raw": "100",
+      "result": {
+        "actionId": "action_set_brightness",
+        "arguments": {
+          "brightness": 100
+        },
+        "targetId": "device_bedroom_light"
+      },
+      "selected_action": "action_set_brightness",
+      "selected_target": "device_bedroom_light",
+      "total_llm_wall_ms": 1169.0,
+      "total_request_ms": 1183.634324
+    },
+    {
+      "category": "target_switch",
+      "context_bootstrap_ms": 4178.919973,
+      "context_installs": 1,
+      "correct": true,
+      "error": "",
+      "expected": {
+        "actionId": "action_set_brightness",
+        "arguments": {
+          "brightness": 100
+        },
+        "targetId": "device_kitchen_light"
+      },
+      "fallback": true,
+      "generation_ms": 755.4340209960938,
+      "index": 18,
+      "inference_wall_ms": 1155.0,
+      "input": "Будь добр включи свет на кухне",
+      "output_tokens": 3,
+      "prefill_ms": 383.2659912109375,
+      "prefill_tokens": 24,
+      "raw": "100",
+      "result": {
+        "actionId": "action_set_brightness",
+        "arguments": {
+          "brightness": 100
+        },
+        "targetId": "device_kitchen_light"
+      },
+      "selected_action": "action_set_brightness",
+      "selected_target": "device_kitchen_light",
+      "total_llm_wall_ms": 5333.919973,
+      "total_request_ms": 5344.858302
+    },
+    {
+      "category": "same_target",
+      "context_bootstrap_ms": 0.0,
+      "context_installs": 0,
+      "correct": true,
+      "error": "",
+      "expected": {
+        "actionId": "action_set_brightness",
+        "arguments": {
+          "brightness": 0
+        },
+        "targetId": "device_kitchen_light"
+      },
+      "fallback": true,
+      "generation_ms": 249.16099548339844,
+      "index": 19,
+      "inference_wall_ms": 645.0,
+      "input": "Будь добр выключи свет на кухне",
+      "output_tokens": 1,
+      "prefill_ms": 379.69500732421875,
+      "prefill_tokens": 24,
+      "raw": "0",
+      "result": {
+        "actionId": "action_set_brightness",
+        "arguments": {
+          "brightness": 0
+        },
+        "targetId": "device_kitchen_light"
+      },
+      "selected_action": "action_set_brightness",
+      "selected_target": "device_kitchen_light",
+      "total_llm_wall_ms": 645.0,
+      "total_request_ms": 655.863389
+    },
+    {
+      "category": "target_switch",
+      "context_bootstrap_ms": 4143.227108,
+      "context_installs": 1,
+      "correct": true,
+      "error": "",
+      "expected": {
+        "unsupported": true
+      },
+      "fallback": true,
+      "generation_ms": 252.47799682617188,
+      "index": 20,
+      "inference_wall_ms": 639.0,
+      "input": "Сделай свет в спальне немного ярче",
+      "output_tokens": 1,
+      "prefill_ms": 370.1910095214844,
+      "prefill_tokens": 24,
+      "raw": "U",
+      "result": {
+        "unsupported": true
+      },
+      "selected_action": "action_set_brightness",
+      "selected_target": "device_bedroom_light",
+      "total_llm_wall_ms": 4782.227108,
+      "total_request_ms": 4792.025024
+    },
+    {
+      "category": "same_target",
+      "context_bootstrap_ms": 0.0,
+      "context_installs": 0,
+      "correct": true,
+      "error": "",
+      "expected": {
+        "unsupported": true
+      },
+      "fallback": true,
+      "generation_ms": 736.322998046875,
+      "index": 21,
+      "inference_wall_ms": 1137.0,
+      "input": "Поставь свет в спальне на сто один процент",
+      "output_tokens": 3,
+      "prefill_ms": 383.97900390625,
+      "prefill_tokens": 25,
+      "raw": "100",
+      "result": {
+        "unsupported": true
+      },
+      "selected_action": "action_set_brightness",
+      "selected_target": "device_bedroom_light",
+      "total_llm_wall_ms": 1137.0,
+      "total_request_ms": 1148.814467
+    },
+    {
+      "category": "target_switch",
+      "context_bootstrap_ms": 4567.346484,
+      "context_installs": 1,
+      "correct": true,
+      "error": "",
+      "expected": {
+        "unsupported": true
+      },
+      "fallback": true,
+      "generation_ms": 244.5279998779297,
+      "index": 22,
+      "inference_wall_ms": 657.0,
+      "input": "Не ставь свет в гостиной на сорок процентов",
+      "output_tokens": 1,
+      "prefill_ms": 395.614990234375,
+      "prefill_tokens": 28,
+      "raw": "U",
+      "result": {
+        "unsupported": true
+      },
+      "selected_action": "action_set_brightness",
+      "selected_target": "device_living_light",
+      "total_llm_wall_ms": 5224.346484,
+      "total_request_ms": 5228.299529
+    },
+    {
+      "category": "target_switch",
+      "context_bootstrap_ms": 4093.589471,
+      "context_installs": 1,
+      "correct": true,
+      "error": "",
+      "expected": {
+        "actionId": "action_open_entrance",
+        "arguments": {},
+        "targetId": "device_entrance_door"
+      },
+      "fallback": true,
+      "generation_ms": 249.5749969482422,
+      "index": 23,
+      "inference_wall_ms": 626.0,
+      "input": "Будь добр открой входную дверь",
+      "output_tokens": 1,
+      "prefill_ms": 360.4100036621094,
+      "prefill_tokens": 24,
+      "raw": "A",
+      "result": {
+        "actionId": "action_open_entrance",
+        "arguments": {},
+        "targetId": "device_entrance_door"
+      },
+      "selected_action": "action_open_entrance",
+      "selected_target": "device_entrance_door",
+      "total_llm_wall_ms": 4719.589470999999,
+      "total_request_ms": 4728.35361
+    },
+    {
+      "category": "same_target",
+      "context_bootstrap_ms": 0.0,
+      "context_installs": 0,
+      "correct": true,
+      "error": "",
+      "expected": {
+        "unsupported": true
+      },
+      "fallback": true,
+      "generation_ms": 250.52699279785156,
+      "index": 24,
+      "inference_wall_ms": 687.0,
+      "input": "Будь добр закрой входную дверь",
+      "output_tokens": 1,
+      "prefill_ms": 420.0090026855469,
+      "prefill_tokens": 25,
+      "raw": "A",
+      "result": {
+        "unsupported": true
+      },
+      "selected_action": "action_open_entrance",
+      "selected_target": "device_entrance_door",
+      "total_llm_wall_ms": 687.0,
+      "total_request_ms": 695.79449
+    },
+    {
+      "category": "same_target",
+      "context_bootstrap_ms": 0.0,
+      "context_installs": 0,
+      "correct": true,
+      "error": "",
+      "expected": {
+        "actionId": "action_open_entrance",
+        "arguments": {},
+        "targetId": "device_entrance_door"
+      },
+      "fallback": true,
+      "generation_ms": 249.38499450683594,
+      "index": 25,
+      "inference_wall_ms": 655.0,
+      "input": "Пожалуйста открой дверь на входе сейчас",
+      "output_tokens": 1,
+      "prefill_ms": 394.70599365234375,
+      "prefill_tokens": 26,
+      "raw": "A",
+      "result": {
+        "actionId": "action_open_entrance",
+        "arguments": {},
+        "targetId": "device_entrance_door"
+      },
+      "selected_action": "action_open_entrance",
+      "selected_target": "device_entrance_door",
+      "total_llm_wall_ms": 655.0,
+      "total_request_ms": 658.949184
+    }
+  ],
+  "startup_context_installs": 6,
+  "startup_setup_ms": 43420.006321
+}

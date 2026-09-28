@@ -112,7 +112,7 @@ struct RkllmEngine::Impl {
     void progress(std::string_view stage) {
         if (config.progress) config.progress(stage);
     }
-    std::string run(std::string_view original, const char* label) {
+    std::string run(std::string_view original, const char* label, int requestReserve = 0) {
         if (original.find('\0') != std::string_view::npos)
             throw std::invalid_argument("Input contains a NUL byte");
         std::string prompt(original);
@@ -141,7 +141,7 @@ struct RkllmEngine::Impl {
         // counts before READY / before returning any response; never estimate tokens.
         int cacheSize = -1;
         requireSuccess(rkllm_get_kv_cache_size(handle, &cacheSize), "read KV size");
-        const int ceiling = ready ? config.requestTokenReserve :
+        const int ceiling = ready ? (requestReserve ? requestReserve : config.requestTokenReserve) :
                             RkllmContextTokens - responseTokens - config.requestTokenReserve;
         if (perf.prefill_tokens <= 0 || perf.prefill_tokens > ceiling ||
             perf.generate_tokens < 0 || perf.generate_tokens >= responseTokens - 1 ||
@@ -159,7 +159,7 @@ struct RkllmEngine::Impl {
             std::cerr << label << " wall_ms=" << elapsed(start)
                       << " prefill_ms=" << perf.prefill_time_ms << " prefill_tokens=" << perf.prefill_tokens
                       << " generate_ms=" << perf.generate_time_ms << " generate_tokens=" << perf.generate_tokens << '\n';
-        if (ready) lastMetrics = {bootstrapPrefill, perf.prefill_tokens, perf.generate_tokens, responseTokens, static_cast<double>(elapsed(start)), "vendor_finish_below_limit"};
+        if (ready) lastMetrics = {bootstrapPrefill, perf.prefill_tokens, perf.generate_tokens, responseTokens, static_cast<double>(elapsed(start)), "vendor_finish_below_limit", perf.prefill_time_ms, perf.generate_time_ms};
         return output;
     }
     void resetOutput() {
@@ -225,6 +225,35 @@ std::string RkllmEngine::infer(std::string_view original) {
         return impl_->run(original, "inference");
     } catch (...) {
         impl_->ready = false; // Do not reuse uncertain KV/runtime state after a fault.
+        impl_->resetOutput();
+        throw;
+    }
+}
+std::string RkllmEngine::inferCommand(std::string_view original, std::string_view contract) {
+    // The contract is constructed from the admitted immutable catalog, never from
+    // model output. Escape user data, including chat delimiters, inside JSON.
+    if (!validInput(original) || contract.empty() || contract.size() > 1024 ||
+        contract.find('\0') != std::string_view::npos)
+        throw std::invalid_argument("Invalid command envelope");
+    std::string quoted = "\"";
+    for (unsigned char c : original) {
+        if (c == '<') quoted += "\\u003c";
+        else if (c == '"' || c == '\\') { quoted += '\\'; quoted += c; }
+        else if (c < 32) { const char* hex = "0123456789abcdef"; quoted += "\\u00"; quoted += hex[c >> 4]; quoted += hex[c & 15]; }
+        else quoted += c;
+    }
+    quoted += '"';
+    std::string schema;
+    for (char c : contract) { if (c == '<') schema += "\\u003c"; else schema += c; }
+    const std::string envelope = "{\"schema\":" + schema + ",\"text\":" + quoted + "}";
+    std::lock_guard<std::mutex> lock(impl_->requestMutex);
+    impl_->resetOutput();
+    if (!impl_->ready) throw std::runtime_error("RKLLM engine not ready; restart required");
+    try {
+        requireSuccess(rkllm_clear_kv_cache(impl_->handle, 1, nullptr, nullptr), "command clear KV");
+        return impl_->run(envelope, "command inference", RkllmRequestReserve);
+    } catch (...) {
+        impl_->ready = false;
         impl_->resetOutput();
         throw;
     }

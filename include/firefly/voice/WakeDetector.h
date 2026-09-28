@@ -7,7 +7,11 @@ struct WakeConfig {
     std::string modelPath;
     double cutoff = 0.99;
     int window = 7;
-    std::chrono::milliseconds commandTimeout{10000};
+    // Explicit legacy option retains its TOTAL listening deadline; zero disables it.
+    std::chrono::milliseconds commandTimeout{0};
+    std::chrono::milliseconds commandStartTimeout{5000};
+    // Drain capture buffer + short acoustic tail after playback, before fresh VAD.
+    std::chrono::milliseconds acknowledgementDrain{250};
     void validate() const;
 };
 class WakeDetector {

@@ -55,7 +55,7 @@ Json suggestionReply(const Json& trace, bool success, int retries) {
         "AI could not prepare a valid proposal. Retry or edit manually; configuration unchanged.")["errors"];
     return reply;
 }
-std::map<std::string,std::string> contexts(const runtime::DomainView& domain) {
+std::map<std::string,std::string> contexts(const runtime::DomainView& domain, llm::CommandProtocol protocol) {
     std::map<std::string,std::string> result;
     if (domain.snapshot()->configuration().schemaVersion == 2) {
         for (const auto& device : domain.snapshot()->configuration().devices)
@@ -64,13 +64,29 @@ std::map<std::string,std::string> contexts(const runtime::DomainView& domain) {
                     result.emplace(device.id + "/" + action,llm::generateContext(domain,device.id,action).systemPrompt());
             } else if (!device.actionIds.empty()) result.emplace(device.id,llm::generateContext(domain,device.id).systemPrompt());
     }
+    if (protocol != llm::CommandProtocol::Structured) {
+        for (auto& [key, prompt] : result) {
+            const auto slash = key.find('/');
+            const auto* target = domain.device(key.substr(0, slash));
+            if (target && (slash != std::string::npos || target->actionIds.size() == 1)) {
+                llm::SelectedAction selected{target->id, slash == std::string::npos ? target->actionIds.front() : key.substr(slash + 1)};
+                if (llm::compactSupported(domain, selected)) prompt = protocol == llm::CommandProtocol::StableCompact ? llm::compactRules() : llm::compactContext(domain, selected);
+            }
+        }
+    }
     return result;
 }
 }
 std::string RuntimeGeneration::defaultPrompt() const {
+    if (protocol != llm::CommandProtocol::Structured) return llm::compactRules();
     return targetContexts.empty() ? prompt : R"(Ответ только {"unsupported":true}. Сервер ещё не установил однозначную цель из полного каталога. Не выбирай устройство сам.)";
 }
 std::string RuntimeGeneration::requestPrompt(std::string_view original) const {
+    if (protocol != llm::CommandProtocol::Structured) {
+        const auto selected = llm::selectAction(domain, original);
+        if (llm::compactSupported(domain, selected))
+            return protocol == llm::CommandProtocol::StableCompact ? defaultPrompt() : llm::compactContext(domain, selected);
+    }
     if (targetContexts.empty()) return prompt;
     const auto grounding = domain.resolve(original);
     if (grounding.ambiguous) throw config::ConfigError("ambiguous_target", "/text", "Ambiguous devices or locations in original input");
@@ -101,8 +117,8 @@ std::string RuntimeGeneration::requestPrompt(std::string_view original) const {
     throw config::ConfigError("target_not_grounded", "/text", "No unambiguous configured device mention");
 }
 
-RuntimeGeneration::RuntimeGeneration(config::Catalog catalog, std::uint64_t generationId)
-    : id(generationId), executor(std::make_shared<execution::BoundDeviceExecutor>(catalog)), domain(std::move(catalog)), parser(domain), prompt(llm::generateContext(domain).systemPrompt()), targetContexts(contexts(domain)) {
+RuntimeGeneration::RuntimeGeneration(config::Catalog catalog, std::uint64_t generationId, llm::CommandProtocol mode)
+    : id(generationId), protocol(mode), executor(std::make_shared<execution::BoundDeviceExecutor>(catalog)), domain(std::move(catalog)), parser(domain), prompt(llm::generateContext(domain).systemPrompt()), targetContexts(contexts(domain, mode)) {
     // Enabling editable deny/disable policy would be a separate consumer change.
     // Do not accept configuration whose policy the current pipeline ignores.
     for (const auto& effective : domain.snapshot()->effectiveActions())
@@ -143,11 +159,11 @@ int RuntimeGenerations::admitContext(const std::string& prompt) {
 }
 void RuntimeGenerations::apply(config::Catalog catalog) {
     // Pure admission outside the serialization lock; no partially built state is published.
-    RuntimeGeneration admission(catalog);
+    RuntimeGeneration admission(catalog, 0, model_.commandProtocol());
     auto lock = lockOperation();
     Busy busy(busy_);
     if (stopping_) throw std::runtime_error("Runtime stopping");
-    const auto next = std::make_shared<const RuntimeGeneration>(std::move(catalog), nextGeneration_);
+    const auto next = std::make_shared<const RuntimeGeneration>(std::move(catalog), nextGeneration_, model_.commandProtocol());
     if (const auto old = current()) next->executor->reconcile(*old->executor);
     int nextContextTokens = -1;
     try {
@@ -163,7 +179,7 @@ void RuntimeGenerations::apply(config::Catalog catalog) {
     ++nextGeneration_;
 }
 void RuntimeGenerations::preflight(config::Catalog catalog) {
-    const auto next = std::make_shared<const RuntimeGeneration>(std::move(catalog));
+    const auto next = std::make_shared<const RuntimeGeneration>(std::move(catalog), 0, model_.commandProtocol());
     auto lock = lockOperation();
     Busy busy(busy_);
     const auto old = current();
@@ -287,16 +303,43 @@ GenerationResult RuntimeGenerations::Request::process(std::string_view input, ex
     class BoundModel final : public LlmEngine {
     public:
         BoundModel(ContextModel& model, const RuntimeGeneration& generation) : model_(model), generation_(generation) {}
+        CommandTimings timings;
         std::string infer(std::string_view original) override {
-            model_.useContext(generation_.requestPrompt(original));
-            return model_.infer(original);
+            const auto start = std::chrono::steady_clock::now();
+            if (generation_.protocol != llm::CommandProtocol::Structured)
+                selected_ = llm::selectAction(generation_.domain, original);
+            if (generation_.protocol == llm::CommandProtocol::StableCompact && selected_ &&
+                llm::compactSupported(generation_.domain, *selected_)) {
+                model_.useContext(generation_.defaultPrompt());
+                timings.contextMs = std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now() - start).count();
+                auto raw = model_.inferCommand(original, llm::compactContract(generation_.domain, *selected_));
+                measure(); return raw;
+            }
+            model_.useContext(selected_ && llm::compactSupported(generation_.domain, *selected_)
+                ? llm::compactContext(generation_.domain, *selected_) : generation_.requestPrompt(original));
+            timings.contextMs = std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now() - start).count();
+            auto raw = model_.infer(original); measure(); return raw;
+        }
+        void measure() {
+            const auto value = Json::parse(model_.inferenceMetrics());
+            timings.prefillMs = value.value("prefill_ms", 0.0);
+            timings.generationMs = value.value("generation_ms", 0.0);
+            timings.outputTokens = value.value("output_tokens", 0);
+        }
+        llm::DecodedResult decode(std::string_view raw) const {
+            if (generation_.protocol == llm::CommandProtocol::Structured)
+                return llm::StructuredDecoder(generation_.domain).decode(raw);
+            if (!selected_) return {actions::Unsupported{}, llm::DecodeStatus::InvalidShape, "No selected contract"};
+            return llm::CompactActionDecoder(generation_.domain, *selected_).decode(raw);
         }
     private:
         ContextModel& model_;
         const RuntimeGeneration& generation_;
+        std::optional<llm::SelectedAction> selected_;
     } bound(owner_.model_, *generation);
-    CommandEngine engine(bound, generation->parser, generation->domain);
+    CommandEngine engine(bound, generation->parser, generation->domain, [&](std::string_view raw) { return bound.decode(raw); });
     GenerationResult result{generation, engine.process(input), std::nullopt};
+    result.command.llmTimings = bound.timings;
     owner_.ready_ = owner_.model_.ready();
     if (execution != execution::ExecutionIntent::None && !owner_.stopping_) {
         if (const auto* action = std::get_if<actions::GenericAction>(&result.command.action)) {

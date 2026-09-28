@@ -56,7 +56,11 @@ int main(int argc, char** argv) {
                     ++utterances; ++calls;
                     const auto final = output.render(result.action);
                     const auto semantic = std::get<actions::CandidateResult>(output.decode(expected[i]));
-                    if (!result.error.empty() || !result.recognition.success || result.recognition.text != texts[i] || result.action != semantic)
+                    // Missing-room DEV on/off are now rejected during deterministic
+                    // grounding, before inference. Keep runtime/STT errors fatal.
+                    const bool missingRoom = (i == 3 || i == 4) && result.route == "INPUT_REJECTED" &&
+                        result.error.rfind("target_not_grounded:", 0) == 0;
+                    if ((!result.error.empty() && !missingRoom) || !result.recognition.success || result.recognition.text != texts[i] || result.action != semantic)
                         throw std::runtime_error("Typed voice replay differs: " + std::string(names[i]) + " final=" + final);
                     std::cout << names[i] << " text=" << result.recognition.text << " final=" << final << " route=" << result.route << std::endl;
                 }
@@ -69,9 +73,10 @@ int main(int argc, char** argv) {
         auto added=initial;
         added["rooms"].push_back({{"id","room_bathroom"},{"name","Ванная"},{"speech",{{"mentions",{"ванная","ванна","ванной","ванне"}},{"locations",{"в ванной","в ванне"}}}}});
         added["devices"].push_back({{"id","device_bathroom_light"},{"name","Свет в ванной"},{"kind","light"},{"room_id","room_bathroom"},{"enabled",true},{"action_ids",{"action_set_brightness"}},{"spoken_aliases",Json::array()}});
+        if (initial.value("schema_version",1)==2) added["devices"].back()["state"]=Json::array();
         added["revision"]=2;
         apply=Json::parse(worker.handle(Json{{"method","apply"},{"configuration",added}}.dump()));
-        if (!apply["ok"].get<bool>() || apply["active"]["generation_id"]!=2) throw std::runtime_error("Apply in replay failed");
+        if (!apply["ok"].get<bool>() || apply["active"]["generation_id"]!=2) throw std::runtime_error("Apply in replay failed: " + apply.dump());
         vad.reset(); VoiceSegmenter afterApply(vad);
         const std::string kitchen=std::string(argv[3])+"/eval/06_kitchen_40.wav";
         std::unique_ptr<const SherpaOnnxWave,decltype(&SherpaOnnxFreeWave)> wave(SherpaOnnxReadWave(kitchen.c_str()),SherpaOnnxFreeWave);

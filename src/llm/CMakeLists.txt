@@ -1,4 +1,4 @@
-add_library(firefly_llm_protocol LlmContext.cpp StructuredOutput.cpp)
+add_library(firefly_llm_protocol LlmContext.cpp StructuredOutput.cpp CompactActionDecoder.cpp)
 target_link_libraries(firefly_llm_protocol PUBLIC firefly_domain)
 target_include_directories(firefly_llm_protocol SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
 target_compile_options(firefly_llm_protocol PRIVATE -Wall -Wextra -Wpedantic)

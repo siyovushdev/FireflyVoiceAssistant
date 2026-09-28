@@ -28,7 +28,7 @@ int main(int argc, char** argv) {
         std::string storePath, initial, bind = "127.0.0.1", modelPath, stt, vad;
         std::string device = "plughw:CARD=Array,DEV=0";
         firefly::voice::WakeConfig wakeConfig;
-        std::string wakePython = "python3";
+        std::string wakePython = "python3", playbackDevice = "plughw:CARD=rockchipes8388,DEV=0";
         const auto executableDir = std::filesystem::canonical("/proc/self/exe").parent_path();
         auto wakeData = executableDir / "share/firefly/wake";
         if (!std::filesystem::exists(wakeData)) wakeData = executableDir.parent_path() / "share/firefly/wake";
@@ -43,7 +43,8 @@ int main(int argc, char** argv) {
                     "  [--stt-model-dir DIR]\n"
                     "  [--voice --vad-model FILE --audio-device plughw:CARD=Array,DEV=0]\n"
                     "  [--wake-enabled true|false] [--wake-model FILE] [--wake-python EXECUTABLE]\n"
-                    "  [--wake-cutoff 0.99] [--wake-window 7] [--command-listen-timeout-ms 10000]\n"
+                    "  [--wake-cutoff 0.99] [--wake-window 7] [--command-start-timeout-ms 5000] [--playback-device DEVICE]\n"
+                    "  [--command-listen-timeout-ms MS] (deprecated total listening cap)\n"
                     "One process appliance runtime supervised by systemd in production.\n"
                     "DIR must be private/user-owned. HTTP status remains available when LLM/STT fail.\n";
                 return 0;
@@ -63,6 +64,7 @@ int main(int argc, char** argv) {
                 wakeConfig.enabled = value == "true";
             }
             else if (flag == "--wake-model") wakeConfig.modelPath = value;
+            else if (flag == "--playback-device") playbackDevice = value;
             else if (flag == "--wake-python") wakePython = value;
             else if (flag == "--wake-cutoff") {
                 if (value != "0.99") throw std::invalid_argument("V1 wake cutoff is frozen at 0.99");
@@ -70,12 +72,17 @@ int main(int argc, char** argv) {
             else if (flag == "--wake-window") {
                 if (value != "7") throw std::invalid_argument("V1 wake window is frozen at 7");
             }
-            else if (flag == "--command-listen-timeout-ms") {
+            else if (flag == "--command-listen-timeout-ms" || flag == "--command-start-timeout-ms") {
                 int number;
                 const auto parsed = std::from_chars(value.data(), value.data() + value.size(), number);
                 if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size())
                     throw std::invalid_argument("Invalid command listen timeout");
-                wakeConfig.commandTimeout = std::chrono::milliseconds(number);
+                if (flag == "--command-start-timeout-ms") wakeConfig.commandStartTimeout = std::chrono::milliseconds(number);
+                else {
+                    if (number == 0) throw std::invalid_argument("Legacy timeout must be positive");
+                    wakeConfig.commandTimeout = std::chrono::milliseconds(number);
+                    std::cerr << "Deprecated --command-listen-timeout-ms retains a TOTAL session deadline; prefer --command-start-timeout-ms\n";
+                }
             }
             else if (flag == "--admin-port") {
                 unsigned number;
@@ -149,17 +156,28 @@ int main(int argc, char** argv) {
                             (wakeData / "amina_worker.py").string());
                     // One ALSA owner for wake AND command audio; XVF3800 ASR is channel index 1.
                     firefly::voice::AlsaAudioSource capture(device, 2, 1);
+                    firefly::voice::AlsaWakeAcknowledgement acknowledgement(playbackDevice);
                     const auto process = [&](const firefly::voice::Utterance& u) { return runtime.processVoice(recognizer, u); };
                     const auto emit = [](const firefly::voice::VoiceResult& result) {
                             std::cerr << "VOICE text=" << result.recognition.text << " route=" << result.route
                                 << " result=" << firefly::llm::structuredResult(result.action)
                                 << " error=" << result.error
                                 << " audio_s=" << result.durationSeconds << " speech_s=" << result.speechSeconds
-                                << " stt_ms=" << result.recognition.latencyMs << '\n';
+                                << " stt_ms=" << result.recognition.latencyMs
+                                << " llm_context_ms=" << result.llmTimings.contextMs
+                                << " llm_prefill_ms=" << result.llmTimings.prefillMs
+                                << " llm_generation_ms=" << result.llmTimings.generationMs
+                                << " llm_output_tokens=" << result.llmTimings.outputTokens
+                                << " processing_ms=" << result.processingMs << '\n';
                         };
                     const auto state = [&](const std::string& value) {
                         runtime.voiceStatus(value, "connected");
-                        std::cerr << "VOICE_STATE " << value << '\n';
+                        std::cerr << "VOICE_STATE " << value << " monotonic_ms="
+                            << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count() << '\n';
+                        if (value == "ACKNOWLEDGEMENT_FAILED") {
+                            api.health().setSubsystem("acknowledgement", SubsystemStatus::Failed, "playback_failed", acknowledgement.error());
+                            std::cerr << "VOICE_ACK failure=" << acknowledgement.error() << '\n';
+                        } else if (value == "BEEP_END") api.health().setSubsystem("acknowledgement", SubsystemStatus::Ready, {}, value);
                         if (wakeConfig.enabled) {
                             const bool unavailable = value == "WAKE_UNAVAILABLE";
                             api.health().setSubsystem("wake", unavailable ? SubsystemStatus::Failed : SubsystemStatus::Ready,
@@ -168,7 +186,7 @@ int main(int argc, char** argv) {
                     };
                     if (wakeConfig.enabled)
                         firefly::voice::runWakeVoiceLoop(capture, *wake, segmenter, wakeConfig,
-                            process, emit, state, [] { return stopping != 0; });
+                            process, emit, state, [] { return stopping != 0; }, std::chrono::steady_clock::now, &acknowledgement);
                     else {
                         std::cerr << "VOICE wake gating explicitly disabled by configuration\n";
                         firefly::voice::runVoiceLoop(capture, segmenter, process, emit, state, [] { return stopping != 0; });

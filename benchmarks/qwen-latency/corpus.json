@@ -1,0 +1,294 @@
+[
+  {
+    "input": "Поставь свет на кухне на сорок процентов",
+    "target": "device_kitchen_light",
+    "action": "action_set_brightness",
+    "expected": {
+      "actionId": "action_set_brightness",
+      "targetId": "device_kitchen_light",
+      "arguments": {
+        "brightness": 40
+      }
+    }
+  },
+  {
+    "input": "Поставь свет на кухне на ноль процентов",
+    "target": "device_kitchen_light",
+    "action": "action_set_brightness",
+    "expected": {
+      "actionId": "action_set_brightness",
+      "targetId": "device_kitchen_light",
+      "arguments": {
+        "brightness": 0
+      }
+    }
+  },
+  {
+    "input": "Поставь свет на кухне на сто процентов",
+    "target": "device_kitchen_light",
+    "action": "action_set_brightness",
+    "expected": {
+      "actionId": "action_set_brightness",
+      "targetId": "device_kitchen_light",
+      "arguments": {
+        "brightness": 100
+      }
+    }
+  },
+  {
+    "input": "Поставь свет в спальне на один процентов",
+    "target": "device_bedroom_light",
+    "action": "action_set_brightness",
+    "expected": {
+      "actionId": "action_set_brightness",
+      "targetId": "device_bedroom_light",
+      "arguments": {
+        "brightness": 1
+      }
+    }
+  },
+  {
+    "input": "Поставь свет в спальне на двадцать пять процентов",
+    "target": "device_bedroom_light",
+    "action": "action_set_brightness",
+    "expected": {
+      "actionId": "action_set_brightness",
+      "targetId": "device_bedroom_light",
+      "arguments": {
+        "brightness": 25
+      }
+    }
+  },
+  {
+    "input": "Поставь свет в спальне на семьдесят пять процентов",
+    "target": "device_bedroom_light",
+    "action": "action_set_brightness",
+    "expected": {
+      "actionId": "action_set_brightness",
+      "targetId": "device_bedroom_light",
+      "arguments": {
+        "brightness": 75
+      }
+    }
+  },
+  {
+    "input": "Поставь свет на кухне на шестьдесят процентов",
+    "target": "device_kitchen_light",
+    "action": "action_set_brightness",
+    "expected": {
+      "actionId": "action_set_brightness",
+      "targetId": "device_kitchen_light",
+      "arguments": {
+        "brightness": 60
+      }
+    }
+  },
+  {
+    "input": "Поставь свет на кухне на девяносто девять процентов",
+    "target": "device_kitchen_light",
+    "action": "action_set_brightness",
+    "expected": {
+      "actionId": "action_set_brightness",
+      "targetId": "device_kitchen_light",
+      "arguments": {
+        "brightness": 99
+      }
+    }
+  },
+  {
+    "input": "Поставь свет на кухне на десять процентов",
+    "target": "device_kitchen_light",
+    "action": "action_set_brightness",
+    "expected": {
+      "actionId": "action_set_brightness",
+      "targetId": "device_kitchen_light",
+      "arguments": {
+        "brightness": 10
+      }
+    }
+  },
+  {
+    "input": "Поставь свет в гостиной на тридцать процентов",
+    "target": "device_living_light",
+    "action": "action_set_brightness",
+    "expected": {
+      "actionId": "action_set_brightness",
+      "targetId": "device_living_light",
+      "arguments": {
+        "brightness": 30
+      }
+    }
+  },
+  {
+    "input": "Поставь свет в гостиной на восемьдесят процентов",
+    "target": "device_living_light",
+    "action": "action_set_brightness",
+    "expected": {
+      "actionId": "action_set_brightness",
+      "targetId": "device_living_light",
+      "arguments": {
+        "brightness": 80
+      }
+    }
+  },
+  {
+    "input": "Поставь свет в гостиной на пятьдесят процентов",
+    "target": "device_living_light",
+    "action": "action_set_brightness",
+    "expected": {
+      "actionId": "action_set_brightness",
+      "targetId": "device_living_light",
+      "arguments": {
+        "brightness": 50
+      }
+    }
+  },
+  {
+    "input": "Поставь свет в коридоре на двадцать процентов",
+    "target": "device_corridor_light",
+    "action": "action_set_brightness",
+    "expected": {
+      "actionId": "action_set_brightness",
+      "targetId": "device_corridor_light",
+      "arguments": {
+        "brightness": 20
+      }
+    }
+  },
+  {
+    "input": "Поставь свет в коридоре на девяносто процентов",
+    "target": "device_corridor_light",
+    "action": "action_set_brightness",
+    "expected": {
+      "actionId": "action_set_brightness",
+      "targetId": "device_corridor_light",
+      "arguments": {
+        "brightness": 90
+      }
+    }
+  },
+  {
+    "input": "Поставь свет в коридоре на пять процентов",
+    "target": "device_corridor_light",
+    "action": "action_set_brightness",
+    "expected": {
+      "actionId": "action_set_brightness",
+      "targetId": "device_corridor_light",
+      "arguments": {
+        "brightness": 5
+      }
+    }
+  },
+  {
+    "input": "Поставь свет в спальне на сорок процентов",
+    "target": "device_bedroom_light",
+    "action": "action_set_brightness",
+    "expected": {
+      "actionId": "action_set_brightness",
+      "targetId": "device_bedroom_light",
+      "arguments": {
+        "brightness": 40
+      }
+    }
+  },
+  {
+    "input": "Поставь свет в спальне на ноль процентов",
+    "target": "device_bedroom_light",
+    "action": "action_set_brightness",
+    "expected": {
+      "actionId": "action_set_brightness",
+      "targetId": "device_bedroom_light",
+      "arguments": {
+        "brightness": 0
+      }
+    }
+  },
+  {
+    "input": "Поставь свет в спальне на сто процентов",
+    "target": "device_bedroom_light",
+    "action": "action_set_brightness",
+    "expected": {
+      "actionId": "action_set_brightness",
+      "targetId": "device_bedroom_light",
+      "arguments": {
+        "brightness": 100
+      }
+    }
+  },
+  {
+    "input": "Будь добр включи свет на кухне",
+    "target": "device_kitchen_light",
+    "action": "action_set_brightness",
+    "expected": {
+      "actionId": "action_set_brightness",
+      "targetId": "device_kitchen_light",
+      "arguments": {
+        "brightness": 100
+      }
+    }
+  },
+  {
+    "input": "Будь добр выключи свет на кухне",
+    "target": "device_kitchen_light",
+    "action": "action_set_brightness",
+    "expected": {
+      "actionId": "action_set_brightness",
+      "targetId": "device_kitchen_light",
+      "arguments": {
+        "brightness": 0
+      }
+    }
+  },
+  {
+    "input": "Сделай свет в спальне немного ярче",
+    "target": "device_bedroom_light",
+    "action": "action_set_brightness",
+    "expected": {
+      "unsupported": true
+    }
+  },
+  {
+    "input": "Поставь свет в спальне на сто один процент",
+    "target": "device_bedroom_light",
+    "action": "action_set_brightness",
+    "expected": {
+      "unsupported": true
+    }
+  },
+  {
+    "input": "Не ставь свет в гостиной на сорок процентов",
+    "target": "device_living_light",
+    "action": "action_set_brightness",
+    "expected": {
+      "unsupported": true
+    }
+  },
+  {
+    "input": "Будь добр открой входную дверь",
+    "target": "device_entrance_door",
+    "action": "action_open_entrance",
+    "expected": {
+      "actionId": "action_open_entrance",
+      "targetId": "device_entrance_door",
+      "arguments": {}
+    }
+  },
+  {
+    "input": "Будь добр закрой входную дверь",
+    "target": "device_entrance_door",
+    "action": "action_open_entrance",
+    "expected": {
+      "unsupported": true
+    }
+  },
+  {
+    "input": "Пожалуйста открой дверь на входе сейчас",
+    "target": "device_entrance_door",
+    "action": "action_open_entrance",
+    "expected": {
+      "actionId": "action_open_entrance",
+      "targetId": "device_entrance_door",
+      "arguments": {}
+    }
+  }
+]

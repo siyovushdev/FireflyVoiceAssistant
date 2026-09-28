@@ -24,6 +24,7 @@ struct InferenceMetrics {
     int contextTokens = 0, inputTokens = 0, outputTokens = 0, outputBudget = 128;
     double wallMs = 0;
     std::string finish = "not_run";
+    double prefillMs = 0, generationMs = 0;
 };
 // Owns one synchronous runtime. Requests are serialized; do not destroy while in use.
 class RkllmEngine final : public LlmEngine {
@@ -33,6 +34,8 @@ public:
     RkllmEngine(const RkllmEngine&) = delete;
     RkllmEngine& operator=(const RkllmEngine&) = delete;
     std::string infer(std::string_view original) override;
+    // Trusted server envelope only; original input retains the 192-byte policy.
+    std::string inferCommand(std::string_view original, std::string_view contract);
     // Serialized full KV/context refresh. Restores the old context on failure.
     // A failed restoration makes inference unavailable until engine restart.
     void setSystemPrompt(std::string prompt, int responseTokens = RkllmResponseTokens);

@@ -46,6 +46,7 @@ int rkllm_abort(LLMHandle) {
     return stub.fault == Fault::AbortFailure ? -3 : 0;
 }
 int rkllm_run(LLMHandle, RKLLMInput* input, RKLLMInferParam* infer, void* userdata) {
+    stub.lastPrompt = input->prompt_input;
     ++stub.run;
     stub.outputBudgets.push_back(infer->max_new_tokens);
     stub.events.push_back(std::string(input->prompt_input).empty() ? "bootstrap" : "request");
@@ -58,7 +59,9 @@ int rkllm_run(LLMHandle, RKLLMInput* input, RKLLMInferParam* infer, void* userda
     void* context = userdata ? userdata : stub.callbacks.result_userdata;
     RKLLMResult result{};
     result.text = R"({"actionId":"action_open_entrance","targetId":"device_entrance_door","arguments":{}})";
-    result.perf.prefill_tokens = stub.run == 1 ? 565 : 30;
+    if (stub.system.find("schema.output") != std::string::npos && !stub.lastPrompt.empty())
+        result.text = stub.lastPrompt.find("open_entrance") != std::string::npos ? "[]" : "null";
+    result.perf.prefill_tokens = stub.run == 1 ? 565 : stub.requestTokens;
     if (std::string(input->prompt_input).empty()) result.perf.prefill_tokens = stub.refreshBootstrapTokens;
     result.perf.generate_tokens = infer->max_new_tokens == 1 ? 1 : 25;
     if (stub.fault == Fault::Context)
