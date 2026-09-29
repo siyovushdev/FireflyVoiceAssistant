@@ -1,0 +1,221 @@
+{
+  "catalog_hash": "602506b88cf9ee43032b4ed2f76138a2df7bf62515dc5e15abfea6343980c961",
+  "compile_median_us": 331.047,
+  "compile_p95_us": 338.048,
+  "estimated_owned_bytes": 859,
+  "match_median_us": 515.968,
+  "match_p95_us": 956.392,
+  "measurement": "production routing with counting model; no NPU latency claim",
+  "qwen_calls": 2,
+  "rows": [
+    {
+      "executable": true,
+      "index": "INDEX_EXACT",
+      "input": "включи свет в мастерской",
+      "path": 0,
+      "qwen_calls": 0,
+      "route": "INDEX_EXACT",
+      "safety_rejected": false
+    },
+    {
+      "executable": true,
+      "index": "INDEX_EXACT",
+      "input": "зажги основной свет в мастерской",
+      "path": 0,
+      "qwen_calls": 0,
+      "route": "INDEX_EXACT",
+      "safety_rejected": false
+    },
+    {
+      "executable": true,
+      "index": "INDEX_EXACT",
+      "input": "мастерский свет включи",
+      "path": 0,
+      "qwen_calls": 0,
+      "route": "INDEX_EXACT",
+      "safety_rejected": false
+    },
+    {
+      "executable": true,
+      "index": "INDEX_EXACT",
+      "input": "выключи освещение в мастерской",
+      "path": 0,
+      "qwen_calls": 0,
+      "route": "INDEX_EXACT",
+      "safety_rejected": false
+    },
+    {
+      "executable": true,
+      "index": "INDEX_EXACT",
+      "input": "поставь свет в мастерской на 40 процентов",
+      "path": 0,
+      "qwen_calls": 0,
+      "route": "INDEX_EXACT",
+      "safety_rejected": false
+    },
+    {
+      "executable": true,
+      "index": "INDEX_EXACT",
+      "input": "установи яркость основного света в мастерской сорок",
+      "path": 0,
+      "qwen_calls": 0,
+      "route": "INDEX_EXACT",
+      "safety_rejected": false
+    },
+    {
+      "executable": true,
+      "index": "INDEX_EXACT",
+      "input": "в мастерской основной свет 55 процентов",
+      "path": 0,
+      "qwen_calls": 0,
+      "route": "INDEX_EXACT",
+      "safety_rejected": false
+    },
+    {
+      "executable": true,
+      "index": "INDEX_EXACT",
+      "input": "поставь свет в мастерской ноль",
+      "path": 0,
+      "qwen_calls": 0,
+      "route": "INDEX_EXACT",
+      "safety_rejected": false
+    },
+    {
+      "executable": true,
+      "index": "INDEX_EXACT",
+      "input": "поставь свет в мастерской сто",
+      "path": 0,
+      "qwen_calls": 0,
+      "route": "INDEX_EXACT",
+      "safety_rejected": false
+    },
+    {
+      "executable": true,
+      "index": "INDEX_EXACT",
+      "input": "поставь свет в мастерской пятьдесят пять",
+      "path": 0,
+      "qwen_calls": 0,
+      "route": "INDEX_EXACT",
+      "safety_rejected": false
+    },
+    {
+      "executable": true,
+      "index": "INDEX_EXACT",
+      "input": "поставь свет в мастерской 0",
+      "path": 0,
+      "qwen_calls": 0,
+      "route": "INDEX_EXACT",
+      "safety_rejected": false
+    },
+    {
+      "executable": true,
+      "index": "INDEX_EXACT",
+      "input": "поставь свет в мастерской 100",
+      "path": 0,
+      "qwen_calls": 0,
+      "route": "INDEX_EXACT",
+      "safety_rejected": false
+    },
+    {
+      "executable": true,
+      "index": "INDEX_EXACT",
+      "input": "погаси основной свет в мастерской",
+      "path": 0,
+      "qwen_calls": 0,
+      "route": "INDEX_EXACT",
+      "safety_rejected": false
+    },
+    {
+      "executable": true,
+      "index": "INDEX_EXACT",
+      "input": "в мастерской пожалуйста включи свет",
+      "path": 0,
+      "qwen_calls": 0,
+      "route": "INDEX_EXACT",
+      "safety_rejected": false
+    },
+    {
+      "executable": false,
+      "index": "INDEX_MISS",
+      "input": "будь добр включи свет в мастерской",
+      "path": 1,
+      "qwen_calls": 1,
+      "route": "LLM_FALLBACK",
+      "safety_rejected": false
+    },
+    {
+      "executable": false,
+      "index": "INDEX_MISS",
+      "input": "сделай свет в мастерской комфортным",
+      "path": 3,
+      "qwen_calls": 0,
+      "route": "GROUNDING_REJECTED",
+      "safety_rejected": false
+    },
+    {
+      "executable": true,
+      "index": "INDEX_EXACT",
+      "input": "включи свет",
+      "path": 0,
+      "qwen_calls": 0,
+      "route": "INDEX_EXACT",
+      "safety_rejected": false
+    },
+    {
+      "executable": false,
+      "index": "INDEX_AMBIGUOUS",
+      "input": "включи свет в мастерской или на кухне",
+      "path": 3,
+      "qwen_calls": 0,
+      "route": "INDEX_AMBIGUOUS",
+      "safety_rejected": false
+    },
+    {
+      "executable": false,
+      "index": "INDEX_AMBIGUOUS",
+      "input": "включи свет в мастерской и выключи свет",
+      "path": 3,
+      "qwen_calls": 0,
+      "route": "INDEX_AMBIGUOUS",
+      "safety_rejected": false
+    },
+    {
+      "executable": false,
+      "index": "INDEX_INVALID",
+      "input": "поставь свет в мастерской 40 50",
+      "path": 3,
+      "qwen_calls": 0,
+      "route": "INDEX_INVALID",
+      "safety_rejected": false
+    },
+    {
+      "executable": false,
+      "index": "INDEX_INVALID",
+      "input": "поставь свет в мастерской 101",
+      "path": 3,
+      "qwen_calls": 0,
+      "route": "INDEX_INVALID",
+      "safety_rejected": false
+    },
+    {
+      "executable": false,
+      "index": "INDEX_MISS",
+      "input": "поставь свет в мастерской сороок",
+      "path": 1,
+      "qwen_calls": 1,
+      "route": "LLM_FALLBACK",
+      "safety_rejected": false
+    },
+    {
+      "executable": true,
+      "index": "INDEX_FUZZY",
+      "input": "поставь освещенее в мастерской 40",
+      "path": 0,
+      "qwen_calls": 0,
+      "route": "INDEX_FUZZY",
+      "safety_rejected": false
+    }
+  ],
+  "rss_bytes_per_index_256_retained": 2496,
+  "without_qwen": 21
+}

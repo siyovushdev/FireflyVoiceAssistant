@@ -1,5 +1,6 @@
 #include "firefly/runtime/DomainView.h"
 #include "../Text.h"
+#include "firefly/language/Integer.h"
 #include <algorithm>
 #include <codecvt>
 #include <locale>
@@ -134,6 +135,22 @@ std::vector<std::string> DomainView::requestedActions(std::string_view original,
     preferSpecific(matches);
     std::set<std::string> ids;
     for (const auto& m : matches) ids.insert(m.entityId);
+    // An explicit percentage is itself scalar intent, only for a unique
+    // declared required integer-percent schema. Never invent a default value.
+    if (ids.empty() && target.kind == config::DeviceKind::Generic) {
+        const auto grounding = resolve(original);
+        const bool percentage = std::any_of(input.begin(), input.end(), [&](const auto& token) {
+            const bool entity = std::any_of(grounding.mentions.begin(), grounding.mentions.end(), [&](const auto& mention) {
+                return token.begin >= mention.begin && token.end <= mention.end;
+            });
+            return !entity && (language::percentWord(token.text) || (!token.text.empty() && token.text.back() == '%'));
+        });
+        if (percentage) for (const auto& id : target.actionIds) {
+            const auto& action = snapshot_->configuration().actions.at(snapshot_->actionIndex().at(id));
+            if (action.parameters.size() == 1 && action.parameters[0].required &&
+                action.parameters[0].type == "integer" && action.parameters[0].unit == "percent") ids.insert(id);
+        }
+    }
     return {ids.begin(), ids.end()};
 }
 actions::CandidateResult DomainView::parseDeclared(std::string_view original) const {

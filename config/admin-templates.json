@@ -476,5 +476,99 @@
     "state": [],
     "actions": [],
     "noun": "дверь"
+  },
+  {
+    "id": "generic_light",
+    "name": "Свет (настраиваемый)",
+    "type": "light",
+    "aliases": [
+      "свет",
+      "основной свет",
+      "основного света",
+      "освещение"
+    ],
+    "state": [
+      {
+        "id": "level",
+        "name": "Яркость",
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100,
+        "required": true,
+        "unit": "percent",
+        "description": "",
+        "initial": 0
+      }
+    ],
+    "actions": [
+      {
+        "id": "power_on",
+        "name": "Включить",
+        "description": "",
+        "operation": "mock.assign.v1",
+        "enabled": true,
+        "parameters": [],
+        "speech_aliases": [
+          "включи",
+          "включить",
+          "зажги"
+        ],
+        "assignments": [
+          {
+            "field": "level",
+            "value": 100
+          }
+        ]
+      },
+      {
+        "id": "power_off",
+        "name": "Выключить",
+        "description": "",
+        "operation": "mock.assign.v1",
+        "enabled": true,
+        "parameters": [],
+        "speech_aliases": [
+          "выключи",
+          "выключить",
+          "погаси"
+        ],
+        "assignments": [
+          {
+            "field": "level",
+            "value": 0
+          }
+        ]
+      },
+      {
+        "id": "set_level",
+        "name": "Яркость",
+        "description": "",
+        "operation": "mock.assign.v1",
+        "enabled": true,
+        "parameters": [
+          {
+            "id": "level",
+            "name": "Яркость",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "required": true,
+            "unit": "percent",
+            "description": ""
+          }
+        ],
+        "speech_aliases": [
+          "поставь",
+          "установи яркость",
+          "яркость"
+        ],
+        "assignments": [
+          {
+            "field": "level",
+            "argument": "level"
+          }
+        ]
+      }
+    ]
   }
 ]

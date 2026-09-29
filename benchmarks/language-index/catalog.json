@@ -1,0 +1,305 @@
+{
+  "actions": [
+    {
+      "assignments": [],
+      "description": "",
+      "enabled": true,
+      "id": "action_open_entrance",
+      "name": "Открыть входную дверь",
+      "operation": "entrance_door.open.v1",
+      "parameters": [],
+      "speech_aliases": []
+    },
+    {
+      "assignments": [],
+      "description": "",
+      "enabled": true,
+      "id": "action_set_brightness",
+      "name": "Установить яркость света",
+      "operation": "light.set_brightness.v1",
+      "parameters": [
+        {
+          "description": "",
+          "id": "brightness",
+          "maximum": 100,
+          "minimum": 0,
+          "name": "Яркость",
+          "required": true,
+          "type": "integer",
+          "unit": "percent"
+        }
+      ],
+      "speech_aliases": []
+    },
+    {
+      "id": "power_on",
+      "name": "Включить",
+      "description": "",
+      "operation": "mock.assign.v1",
+      "enabled": true,
+      "parameters": [],
+      "speech_aliases": [
+        "включи",
+        "включить",
+        "зажги"
+      ],
+      "assignments": [
+        {
+          "field": "level",
+          "value": 100
+        }
+      ]
+    },
+    {
+      "id": "power_off",
+      "name": "Выключить",
+      "description": "",
+      "operation": "mock.assign.v1",
+      "enabled": true,
+      "parameters": [],
+      "speech_aliases": [
+        "выключи",
+        "выключить",
+        "погаси"
+      ],
+      "assignments": [
+        {
+          "field": "level",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": "set_level",
+      "name": "Яркость",
+      "description": "",
+      "operation": "mock.assign.v1",
+      "enabled": true,
+      "parameters": [
+        {
+          "id": "level",
+          "name": "Яркость",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "required": true,
+          "unit": "percent",
+          "description": ""
+        }
+      ],
+      "speech_aliases": [
+        "поставь",
+        "установи яркость",
+        "яркость"
+      ],
+      "assignments": [
+        {
+          "field": "level",
+          "argument": "level"
+        }
+      ]
+    }
+  ],
+  "bindings": [],
+  "compatibility": {
+    "codec": "compact_v1",
+    "door_action_id": "action_open_entrance",
+    "door_target_id": "device_entrance_door",
+    "light_action_id": "action_set_brightness",
+    "light_targets": {
+      "B": "device_bedroom_light",
+      "C": "device_corridor_light",
+      "G": "device_living_light",
+      "K": "device_kitchen_light"
+    }
+  },
+  "devices": [
+    {
+      "action_ids": [
+        "action_set_brightness"
+      ],
+      "enabled": true,
+      "id": "device_bedroom_light",
+      "kind": "light",
+      "name": "Свет в спальне",
+      "room_id": "room_bedroom",
+      "spoken_aliases": [],
+      "state": []
+    },
+    {
+      "action_ids": [
+        "action_set_brightness"
+      ],
+      "enabled": true,
+      "id": "device_corridor_light",
+      "kind": "light",
+      "name": "Свет в коридоре",
+      "room_id": "room_corridor",
+      "spoken_aliases": [],
+      "state": []
+    },
+    {
+      "action_ids": [
+        "action_open_entrance"
+      ],
+      "enabled": true,
+      "id": "device_entrance_door",
+      "kind": "entrance_door",
+      "name": "Входная дверь",
+      "room_id": null,
+      "spoken_aliases": [],
+      "state": []
+    },
+    {
+      "action_ids": [
+        "action_set_brightness"
+      ],
+      "enabled": true,
+      "id": "device_kitchen_light",
+      "kind": "light",
+      "name": "Kitchen Light",
+      "room_id": "room_kitchen",
+      "spoken_aliases": [],
+      "state": []
+    },
+    {
+      "action_ids": [
+        "action_set_brightness"
+      ],
+      "enabled": true,
+      "id": "device_living_light",
+      "kind": "light",
+      "name": "Свет в гостиной",
+      "room_id": "room_living",
+      "spoken_aliases": [],
+      "state": []
+    },
+    {
+      "id": "lamp_a",
+      "name": "Основной свет",
+      "kind": "generic",
+      "room_id": "place_a",
+      "enabled": true,
+      "action_ids": [
+        "power_on",
+        "power_off",
+        "set_level"
+      ],
+      "spoken_aliases": [
+        "свет",
+        "основной свет",
+        "основного света",
+        "освещение"
+      ],
+      "state": [
+        {
+          "id": "level",
+          "name": "Яркость",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "required": true,
+          "unit": "percent",
+          "description": "",
+          "initial": 0
+        }
+      ]
+    }
+  ],
+  "retired_ids": [],
+  "revision": 1,
+  "rooms": [
+    {
+      "id": "room_bedroom",
+      "name": "Спальня",
+      "speech": {
+        "locations": [
+          "в спальне"
+        ],
+        "mentions": [
+          "спальне",
+          "спальней",
+          "спальни",
+          "спальню",
+          "спальня"
+        ]
+      }
+    },
+    {
+      "id": "room_corridor",
+      "name": "Коридор",
+      "speech": {
+        "locations": [
+          "в коридоре"
+        ],
+        "mentions": [
+          "коридор",
+          "коридора",
+          "коридоре",
+          "коридором",
+          "коридору"
+        ]
+      }
+    },
+    {
+      "id": "room_kitchen",
+      "name": "Кухня",
+      "speech": {
+        "locations": [
+          "на кухне"
+        ],
+        "mentions": [
+          "кухне",
+          "кухней",
+          "кухни",
+          "кухню",
+          "кухня"
+        ]
+      }
+    },
+    {
+      "id": "room_living",
+      "name": "Гостиная",
+      "speech": {
+        "locations": [
+          "в гостиной",
+          "в зале"
+        ],
+        "mentions": [
+          "гостиная",
+          "гостиной",
+          "гостиную",
+          "зал",
+          "зала",
+          "зале",
+          "залом",
+          "залу"
+        ]
+      }
+    },
+    {
+      "id": "place_a",
+      "name": "Мастерская",
+      "speech": {
+        "mentions": [
+          "мастерская",
+          "мастерской",
+          "мастерский"
+        ],
+        "locations": [
+          "в мастерской"
+        ]
+      }
+    }
+  ],
+  "safety": {
+    "restrictions": []
+  },
+  "schema_version": 2,
+  "system": {
+    "id": "system_home",
+    "interpretation_profile": "legacy_m4_v1",
+    "locale": "ru-RU",
+    "name": "Firefly V1 Prototype"
+  }
+}

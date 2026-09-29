@@ -4,6 +4,7 @@
 #include "firefly/runtime/DomainView.h"
 #include "firefly/llm/StructuredOutput.h"
 #include <functional>
+#include "firefly/language/LanguageIndex.h"
 namespace firefly {
 enum class CommandPath { FastPath, LlmFallback, InputRejected, GroundingRejected };
 struct CommandTimings {
@@ -26,13 +27,14 @@ struct CommandResult {
     bool invalidModelOutput = false;
     double latencyMs = 0;
     CommandTimings llmTimings;
+    std::string languageRoute = "LEGACY_FAST_PATH", indexStatus = "INDEX_MISS";
 };
 class CommandEngine {
 public:
     // Explicit immutable dependencies must outlive this engine. No legacy/default
     // constructor, alternative authoritative path or snapshot file access.
     using Decoder = std::function<llm::DecodedResult(std::string_view)>;
-    CommandEngine(LlmEngine& llm, const DeterministicParser& parser, const runtime::DomainView& domain, Decoder decoder = {});
+    CommandEngine(LlmEngine& llm, const DeterministicParser& parser, const runtime::DomainView& domain, Decoder decoder = {}, const language::LanguageIndex* index = nullptr);
     CommandResult process(std::string_view original);
 private:
     LlmEngine& llm_;
@@ -40,5 +42,6 @@ private:
     const runtime::DomainView& domain_;
     const llm::StructuredDecoder modelDecoder_;
     const Decoder decoder_;
+    const language::LanguageIndex* index_;
 };
 }

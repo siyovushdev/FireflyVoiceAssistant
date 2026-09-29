@@ -95,7 +95,7 @@
             "maxItems": 256
         },
         "compatibility": {
-            "type": "object",
+            "type": ["object", "null"],
             "properties": {
                 "codec": {
                     "const": "compact_v1"

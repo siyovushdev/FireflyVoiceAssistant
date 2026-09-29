@@ -1,3 +1,4 @@
+#include "firefly/language/Integer.h"
 #include "firefly/SafetyGate.h"
 #include "Text.h"
 #include <algorithm>
@@ -172,6 +173,32 @@ actions::CandidateResult SafetyGate::apply(std::string_view original, const acti
             const auto begin=static_cast<std::size_t>(i->position()),end=begin+i->length();
             const bool entity = std::any_of(grounding.mentions.begin(),grounding.mentions.end(),[&](const auto& m){return begin>=m.begin&&end<=m.end;});
             if (!entity) numbers.push_back({i->str(),begin,end,false});
+        }
+        // Cardinal evidence remains tied to the ORIGINAL input, never to model output.
+        const auto text = detail::lowercase(original);
+        std::size_t wordOffset = 0;
+        for (std::size_t i = 0; i < words.size(); ++i) {
+            const auto begin = text.find(words[i], wordOffset);
+            wordOffset = begin + words[i].size();
+            if (words[i].empty() || static_cast<unsigned char>(words[i][0]) < 128) continue;
+            const auto cardinal = language::integerAt(words, i);
+            if (!cardinal) continue;
+            auto end = wordOffset;
+            if (cardinal->count == 2) {
+                const auto next = text.find(words[i + 1], end);
+                if (std::string_view(text).substr(end, next - end).find_first_not_of(" \t\r\n") != std::string_view::npos)
+                    return actions::Unsupported{};
+                end = next + words[i + 1].size();
+            }
+            const bool entity = std::any_of(grounding.mentions.begin(), grounding.mentions.end(), [&](const auto& m) { return begin >= m.begin && end <= m.end; });
+            if (!entity) {
+                if (std::any_of(grounding.mentions.begin(), grounding.mentions.end(), [&](const auto& m) { return begin < m.end && end > m.begin; }))
+                    return actions::Unsupported{};
+                if (i && words[i - 1] == "минус") return actions::Unsupported{};
+                numbers.push_back({std::to_string(cardinal->value), begin, end, false});
+            }
+            i += cardinal->count - 1;
+            wordOffset = end;
         }
         const auto literalPresent = [&](const std::string& literal) {
             if (literal.empty()) return source.find("\"\"") != std::string::npos || source.find("''") != std::string::npos;

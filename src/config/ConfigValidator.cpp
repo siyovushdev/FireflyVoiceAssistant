@@ -357,25 +357,33 @@ Catalog ConfigValidator::validate(Configuration configuration) {
         }
     }
     const auto& mapping = configuration.compatibility;
-    if (!catalog->actions_.count(mapping.lightActionId) || !catalog->actions_.count(mapping.doorActionId) || !catalog->devices_.count(mapping.doorTargetId))
-        throw ConfigError("dangling_reference", "/compatibility", "Unknown legacy action/door target");
-    if (mapping.lightActionId != "action_set_brightness" || mapping.doorActionId != "action_open_entrance" || mapping.doorTargetId != "device_entrance_door")
-        throw ConfigError("legacy_incompatible", "/compatibility", "Legacy stable action/door identities cannot be reassigned");
-    if (configuration.actions[catalog->actions_.at(mapping.lightActionId)].operation != Operation::SetBrightness ||
-        configuration.actions[catalog->actions_.at(mapping.doorActionId)].operation != Operation::OpenEntranceDoor)
-        throw ConfigError("unsafe_constraint", "/compatibility", "Legacy operations changed");
-    const auto& door = configuration.devices[catalog->devices_.at(mapping.doorTargetId)];
-    if (door.kind != DeviceKind::EntranceDoor || door.actionIds != std::vector<std::string>{mapping.doorActionId})
-        throw ConfigError("unsafe_constraint", "/compatibility", "Legacy door target changed kind or action");
-    for (const auto& expected : legacyRooms()) {
-        const auto target = mapping.lightTargets.at(expected.code);
-        if (!catalog->devices_.count(target)) throw ConfigError("dangling_reference", "/compatibility/light_targets", "Unknown light target");
-        const auto& light = configuration.devices[catalog->devices_.at(target)];
-        if (target != expected.device || light.roomId != expected.room || light.kind != DeviceKind::Light || light.actionIds != std::vector<std::string>{mapping.lightActionId})
-            throw ConfigError("legacy_incompatible", "/compatibility/light_targets/" + std::string(1, expected.code), "Legacy target identity/location cannot be remapped");
-        const auto& room = configuration.rooms[catalog->rooms_.at(expected.room)];
-        if (!sameStrings(room.mentions, expected.mentions) || !sameStrings(room.locations, expected.locations))
-            catalog->legacyDifferences_.push_back("room_aliases:" + room.id);
+    const bool noLegacy = configuration.schemaVersion == 2 && mapping.lightActionId.empty() && mapping.doorActionId.empty() && mapping.doorTargetId.empty() && mapping.lightTargets.empty();
+    if (!noLegacy) {
+        if (!catalog->actions_.count(mapping.lightActionId) || !catalog->actions_.count(mapping.doorActionId) || !catalog->devices_.count(mapping.doorTargetId))
+            throw ConfigError("dangling_reference", "/compatibility", "Unknown legacy action/door target");
+        if (mapping.lightActionId != "action_set_brightness" || mapping.doorActionId != "action_open_entrance" || mapping.doorTargetId != "device_entrance_door")
+            throw ConfigError("legacy_incompatible", "/compatibility", "Legacy stable action/door identities cannot be reassigned");
+        if (configuration.actions[catalog->actions_.at(mapping.lightActionId)].operation != Operation::SetBrightness ||
+            configuration.actions[catalog->actions_.at(mapping.doorActionId)].operation != Operation::OpenEntranceDoor)
+            throw ConfigError("unsafe_constraint", "/compatibility", "Legacy operations changed");
+        const auto& door = configuration.devices[catalog->devices_.at(mapping.doorTargetId)];
+        if (door.kind != DeviceKind::EntranceDoor || door.actionIds != std::vector<std::string>{mapping.doorActionId})
+            throw ConfigError("unsafe_constraint", "/compatibility", "Legacy door target changed kind or action");
+        for (const auto& expected : legacyRooms()) {
+            const auto target = mapping.lightTargets.at(expected.code);
+            if (!catalog->devices_.count(target)) throw ConfigError("dangling_reference", "/compatibility/light_targets", "Unknown light target");
+            const auto& light = configuration.devices[catalog->devices_.at(target)];
+            if (target != expected.device || light.roomId != expected.room || light.kind != DeviceKind::Light || light.actionIds != std::vector<std::string>{mapping.lightActionId})
+                throw ConfigError("legacy_incompatible", "/compatibility/light_targets/" + std::string(1, expected.code), "Legacy target identity/location cannot be remapped");
+            const auto& room = configuration.rooms[catalog->rooms_.at(expected.room)];
+            if (!sameStrings(room.mentions, expected.mentions) || !sameStrings(room.locations, expected.locations))
+                catalog->legacyDifferences_.push_back("room_aliases:" + room.id);
+        }
+    } else {
+        for (const auto& d : configuration.devices) if (d.kind != DeviceKind::Generic)
+            throw ConfigError("legacy_required", "/compatibility", "Protected legacy devices require compatibility mapping");
+        for (const auto& a : configuration.actions) if (a.operation != Operation::AssignState)
+            throw ConfigError("legacy_required", "/compatibility", "Protected legacy actions require compatibility mapping");
     }
     if (configuration.rooms.size() != 4 || configuration.devices.size() != 5 || configuration.actions.size() != 2)
         catalog->legacyDifferences_.push_back("configured_entity_set");

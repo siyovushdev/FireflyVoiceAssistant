@@ -11,6 +11,8 @@ std::string deterministicId(std::string_view category, std::string_view name,
                             const std::set<std::string>& occupied = {});
 std::string suggestionPrompt(std::string_view entity);
 std::string templatesJson();
+std::string languageProfilePrompt(config::Catalog, std::string_view entity, std::string_view id);
+std::string decodeLanguageProfile(std::string_view raw, config::Catalog, std::string_view entity, std::string_view id);
 std::string draftPrompt(std::string_view entity, std::string_view group);
 std::string decodeDraftGroup(std::string_view raw, std::string_view entity, std::string_view group);
 std::string planPrompt();

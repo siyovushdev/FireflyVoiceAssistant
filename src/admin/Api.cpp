@@ -1,3 +1,4 @@
+#include "firefly/SafetyGate.h"
 #include "firefly/admin/Api.h"
 #include "firefly/admin/AdminTranscriber.h"
 #include "firefly/config/ConfigLoader.h"
@@ -113,6 +114,34 @@ struct Api::Impl {
                 return checked;
             }
             result["runtime_preflight"] = "verified";
+        }
+        result["language_conflicts"] = Json::array();
+        for (const auto& c : generation->languageIndex->conflicts()) result["language_conflicts"].push_back({{"severity",c.severity},{"code",c.code},{"alias",c.alias},{"entities",c.entities}});
+        result["language_index"] = {{"fingerprint",generation->languageIndex->fingerprint()},{"compiler",language::LanguageIndex::CompilerVersion}};
+        result["language_examples"] = Json::array();
+        const auto& domain = generation->domain;
+        for (const auto& device : domain.snapshot()->configuration().devices) {
+            if (device.spokenAliases.empty()) continue;
+            for (const auto& id : device.actionIds) {
+                if (result["language_examples"].size() == 5) break;
+                const auto& action = domain.snapshot()->configuration().actions.at(domain.snapshot()->actionIndex().at(id));
+                if (action.aliases.empty() || action.parameters.size() > 1) continue;
+                std::string example = action.aliases.front() + " " + device.spokenAliases.front();
+                if (device.roomId) {
+                    const auto* room = domain.room(*device.roomId);
+                    if (room && !room->locations.empty()) example += " " + room->locations.front();
+                }
+                if (!action.parameters.empty()) {
+                    const auto& parameter = action.parameters.front();
+                    if (parameter.type == "integer") example += " " + std::to_string(parameter.minimum);
+                    else if (parameter.type == "boolean") example += " true";
+                    else if (parameter.type == "enum" && !parameter.values.empty()) example += " " + parameter.values.front();
+                    else continue;
+                }
+                const auto matched = generation->languageIndex->match(example);
+                const auto safe = SafetyGate::apply(example, matched.candidate, domain);
+                if (std::holds_alternative<actions::GenericAction>(domain.validate(safe))) result["language_examples"].push_back(example);
+            }
         }
         result["apply_ready"] = result["runtime_preflight"] == "verified";
         return result;
@@ -233,7 +262,7 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
     int status = 200;
     Json reply;
     try {
-        const std::map<std::string, std::string> routes{{"/api/admin/plan", "POST"}, {"/api/admin/copilot", "POST"}, {"/api/admin/copilot/accept", "POST"}, {"/api/admin/transcribe", "POST"}, {"/api/admin/action-draft", "POST"}, {"/api/admin/templates", "GET"}, {"/api/admin/draft", "POST"}, {"/api/config/migrate", "POST"}, {"/api/admin/id", "POST"}, {"/api/admin/suggest", "POST"}, {"/api/config/diff", "POST"},
+        const std::map<std::string, std::string> routes{{"/api/admin/language-profile", "POST"}, {"/api/admin/plan", "POST"}, {"/api/admin/copilot", "POST"}, {"/api/admin/copilot/accept", "POST"}, {"/api/admin/transcribe", "POST"}, {"/api/admin/action-draft", "POST"}, {"/api/admin/templates", "GET"}, {"/api/admin/draft", "POST"}, {"/api/config/migrate", "POST"}, {"/api/admin/id", "POST"}, {"/api/admin/suggest", "POST"}, {"/api/config/diff", "POST"},
             {"/api/config/export", "GET"}, {"/api/config/import", "POST"}, {"/api/config/revision", "POST"},
             {"/api/config/restore-candidate", "POST"}, {"/api/dashboard", "GET"}, {"/api/devices/state", "GET"},
             {"/api/devices/observe", "POST"}, {"/api/executions", "GET"}, {"/api/status", "GET"}, {"/api/config", "GET PUT"},
@@ -283,6 +312,10 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
             const auto occupied = request.at("occupied").get<std::set<std::string>>();
             if (occupied.size() > 8192) throw std::invalid_argument("Too many IDs");
             reply = {{"ok",true},{"id",deterministicId(request.at("category").get<std::string>(),request.at("name").get<std::string>(),occupied)},{"algorithm","transliteration_v1"}};
+        } else if (path == "/api/admin/language-profile") {
+            members(request, {"configuration", "entity", "id"});
+            request["method"] = "language_profile"; reply = impl_->invoke(request);
+            if (!reply.value("ok", false)) status = 422;
         } else if (path == "/api/admin/suggest") {
             members(request, {"entity","name"});
             (void)deterministicId(request.at("entity").get<std::string>(),request.at("name").get<std::string>());

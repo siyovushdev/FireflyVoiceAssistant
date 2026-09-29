@@ -32,6 +32,7 @@ public:
     const std::shared_ptr<execution::BoundDeviceExecutor> executor;
     const runtime::DomainView domain;
     const DeterministicParser parser;
+    const std::shared_ptr<const language::LanguageIndex> languageIndex;
     const std::string prompt;
     const std::map<std::string, std::string> targetContexts;
     std::string defaultPrompt() const;

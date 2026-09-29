@@ -112,13 +112,13 @@ std::string RuntimeGeneration::requestPrompt(std::string_view original) const {
         if (targets.size() == 1) return targetContexts.at(targets.front());
         if (targets.size() > 1) throw config::ConfigError("ambiguous_target", "/text", "Several lights match this location");
     }
-    if (detail::lowercase(original).find("двер") != std::string::npos)
+    if (domain.entranceTarget() && detail::lowercase(original).find("двер") != std::string::npos)
         return targetContexts.at(domain.entranceTarget()->id);
     throw config::ConfigError("target_not_grounded", "/text", "No unambiguous configured device mention");
 }
 
 RuntimeGeneration::RuntimeGeneration(config::Catalog catalog, std::uint64_t generationId, llm::CommandProtocol mode)
-    : id(generationId), protocol(mode), executor(std::make_shared<execution::BoundDeviceExecutor>(catalog)), domain(std::move(catalog)), parser(domain), prompt(llm::generateContext(domain).systemPrompt()), targetContexts(contexts(domain, mode)) {
+    : id(generationId), protocol(mode), executor(std::make_shared<execution::BoundDeviceExecutor>(catalog)), domain(std::move(catalog)), parser(domain), languageIndex(language::LanguageCompiler::compile(domain.snapshot())), prompt(llm::generateContext(domain).systemPrompt()), targetContexts(contexts(domain, mode)) {
     // Enabling editable deny/disable policy would be a separate consumer change.
     // Do not accept configuration whose policy the current pipeline ignores.
     for (const auto& effective : domain.snapshot()->effectiveActions())
@@ -128,7 +128,7 @@ RuntimeGeneration::RuntimeGeneration(config::Catalog catalog, std::uint64_t gene
         if (!definition.enabled)
             throw config::ConfigError("unsupported_runtime_policy", "/actions", "Disabled action definitions are not supported by this runtime.");
     for (const auto& target : domain.snapshot()->configuration().devices)
-        if (target.kind == config::DeviceKind::EntranceDoor && target.id != domain.entranceTarget()->id)
+        if (target.kind == config::DeviceKind::EntranceDoor && (!domain.entranceTarget() || target.id != domain.entranceTarget()->id))
             throw config::ConfigError("unsupported_runtime_target", "/devices", "Only the configured entrance-door target is supported; additional door targets cannot be applied.");
 }
 std::shared_ptr<const RuntimeGeneration> RuntimeGenerations::current() const {
@@ -337,7 +337,7 @@ GenerationResult RuntimeGenerations::Request::process(std::string_view input, ex
         const RuntimeGeneration& generation_;
         std::optional<llm::SelectedAction> selected_;
     } bound(owner_.model_, *generation);
-    CommandEngine engine(bound, generation->parser, generation->domain, [&](std::string_view raw) { return bound.decode(raw); });
+    CommandEngine engine(bound, generation->parser, generation->domain, [&](std::string_view raw) { return bound.decode(raw); }, generation->languageIndex.get());
     GenerationResult result{generation, engine.process(input), std::nullopt};
     result.command.llmTimings = bound.timings;
     owner_.ready_ = owner_.model_.ready();

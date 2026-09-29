@@ -72,7 +72,7 @@ std::string decodePlan(std::string_view raw, config::Catalog candidate) {
         members(device,{"name","template","aliases","description"});text(device.at("name"),128);strings(device.at("aliases"),8);
         text(device.at("description"),256);
         if (protectedEntranceDoorDevice(device)) rejectProtectedEntranceDoor();
-        const auto& selected = templateById(templates,device.at("template"));
+        const auto& selected = templateById(templates,value.at("compatibility").is_null() && device.at("template") == "light" ? Json("generic_light") : device.at("template"));
         const auto name = device.at("name").get<std::string>();
         const auto id = allocate(ids,"device",name);
         const bool light = selected.at("id") == "light";

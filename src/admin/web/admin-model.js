@@ -20,8 +20,9 @@
         return {id, name, speech:{mentions:[],locations:[]}, metadata:{type:'custom',description:'',aliases:[],parent_id:null,container:false}};
     }
     function device(name, id, config, template='generic') {
+        if(!config.compatibility && (template==='light'||template==='entrance_door')) template='generic';
         return {id,name,kind:template,room_id:config.rooms.find(r => !metadata(r).container)?.id || null,enabled:true,
-            action_ids:template==='light'?[config.compatibility.light_action_id]:template==='entrance_door'?[config.compatibility.door_action_id]:[],
+            action_ids:template==='light'?[config.compatibility?.light_action_id]:template==='entrance_door'?[config.compatibility?.door_action_id]:[],
             spoken_aliases:[],state:[],metadata:{type:template,description:'',aliases:[]}};
     }
     function suggestion(draft, proposed, kind) {

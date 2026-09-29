@@ -14,7 +14,7 @@ file(SHA256 "${PROJECT_SOURCE_DIR}/third_party/nlohmann/LICENSE.MIT" JSON_LICENS
 if(NOT JSON_LICENSE_HASH STREQUAL "46a65cffd1ea955132d95a8dd921640714a8d6b537d2e4e482d31145ae95b603")
     message(FATAL_ERROR "Pinned nlohmann/json license hash mismatch")
 endif()
-add_library(firefly_config ConfigLoader.cpp ConfigValidator.cpp ConfigStore.cpp TypedSchema.cpp Platform.cpp)
+add_library(firefly_config ConfigLoader.cpp ConfigValidator.cpp LanguageProfile.cpp ConfigStore.cpp TypedSchema.cpp Platform.cpp)
 target_include_directories(firefly_config PUBLIC "${PROJECT_SOURCE_DIR}/include")
 target_include_directories(firefly_config PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 target_include_directories(firefly_config SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/third_party")

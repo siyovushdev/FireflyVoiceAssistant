@@ -1,0 +1,136 @@
+{
+    "actions": [
+        {
+            "id": "power_on",
+            "name": "Включить",
+            "description": "",
+            "operation": "mock.assign.v1",
+            "enabled": true,
+            "parameters": [],
+            "speech_aliases": [
+                "включи",
+                "включить",
+                "зажги"
+            ],
+            "assignments": [
+                {
+                    "field": "level",
+                    "value": 100
+                }
+            ]
+        },
+        {
+            "id": "power_off",
+            "name": "Выключить",
+            "description": "",
+            "operation": "mock.assign.v1",
+            "enabled": true,
+            "parameters": [],
+            "speech_aliases": [
+                "выключи",
+                "выключить",
+                "погаси"
+            ],
+            "assignments": [
+                {
+                    "field": "level",
+                    "value": 0
+                }
+            ]
+        },
+        {
+            "id": "set_level",
+            "name": "Яркость",
+            "description": "",
+            "operation": "mock.assign.v1",
+            "enabled": true,
+            "parameters": [
+                {
+                    "id": "level",
+                    "name": "Яркость",
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100,
+                    "required": true,
+                    "unit": "percent",
+                    "description": ""
+                }
+            ],
+            "speech_aliases": [
+                "поставь",
+                "установи яркость",
+                "яркость"
+            ],
+            "assignments": [
+                {
+                    "field": "level",
+                    "argument": "level"
+                }
+            ]
+        }
+    ],
+    "bindings": [],
+    "compatibility": null,
+    "devices": [
+        {
+            "id": "lamp_a",
+            "name": "Основной свет",
+            "kind": "generic",
+            "room_id": "place_a",
+            "enabled": true,
+            "action_ids": [
+                "power_on",
+                "power_off",
+                "set_level"
+            ],
+            "spoken_aliases": [
+                "свет",
+                "основной свет",
+                "основного света",
+                "освещение"
+            ],
+            "state": [
+                {
+                    "id": "level",
+                    "name": "Яркость",
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100,
+                    "required": true,
+                    "unit": "percent",
+                    "description": "",
+                    "initial": 0
+                }
+            ]
+        }
+    ],
+    "retired_ids": [],
+    "revision": 1,
+    "rooms": [
+        {
+            "id": "place_a",
+            "name": "Кухня",
+            "speech": {
+                "mentions": [
+                    "кухня",
+                    "кухне",
+                    "кухонный"
+                ],
+                "locations": [
+                    "на кухне",
+                    "в кухне"
+                ]
+            }
+        }
+    ],
+    "safety": {
+        "restrictions": []
+    },
+    "schema_version": 2,
+    "system": {
+        "id": "system_home",
+        "interpretation_profile": "legacy_m4_v1",
+        "locale": "ru-RU",
+        "name": "Firefly V1 Prototype"
+    }
+}

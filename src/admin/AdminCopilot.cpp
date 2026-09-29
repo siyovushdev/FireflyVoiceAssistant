@@ -128,6 +128,7 @@ Json* resolveDevice(Json& value, const std::string& deviceRef, const std::string
 }
 bool pinnedDevice(const Json& value, const Json& device) {
     const auto& compatibility = value.at("compatibility");
+    if (compatibility.is_null()) return false;
     if (device.at("id") == compatibility.at("door_target_id")) return true;
     for (const auto& item : compatibility.at("light_targets").items())
         if (item.value() == device.at("id")) return true;
@@ -135,6 +136,7 @@ bool pinnedDevice(const Json& value, const Json& device) {
 }
 bool pinnedAction(const Json& value, const std::string& actionId) {
     const auto& compatibility = value.at("compatibility");
+    if (compatibility.is_null()) return false;
     return actionId == compatibility.at("light_action_id").get<std::string>() ||
            actionId == compatibility.at("door_action_id").get<std::string>();
 }
@@ -228,7 +230,7 @@ void applyOperation(Json& value, std::set<std::string>& ids, const Json& op, con
                 "Зона «" + locationRef + "» не найдена в черновике. Сначала явно создайте её "
                 "(create_location), затем добавьте устройство.");
         }
-        const auto& selected = templateById(templates, op.at("template"));
+        const auto& selected = templateById(templates, value.at("compatibility").is_null() && op.at("template") == "light" ? Json("generic_light") : op.at("template"));
         const auto name = op.at("name").get<std::string>();
         const auto id = allocate(ids, "device", name);
         const bool light = selected.at("id") == "light";

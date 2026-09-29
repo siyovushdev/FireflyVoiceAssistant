@@ -86,6 +86,9 @@ Json commandJson(const std::string& input, const GenerationResult& result) {
     for (const auto& m : command.grounding.mentions) reply["matching_evidence"].push_back({
         {"entity_id",m.entityId},{"category",m.category},{"alias",m.alias},{"span",m.span},{"method",m.method},
         {"begin",m.begin},{"end",m.end},{"distance",m.distance},{"generation_id",result.generation->id},{"catalog_hash",command.grounding.catalogHash}});
+    reply["language_route"]=command.languageRoute;reply["index_status"]=command.indexStatus;
+    reply["language_index"]={{"hash",result.generation->languageIndex->catalogHash()},{"revision",result.generation->languageIndex->revision()},
+        {"compiler",language::LanguageIndex::CompilerVersion},{"fingerprint",result.generation->languageIndex->fingerprint()}};
     reply["ambiguous"] = command.grounding.ambiguous;
     reply["reason"] = command.reason;
     reply["rejection_stage"] = command.path == CommandPath::GroundingRejected ? "grounding" : command.safetyRejected ? "safety" : command.domainRejected || command.decodeStatus == llm::DecodeStatus::OutsideDomain ? "domain" :
@@ -135,6 +138,14 @@ std::string RuntimeWorker::handle(std::string_view bytes) {
                 changes.push_back({{"entity","state"},{"name","Apply будет отклонён"},{"change","changed"},{"before",{{"state","Рабочее состояние сохраняется"}}},{"after",{{"state",error.what()}}}});
                 reply = {{"ok",true},{"compatible",false},{"changes",changes},{"error",error.what()}};
             }
+        } else if (method == "language_profile") {
+            members(request, {"method", "configuration", "entity", "id"});
+            const auto catalog = config::ConfigLoader::fromJson(request.at("configuration").dump());
+            const auto entity = request.at("entity").get<std::string>();
+            const auto id = request.at("id").get<std::string>();
+            reply = Json::parse(generations_.structuredSuggestion(languageProfilePrompt(catalog, entity, id),
+                "Предложи языковой профиль.", 256, [&](std::string_view raw) { return decodeLanguageProfile(raw, catalog, entity, id); }));
+            reply["saved"] = false; reply["applied"] = false;
         } else if (method == "plan" || method == "action_draft" || method == "copilot") {
             if (method == "plan") members(request,{"method","text","configuration"});
             else if (method == "copilot") members(request,{"method","text","configuration"});

@@ -53,9 +53,30 @@ function renderTree(){
     level(null,$('tree'));for(const r of draft.rooms.filter(r=>!visited.has(r.id)))$('tree').append(node('p',`⚠ ${r.name}: проверьте родителя`));
     for(const d of draft.devices.filter(d=>!d.room_id))$('tree').append(node('p',`◇ ${d.name}`));
 }
+function languagePanel(host,entity,item){
+    host.append(node('h4','Язык команд'));
+    const preview=node('div');host.append(preview);
+    button(host,'Предложить варианты',()=>run(async()=>{
+        const snapshot=json(draft);
+        const r=await api('/api/admin/language-profile','POST',{configuration:draft,entity,id:item.id});
+        if(snapshot!==json(draft))throw new Error('Черновик изменился. Повторите предложение.');
+        const proposal=M.clone(r.suggestion);preview.replaceChildren(node('p','Предложение ИИ. Отредактируйте и подтвердите; сохранение выполняется отдельно.'));
+        for(const key of ['aliases','mentions','locations'])if(proposal[key])field(preview,key,proposal[key].join('\n'),v=>proposal[key]=M.list(v),{multiline:true,local:true});
+        preview.append(node('pre',json(proposal.conflicts||[])));
+        button(preview,'Проверить и добавить в черновик',()=>run(async()=>{
+            if(snapshot!==json(draft))throw new Error('Черновик изменился. Повторите предложение.');
+            const next=M.clone(draft),target=next[entity==='location'?'rooms':entity==='device'?'devices':'actions'].find(e=>e.id===item.id);
+            if(entity==='location'){target.speech.mentions=proposal.mentions;target.speech.locations=proposal.locations;ensureMeta(target).aliases=proposal.aliases;}
+            else if(entity==='device')target.spoken_aliases=proposal.aliases;
+            else target.speech_aliases=proposal.aliases;
+            const checked=await api('/api/config/validate','POST',{configuration:next});draft=next;modified();render();
+            $('validation').textContent='Язык добавлен в черновик. '+json(checked.language_conflicts||[]);
+        }));
+    }));
+}
 function render(){
     if(!draft)return;for(const id of ['rooms','devices','actions'])$(id).replaceChildren();
-    const pinnedTargets=Object.values(draft.compatibility.light_targets),pinnedRooms=draft.devices.filter(d=>pinnedTargets.includes(d.id)).map(d=>d.room_id);
+    const pinnedTargets=Object.values((draft.compatibility?.light_targets||{})),pinnedRooms=draft.devices.filter(d=>pinnedTargets.includes(d.id)).map(d=>d.room_id);
     for(const r of draft.rooms){const n=card($('rooms'),r.name);stableField(n,r);if(M.metadata(r).origin==='local_ai')n.append(node('span','AI suggested · User confirmed','badge'));
         field(n,'Название зоны',r.name,v=>r.name=v,{change:renderTree});
         field(n,'Родительская зона',M.metadata(r).parent_id||'',v=>ensureMeta(r).parent_id=v||null,{choices:locationChoices(r.id),change:renderTree});
@@ -64,6 +85,7 @@ function render(){
         field(n,'Другие обозначения зоны',M.metadata(r).aliases?.join('\n')||'',v=>ensureMeta(r).aliases=M.list(v),{multiline:true});
         if(!M.metadata(r).container){field(n,'Слова зоны (по одному в строке)',r.speech.mentions.join('\n'),v=>r.speech.mentions=M.list(v),{multiline:true});field(n,'Фразы места (по одной в строке)',r.speech.locations.join('\n'),v=>r.speech.locations=M.list(v),{multiline:true});}
         else n.append(node('p','Группа зон · команды адресуются дочерним местам'));
+        languagePanel(n,"location",r);
         removeEntity(n,draft.rooms,r,pinnedRooms.includes(r.id));
     }
     for(const d of draft.devices){const n=card($('devices'),d.name);stableField(n,d);if(M.metadata(d).origin==='local_ai')n.append(node('span','AI suggested · User confirmed','badge'));
@@ -86,14 +108,16 @@ function render(){
         if(d.kind==='entrance_door')n.append(node('p','Открыть входную дверь · только явная команда с указанием входа.'));
         if(!Array.isArray(draft.bindings))draft.bindings=[];
         simple.execution(n,advanced(),d,draft,openConnectionEditor);
-        removeEntity(n,draft.devices,d,pinnedTargets.includes(d.id)||d.id===draft.compatibility.door_target_id);
+        languagePanel(n,"device",d);
+        removeEntity(n,draft.devices,d,pinnedTargets.includes(d.id)||d.id===draft.compatibility?.door_target_id);
     }
     for(const a of draft.actions){const n=card($('actions'),a.name);stableField(n,a);field(n,'Название действия',a.name,v=>a.name=v);n.append(node('small',a.operation,'advanced'));
         const targets=draft.devices.filter(d=>d.action_ids.includes(a.id));n.append(node('p',`Устройства: ${targets.map(d=>d.name).join(', ')||'не назначены'}`));
         if(a.operation==='mock.assign.v1'){if(advanced()){n.append(node('p','Виртуальная операция · только присваивания полям состояния'));typed.action(n,a,targets[0],render);}else {simple.capability(n,a,targets[0]);field(n,'Описание результата',a.description,v=>a.description=v);field(n,'Как попросить об этом',a.speech_aliases.join('\n'),v=>a.speech_aliases=M.list(v),{multiline:true});if(a.parameters.length)button(n,'Допустимые значения',()=>openConstraints('action:'+a.id));}}
         else {n.append(node('p',a.operation==='light.set_brightness.v1'?'Смысл операции: установить яркость. Переименование не меняет этот смысл.':'Смысл операции: открыть защищённую входную дверь. Обязательна явная команда с указанием входа.'));
             for(const p of a.parameters){field(n,`Минимум${p.unit==='percent'?', %':''}`,p.minimum,v=>p.minimum=v,{number:true});field(n,`Максимум${p.unit==='percent'?', %':''}`,p.maximum,v=>p.maximum=v,{number:true});}}
-        removeEntity(n,draft.actions,a,[draft.compatibility.light_action_id,draft.compatibility.door_action_id].includes(a.id));}
+        languagePanel(n,"action",a);
+        removeEntity(n,draft.actions,a,[draft.compatibility?.light_action_id,draft.compatibility?.door_action_id].includes(a.id));}
     renderTree();$('raw-config').textContent=json(draft);
 }
 async function migrateCandidate(){if(draft.schema_version===1){const r=await api('/api/config/migrate','POST',{configuration:draft});draft=r.configuration;modified();}}
@@ -149,7 +173,7 @@ function openConnectionEditor(device){
     $('connection-dialog').showModal();
 }
 $('connection-close').onclick=$('connection-done').onclick=()=>{$('connection-dialog').close();render();};
-async function validate(){if(!validFields(document))throw Object.assign(new Error('invalid form'),{response:{errors:[{code:'invalid_form',human:'Исправьте отмеченные поля.'}]}});const r=await api('/api/config/validate','POST',{configuration:draft});validated=true;$('validation').textContent=r.apply_ready?'✓ Конфигурация проверена. Можно сохранить.':'✓ Структура конфигурации проверена. Модель недоступна; можно сохранить, а применить после её восстановления.';return r;}
+async function validate(){if(!validFields(document))throw Object.assign(new Error('invalid form'),{response:{errors:[{code:'invalid_form',human:'Исправьте отмеченные поля.'}]}});const r=await api('/api/config/validate','POST',{configuration:draft});validated=true;$('validation').textContent=r.apply_ready?'✓ Конфигурация проверена. Можно сохранить.':'✓ Структура конфигурации проверена. Модель недоступна; можно сохранить, а применить после её восстановления.';if(r.language_conflicts?.length)$('validation').textContent+=' Язык: '+json(r.language_conflicts);if(r.language_examples?.length)$('validation').textContent+=' Примеры: '+r.language_examples.join('; ');return r;}
 async function diff(base='active'){return api('/api/config/diff','POST',{configuration:draft,base});}
 function showDiff(changes,title,canApply=false){$('diff-title').textContent=title;$('diff-list').replaceChildren(...M.diffLines(changes,draft).map(x=>node('li',x)));if(!changes.length)$('diff-list').append(node('li','Изменений нет.'));$('diff-raw').textContent=json(changes);$('confirm-apply').hidden=!canApply;$('diff-dialog').showModal();}
 $('reload').onclick=()=>run(async()=>{if(!dirty||confirm('Заменить несохранённый черновик?'))await load();});
@@ -161,7 +185,7 @@ $('diff-close').onclick=()=>$('diff-dialog').close();
 $('test-form').onsubmit=e=>{e.preventDefault();const execute=e.submitter?.id==='execute';const production=!!$('production-execute')?.checked;
 run(async()=>{$('test-summary').textContent=execute?(production?'Production-выполнение…':'Виртуальное выполнение…'):'Проверка без выполнения…';$('test-result').textContent='';$('executor-contract').textContent='Проверка…';
     try{const body={text:$('command').value,execute};if(execute&&production)body.production=true;
-    const r=await api('/api/test-command','POST',body);const summary=M.commandSummary(r,activeConfig||stored),device=(activeConfig||stored).devices.find(d=>d.id===r.result?.targetId);$('executor-contract').textContent=M.executorContract(r.result)?json(M.executorContract(r.result)):'Исполняемое действие не сформировано (Unsupported).';$('test-summary').replaceChildren();const box=node('div',undefined,summary.execution==='Не выполнено'?'error':'success');
+    const r=await api('/api/test-command','POST',body);const summary=M.commandSummary(r,activeConfig||stored),device=(activeConfig||stored).devices.find(d=>d.id===r.result?.targetId);$('executor-contract').textContent=M.executorContract(r.result)?json(M.executorContract(r.result)):'Исполняемое действие не сформировано (Unsupported).';$('test-summary').replaceChildren(node('p','Language route: '+(r.language_route||'—')+' / '+(r.index_status||'—')));const box=node('div',undefined,summary.execution==='Не выполнено'?'error':'success');
     box.append(node('p',`Команда: ${$('command').value}`));
     for(const [key,label]of Object.entries({message:'Понимание',device:'Устройство',action:'Действие',value:'Значение',safety:'Безопасность',execution:'Результат',state:'Состояние'}))if(summary[key])box.append(node('p',`${label}: ${summary[key]}`));
     if(r.execution&&!production)box.append(node('p',`${M.stateText(r.execution.previous,device)} → ${M.stateText(r.execution.current,device)}`));
@@ -222,8 +246,8 @@ $('wizard-form').onsubmit=e=>{e.preventDefault();run(async()=>{
         if(wizard.existing)draft.devices[draft.devices.findIndex(d=>d.id===wizard.existing)]=M.clone(wizard.entity);else draft[wizard.kind==='location'?'rooms':'devices'].push(M.clone(wizard.entity));
     }modified();render();$('wizard').close();$('validation').textContent='Вы подтвердили предложение. Оно добавлено в черновик; проверьте его перед сохранением.';
 });};
-async function selectTemplate(id){const w=wizard,e=w.entity,t=templates.find(t=>t.id===id);if(!t)return;w.template=id;w.range=null;w.pendingActions=[];e.state=[];
-    e.kind=id==='light'?'light':id==='door'?'entrance_door':'generic';e.action_ids=id==='light'?[draft.compatibility.light_action_id]:id==='door'?[draft.compatibility.door_action_id]:[];
+async function selectTemplate(id){if(!draft.compatibility&&id==='light')id='generic_light';if(!draft.compatibility&&id==='door')throw new Error('Защищённая входная дверь требует существующей системной конфигурации.');const w=wizard,e=w.entity,t=templates.find(t=>t.id===id);if(!t)return;w.template=id;w.range=null;w.pendingActions=[];e.state=[];
+    e.kind=id==='light'?'light':id==='door'?'entrance_door':'generic';e.action_ids=id==='light'?[draft.compatibility?.light_action_id]:id==='door'?[draft.compatibility?.door_action_id]:[];
     if(!e.metadata.type||e.metadata.type==='generic')e.metadata.type=t.type;
     if(e.kind!=='generic')return;e.state=M.clone(t.state);e.spoken_aliases=[...new Set([...e.spoken_aliases,...t.aliases])];
     for(const source of t.actions){const a=M.clone(source);const r=await api('/api/admin/id','POST',{category:'action',name:`${e.name} ${a.name}`,occupied:[...M.occupied(draft),...w.pendingActions.map(a=>a.id)]});a.id=r.id;w.pendingActions.push(a);e.action_ids.push(a.id);}

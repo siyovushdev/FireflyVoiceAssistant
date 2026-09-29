@@ -251,11 +251,13 @@ Configuration decode(const Json& value) {
         }
     }
     const auto& mapping = value.at("compatibility");
-    result.compatibility.lightActionId = mapping.at("light_action_id");
-    result.compatibility.doorActionId = mapping.at("door_action_id");
-    result.compatibility.doorTargetId = mapping.at("door_target_id");
-    for (auto item = mapping.at("light_targets").begin(); item != mapping.at("light_targets").end(); ++item)
-        result.compatibility.lightTargets[item.key()[0]] = item.value();
+    if (!mapping.is_null()) {
+        result.compatibility.lightActionId = mapping.at("light_action_id");
+        result.compatibility.doorActionId = mapping.at("door_action_id");
+        result.compatibility.doorTargetId = mapping.at("door_target_id");
+        for (auto item = mapping.at("light_targets").begin(); item != mapping.at("light_targets").end(); ++item)
+            result.compatibility.lightTargets[item.key()[0]] = item.value();
+    }
     return result;
 }
 std::string operationName(Operation value) {
@@ -358,6 +360,7 @@ Json encode(const Configuration& value) {
     for (const auto& [code, target] : mapping.lightTargets) lights[std::string(1, code)] = target;
     result["compatibility"] = {{"codec", "compact_v1"}, {"light_action_id", mapping.lightActionId}, {"light_targets", lights},
         {"door_action_id", mapping.doorActionId}, {"door_target_id", mapping.doorTargetId}};
+    if (value.schemaVersion == 2 && mapping.lightActionId.empty() && mapping.doorActionId.empty() && mapping.doorTargetId.empty() && mapping.lightTargets.empty()) result["compatibility"] = nullptr;
     return result;
 }
 }
