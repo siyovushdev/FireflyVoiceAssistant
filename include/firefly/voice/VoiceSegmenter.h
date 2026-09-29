@@ -7,6 +7,8 @@ struct Utterance {
     SpeechBoundary speech{};
     std::vector<float> audio;
     std::string error;
+    // Set only by the KWS-admitted inline capture path, never by text/Admin input.
+    bool inlineWake = false;
 };
 // Bounded PCM history, independent of ALSA, sherpa, and command semantics.
 class VoiceSegmenter {
@@ -16,6 +18,9 @@ public:
     void discontinuity();
     // Begin a newly admitted wake session with fresh VAD coordinates and no history.
     void startSession();
+    // Probe the unchanged VAD with bounded history and endpoint-only silence.
+    // Resets all state afterwards; synthetic probe samples can never reach STT.
+    bool continuesAfterWake(const std::vector<float>& pcm, size_t wakeOffset);
     bool active() const { return active_ || !pending_.empty() || discarding_; }
     bool speechSeen() const { return speechSeen_; }
     int startConfirmationMs() const { return detector_.startConfirmationMs(); }

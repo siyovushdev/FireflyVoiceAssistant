@@ -1,5 +1,6 @@
 #include "firefly/voice/VoiceSegmenter.h"
 #include <algorithm>
+#include <array>
 #include <stdexcept>
 namespace firefly::voice {
 VoiceSegmenter::VoiceSegmenter(SpeechDetector& d, SegmentConfig c) : detector_(d), config_(c) {
@@ -12,6 +13,43 @@ void VoiceSegmenter::reset(bool quarantine) {
     received_ = base_ = quiet_ = 0; activeStart_ = -1; active_ = false; discarding_ = quarantine;
 }
 void VoiceSegmenter::startSession() { reset(false); }
+bool VoiceSegmenter::continuesAfterWake(const std::vector<float>& pcm, size_t wakeOffset) {
+    if (pcm.size() > 4 * SampleRate || wakeOffset > pcm.size())
+        throw std::invalid_argument("Invalid bounded continuation probe");
+    // Compare with the same history followed by silence. Silero's recurrent
+    // decay can extend a boundary into silence even beyond its endpoint setting;
+    // the control pass prevents that tail from being mistaken for new speech.
+    const auto speechEnd = [&](bool control) {
+        detector_.reset();
+        int64_t lastSpeechEnd = -1, received = 0;
+        const auto probe = [&](const float* data, int count) {
+            received += count;
+            auto detection = detector_.accept(data, count);
+            for (const auto& boundary : detection.completed) {
+                if (boundary.start < 0 || boundary.end <= boundary.start || boundary.end > received)
+                    throw std::runtime_error("Invalid continuation VAD boundary");
+                lastSpeechEnd = std::max(lastSpeechEnd, boundary.end);
+            }
+        };
+        std::array<float, FrameSamples> frame{};
+        for (size_t offset = 0; offset < pcm.size(); offset += FrameSamples) {
+            const auto count = std::min<size_t>(FrameSamples, pcm.size() - offset);
+            std::copy_n(pcm.data() + offset, count, frame.data());
+            if (control && offset + count > wakeOffset)
+                std::fill(frame.begin() + (wakeOffset > offset ? wakeOffset - offset : 0), frame.begin() + count, 0);
+            probe(frame.data(), count);
+        }
+        // Accelerated endpoint-only padding, never played or submitted to STT.
+        frame.fill(0);
+        for (int i = 0; i < 40; ++i) probe(frame.data(), FrameSamples);
+        return lastSpeechEnd;
+    };
+    const auto controlEnd = speechEnd(true);
+    const auto actualEnd = speechEnd(false);
+    startSession();
+    return actualEnd >= static_cast<int64_t>(wakeOffset) + 128 * 16 &&
+           actualEnd >= controlEnd + 128 * 16;
+}
 void VoiceSegmenter::discontinuity() { reset(true); }
 std::vector<Utterance> VoiceSegmenter::accept(const float* samples, int count) {
     if (count <= 0 || count > FrameSamples) throw std::invalid_argument("Invalid audio block");

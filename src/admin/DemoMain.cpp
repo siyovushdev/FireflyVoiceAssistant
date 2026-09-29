@@ -161,6 +161,9 @@ int main(int argc, char** argv) {
                     const auto emit = [](const firefly::voice::VoiceResult& result) {
                             std::cerr << "VOICE text=" << result.recognition.text << " route=" << result.route
                                 << " result=" << firefly::llm::structuredResult(result.action)
+                                << " inline=" << (result.inlineWake ? "true" : "false")
+                                << " wake_prefix_removed=" << (result.wakePrefixRemoved ? "true" : "false")
+                                << " command_text=" << result.commandText
                                 << " error=" << result.error
                                 << " audio_s=" << result.durationSeconds << " speech_s=" << result.speechSeconds
                                 << " stt_ms=" << result.recognition.latencyMs
@@ -173,7 +176,10 @@ int main(int argc, char** argv) {
                     const auto state = [&](const std::string& value) {
                         runtime.voiceStatus(value, "connected");
                         std::cerr << "VOICE_STATE " << value << " monotonic_ms="
-                            << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count() << '\n';
+                            << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+                        if (value == "CONTINUATION_INLINE" || value == "CONTINUATION_SEPARATED")
+                            std::cerr << " inline=" << (value == "CONTINUATION_INLINE" ? "true" : "false");
+                        std::cerr << '\n';
                         if (value == "ACKNOWLEDGEMENT_FAILED") {
                             api.health().setSubsystem("acknowledgement", SubsystemStatus::Failed, "playback_failed", acknowledgement.error());
                             std::cerr << "VOICE_ACK failure=" << acknowledgement.error() << '\n';

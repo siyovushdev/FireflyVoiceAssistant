@@ -69,7 +69,13 @@ else:
     raise SystemExit('Owned mock device startup timed out')
 PYREADY
 printf 'Acceptance artifacts: %s\n' "$RUN_DIR"
-printf 'Wait for VOICE_STATE WAITING_WAKE. Say Амина; after LISTENING_COMMAND say one command.\n'
+printf 'Wait for VOICE_STATE WAITING_WAKE before each admission. Human smoke checklist:\n'
+printf 'A: Амина; pause, hear beep; включи свет на кухне.\n'
+printf 'B: Амина включи свет на кухне (continuous, no beep).\n'
+printf 'C: Амина поставь свет на кухне на сорок процентов (continuous, no beep).\n'
+printf 'D: Амина; beep; wait about 4 s, then speak the complete command.\n'
+printf 'E: обычная команда без Амина must be ignored after WAITING_WAKE.\n'
+printf 'Path logs: CONTINUATION_INLINE inline=true / CONTINUATION_SEPARATED inline=false; VOICE includes wake_prefix_removed.\n'
 printf 'Watch states: tail -f %s/voice.log\n' "$RUN_DIR"
 ./build/firefly-demo \
     --store "$RUN_DIR/store" --init-config config/demo/v1-kitchen.json \

@@ -1,0 +1,135 @@
+{
+  "grace_audio_ms": 256,
+  "platform": "Firefly ROC-RK3588S-PC",
+  "probe_input": "silence; full 3 s history + 256 ms grace; 1280 ms endpoint-only zeros",
+  "probe_measurements": [
+    {
+      "decision_compute_ms": 57.433159,
+      "decision_plus_refeed_cpu_ms": 78.289
+    },
+    {
+      "decision_compute_ms": 56.725274,
+      "decision_plus_refeed_cpu_ms": 77.441
+    },
+    {
+      "decision_compute_ms": 56.671024,
+      "decision_plus_refeed_cpu_ms": 77.314
+    },
+    {
+      "decision_compute_ms": 56.665483,
+      "decision_plus_refeed_cpu_ms": 77.297
+    },
+    {
+      "decision_compute_ms": 56.644191,
+      "decision_plus_refeed_cpu_ms": 77.265
+    },
+    {
+      "decision_compute_ms": 56.611231,
+      "decision_plus_refeed_cpu_ms": 77.212
+    },
+    {
+      "decision_compute_ms": 56.56719,
+      "decision_plus_refeed_cpu_ms": 77.152
+    },
+    {
+      "decision_compute_ms": 56.643607,
+      "decision_plus_refeed_cpu_ms": 77.222
+    },
+    {
+      "decision_compute_ms": 56.632815,
+      "decision_plus_refeed_cpu_ms": 77.257
+    },
+    {
+      "decision_compute_ms": 56.551439,
+      "decision_plus_refeed_cpu_ms": 77.14
+    },
+    {
+      "decision_compute_ms": 56.536564,
+      "decision_plus_refeed_cpu_ms": 77.151
+    },
+    {
+      "decision_compute_ms": 56.546189,
+      "decision_plus_refeed_cpu_ms": 77.134
+    },
+    {
+      "decision_compute_ms": 56.811318,
+      "decision_plus_refeed_cpu_ms": 77.406
+    },
+    {
+      "decision_compute_ms": 56.534522,
+      "decision_plus_refeed_cpu_ms": 77.17
+    },
+    {
+      "decision_compute_ms": 56.54473,
+      "decision_plus_refeed_cpu_ms": 77.123
+    },
+    {
+      "decision_compute_ms": 56.426604,
+      "decision_plus_refeed_cpu_ms": 76.946
+    },
+    {
+      "decision_compute_ms": 56.51148,
+      "decision_plus_refeed_cpu_ms": 77.061
+    },
+    {
+      "decision_compute_ms": 56.495439,
+      "decision_plus_refeed_cpu_ms": 77.055
+    },
+    {
+      "decision_compute_ms": 56.505938,
+      "decision_plus_refeed_cpu_ms": 77.103
+    },
+    {
+      "decision_compute_ms": 56.432145,
+      "decision_plus_refeed_cpu_ms": 77.013
+    },
+    {
+      "decision_compute_ms": 56.550564,
+      "decision_plus_refeed_cpu_ms": 77.163
+    },
+    {
+      "decision_compute_ms": 56.564856,
+      "decision_plus_refeed_cpu_ms": 77.201
+    },
+    {
+      "decision_compute_ms": 56.489605,
+      "decision_plus_refeed_cpu_ms": 77.081
+    },
+    {
+      "decision_compute_ms": 56.573898,
+      "decision_plus_refeed_cpu_ms": 77.185
+    },
+    {
+      "decision_compute_ms": 56.491063,
+      "decision_plus_refeed_cpu_ms": 77.09
+    },
+    {
+      "decision_compute_ms": 56.474438,
+      "decision_plus_refeed_cpu_ms": 77.044
+    },
+    {
+      "decision_compute_ms": 56.503021,
+      "decision_plus_refeed_cpu_ms": 77.11
+    },
+    {
+      "decision_compute_ms": 56.536273,
+      "decision_plus_refeed_cpu_ms": 77.104
+    },
+    {
+      "decision_compute_ms": 56.475897,
+      "decision_plus_refeed_cpu_ms": 77.042
+    },
+    {
+      "decision_compute_ms": 56.556106,
+      "decision_plus_refeed_cpu_ms": 77.137
+    }
+  ],
+  "ring_added_rss_kib": 332,
+  "ring_and_snapshot_added_rss_kib": 600,
+  "ring_capacity_samples": 48000,
+  "ring_cpu_ms": 131.246,
+  "ring_one_core_percent": 0.021874333333333336,
+  "ring_pcm_bytes": 192000,
+  "ring_wall_ms": 132.77923,
+  "simulated_audio_seconds": 600.0
+}

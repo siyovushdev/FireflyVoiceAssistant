@@ -5,6 +5,8 @@
 namespace firefly::voice {
 struct VoiceResult {
     RecognitionResult recognition;
+    bool inlineWake = false, wakePrefixRemoved = false;
+    std::string commandText;
     actions::CandidateResult action;
     std::string route = "NOT_CALLED", error;
     CommandTimings llmTimings;

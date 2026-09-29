@@ -9,9 +9,10 @@ void require(bool ok, const char* message) { if (!ok) throw std::runtime_error(m
 struct Detector : SpeechDetector {
     int calls = 0, resets = 0;
     bool error = false;
-    Detection accept(const float*, int) override {
+    Detection accept(const float* pcm, int) override {
         ++calls;
         if (error) throw std::runtime_error("VAD failed");
+        if (pcm[0] == 0) return {};
         // Two boundaries in the same block must still admit exactly one session.
         return {false, {{0, 128}, {128, 256}}};
     }
@@ -39,7 +40,7 @@ struct Source : AudioSource {
 };
 void scenario(const std::string& outcome) {
     Source source; Wake wake; Detector detector; VoiceSegmenter segmenter(detector, {0,0,15000});
-    bool stopped = false, processing = false;
+    bool stopped = false, processing = false, checking = false;
     int admissions = 0, emitted = 0, waits = 0, acks = 0;
     std::atomic<int> calls{0};
     std::vector<std::string> states;
@@ -52,6 +53,7 @@ void scenario(const std::string& outcome) {
         if (waits >= 2 && read > 80) stopped = true;
         if (outcome == "timeout" && acks) now += std::chrono::seconds(2);
         if (outcome == "shutdown" && processing) stopped = true;
+        if (checking) return 0.0f;
         // A repeated wake while busy is discarded, never queued as another session.
         return (read == 20 && outcome != "no-wake") || processing ? 1.0f : 0.25f;
     };
@@ -65,6 +67,7 @@ void scenario(const std::string& outcome) {
         }, [&](const VoiceResult&) { ++emitted; },
         [&](const std::string& state) {
             states.push_back(state);
+            checking = state == "CHECKING_CONTINUATION";
             if (state == "WAKE_DETECTED") { ++acks; require(calls == 0, "Wake executed a command"); }
             if (state == "LISTENING_COMMAND") ++admissions;
             if (state == "WAITING_WAKE") { ++waits; processing = false; }
@@ -73,7 +76,7 @@ void scenario(const std::string& outcome) {
     require(states.back() == "stopped", "Shutdown missing");
     require(admissions == (outcome == "no-wake" ? 0 : 1), "Wake did not admit exactly one session");
     if (outcome == "no-wake" || outcome == "timeout") {
-        require(calls == 0 && detector.calls == 0 && emitted == 0, "Speech without admitted session processed");
+        require(calls == 0 && (outcome != "no-wake" || detector.calls == 0) && emitted == 0, "Speech without admitted session processed");
     } else if (outcome != "shutdown") {
         require(calls == 1 && emitted == 1 && waits == 2, "Command did not rearm or next speech processed");
     }
@@ -84,14 +87,14 @@ void failure(const std::string& kind) {
     wake.fail = kind == "wake"; wake.failReset = kind == "reset"; detector.error = kind == "vad";
     source.sample = [&](int read) {
         if (kind == "audio") throw std::runtime_error("capture failed");
-        if (read > 3) throw std::runtime_error("Failure test overrun");
+        if (read > 20) throw std::runtime_error("Failure test overrun");
         return 1.0f;
     };
     int processed = 0; std::string state; bool threw = false;
     try {
         runWakeVoiceLoop(source, wake, segmenter, {}, [&](const Utterance&) { ++processed; return VoiceResult{}; },
             [](const VoiceResult&) {}, [&](const std::string& s) { state = s; }, [] { return false; });
-    } catch (...) { threw = true; }
+    } catch (const std::exception& e) { threw = true; if (kind == "vad") require(std::string(e.what()) == "VAD failed", "VAD failure was not exercised"); }
     require(threw && state == "WAKE_UNAVAILABLE" && processed == 0, "Failure allowed ungated fallback");
 }
 void stalledAudio() {
@@ -110,9 +113,10 @@ void stalledAudio() {
 void joinedShutdown() {
     Source source; Wake wake; Detector detector; VoiceSegmenter segmenter(detector, {0,0,15000});
     std::atomic<bool> entered{false}, done{false}, stop{false};
+    bool armed = false;
     source.sample = [&](int read) {
         if (entered) stop = true;
-        return read == 1 ? 1.0f : 0.0f;
+        return read == 1 ? 1.0f : armed ? 0.25f : 0.0f;
     };
     runWakeVoiceLoop(source, wake, segmenter, {}, [&](const Utterance&) {
         entered = true;
@@ -120,7 +124,7 @@ void joinedShutdown() {
         done = true;
         return VoiceResult{};
     }, [](const VoiceResult&) { throw std::runtime_error("emit after shutdown"); },
-    [](const std::string&) {}, [&] { return stop.load(); });
+    [&](const std::string& s) { if (s == "LISTENING_COMMAND") armed = true; }, [&] { return stop.load(); });
     require(entered && done, "Processing worker not joined");
 }
 }

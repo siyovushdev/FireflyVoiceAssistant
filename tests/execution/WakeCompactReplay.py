@@ -13,6 +13,7 @@ build = root / 'build'
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('output', nargs='?', type=Path, default=build / 'wake-compact-replay.json')
 parser.add_argument('--original-dev', action='store_true', help='Run the existing eight-recording/Apply harness with explicit HTTP mock bindings')
+parser.add_argument('--inline-synthetic', action='store_true', help='Also exercise inline PCM admission, scripted wake-prefixed STT fixtures, real compact Qwen and HTTP mock')
 args = parser.parse_args()
 output = args.output
 with tempfile.TemporaryDirectory(prefix='firefly-wake-replay-') as directory:
@@ -45,10 +46,14 @@ with tempfile.TemporaryDirectory(prefix='firefly-wake-replay-') as directory:
                        '/home/firefly/demo_Linux_aarch64/Qwen3-4B_W8A8_RK3588_3core.rkllm', str(path)]
             if not args.original_dev:
                 command.append(str(output))
+                if args.inline_synthetic:
+                    command.append('--inline-synthetic')
             subprocess.run(command, check=True)
             log.flush(); log.seek(0)
             requests = [line for line in log.read().splitlines() if line.startswith('v1-mock-device: /brightness ')]
             expected = (None, 40, 50, 0, 40) if args.original_dev else (40, 100, 0)
+            if args.inline_synthetic and not args.original_dev:
+                expected += (40, 100, 0)
             assert len(requests) == len(expected), requests
             for value, line in zip(expected, requests):
                 assert ('{}' if value is None else f"'brightness': {value}") in line, line

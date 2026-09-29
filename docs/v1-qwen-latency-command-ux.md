@@ -139,7 +139,7 @@ python3 benchmarks/qwen-latency/report.py
 The benchmark's `baseline` adapter deliberately retains the old JSON/scoped path;
 it is not a product CLI mode. Use new output filenames to preserve recorded evidence.
 
-## Wake, beep and split timing
+## Wake, beep and split timing (original latency milestone)
 
 ```text
 WAITING_WAKE                  PCM -> unchanged Amina KWS
@@ -212,10 +212,11 @@ suite separately covers unmodified DEV recordings.
 
 Physical speaker audibility remains a human UX smoke check, not a blocker for
 automated open/write/drain/close verification. This milestone does not claim a new
-human microphone acceptance or change the previously accepted Amina model. Imperfect
-wake/command timing can still include a wake remainder or lose an early command
-prefix; wait for beep completion/listening arm. Continuous “Амина включи…” is not
-guaranteed. Long reverberation beyond the drain guard is an acoustic limitation.
+human microphone acceptance or change the previously accepted Amina model. At that
+checkpoint imperfect wake/command timing could include a wake remainder or lose an
+early command prefix, and continuous “Амина включи…” was not supported reliably.
+The seamless follow-up below addresses this with bounded history and scoped prefix
+removal; its remaining boundaries are documented separately. Long reverberation beyond the drain guard is an acoustic limitation.
 Existing synchronous vendor/STT hang limitations remain; no detached workers or
 unsafe always-listening fallback are introduced.
 
@@ -264,3 +265,36 @@ grounding rejection; STT/runtime failures still fail the test. The run had one
 
 SafetyGate, parser grammar, bindings/executor behavior, wake model/threshold/window/
 channel, STT/VAD models and settings, Qwen model and sampling remain unchanged.
+
+
+## Seamless invocation
+
+The follow-up to checkpoint `0c76e0ead1c29c0ff1edd845a48f133bcec6f3c0`
+supports “Амина” → pause → beep → command **and** “Амина, command…” → no beep.
+Qwen model, compact protocol, stable warmed context, Fast Path, GenericAction,
+SafetyGate, bindings and execution are unchanged; the benchmark numbers above
+remain the historical Qwen comparison, not new performance claims.
+
+One ALSA capture adds a bounded 3 s mono ASR ring. After KWS detection a 256 ms
+continuation grace and paired probes of the existing Silero VAD distinguish new
+speech from its residual state. A joined probe worker exclusively owns VAD while
+the one capture loop buffers up to 1 s of post-detection PCM; overflow fails
+closed. Only the inline path re-feeds real buffered PCM,
+including command audio preceding detection, to fresh authoritative segmentation.
+Probe-only virtual silence is discarded. Only a leading exact `амина`/confirmed
+`афина` in this KWS-admitted inline transcript is removed before CommandEngine;
+raw STT remains observable. No transcript normalization runs for text/Admin or
+separated commands. Full [state/boundary details](v1-amina-wake.md#seamless-invocation)
+and [measured overhead/validation](../benchmarks/seamless-wake/results.md).
+
+The separated defaults remain 100 ms native beep + 250 ms drain, 5000 ms speech
+start wait (+ bounded 288 ms VAD confirmation allowance), then ordinary endpoint
+and the separate 15000 ms speech bound. The deprecated explicit total timeout
+retains its cap after admission. Inline has no beep or start wait; it uses the
+same max-speech guard and 17000 ms capture watchdog. No new UI/config sensitivity
+control was introduced. Existing STT timing/acoustic limitations remain at pauses,
+unknown wake-prefix spellings and the finite history boundary.
+
+Live helper `./scripts/v1-wake-live.sh` prints both path checks and records
+`CONTINUATION_INLINE` / `CONTINUATION_SEPARATED`, `inline`, `wake_prefix_removed`,
+STT and command timing. Human live testing was not run for this follow-up.

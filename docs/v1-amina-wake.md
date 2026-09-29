@@ -5,6 +5,7 @@ and the production voice / HTTP mock logs below. The subsequent
 [Qwen latency / command-session UX milestone](v1-qwen-latency-command-ux.md)
 adds native beep acknowledgement and split speech-start/capture timing. Its
 acceptance is automated replay; the historical human pass below predates beep.
+The subsequent seamless invocation change is also verified automatically, not a new human live acceptance.
 
 Production entry point: `firefly-demo --voice`. Wake gating is enabled by default.
 The legacy `firefly-assistant --voice` diagnostic CLI remains an ungated, non-hardware
@@ -15,10 +16,12 @@ requests are explicit user operations and are not microphone wake sessions.
 
 ```text
 one native ALSA capture (XVF3800, stereo S16_LE, 16000 Hz, channel index 1)
-    WAITING_WAKE -> PCM-only Amina worker
-    WAKE_DETECTED -> ACKNOWLEDGING_WAKE -> native ALSA beep (PCM drain/discard)
-    250 ms input drain -> LISTENING_COMMAND (fresh VAD/history; wait for speech)
-    CAPTURING_COMMAND -> existing SherpaVad / VoiceSegmenter until endpoint
+    WAITING_WAKE -> PCM-only Amina worker + bounded 3 s ASR PCM ring
+    WAKE_DETECTED -> CHECKING_CONTINUATION (256 ms real PCM)
+        continuation -> CAPTURING_INLINE_COMMAND (no beep; replay ring + grace)
+        pause -> ACKNOWLEDGING_WAKE -> native ALSA beep (PCM drain/discard)
+            250 ms drain -> LISTENING_COMMAND (fresh VAD/history; ~5 s start wait)
+            CAPTURING_COMMAND -> existing VAD endpoint
     PROCESSING -> existing SherpaRecognizer -> RuntimeWorker::processVoice
         -> CommandEngine -> SafetyGate / ActionValidator -> GenericAction
         -> BindingResolver -> HttpHardwareExecutor -> Predicted state
@@ -28,13 +31,16 @@ one native ALSA capture (XVF3800, stereo S16_LE, 16000 Hz, channel index 1)
 C++ owns ALSA for the entire lifetime and explicitly starts the nonblocking PCM
 stream (configuration alone can leave USB capture in PREPARED). KWS has no audio device, VAD, STT, LLM,
 command or execution APIs. One bounded PCM request/response is in flight over a
-local socket. No second `arecord`/ALSA consumer, no audio queue, no speech backlog.
-In WAITING_WAKE only KWS processes audio; the initialized VAD/STT/LLM remain idle.
-During PROCESSING capture drains/discards PCM; KWS and VAD are idle. All PCM before
-the wake detection block, including that block, is excluded from the command.
+local socket. No second `arecord`/ALSA consumer and no queued command requests;
+only the bounded admission PCM history described below.
+In WAITING_WAKE only KWS performs inference; copying into the fixed PCM ring is
+not a second capture or speech pipeline. Initialized VAD/STT/LLM remain idle.
+During PROCESSING capture drains/discards PCM; KWS and VAD are idle. Inline capture
+replays pre-detection audio; separated capture excludes all wake/probe/playback PCM.
 
-One wake admits the first complete utterance only, even if VAD returns multiple
-boundaries. Success, empty/unsupported STT, STT error and oversized speech return
+One wake admits one command utterance only. Inline replay ignores completed
+boundaries ending before the detection position, then accepts the first eligible
+utterance; earlier speech never becomes a queued command. Success, empty/unsupported STT, STT error and oversized speech return
 to WAITING_WAKE. The default 5000 ms deadline waits for speech **start** only;
 Silero's unchanged 250 ms confirmation delay gets a bounded 288 ms allowance.
 After speech is confirmed, this start deadline is disabled. Existing VAD endpoint
@@ -58,18 +64,72 @@ Frontend pending samples, feature frames and smoothing history are bounded.
 Acknowledgement is a native nonblocking 100 ms, 880 Hz beep, with 10 ms fades
 and moderate PCM amplitude. Default output is `plughw:CARD=rockchipes8388,DEV=0`.
 One capture owner drains/discards PCM during playback and for 250 ms afterwards;
-only then is fresh command VAD armed. Say “Амина”, hear the beep, then speak.
+only then is fresh command VAD armed. This beep path is used only after a pause;
+continuous invocation never starts playback.
 There is no per-wake shell/process or playback worker. Playback failure is logged
 and exposed separately in health; a healthy microphone/VAD/STT may continue the
 already wake-admitted session.
 
-**Known limitation V1 — command timing:** command STT can sometimes capture a
-remaining part of the wake phrase or lose the beginning of the command when the
-pause/timing is imperfect. The accepted live run includes `афина включи свет на
-кухне` and a truncated `свет на кухне`. Wait for LISTENING_COMMAND before speaking
-the command. Seamless continuous “Амина включи…” is not guaranteed; no transcript
-correction or wake/STT model tuning is introduced. Beep separates the two phases,
-but does not guarantee continuous wake-plus-command speech.
+## Seamless invocation
+
+Both flows are supported:
+
+- “Амина” → pause → beep → command (start within about five seconds).
+- “Амина, включи свет на кухне” → continuous speech → **no beep** → command.
+
+The ring holds exactly 48,000 mono float samples (3 seconds at 16 kHz, 192,000
+bytes). It includes the wake detection frame: a command beginning 200–300 ms
+before KWS reports its detection is preserved. Another 4,096 samples (256 ms)
+form the continuation grace. While its probe computes, capture keeps collecting
+real PCM in the same bounded post-wake buffer (at most 16,000 samples / 1 s total).
+Exceeding that limit fails the wake path closed; there is no unbounded backlog.
+History is cleared on rearm and separated admission; nothing is persisted or queued across sessions.
+
+Continuation uses the **same unchanged Silero instance/model/configuration**.
+After the grace, two bounded, accelerated VAD probes compare the same ring history:
+one with actual post-detection PCM, one with that interval replaced by silence.
+Each probe appends 1,280 ms of virtual zeros to obtain an endpoint. A fresh Silero
+probe using only 256–320 ms missed recorded speech; simply checking `active` also
+mistook recurrent/endpoint hangover for continuation. The control comparison
+avoids both problems. Inline requires the observed speech end to extend at least
+128 ms beyond both detection and the control endpoint. This is a fixed internal
+boundary decision, not wake sensitivity tuning. No new model is created. A
+short-lived joined probe worker exclusively owns the existing VAD while the main
+thread continues reading the single ALSA capture. The main thread resumes VAD
+only after `future.get()`; STT processing cannot overlap that ownership. Shutdown
+and errors join the probe as well as the existing command worker.
+
+After the decision VAD resets. Inline re-feeds **only real** ring + grace + PCM collected during probing, then
+continues live PCM until the ordinary VAD endpoint/post-roll. Virtual probe zeros
+never reach STT. Separated admission discards that history, plays the existing
+native beep, drains 250 ms, and starts fresh VAD. The 5 s start timeout applies only
+to this separated path; existing max-utterance and processing limits remain.
+
+Only KWS-admitted inline `Utterance` carries `inlineWake=true`. After real STT,
+`VoiceProcessor` removes exactly one leading whole-token invocation: `амина` or
+`афина` (the latter is confirmed by the historical live transcript below), with
+lowercase, title case or uppercase spelling. ASCII whitespace and punctuation
+`, : ! . ? ;` may separate it from the command. Empty/unknown/fused prefixes reject
+before CommandEngine. No fuzzy matching, internal-word deletion, Qwen rewriting,
+text/Admin normalization or separated-transcript correction occurs. Raw STT text
+is retained alongside `command_text` and `wake_prefix_removed`. The command still
+passes the existing grounding → GenericAction → SafetyGate → binding → executor.
+
+Diagnostics contain monotonic timestamps for `WAKE_DETECTED`,
+`CHECKING_CONTINUATION`, `CONTINUATION_INLINE inline=true` or
+`CONTINUATION_SEPARATED inline=false`, optional beep start/end, `SPEECH_START`,
+capture and endpoint, plus STT/processing timings and prefix removal in `VOICE`. `SPEECH_START` timestamps
+confirmation/recovery, not the earlier physical onset of buffered speech.
+
+**Known boundaries:** a pause during the decision window can select separated
+admission; wait for its beep before starting. A wake prefix outside the 3 s ring,
+a different STT spelling, a clipped/empty prefix, or preceding words in the same
+utterance safely rejects. The historical imperfect-timing failures (`афина …`,
+truncated `свет на кухне`) remain acoustic regression evidence, not a claim that
+all timing or recognition errors are eliminated. Strong noise/reverberation can
+still affect the unchanged VAD/STT. Automated replay verifies PCM boundaries and
+both paths; physical continuous Amina recognition/audibility still needs the
+prepared human smoke check. See [measurements and validation](../benchmarks/seamless-wake/results.md).
 
 ## Artifact and runtime packaging
 

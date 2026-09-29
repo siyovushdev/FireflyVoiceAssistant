@@ -17,7 +17,7 @@ struct Detector : SpeechDetector {
     int startConfirmationMs() const override { return delayed ? 288 : 0; }
     int samples = 0, start = -1, end = 0, calls = 0;
     Detection accept(const float* data, int n) override {
-        ++calls; require(data[0] != .9f && data[0] != 1, "Beep/wake PCM entered command VAD");
+        ++calls; require(data[0] != .9f, "Beep PCM entered VAD");
         const auto previous = samples; samples += n;
         if (data[0] == .3f) { if (start < 0) start = previous; end = samples; return {!delayed || samples - start >= 4000,{}}; }
         if (start >= 0) { const auto begin = start; start = -1; return {false,{{begin,end}}}; }
@@ -79,7 +79,7 @@ void scenario(const std::string& mode) {
             if (state == "WAITING_WAKE") ++waits;
             if (state == "LISTENING_COMMAND") {
                 armed = time;
-                require(ack.polls == 4 && detector.calls == 0, "VAD armed before beep completion/drain");
+                require(ack.polls == 4 && detector.samples == 0, "VAD armed before beep completion/drain");
                 require(time >= Clock::time_point{} + std::chrono::milliseconds(400), "Drain missing");
             }
             if (state == "CAPTURING_COMMAND") captured = time;

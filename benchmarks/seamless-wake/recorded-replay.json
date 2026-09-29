@@ -1,0 +1,182 @@
+{
+  "cases": [
+    {
+      "beeps": 0,
+      "events": [
+        {
+          "ms": 0,
+          "state": "WAITING_WAKE"
+        },
+        {
+          "ms": 2976,
+          "state": "WAKE_DETECTED"
+        },
+        {
+          "ms": 2976,
+          "state": "CHECKING_CONTINUATION"
+        },
+        {
+          "ms": 3328,
+          "state": "CONTINUATION_INLINE"
+        },
+        {
+          "ms": 3328,
+          "state": "SPEECH_START"
+        },
+        {
+          "ms": 3328,
+          "state": "CAPTURING_INLINE_COMMAND"
+        },
+        {
+          "ms": 5280,
+          "state": "SPEECH_END"
+        },
+        {
+          "ms": 5280,
+          "state": "PROCESSING"
+        },
+        {
+          "ms": 5440,
+          "state": "WAITING_WAKE"
+        },
+        {
+          "ms": 5472,
+          "state": "stopping"
+        },
+        {
+          "ms": 5472,
+          "state": "stopped"
+        }
+      ],
+      "expected": "на кухне поставь свет на сорок процентов",
+      "file": "06_kitchen_40.wav",
+      "max_capture_read_gap_ms": 68.293136,
+      "observed": "на кухне поставь свет на сорок процентов",
+      "paced_detection_to_decision_wall_ms": 351.436677,
+      "pre_detection_speech_ms": 256,
+      "prefix_rejected": true,
+      "stt_ms": 136.267764,
+      "wake_ring_history_ms": 2976,
+      "warm_models_to_capture_added_rss_kib": 1788
+    },
+    {
+      "beeps": 0,
+      "events": [
+        {
+          "ms": 0,
+          "state": "WAITING_WAKE"
+        },
+        {
+          "ms": 2976,
+          "state": "WAKE_DETECTED"
+        },
+        {
+          "ms": 2976,
+          "state": "CHECKING_CONTINUATION"
+        },
+        {
+          "ms": 3328,
+          "state": "CONTINUATION_INLINE"
+        },
+        {
+          "ms": 3328,
+          "state": "SPEECH_START"
+        },
+        {
+          "ms": 3328,
+          "state": "CAPTURING_INLINE_COMMAND"
+        },
+        {
+          "ms": 3904,
+          "state": "SPEECH_END"
+        },
+        {
+          "ms": 3904,
+          "state": "PROCESSING"
+        },
+        {
+          "ms": 4032,
+          "state": "WAITING_WAKE"
+        },
+        {
+          "ms": 4064,
+          "state": "stopping"
+        },
+        {
+          "ms": 4064,
+          "state": "stopped"
+        }
+      ],
+      "expected": "включи свет",
+      "file": "04_light_on.wav",
+      "max_capture_read_gap_ms": 77.381159,
+      "observed": "включи свет",
+      "paced_detection_to_decision_wall_ms": 349.00375,
+      "pre_detection_speech_ms": 256,
+      "prefix_rejected": true,
+      "stt_ms": 74.464278,
+      "wake_ring_history_ms": 2976,
+      "warm_models_to_capture_added_rss_kib": 32
+    },
+    {
+      "beeps": 0,
+      "events": [
+        {
+          "ms": 0,
+          "state": "WAITING_WAKE"
+        },
+        {
+          "ms": 2976,
+          "state": "WAKE_DETECTED"
+        },
+        {
+          "ms": 2976,
+          "state": "CHECKING_CONTINUATION"
+        },
+        {
+          "ms": 3328,
+          "state": "CONTINUATION_INLINE"
+        },
+        {
+          "ms": 3328,
+          "state": "SPEECH_START"
+        },
+        {
+          "ms": 3328,
+          "state": "CAPTURING_INLINE_COMMAND"
+        },
+        {
+          "ms": 4128,
+          "state": "SPEECH_END"
+        },
+        {
+          "ms": 4128,
+          "state": "PROCESSING"
+        },
+        {
+          "ms": 4256,
+          "state": "WAITING_WAKE"
+        },
+        {
+          "ms": 4288,
+          "state": "stopping"
+        },
+        {
+          "ms": 4288,
+          "state": "stopped"
+        }
+      ],
+      "expected": "выключи свет",
+      "file": "05_light_off.wav",
+      "max_capture_read_gap_ms": 66.432976,
+      "observed": "выключи свет",
+      "paced_detection_to_decision_wall_ms": 350.434809,
+      "pre_detection_speech_ms": 256,
+      "prefix_rejected": true,
+      "stt_ms": 95.956715,
+      "wake_ring_history_ms": 2976,
+      "warm_models_to_capture_added_rss_kib": 104
+    }
+  ],
+  "kind": "recorded DEV command PCM; fake KWS admission; real VAD/STT; no recorded Amina prefix available"
+}

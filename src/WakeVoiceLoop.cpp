@@ -1,5 +1,6 @@
 #include "firefly/voice/WakeVoiceLoop.h"
 #include <array>
+#include "firefly/voice/WakePcmRing.h"
 #include <future>
 #include <stdexcept>
 namespace firefly::voice {
@@ -28,15 +29,24 @@ void runWakeVoiceLoop(AudioSource& capture, WakeDetector& wake, VoiceSegmenter& 
         WakeAcknowledgement* output;
         ~Cleanup() { if (output) output->cancel(); }
     } cleanup{acknowledgement};
-    enum class Phase { WaitingWake, Acknowledging, Draining, WaitingSpeech, Capturing, Processing };
+    enum class Phase { WaitingWake, CheckingContinuation, DecidingContinuation, Acknowledging, Draining, WaitingSpeech, Capturing, CapturingInline, Processing };
     Phase phase = Phase::WaitingWake;
     std::future<VoiceResult> worker;
+    std::future<bool> continuationWorker;
     std::array<float, FrameSamples> frame{};
     int filled = 0;
+    WakePcmRing ring;
+    std::vector<float> continuation;
+    constexpr int GraceSamples = SampleRate * 256 / 1000;
+    // Capture continues while the exclusive VAD probe runs. Bound even a slow
+    // backend to one second of post-detection PCM; failure never opens gating.
+    constexpr int MaxContinuationSamples = SampleRate;
+    continuation.reserve(MaxContinuationSamples);
+    int64_t wakeOffset = 0;
     auto deadline = now(), legacyDeadline = now(), captureDeadline = now();
     auto lastAudio = now();
     auto rearm = [&] {
-        wake.reset(); segmenter.startSession(); filled = 0;
+        wake.reset(); segmenter.startSession(); filled = 0; ring.clear(); continuation.clear();
         phase = Phase::WaitingWake; state("WAITING_WAKE");
     };
     auto arm = [&] {
@@ -46,9 +56,59 @@ void runWakeVoiceLoop(AudioSource& capture, WakeDetector& wake, VoiceSegmenter& 
         legacyDeadline = now() + config.commandTimeout;
         phase = Phase::WaitingSpeech; state("LISTENING_COMMAND");
     };
+    auto submit = [&](Utterance utterance, bool inlineWake) {
+        utterance.inlineWake = inlineWake;
+        if (!utterance.error.empty()) {
+            state("COMMAND_MAX_DURATION");
+            VoiceResult rejected; rejected.inlineWake = inlineWake; rejected.error = utterance.error; emit(rejected); rearm();
+        } else {
+            state("SPEECH_END"); phase = Phase::Processing; state("PROCESSING");
+            if (!stopped()) worker = std::async(std::launch::async,
+                [&process, u = std::move(utterance)] { return process(u); });
+        }
+    };
+    auto finishContinuation = [&](bool inlineWake) {
+        state(inlineWake ? "CONTINUATION_INLINE" : "CONTINUATION_SEPARATED");
+        if (stopped()) return;
+        if (inlineWake) {
+            auto buffered = ring.snapshot();
+            buffered.insert(buffered.end(), continuation.begin(), continuation.end());
+            ring.clear(); continuation.clear(); segmenter.startSession();
+            phase = Phase::CapturingInline; state("SPEECH_START"); state("CAPTURING_INLINE_COMMAND");
+            captureDeadline = now() + std::chrono::milliseconds(segmenter.maxSpeechMs() + 2000);
+            legacyDeadline = now() + config.commandTimeout;
+            // One authoritative utterance. Earlier completed speech in the
+            // ring is never queued or dispatched as a command.
+            for (size_t offset = 0; offset < buffered.size() && !stopped(); offset += FrameSamples) {
+                auto ready = segmenter.accept(buffered.data() + offset,
+                    std::min<size_t>(FrameSamples, buffered.size() - offset));
+                for (auto& u : ready) {
+                    if (!u.error.empty() || u.speech.end >= wakeOffset) {
+                        submit(std::move(u), true); break;
+                    }
+                }
+                if (phase != Phase::CapturingInline) break;
+            }
+        } else {
+            ring.clear(); continuation.clear(); segmenter.startSession();
+            state("ACKNOWLEDGING_WAKE");
+            if (acknowledgement) {
+                phase = Phase::Acknowledging;
+                deadline = now() + std::chrono::seconds(1);
+                state("BEEP_START"); acknowledgement->start();
+            } else arm();
+        }
+    };
     try {
         rearm();
         while (!stopped()) {
+            // At most one VAD owner: capture never touches it until get() joins
+            // the probe. A 1 ms bounded wait avoids spinning on synthetic sources.
+            if (continuationWorker.valid() &&
+                continuationWorker.wait_for(std::chrono::milliseconds(1)) == std::future_status::ready) {
+                finishContinuation(continuationWorker.get());
+                if (stopped()) break;
+            }
             if (worker.valid() && worker.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
                 auto result = worker.get();
                 if (stopped()) break;
@@ -79,24 +139,35 @@ void runWakeVoiceLoop(AudioSource& capture, WakeDetector& wake, VoiceSegmenter& 
                 continue;
             }
             if (phase == Phase::WaitingWake) {
+                ring.append(frame.data(), FrameSamples);
                 if (wake.accept(frame.data(), FrameSamples)) {
                     state("WAKE_DETECTED");
-                    state("ACKNOWLEDGING_WAKE");
-                    if (acknowledgement) {
-                        phase = Phase::Acknowledging;
-                        deadline = now() + std::chrono::seconds(1);
-                        state("BEEP_START");
-                        acknowledgement->start();
-                    } else arm(); // Injectable silent acknowledgement for non-playback callers.
+                    wakeOffset = static_cast<int64_t>(ring.size());
+                    segmenter.startSession(); continuation.clear();
+                    phase = Phase::CheckingContinuation; state("CHECKING_CONTINUATION");
                 }
-            } else if (phase == Phase::WaitingSpeech || phase == Phase::Capturing) {
+            } else if (phase == Phase::CheckingContinuation) {
+                continuation.insert(continuation.end(), frame.begin(), frame.end());
+                if (continuation.size() < GraceSamples) continue;
+                auto buffered = ring.snapshot();
+                buffered.insert(buffered.end(), continuation.begin(), continuation.end());
+                phase = Phase::DecidingContinuation;
+                continuationWorker = std::async(std::launch::async,
+                    [&segmenter, pcm = std::move(buffered), offset = wakeOffset] {
+                        return segmenter.continuesAfterWake(pcm, offset);
+                    });
+            } else if (phase == Phase::DecidingContinuation) {
+                if (continuation.size() + FrameSamples > MaxContinuationSamples)
+                    throw std::runtime_error("Continuation probe exceeded bounded audio history");
+                continuation.insert(continuation.end(), frame.begin(), frame.end());
+            } else if (phase == Phase::WaitingSpeech || phase == Phase::Capturing || phase == Phase::CapturingInline) {
                 if (config.commandTimeout.count() && now() >= legacyDeadline) {
                     state("COMMAND_TIMEOUT"); rearm(); continue;
                 }
                 if (phase == Phase::WaitingSpeech && now() >= deadline) {
                     state("COMMAND_START_TIMEOUT"); rearm(); continue;
                 }
-                if (phase == Phase::Capturing && now() >= captureDeadline) {
+                if (phase != Phase::WaitingSpeech && now() >= captureDeadline) {
                     state("COMMAND_MAX_DURATION"); rearm(); continue;
                 }
                 auto utterances = segmenter.accept(frame.data(), FrameSamples);
@@ -105,28 +176,25 @@ void runWakeVoiceLoop(AudioSource& capture, WakeDetector& wake, VoiceSegmenter& 
                     // Independent hard bound includes endpoint/post-roll. The segmenter
                     // additionally enforces the exact configured maximum speech length.
                     captureDeadline = now() + std::chrono::milliseconds(segmenter.maxSpeechMs() + 2000);
-                    state("CAPTURING_COMMAND");
+                    state("SPEECH_START"); state("CAPTURING_COMMAND");
                 }
                 if (utterances.empty()) continue;
-                auto utterance = std::move(utterances.front());
-                if (!utterance.error.empty()) {
-                    state("COMMAND_MAX_DURATION");
-                    VoiceResult rejected; rejected.error = utterance.error; emit(rejected); rearm();
-                } else {
-                    state("SPEECH_END"); phase = Phase::Processing; state("PROCESSING");
-                    if (stopped()) break;
-                    worker = std::async(std::launch::async, [&process, u = std::move(utterance)] { return process(u); });
+                for (auto& utterance : utterances) {
+                    if (phase == Phase::CapturingInline && utterance.error.empty() && utterance.speech.end < wakeOffset) continue;
+                    submit(std::move(utterance), phase == Phase::CapturingInline); break;
                 }
             }
         }
         if (acknowledgement) acknowledgement->cancel();
         state("stopping");
+        if (continuationWorker.valid()) continuationWorker.get();
         if (worker.valid()) worker.get();
         state("stopped");
     } catch (...) {
         // Future destruction also joins on exception. Never resume ungated capture.
         if (acknowledgement) acknowledgement->cancel();
         state("WAKE_UNAVAILABLE");
+        if (continuationWorker.valid()) continuationWorker.wait();
         if (worker.valid()) worker.wait();
         throw;
     }

@@ -259,7 +259,8 @@ voice::VoiceResult RuntimeWorker::processVoice(voice::SpeechRecognizer& recogniz
         result.processingMs = elapsedMs(); // Includes serialized admission wait, STT and execution.
         { std::lock_guard<std::mutex> lock(diagnostics_);
           lastVoice_ = Json{{"audio_detected",true},{"duration_seconds",result.durationSeconds},
-              {"processing_ms",result.processingMs},{"speech_seconds",result.speechSeconds},{"stt_ms",result.recognition.latencyMs},{"transcript",result.recognition.text},
+              {"processing_ms",result.processingMs},{"speech_seconds",result.speechSeconds},{"stt_ms",result.recognition.latencyMs},{"transcript",result.recognition.text},{"inline",result.inlineWake},
+              {"wake_prefix_removed",result.wakePrefixRemoved},{"command_text",result.commandText},
               {"error",result.error},{"command",voiceCommand.empty()?Json(nullptr):Json::parse(voiceCommand)}}.dump(); }
         if (!result.error.empty()) remember(Json{{"input",result.recognition.text},{"error",result.error},{"result",{{"unsupported",true}}},
             {"generation_id",request->generation()->id},{"execution",nullptr}}.dump());

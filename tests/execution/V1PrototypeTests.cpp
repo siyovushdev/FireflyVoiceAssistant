@@ -225,16 +225,16 @@ int main(int argc, char** argv) {
                     void reset() override {}
                 } wake;
                 struct Vad : voice::SpeechDetector {
-                    voice::Detection accept(const float*, int) override { return {false, {{0, 256}}}; }
+                    voice::Detection accept(const float* pcm, int) override { return pcm[0] == 0 ? voice::Detection{} : voice::Detection{false, {{0, 256}}}; }
                     void reset() override {}
                 } vad;
                 struct Source : voice::AudioSource {
-                    int reads = 0, after = 0; bool completed = false, stopped = false;
+                    int reads = 0, after = 0; bool completed = false, stopped = false, checking = false;
                     int read(float* pcm, int count) override {
                         ++reads;
                         if (completed && ++after == 30) stopped = true;
                         if (reads > 1000000) throw std::runtime_error("Wake pipeline test stalled");
-                        std::fill(pcm, pcm + count, reads == 10 ? 1.0f : 0.1f);
+                        std::fill(pcm, pcm + count, reads == 10 ? 1.0f : checking ? 0.0f : 0.1f);
                         std::this_thread::yield();
                         return count;
                     }
@@ -249,6 +249,7 @@ int main(int argc, char** argv) {
                             check(std::holds_alternative<actions::Unsupported>(result.action), "unknown remains unsupported");
                         else check(std::holds_alternative<actions::GenericAction>(result.action), "wake command lost GenericAction");
                     }, [&](const std::string& state) {
+                        source.checking = state == "CHECKING_CONTINUATION";
                         if (state == "LISTENING_COMMAND") ++sessions;
                         if (state == "WAITING_WAKE" && ++waits == 2) source.completed = true;
                     }, [&] { return source.stopped; });

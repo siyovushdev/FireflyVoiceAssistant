@@ -1,0 +1,11 @@
+{
+  "baseline_commit": "0c76e0ead1c29c0ff1edd845a48f133bcec6f3c0",
+  "inputs": {
+    "assets/wake/amina-v3.tflite": "bc42cb869d2aace69c5bdf9333c502b96dedfa85df97676be85f5c289dc057d1",
+    "build/stt/vad-ab/silero_vad.onnx": "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6",
+    "build/stt/eval/06_kitchen_40.wav": "805fa31d31335406467973bd5f714fbf2d75e1b86479ffa49d12abe4bd545668",
+    "build/stt/eval/04_light_on.wav": "701efd0f5eed48e6ec569ef623b12b21868d9ad4cc25c00595c79ee9583007f8",
+    "build/stt/eval/05_light_off.wav": "0fa73744e82c7dd7a0aa692e1527c47e674a314bb5b1331cd8a8646e29af0031",
+    "build/stt/eval/02_open_door.wav": "45abca851424a5495bdfe0dd6012f483254e91b442e5a29f775475d62c50313e"
+  }
+}
