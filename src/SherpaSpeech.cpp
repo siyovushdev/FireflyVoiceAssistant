@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cmath>
 #include <filesystem>
+#include "firefly/voice/PcmAudio.h"
 #include <stdexcept>
 namespace firefly::voice {
 namespace {
@@ -42,10 +43,13 @@ Detection SherpaVad::accept(const float* p, int n) {
 }
 void SherpaVad::reset() { SherpaOnnxVoiceActivityDetectorReset(impl_->handle); }
 struct SherpaRecognizer::Impl {
+    std::size_t maximumSamples = 17 * SampleRate;
     const SherpaOnnxOfflineRecognizer* handle = nullptr;
     ~Impl() { if (handle) SherpaOnnxDestroyOfflineRecognizer(handle); }
 };
-SherpaRecognizer::SherpaRecognizer(const std::string& directory) : impl_(std::make_unique<Impl>()) {
+SherpaRecognizer::SherpaRecognizer(const std::string& directory, RecognitionProfile profile) : impl_(std::make_unique<Impl>()) {
+    if(profile!=RecognitionProfile::Command && profile!=RecognitionProfile::AdminSetup)throw std::invalid_argument("Invalid recognition profile");
+    impl_->maximumSamples=(profile==RecognitionProfile::AdminSetup?60:17)*SampleRate;
     const std::string encoder = directory + "/encoder.int8.onnx", decoder = directory + "/decoder.onnx",
                       joiner = directory + "/joiner.int8.onnx", tokens = directory + "/tokens.txt";
     for (const auto& p : {encoder, decoder, joiner, tokens}) checkFile(p);
@@ -63,17 +67,27 @@ RecognitionResult SherpaRecognizer::recognize(const std::vector<float>& audio) {
     const auto start = std::chrono::steady_clock::now();
     RecognitionResult r;
     try {
-        if (audio.empty() || audio.size() > 17 * SampleRate) throw std::runtime_error("Invalid STT audio length");
+        if (audio.empty() || audio.size() > impl_->maximumSamples) throw std::runtime_error("Invalid STT audio length");
         for (float sample : audio)
             if (!std::isfinite(sample) || sample < -1 || sample > 1) throw std::runtime_error("Invalid PCM sample");
-        auto stream = own(SherpaOnnxCreateOfflineStream(impl_->handle), SherpaOnnxDestroyOfflineStream);
-        SherpaOnnxAcceptWaveformOffline(stream.get(), SampleRate, audio.data(), audio.size());
-        // Match sherpa-onnx-offline: its DecodeStreams path with a batch of one.
-        const auto* ptr = stream.get();
-        SherpaOnnxDecodeMultipleOfflineStreams(impl_->handle, &ptr, 1);
-        auto result = own(SherpaOnnxGetOfflineStreamResult(stream.get()), SherpaOnnxDestroyOfflineRecognizerResult);
-        if (!result->text) throw std::runtime_error("STT returned no text");
-        r.text = result->text; r.success = true;
+        // This export cannot encode an entire 60-second recording at once.
+        // Keep the domestic <=17-second path unchanged. Longer Admin recordings
+        // use sequential bounded streams, preferring a quiet boundary near the
+        // end of each chunk. Every sample is consumed exactly once; no overlap
+        // transcript repair or automatic submission of the editable text.
+        for (const auto& segment : adminRecordingSegments(audio)) {
+            const auto offset = static_cast<std::size_t>(segment.start);
+            const auto end = static_cast<std::size_t>(segment.end);
+            auto stream = own(SherpaOnnxCreateOfflineStream(impl_->handle), SherpaOnnxDestroyOfflineStream);
+            SherpaOnnxAcceptWaveformOffline(stream.get(), SampleRate, audio.data() + offset, end - offset);
+            const auto* ptr = stream.get();
+            SherpaOnnxDecodeMultipleOfflineStreams(impl_->handle, &ptr, 1);
+            auto result = own(SherpaOnnxGetOfflineStreamResult(stream.get()), SherpaOnnxDestroyOfflineRecognizerResult);
+            if (!result->text) throw std::runtime_error("STT returned no text");
+            if (!r.text.empty() && *result->text) r.text += ' ';
+            r.text += result->text;
+        }
+        r.success = true;
     } catch (const std::exception& e) { r.text.clear(); r.error = e.what(); }
     r.latencyMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
     return r;

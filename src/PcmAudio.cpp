@@ -1,4 +1,5 @@
 #include "firefly/voice/PcmAudio.h"
+#include <limits>
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -33,8 +34,9 @@ std::vector<float> resampleLinear(const std::vector<float>& input, int fromRate,
 }
 }
 
-DecodedPcm decodeWavToSttPcm(std::string_view bytes) {
-    if (bytes.empty() || bytes.size() > MaxWavBytes)
+DecodedPcm decodeWavToSttPcm(std::string_view bytes, int maximumSeconds) {
+    if (maximumSeconds != 15 && maximumSeconds != 60) throw std::invalid_argument("Invalid audio profile");
+    if (bytes.empty() || bytes.size() > static_cast<std::size_t>(maximumSeconds)*48000*2+256)
         throw std::invalid_argument("WAV body empty or exceeds Admin Copilot upload limit");
     if (bytes.size() < 44) throw std::invalid_argument("WAV too small");
     const auto* data = reinterpret_cast<const unsigned char*>(bytes.data());
@@ -77,8 +79,8 @@ DecodedPcm decodeWavToSttPcm(std::string_view bytes) {
 
     const auto frames = pcmBytes / 2;
     const double durationMs = double(frames) * 1000.0 / sampleRate;
-    if (durationMs > MaxUtteranceSeconds * 1000.0 + 0.5)
-        throw std::invalid_argument("Recording exceeds 15 second Admin Copilot limit");
+    if (durationMs > maximumSeconds * 1000.0 + 0.5)
+        throw std::invalid_argument("Recording exceeds " + std::to_string(maximumSeconds) + " second Admin recording limit");
 
     std::vector<float> mono;
     mono.reserve(frames);
@@ -88,7 +90,7 @@ DecodedPcm decodeWavToSttPcm(std::string_view bytes) {
     }
     auto stt = resampleLinear(mono, static_cast<int>(sampleRate), SampleRate);
     if (stt.empty()) throw std::invalid_argument("Decoded audio is empty");
-    if (stt.size() > std::size_t(MaxUtteranceSeconds) * SampleRate)
+    if (stt.size() > std::size_t(maximumSeconds) * SampleRate)
         throw std::invalid_argument("Resampled audio exceeds STT utterance bound");
     for (float sample : stt)
         if (!std::isfinite(sample)) throw std::invalid_argument("Non-finite PCM sample");
@@ -99,4 +101,32 @@ DecodedPcm decodeWavToSttPcm(std::string_view bytes) {
     decoded.durationMs = durationMs;
     return decoded;
 }
+std::vector<SpeechBoundary> adminRecordingSegments(const std::vector<float>& samples) {
+    if (samples.empty() || samples.size() > 60 * SampleRate)
+        throw std::invalid_argument("Invalid Admin recording duration");
+    std::vector<SpeechBoundary> segments;
+    std::size_t offset = 0;
+    while (offset < samples.size()) {
+        std::size_t end = samples.size();
+        if (end - offset > 17 * SampleRate) {
+            end = offset + 15 * SampleRate;
+            double lowestEnergy = std::numeric_limits<double>::max();
+            constexpr std::size_t window = SampleRate / 20;
+            for (std::size_t candidate = offset + 12 * SampleRate;
+                 candidate + window <= offset + 15 * SampleRate; candidate += window) {
+                double energy = 0;
+                for (std::size_t i = candidate; i < candidate + window; ++i)
+                    energy += samples[i] * samples[i];
+                if (energy < lowestEnergy) {
+                    lowestEnergy = energy;
+                    end = candidate + window / 2;
+                }
+            }
+        }
+        segments.push_back({static_cast<int64_t>(offset), static_cast<int64_t>(end)});
+        offset = end;
+    }
+    return segments;
+}
+
 }

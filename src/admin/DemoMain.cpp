@@ -16,6 +16,7 @@
 #include <filesystem>
 #include <iostream>
 #include <thread>
+#include <condition_variable>
 
 namespace {
 // Async-signal-safe only: write sig_atomic_t. No mutex, allocation, or C++ teardown.
@@ -92,6 +93,12 @@ int main(int argc, char** argv) {
                 port = static_cast<unsigned short>(number);
             } else throw std::invalid_argument("Unknown option: " + flag);
         }
+#ifdef FIREFLY_WITH_VOICE
+        if (stt.empty()) {
+            const auto bundled = executableDir / "stt/model";
+            if (std::filesystem::is_directory(bundled)) stt = bundled.string();
+        }
+#endif
         wakeConfig.validate();
         if (storePath.empty()) throw std::invalid_argument("--store is required");
 #ifndef FIREFLY_WITH_VOICE
@@ -127,7 +134,7 @@ int main(int argc, char** argv) {
         if (!stt.empty()) {
             try {
                 transcriber = std::make_unique<firefly::admin::AdminTranscriber>(
-                    std::make_unique<firefly::voice::SherpaRecognizer>(stt));
+                    std::make_unique<firefly::voice::SherpaRecognizer>(stt, firefly::voice::RecognitionProfile::AdminSetup));
                 api.attachTranscriber(transcriber.get());
                 api.noteStt(true);
                 std::cerr << "STARTUP Admin Copilot STT ready\n";
@@ -138,11 +145,26 @@ int main(int argc, char** argv) {
         }
 #endif
 
+        std::mutex audioMutex;
+        std::condition_variable audioChanged;
+        bool audioActive = false;
+        runtime.setAudioDrain([&] {
+            std::unique_lock<std::mutex> lock(audioMutex);
+            if (!audioChanged.wait_for(lock,std::chrono::seconds(45),[&] { return !audioActive; }))
+                throw std::runtime_error("audio_drain_timeout");
+        });
         std::thread services([&] {
             // RKLLM admission happens here (Apply), with Admin already listening.
             api.initializeRuntime();
 #ifdef FIREFLY_WITH_VOICE
-            if (voice && !stopping) {
+            while (voice && !stopping) {
+                {
+                    std::unique_lock<std::mutex> lock(audioMutex);
+                    if (runtime.setupBlocked()) {
+                        lock.unlock(); std::this_thread::sleep_for(std::chrono::milliseconds(50)); continue;
+                    }
+                    audioActive = true;
+                }
                 bool speechReady = false;
                 try {
                     runtime.voiceStatus("loading", "opening");
@@ -192,10 +214,10 @@ int main(int argc, char** argv) {
                     };
                     if (wakeConfig.enabled)
                         firefly::voice::runWakeVoiceLoop(capture, *wake, segmenter, wakeConfig,
-                            process, emit, state, [] { return stopping != 0; }, std::chrono::steady_clock::now, &acknowledgement);
+                            process, emit, state, [&] { return stopping != 0 || runtime.setupBlocked(); }, std::chrono::steady_clock::now, &acknowledgement);
                     else {
                         std::cerr << "VOICE wake gating explicitly disabled by configuration\n";
-                        firefly::voice::runVoiceLoop(capture, segmenter, process, emit, state, [] { return stopping != 0; });
+                        firefly::voice::runVoiceLoop(capture, segmenter, process, emit, state, [&] { return stopping != 0 || runtime.setupBlocked(); });
                     }
                     runtime.voiceStatus("stopped", "closed");
                     api.health().setSubsystem("wake", SubsystemStatus::Unavailable, {}, "stopped");
@@ -205,7 +227,11 @@ int main(int argc, char** argv) {
                         api.health().setSubsystem("wake", SubsystemStatus::Failed, "wake_voice_unavailable", error.what());
                     if (!speechReady) api.noteStt(false, error.what());
                     std::cerr << "STARTUP voice unavailable; admin/text remain available: " << error.what() << '\n';
+                    // Keep Admin available if voice initialization fails.
                 }
+                { std::lock_guard<std::mutex> lock(audioMutex); audioActive = false; }
+                audioChanged.notify_all();
+                if (!runtime.setupBlocked()) break;
             }
 #endif
         });
@@ -216,12 +242,14 @@ int main(int argc, char** argv) {
             api.beginShutdown();
             runtime.stop();
             services.join();
+            server.finishClients();
             throw;
         }
         // SIGTERM set `stopping`; teardown runs here on the main thread.
         api.beginShutdown();
         runtime.stop();
         services.join();
+        server.finishClients();
         std::cerr << "SHUTDOWN complete\n";
     } catch (const std::exception& error) {
         std::cerr << "Demo startup: " << error.what() << '\n';

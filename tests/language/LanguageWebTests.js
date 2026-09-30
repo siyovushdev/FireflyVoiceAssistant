@@ -27,6 +27,7 @@ async function click(id){await idle();await js(`document.getElementById(${JSON.s
     assert.equal(await js(`document.querySelectorAll('#actions .card').length`),3);
     assert.ok(await js(`document.getElementById('actions').textContent.includes('Язык команд')`));
     const hash=(await(await fetch(url+'/api/config')).json()).hash;
+    await click('setup-start');assert.equal(await js('setupActive'),true); // AI now uses the shared setup lifecycle.
     await js(`Array.from(document.querySelectorAll('#actions .card')).find(e=>e.querySelector('input[aria-label=\"Постоянный идентификатор\"]').value==='power_on').querySelectorAll('button').forEach(b=>{if(b.textContent==='Предложить варианты')b.click()})`);
     await idle();
     assert.ok(await js(`document.getElementById('actions').textContent.includes('Предложение ИИ')`));
@@ -34,7 +35,7 @@ async function click(id){await idle();await js(`document.getElementById(${JSON.s
     await js(`Array.from(document.querySelectorAll('#actions button')).find(e=>e.textContent==='Проверить и добавить в черновик').click()`);await idle();
     await click('validate');assert.equal(await js('validated'),true);
     assert.ok(await js(`document.getElementById('validation').textContent.includes('Примеры:')`));
-    await click('save');await click('apply');await click('confirm-apply');
+    await click('setup-apply');assert.equal(await js('setupActive'),false);
     assert.equal(await js(`document.getElementById('errors').children.length`),0);
     const response=await fetch(url+'/api/test-command',{method:'POST',headers:{'Content-Type':'application/json','X-Firefly-Admin':'1'},body:JSON.stringify({text:'включи свет на кухне',execute:true})});
     const result=await response.json();assert.equal(result.language_route,'INDEX_EXACT');assert.equal(result.safety,'PASS');assert.equal(result.execution.success,true);

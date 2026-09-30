@@ -74,3 +74,5 @@ Unit tests need no NPU. Wrapper/CLI tests link stub C functions against the exac
 
 Production wake gating and XVF3800 acceptance: [V1 Amina wake](docs/v1-amina-wake.md).
 Measured Qwen optimization, beep and split command timing: [V1 latency / command UX](docs/v1-qwen-latency-command-ux.md).
+
+Conversational setup, exclusive 1024/4096 model lifecycle, browser voice, and recovery: [dialogue setup](docs/dialogue-setup.md).

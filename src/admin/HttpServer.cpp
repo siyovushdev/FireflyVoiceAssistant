@@ -93,7 +93,7 @@ HttpReply request(int socket, Api& api, const std::map<std::string, HttpReply>& 
         const auto result = std::from_chars(value.data(), value.data() + value.size(), length);
         if (result.ec != std::errc{} || result.ptr != value.data() + value.size()) throw HttpError(400, "Invalid Content-Length.");
     }
-    if (length > (path == "/api/admin/transcribe" ? MaxAudioBytes : MaxMessageBytes))
+    if (length > (path == "/api/admin/transcribe" ? 60*48000*2+256 : MaxMessageBytes))
         throw HttpError(413, "Request body too large.");
     const bool mutation = method != "GET" && method != "HEAD";
     if (mutation) {
@@ -112,7 +112,7 @@ HttpReply request(int socket, Api& api, const std::map<std::string, HttpReply>& 
     const std::size_t bodyStart = end + 4;
     while (bytes.size() < bodyStart + length) receive();
     if (bytes.size() != bodyStart + length) throw HttpError(400, "Unexpected trailing request bytes.");
-    if (path.rfind("/api/", 0) == 0) return api.handle(method, path, bytes.substr(bodyStart));
+    if (path.rfind("/api/", 0) == 0) return api.handle(method, path, bytes.substr(bodyStart), headers["x-firefly-setup"]);
     if (method != "GET") return errorReply(405, "Static resources support GET only.");
     if (length) throw HttpError(400, "Unexpected GET body.");
     const auto asset = assets.find(path);
@@ -149,6 +149,11 @@ HttpServer::HttpServer(Api& api, const std::string& bindAddress, unsigned short 
 }
 HttpServer::~HttpServer() = default;
 unsigned short HttpServer::port() const { return impl_->port; }
+void HttpServer::finishClients() {
+    impl_->api.beginShutdown();
+    for(auto& client:impl_->clients) if(client.thread.joinable())client.thread.join();
+    impl_->clients.clear();
+}
 void HttpServer::run(const volatile std::sig_atomic_t& stopping) {
     while (!stopping) {
         for (auto it = impl_->clients.begin(); it != impl_->clients.end();) {
@@ -170,5 +175,6 @@ void HttpServer::run(const volatile std::sig_atomic_t& stopping) {
             *done = true;
         }), done});
     }
+    finishClients();
 }
 }

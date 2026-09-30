@@ -13,6 +13,7 @@ using StoreFault = std::function<void(StoreStep)>;
 class ConfigStore final {
 public:
     explicit ConfigStore(std::string directory, StoreFault fault = {});
+    const std::string& directory() const { return directory_; }
     Catalog current() const;
     Catalog initialize(const Catalog& candidate);
     Catalog save(const Catalog& candidate, const ExpectedRevision& expected);

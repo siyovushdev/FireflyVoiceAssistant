@@ -27,7 +27,7 @@ std::optional<Json> suggestionAttempts(ContextModel& model, const std::string& p
         try {
             model.useAdminContext(instructions, budget);
             entry["stage"] = "inference";
-            raw = model.infer(input);
+            raw = model.setupRequired() ? model.inferAdmin(input) : model.infer(input);
             entry["raw"] = raw; entry["metrics"] = Json::parse(model.inferenceMetrics());
         } catch (const std::exception& error) {
             entry["error"] = error.what();
@@ -168,11 +168,11 @@ void RuntimeGenerations::apply(config::Catalog catalog) {
     int nextContextTokens = -1;
     try {
         for (const auto& [id,context] : next->targetContexts) { (void)id; nextContextTokens = std::max(nextContextTokens,admitContext(context)); }
-        model_.useContext(next->defaultPrompt()); ready_ = model_.ready();
+        model_.useContext(next->defaultPrompt()); ready_ = !setupBlocked() && model_.ready();
     } catch (...) {
         const auto error = std::current_exception();
         if (const auto old = current()) try { model_.useContext(old->defaultPrompt()); } catch (...) {}
-        ready_ = model_.ready(); std::rethrow_exception(error);
+        ready_ = !setupBlocked() && model_.ready(); std::rethrow_exception(error);
     }
     contextTokens_ = next->targetContexts.empty() ? model_.contextTokens() : nextContextTokens;
     std::atomic_store(&active_, next);
@@ -187,33 +187,33 @@ void RuntimeGenerations::preflight(config::Catalog catalog) {
     next->executor->reconcile(*old->executor);
     try {
         for (const auto& [id,context] : next->targetContexts) { (void)id; (void)admitContext(context); }
-        model_.useContext(next->defaultPrompt()); model_.useContext(old->defaultPrompt()); ready_ = model_.ready();
+        model_.useContext(next->defaultPrompt()); model_.useContext(old->defaultPrompt()); ready_ = !setupBlocked() && model_.ready();
     } catch (...) {
         const auto error = std::current_exception();
         try { model_.useContext(old->defaultPrompt()); } catch (...) {}
-        ready_ = model_.ready(); std::rethrow_exception(error);
+        ready_ = !setupBlocked() && model_.ready(); std::rethrow_exception(error);
     }
 }
 std::string RuntimeGenerations::suggest(std::string_view entity, std::string_view name) {
     const auto prompt = suggestionPrompt(entity);
     // Validate input before touching the shared model. The name is data, never a config.
     (void)deterministicId(entity, name);
+    if (model_.setupRequired() && setupMode() != SetupMode::Active) throw std::runtime_error("setup_required");
     auto lock = lockOperation();
     Busy busy(busy_);
     const auto active = current();
-    ready_ = model_.ready();
-    if (stopping_ || !active || !ready_)
+    ready_ = !setupBlocked() && model_.ready();
+    if (stopping_ || !active || !model_.ready())
         throw config::ConfigError("ai_unavailable", "", "AI suggestions unavailable. Manual configuration remains available.");
     std::string raw;
     try {
-        model_.useContext(prompt);
-        raw = model_.infer(name);
-        model_.useContext(active->defaultPrompt());
-        ready_ = model_.ready();
+        if(model_.setupRequired()) { model_.useAdminContext(prompt,128); raw=model_.inferAdmin(name); }
+        else { model_.useContext(prompt); raw=model_.infer(name); model_.useContext(active->defaultPrompt()); }
+        ready_ = !setupBlocked() && model_.ready();
     } catch (...) {
         const auto error = std::current_exception();
-        try { model_.useContext(active->defaultPrompt()); } catch (...) {}
-        ready_ = model_.ready();
+        if(!model_.setupRequired()) try { model_.useContext(active->defaultPrompt()); } catch (...) {}
+        ready_ = !setupBlocked() && model_.ready();
         std::rethrow_exception(error);
     }
     if (stopping_) throw config::ConfigError("ai_unavailable", "", "Runtime stopping");
@@ -221,11 +221,12 @@ std::string RuntimeGenerations::suggest(std::string_view entity, std::string_vie
 }
 std::string RuntimeGenerations::draft(std::string_view entity, std::string_view name) {
     (void)deterministicId(entity, name);
+    if (model_.setupRequired() && setupMode() != SetupMode::Active) throw std::runtime_error("setup_required");
     auto lock = lockOperation();
     Busy busy(busy_);
     const auto active = current();
-    ready_ = model_.ready();
-    if (stopping_ || !active || !ready_) throw config::ConfigError("ai_unavailable", "", "AI suggestions unavailable; manual editing remains available");
+    ready_ = !setupBlocked() && model_.ready();
+    if (stopping_ || !active || !model_.ready()) throw config::ConfigError("ai_unavailable", "", "AI suggestions unavailable; manual editing remains available");
     Json proposal = {{"name",name},{"capabilities",Json::array()},{"template","custom"}};
     Json trace = Json::array();
     std::string failed;
@@ -246,41 +247,99 @@ std::string RuntimeGenerations::draft(std::string_view entity, std::string_view 
             if (decoded) proposal.update(*decoded); else failed = "invalid_ai_response";
             if (!failed.empty()) break;
         }
-        model_.useContext(active->defaultPrompt()); ready_ = model_.ready();
+        if(!model_.setupRequired()) model_.useContext(active->defaultPrompt());
+        ready_ = !setupBlocked() && model_.ready();
     } catch (...) {
         const auto error = std::current_exception();
-        try { model_.useContext(active->defaultPrompt()); } catch (...) {}
-        ready_ = model_.ready(); std::rethrow_exception(error);
+        if(!model_.setupRequired()) try { model_.useContext(active->defaultPrompt()); } catch (...) {}
+        ready_ = !setupBlocked() && model_.ready(); std::rethrow_exception(error);
     }
     auto result = suggestionReply(trace,failed.empty(),retries);
     if (failed.empty()) result["suggestion"] = proposal;
     return result.dump();
 }
+const char* RuntimeGenerations::setupModeName() const {
+    switch (setupMode()) {
+    case SetupMode::Running: return "ASSISTANT_RUNNING";
+    case SetupMode::Entering: return "ENTERING_SETUP";
+    case SetupMode::Active: return "SETUP_ACTIVE";
+    case SetupMode::Restoring: return "RESTORING_ASSISTANT";
+    case SetupMode::Degraded: return "RESTART_REQUIRED";
+    }
+    return "RESTART_REQUIRED";
+}
+void RuntimeGenerations::enterSetup() {
+    auto expected = SetupMode::Running;
+    if (!setupMode_.compare_exchange_strong(expected,SetupMode::Entering))
+        throw std::runtime_error("setup_busy");
+    ++setupEpoch_;
+    // Admission closes before waiting for the current lease. No queued commands.
+    try {
+        if (audioDrain_) audioDrain_();
+        auto lock = lockOperation(); Busy busy(busy_);
+        ready_ = false;
+        model_.enterSetup();
+        setupMode_ = SetupMode::Active;
+    } catch (...) {
+        const auto failure = std::current_exception();
+        try { prepareRestore(); finishRestore(); }
+        catch (...) { setupMode_ = SetupMode::Degraded; ready_ = false; }
+        std::rethrow_exception(failure);
+    }
+}
+void RuntimeGenerations::prepareRestore() {
+    auto lock = lockOperation(); Busy busy(busy_);
+    setupMode_ = SetupMode::Restoring;
+    ready_ = false;
+    try {
+        const auto active = current();
+        if (!active) throw std::runtime_error("No confirmed runtime generation");
+        model_.leaveSetup(active->defaultPrompt());
+        if (!model_.ready()) throw std::runtime_error("runtime_restore_failed");
+        admittedContexts_.clear();
+    } catch (...) { setupMode_ = SetupMode::Degraded; throw; }
+}
+void RuntimeGenerations::finishRestore() {
+    auto lock = lockOperation();
+    if (setupMode() != SetupMode::Restoring || !model_.ready())
+        throw std::runtime_error("runtime_restore_incomplete");
+    ready_ = true; setupMode_ = SetupMode::Running;
+}
 std::string RuntimeGenerations::structuredSuggestion(const std::string& prompt, std::string_view input, int budget,
                                                    const SuggestionDecoder& decode) {
+    if (model_.setupRequired() && setupMode() != SetupMode::Active) throw std::runtime_error("setup_required");
     auto lock = lockOperation(); Busy busy(busy_);const auto active = current();
-    ready_ = model_.ready();
-    if (stopping_ || !active || !ready_) throw config::ConfigError("ai_unavailable","","AI suggestions unavailable; manual editing remains available");
+    ready_ = !setupBlocked() && model_.ready();
+    if (stopping_ || !active || !model_.ready()) throw config::ConfigError("ai_unavailable","","AI suggestions unavailable; manual editing remains available");
     try {
         Json trace = Json::array(); int retries = 1;
         const auto decoded = suggestionAttempts(model_,prompt,input,budget,decode,trace,retries,stopping_);
         auto result = suggestionReply(trace,decoded.has_value(),retries);
         if (decoded) result["suggestion"] = *decoded;
-        model_.useContext(active->defaultPrompt());ready_ = model_.ready();
+        if (!model_.setupRequired()) { model_.useContext(active->defaultPrompt());ready_ = !setupBlocked() && model_.ready(); }
         return result.dump();
     } catch (...) {
         const auto error = std::current_exception();
-        try { model_.useContext(active->defaultPrompt()); } catch (...) {}
-        ready_ = model_.ready();std::rethrow_exception(error);
+        if (!model_.setupRequired()) try { model_.useContext(active->defaultPrompt()); } catch (...) {}
+        ready_ = !setupBlocked() && model_.ready();std::rethrow_exception(error);
     }
 }
+std::unique_lock<std::timed_mutex> RuntimeGenerations::lockRequest() {
+    const auto epoch = setupEpoch_.load();
+    if (setupBlocked()) throw std::runtime_error("setup_in_progress");
+    auto lock = lockOperation();
+    if (setupBlocked() || epoch != setupEpoch_.load()) throw std::runtime_error("setup_in_progress");
+    return lock;
+}
 RuntimeGenerations::Request::Request(RuntimeGenerations& owner)
-    : owner_(owner), lock_(owner.lockOperation()), generation_(owner.current()) {
+    : owner_(owner), lock_(owner.lockRequest()), generation_(owner.current()) {
+    if (owner.setupBlocked()) throw std::runtime_error("setup_in_progress");
     if (owner.stopping_ || !generation_) throw std::runtime_error("Runtime is not active or is stopping");
     owner_.busy_ = true;
 }
 RuntimeGenerations::Request::~Request() { owner_.busy_ = false; }
 std::unique_ptr<RuntimeGenerations::Request> RuntimeGenerations::beginRequest() {
+    if (setupBlocked()) throw std::runtime_error("setup_in_progress");
     return std::unique_ptr<Request>(new Request(*this));
 }
 GenerationResult RuntimeGenerations::process(std::string_view input, execution::ExecutionIntent execution, std::string source) {
@@ -340,7 +399,7 @@ GenerationResult RuntimeGenerations::Request::process(std::string_view input, ex
     CommandEngine engine(bound, generation->parser, generation->domain, [&](std::string_view raw) { return bound.decode(raw); }, generation->languageIndex.get());
     GenerationResult result{generation, engine.process(input), std::nullopt};
     result.command.llmTimings = bound.timings;
-    owner_.ready_ = owner_.model_.ready();
+    owner_.ready_ = !owner_.setupBlocked() && owner_.model_.ready();
     if (execution != execution::ExecutionIntent::None && !owner_.stopping_) {
         if (const auto* action = std::get_if<actions::GenericAction>(&result.command.action)) {
             // Intent is chosen by the typed call site (voice → Production,

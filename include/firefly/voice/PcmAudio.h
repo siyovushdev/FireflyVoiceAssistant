@@ -19,5 +19,8 @@ struct DecodedPcm {
 
 // Strict PCM WAV → STT float PCM. Rejects stereo, compressed codecs, and unknown rates.
 // Resamples 8/16/22.05/44.1/48 kHz to SampleRate with linear interpolation.
-DecodedPcm decodeWavToSttPcm(std::string_view bytes);
+DecodedPcm decodeWavToSttPcm(std::string_view bytes, int maximumSeconds = MaxUtteranceSeconds);
+// Sequential bounded windows for long, editable Admin recordings. No samples
+// are dropped or duplicated. Domestic utterances <=17 seconds stay intact.
+std::vector<SpeechBoundary> adminRecordingSegments(const std::vector<float>& samples);
 }

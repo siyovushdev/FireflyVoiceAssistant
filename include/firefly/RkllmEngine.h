@@ -18,6 +18,9 @@ struct RkllmConfig {
     // larger catalogs with 128 request tokens; ordinary CLI keeps M8 defaults.
     int requestTokenReserve = RkllmRequestReserve;
     std::chrono::milliseconds requestTimeout{30000};
+    // Explicit profile; defaults preserve the command model contract.
+    int contextLimit = RkllmContextTokens;
+    bool adminProfile = false;
     std::function<void(std::string_view)> progress;
 };
 struct InferenceMetrics {
@@ -34,6 +37,10 @@ public:
     RkllmEngine(const RkllmEngine&) = delete;
     RkllmEngine& operator=(const RkllmEngine&) = delete;
     std::string infer(std::string_view original) override;
+    std::string inferAdmin(std::string_view step);
+    // Fails closed if vendor teardown cannot be confirmed. Never load another
+    // model after this throws; process restart is required.
+    void close();
     // Trusted server envelope only; original input retains the 192-byte policy.
     std::string inferCommand(std::string_view original, std::string_view contract);
     // Serialized full KV/context refresh. Restores the old context on failure.

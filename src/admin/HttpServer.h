@@ -10,6 +10,7 @@ public:
     HttpServer(Api& api, const std::string& bindAddress, unsigned short port);
     ~HttpServer();
     unsigned short port() const;
+    void finishClients();
     void run(const volatile std::sig_atomic_t& stopping);
 private:
     struct Impl;

@@ -9,7 +9,7 @@ AdminTranscriber::AdminTranscriber(std::unique_ptr<voice::SpeechRecognizer> reco
 }
 bool AdminTranscriber::ready() const { return recognizer_ != nullptr; }
 
-std::string AdminTranscriber::transcribe(std::string_view wavBytes) {
+std::string AdminTranscriber::transcribe(std::string_view wavBytes, int maximumSeconds) {
     std::unique_lock<std::mutex> lock(mutex_, std::try_to_lock);
     if (!lock.owns_lock())
         return failure("stt_busy", "", "Speech recognition is already running. Wait and retry.").dump();
@@ -18,7 +18,7 @@ std::string AdminTranscriber::transcribe(std::string_view wavBytes) {
 
     voice::DecodedPcm decoded;
     try {
-        decoded = voice::decodeWavToSttPcm(wavBytes);
+        decoded = voice::decodeWavToSttPcm(wavBytes, maximumSeconds);
     } catch (const std::exception& error) {
         return failure("invalid_audio", "", std::string(error.what())).dump();
     }
@@ -39,7 +39,7 @@ std::string AdminTranscriber::transcribe(std::string_view wavBytes) {
         return failure("empty_speech", "", "Speech was not detected. Speak a short Admin request and try again.").dump();
 
     return Json{{"ok", true}, {"text", text}, {"duration_ms", decoded.durationMs},
-        {"stt_ms", recognition.latencyMs}, {"saved", false}, {"applied", false},
+        {"stt_ms", recognition.latencyMs}, {"segmented", decoded.durationMs > 17000}, {"saved", false}, {"applied", false},
         {"copilot_started", false}}.dump();
 }
 }

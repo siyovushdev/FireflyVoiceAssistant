@@ -85,6 +85,22 @@ int main(int argc, char** argv) {
         try { (void)firefly::voice::decodeWavToSttPcm(badRate); } catch (...) { rejected = true; }
         check(rejected, "unsupported rate rejected");
 
+        // Long Admin PCM is covered once, sequentially, at quiet bounded cuts.
+        std::vector<float> recording(60 * 16000, .5f);
+        std::fill(recording.begin() + 13 * 16000, recording.begin() + 13 * 16000 + 800, 0);
+        const auto segments = firefly::voice::adminRecordingSegments(recording);
+        check(segments.size() >= 4 && segments.size() <= 5, "bounded long-recording segment count");
+        check(segments.front().end == 13 * 16000 + 400, "quiet window selected without trimming");
+        std::int64_t covered = 0;
+        for (const auto& segment : segments) {
+            check(segment.start == covered && segment.end > segment.start && segment.end - segment.start <= 17 * 16000,
+                  "sequential windows cannot lose, duplicate or oversize audio");
+            covered = segment.end;
+        }
+        check(covered == static_cast<std::int64_t>(recording.size()), "recording tail retained");
+        const auto shortSegments = firefly::voice::adminRecordingSegments(std::vector<float>(17 * 16000));
+        check(shortSegments.size() == 1 && shortSegments[0].end == 17 * 16000, "domestic maximum preserved without segmentation");
+
         // Transcriber with scripted STT
         auto scripted = std::make_unique<ScriptedRecognizer>();
         auto* scriptedPtr = scripted.get();
@@ -104,6 +120,11 @@ int main(int argc, char** argv) {
 
         const auto malformed = Json::parse(transcriber.transcribe("{"));
         check(malformed.at("ok") == false && malformed.at("errors")[0].at("code") == "invalid_audio", "malformed audio code");
+
+        const auto adminLong=Json::parse(transcriber.transcribe(wavMonoS16(16000,60*16000,1000),60));
+        check(adminLong.value("ok",false) && adminLong.value("segmented",false),"setup accepts bounded 60 second recording");
+        check(!Json::parse(transcriber.transcribe(wavMonoS16(16000,60*16000+1,1000),60)).value("ok",false),"setup rejects longer audio without truncation");
+        check(!Json::parse(transcriber.transcribe(wavMonoS16(16000,16*16000,1000))).value("ok",false),"legacy transcribe still bounded to 15 seconds");
 
         // API: unavailable without transcriber
         Directory directory;

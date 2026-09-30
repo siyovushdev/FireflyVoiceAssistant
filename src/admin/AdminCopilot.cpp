@@ -2,6 +2,7 @@
 #include "firefly/admin/AdminDraft.h"
 #include "firefly/config/ConfigLoader.h"
 #include "firefly/config/ConfigValidator.h"
+#include "firefly/config/LanguageProfile.h"
 #include "../Text.h"
 #include "../config/Platform.h"
 #include "Json.h"
@@ -247,6 +248,31 @@ void applyOperation(Json& value, std::set<std::string>& ids, const Json& op, con
             {"spoken_aliases", aliases}, {"state", selected.at("state")},
             {"metadata", {{"type", selected.at("type")}, {"description", op.at("description")},
                 {"aliases", aliases}, {"origin", "local_ai"}, {"confirmed", false}}}});
+    } else if (kind == "add_brightness") {
+        members(op,{"op","device","location"});
+        requireText(op.at("device"),128);requireText(op.at("location"),128);
+        auto* device=resolveDevice(value,op.at("device").get<std::string>(),op.at("location").get<std::string>());
+        if(pinnedDevice(value,*device)||device->at("kind")!="generic") unsupported("Protected or non-generic device");
+        for(const auto& field:device->at("state")) if(field.at("id")=="level") unsupported("Brightness already exists");
+        const auto& light=templateById(templates,"generic_light");
+        device->at("state").push_back(light.at("state").at(0));
+        auto action=light.at("actions").at(2);
+        action["id"]=allocate(ids,"action",device->at("name").get<std::string>()+" яркость");
+        device->at("action_ids").push_back(action.at("id"));
+        value.at("actions").push_back(action);
+    } else if (kind == "rename_device") {
+        members(op, {"op", "device", "location", "name"});
+        requireText(op.at("device"),128); requireText(op.at("location"),128);
+        requireText(op.at("name"),128);
+        auto* device = resolveDevice(value,op.at("device").get<std::string>(),op.at("location").get<std::string>());
+        if (pinnedDevice(value,*device)) unsupported("Protected device cannot be renamed by dialogue");
+        device->at("name") = op.at("name");
+        // The explicitly requested new name is also command language. Preserve
+        // reviewed aliases, and validate the added atom with the existing rules.
+        const auto alias = config::normalizeLanguageAtom(op.at("name").get<std::string>());
+        config::validateLanguageAtom(alias);
+        auto& aliases = device->at("spoken_aliases");
+        if (std::find(aliases.begin(), aliases.end(), alias) == aliases.end()) aliases.push_back(alias);
     } else if (kind == "rename_location") {
         members(op, {"op", "location", "name", "keep_previous_as_alias"});
         requireText(op.at("location"), 128); requireText(op.at("name"), 128);
@@ -438,12 +464,15 @@ std::string copilotPrompt(config::Catalog draft) {
 create_location{op,name,type,description,mentions?,locations?}
 create_device{op,location,name,template,description,aliases?}
 rename_location{op,location,name,keep_previous_as_alias}
+rename_device{op,device,location,name}
+add_brightness{op,device,location} — только по явной просьбе добавить яркость 0..100.
 add_location_mention{op,location,mention}
 add_location_phrase{op,location,phrase}
 delete_device{op,device,location}
 set_field_bounds{op,device,location,field,minimum,maximum}
 set_http_binding{op,device,location,action,method,url,timeout_ms?,content_type?,body?,argument?}
 clear_http_binding{op,device,location,action}
+Для явно запрошенного только включения/выключения используй template power_only (не tv/light).
 create_device не меняет speech зоны. add_location_* только если пользователь просил речь.
 Не угадывай location. Не door/входную дверь как switch. Без ID/Save/Apply.
 HTTP-подключение: только из явно указанных пользователем method+URL (http://IPv4/…).

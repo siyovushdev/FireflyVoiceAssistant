@@ -18,8 +18,8 @@
 </a>
 <nav aria-label="Разделы">
 <a href="#overview">Обзор</a>
-<a href="#copilot-section">Помощник</a>
-<a href="#locations-section">Зоны и места</a>
+<a href="#copilot-section">Настройка через диалог</a>
+<a href="#locations-section">Подробные настройки</a>
 <a href="#devices-section">Устройства</a>
 <a href="#capabilities-section">Действия</a>
 <a href="#playground">Command Playground</a>
@@ -56,6 +56,7 @@
 <small id="revision" class="advanced">
 </small>
 </div>
+<details><summary>Подробные настройки · версия конфигурации</summary>
 <div class="buttons">
 <button id="reload">Загрузить сохранённое</button>
 <button id="validate">Проверить</button>
@@ -63,17 +64,27 @@
 <button class="primary" id="apply">Применить…</button>
 </div>
 <p id="validation" role="status">Измените черновик → проверьте → сохраните → примените.</p>
+</details>
 <ul id="errors" role="alert">
 </ul>
 <div id="progress" role="status" hidden>Обработка запроса…</div>
 <p id="ai-notice" role="status"></p>
 </section>
 <section id="copilot-section">
-<h2>Помощник по настройке</h2>
-<p>Опишите изменение обычным языком. Предложение сначала появится здесь для проверки — в сохранённую конфигурацию оно не попадёт, пока вы сами не нажмёте «Сохранить» и «Применить».</p>
+<h2>Настройка через диалог</h2>
+<p>Начните настройку, опишите изменения и проверьте итог. До подтверждения рабочая конфигурация не изменится.</p>
+<button id="setup-start" class="primary">Начать настройку</button>
+<button id="setup-resume">Продолжить сохранённый черновик</button>
+<button id="setup-preview" hidden>Посмотреть изменения</button>
+<button id="setup-apply" hidden>Применить настройки и включить ассистента</button>
+<button id="setup-cancel" hidden>Отменить и включить ассистента</button>
+<p id="setup-state" role="status"></p>
+<div id="setup-plan"></div>
+<p id="setup-counter">0 / 4000</p>
+<p>Пишите или диктуйте. Следующее сообщение дополняет тот же план. Проверьте итог и подтвердите его одной кнопкой.</p>
 <label for="copilot-text">Что изменить</label>
 <div class="copilot-input-row">
-<textarea id="copilot-text" rows="3" placeholder="Например: создай кабинет 1 и добавь свет, кондиционер и телевизор"></textarea>
+<textarea id="copilot-text" rows="3" placeholder="Например: создай детскую, добавь телевизор и свет только с включением и выключением"></textarea>
 <button type="button" id="copilot-mic" title="Голосовой ввод">Микрофон</button>
 </div>
 <p id="copilot-voice-status" role="status"></p>

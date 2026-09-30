@@ -82,6 +82,25 @@ int main() {
         check(rejected && !normal.ready(), "Ordinary product/Admin reservation remains 128 tokens");
     }
     check(stub.destroy == 3, "All token-boundary test handles released");
+    {
+        auto adminConfig=config;
+        adminConfig.adminProfile=true;adminConfig.contextLimit=4096;adminConfig.requestTokenReserve=2048;
+        stub.refreshBootstrapTokens=500;stub.requestTokens=2048;
+        firefly::RkllmEngine admin(adminConfig);
+        check(stub.outputBudgets.back()==1,"4096 bootstrap does not generate a discarded long plan");
+        (void)admin.inferAdmin(std::string(193,'x'));
+        check(admin.metrics().inputTokens==2048,"Admin inference bypasses domestic bytes but checks actual tokens");
+        auto runs=stub.run;
+        bool rejected=false;
+        try { (void)admin.inferAdmin(std::string(2049,'x')); } catch (...) { rejected=true; }
+        check(rejected&&stub.run==runs&&admin.ready(),"oversized Admin step rejected before vendor call");
+        stub.requestTokens=2049;rejected=false;
+        try { (void)admin.inferAdmin("короткий текст"); } catch (...) { rejected=true; }
+        check(rejected&&!admin.ready(),"actual token overflow fails closed despite byte preflight");
+        const auto destroyed=stub.destroy;
+        admin.close();admin.close();
+        check(stub.destroy==destroyed+1,"explicit release once before a replacement model");
+    }
     std::cout << checks << " checks, " << failures << " failures\n";
     return failures ? 1 : 0;
 }

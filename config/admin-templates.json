@@ -570,5 +570,63 @@
         ]
       }
     ]
+  },
+  {
+    "id": "power_only",
+    "name": "Только включение и выключение",
+    "type": "power_only",
+    "aliases": [],
+    "state": [
+      {
+        "id": "power",
+        "name": "Питание",
+        "type": "boolean",
+        "required": true,
+        "description": "Питание виртуального устройства.",
+        "unit": "",
+        "initial": false
+      }
+    ],
+    "actions": [
+      {
+        "id": "on",
+        "name": "Включить",
+        "operation": "mock.assign.v1",
+        "enabled": true,
+        "description": "Питание → Включено.",
+        "parameters": [],
+        "speech_aliases": [
+          "включи",
+          "включить",
+          "включите"
+        ],
+        "assignments": [
+          {
+            "field": "power",
+            "value": true
+          }
+        ]
+      },
+      {
+        "id": "off",
+        "name": "Выключить",
+        "operation": "mock.assign.v1",
+        "enabled": true,
+        "description": "Питание → Выключено.",
+        "parameters": [],
+        "speech_aliases": [
+          "выключи",
+          "выключить",
+          "выключите"
+        ],
+        "assignments": [
+          {
+            "field": "power",
+            "value": false
+          }
+        ]
+      }
+    ],
+    "noun": "телевизор"
   }
 ]

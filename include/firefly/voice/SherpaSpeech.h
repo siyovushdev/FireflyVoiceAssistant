@@ -12,9 +12,10 @@ public:
 private:
     struct Impl; std::unique_ptr<Impl> impl_;
 };
+enum class RecognitionProfile { Command, AdminSetup };
 class SherpaRecognizer final : public SpeechRecognizer {
 public:
-    explicit SherpaRecognizer(const std::string& modelDirectory);
+    explicit SherpaRecognizer(const std::string& modelDirectory, RecognitionProfile profile = RecognitionProfile::Command);
     ~SherpaRecognizer() override;
     RecognitionResult recognize(const std::vector<float>&) override;
 private:

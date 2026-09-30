@@ -1,6 +1,7 @@
 #include "firefly/RkllmEngine.h"
 #include "rkllm.h"
 #include "firefly/InputPolicy.h"
+#include "firefly/admin/AdminRequestPolicy.h"
 #include <atomic>
 #include <algorithm>
 #include <chrono>
@@ -59,7 +60,9 @@ private:
 
 }
 struct RkllmEngine::Impl {
-    explicit Impl(RkllmConfig value) : config(std::move(value)) {}
+    explicit Impl(RkllmConfig value) : config(std::move(value)) {
+        if (config.adminProfile) responseTokens = 768;
+    }
     ~Impl() {
         if (handle) {
             const int result = rkllm_destroy(handle);
@@ -126,7 +129,7 @@ struct RkllmEngine::Impl {
         infer.keep_history = 0;
         // Admin bootstrap only establishes system KV; its answer is discarded.
         // One token avoids spending a full draft budget on the empty bootstrap.
-        infer.max_new_tokens = !ready && responseTokens > RkllmResponseTokens ? 1 : responseTokens;
+        infer.max_new_tokens = !ready && (config.adminProfile || responseTokens > RkllmResponseTokens) ? 1 : responseTokens;
         resetOutput();
         const auto start = Clock::now();
         RequestDeadline deadline(handle, responseTokens > RkllmResponseTokens ? std::max(config.requestTimeout,std::chrono::milliseconds(60000)) : config.requestTimeout);
@@ -142,18 +145,18 @@ struct RkllmEngine::Impl {
         int cacheSize = -1;
         requireSuccess(rkllm_get_kv_cache_size(handle, &cacheSize), "read KV size");
         const int ceiling = ready ? (requestReserve ? requestReserve : config.requestTokenReserve) :
-                            RkllmContextTokens - responseTokens - config.requestTokenReserve;
+                            config.contextLimit - responseTokens - config.requestTokenReserve;
         if (perf.prefill_tokens <= 0 || perf.prefill_tokens > ceiling ||
             perf.generate_tokens < 0 || perf.generate_tokens >= responseTokens - 1 ||
-            cacheSize <= 0 || cacheSize > RkllmContextTokens ||
-            (ready && bootstrapPrefill + perf.prefill_tokens + responseTokens > RkllmContextTokens))
+            cacheSize <= 0 || cacheSize > config.contextLimit ||
+            (ready && bootstrapPrefill + perf.prefill_tokens + responseTokens > config.contextLimit))
             throw std::runtime_error("RKLLM context/output budget rejected: prefill=" + std::to_string(perf.prefill_tokens) +
                                      " generated=" + std::to_string(perf.generate_tokens) + " kv=" + std::to_string(cacheSize));
         if (!ready) {
             bootstrapPrefill = perf.prefill_tokens;
             std::cerr << "LLM_CONTEXT bootstrap_prefill=" << bootstrapPrefill << " bootstrap_kv=" << cacheSize
                       << " ceiling=" << ceiling << " request_reserve=" << config.requestTokenReserve
-                      << " response_budget=" << responseTokens << " context=" << RkllmContextTokens << '\n';
+                      << " response_budget=" << responseTokens << " context=" << config.contextLimit << '\n';
         }
         if (config.verbose)
             std::cerr << label << " wall_ms=" << elapsed(start)
@@ -170,7 +173,9 @@ struct RkllmEngine::Impl {
         finished = false;
     }
     void initialize() {
-        if (config.requestTokenReserve < 128 || config.requestTokenReserve > RkllmRequestReserve)
+        if ((config.adminProfile && config.contextLimit != 4096) || (!config.adminProfile && config.contextLimit != 1024))
+            throw std::invalid_argument("Invalid model profile context");
+        if (config.requestTokenReserve < 128 || config.requestTokenReserve > (config.adminProfile ? 2048 : RkllmRequestReserve))
             throw std::invalid_argument("Invalid request token reservation");
         if (config.requestTimeout.count() <= 0) throw std::invalid_argument("Timeout must be positive");
         if (config.modelPath.empty() || config.systemPrompt.empty() ||
@@ -189,7 +194,7 @@ struct RkllmEngine::Impl {
         param.frequency_penalty = 0.0f;
         param.presence_penalty = 0.0f;
         param.max_new_tokens = RkllmResponseTokens;
-        param.max_context_len = RkllmContextTokens;
+        param.max_context_len = config.contextLimit;
         param.skip_special_token = true;
         param.extend_param.base_domain_id = 0;
         param.extend_param.embed_flash = 1;
@@ -229,6 +234,28 @@ std::string RkllmEngine::infer(std::string_view original) {
         throw;
     }
 }
+void RkllmEngine::close() {
+    std::lock_guard<std::mutex> lock(impl_->requestMutex);
+    impl_->ready = false;
+    if (!impl_->handle) return;
+    requireSuccess(rkllm_destroy(impl_->handle), "rkllm_destroy; restart_required");
+    impl_->handle = nullptr;
+}
+std::string RkllmEngine::inferAdmin(std::string_view step) {
+    admin::validateMessage(step);
+    std::lock_guard<std::mutex> lock(impl_->requestMutex);
+    if (!impl_->config.adminProfile || !impl_->ready)
+        throw std::runtime_error("Admin model unavailable");
+    // Conservative byte upper bound, not a tokenizer. Actual token checks in
+    // run() remain mandatory. Application messages may need multiple steps.
+    if (step.size() > static_cast<std::size_t>(impl_->config.requestTokenReserve))
+        throw std::invalid_argument("admin_step_budget: split the structured task before inference");
+    impl_->resetOutput();
+    try {
+        requireSuccess(rkllm_clear_kv_cache(impl_->handle, 1, nullptr, nullptr), "admin clear KV");
+        return impl_->run(step, "admin inference");
+    } catch (...) { impl_->ready = false; impl_->resetOutput(); throw; }
+}
 std::string RkllmEngine::inferCommand(std::string_view original, std::string_view contract) {
     // The contract is constructed from the admitted immutable catalog, never from
     // model output. Escape user data, including chat delimiters, inside JSON.
@@ -260,7 +287,7 @@ std::string RkllmEngine::inferCommand(std::string_view original, std::string_vie
 }
 void RkllmEngine::setSystemPrompt(std::string prompt, int responseTokens) {
     std::lock_guard<std::mutex> lock(impl_->requestMutex);
-    if ((responseTokens != 128 && responseTokens != 256 && responseTokens != 384) || prompt.empty() || prompt.size() > 16384 || prompt.find('\0') != std::string::npos)
+    if ((responseTokens != 128 && responseTokens != 256 && responseTokens != 384 && !(impl_->config.adminProfile && responseTokens == 768)) || prompt.empty() || prompt.size() > 16384 || prompt.find('\0') != std::string::npos)
         throw std::invalid_argument("Invalid system context");
     if (!impl_->ready) throw std::runtime_error("RKLLM engine not ready; restart required");
     if (prompt == impl_->config.systemPrompt && responseTokens == impl_->responseTokens) return;

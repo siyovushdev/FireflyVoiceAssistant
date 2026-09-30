@@ -349,3 +349,12 @@ manifest above. Only this explicitly authorized small model is versioned; build
 outputs, Python environment, temporary diagnostics and live logs remain ignored.
 Useful production logs are retained, including state transitions, health failures,
 command results and audio/STT durations needed to diagnose the V1 timing limitation.
+
+## Assistant setup mode
+
+[Conversational setup](dialogue-setup.md) explicitly pauses domestic wake/audio
+admission, drains the accepted request and closes the sole ALSA capture before
+loading the administrative model. Browser Admin STT remains available. Opening
+Admin for observation does not pause wake. After Apply/cancel and successful
+runtime model restoration, capture/KWS/VAD restart with fresh state; both separated
+and inline invocation keep the behavior documented above.

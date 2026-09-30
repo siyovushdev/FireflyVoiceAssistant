@@ -1,7 +1,8 @@
 'use strict';
 const $=id=>document.getElementById(id), M=window.AdminModel, json=v=>JSON.stringify(v,null,2);
 let draft, stored, expected, activeConfig, activeRevision, dirty=false, validated=false, operation=false, savedIds=new Set(), wizard, templates=[], pendingPlan, pendingCopilot;
-let voiceState='idle', voiceRec=null, sttReady=false, voiceIdleMessage='';
+let setupToken=sessionStorage.getItem('fireflySetup')||'', setupActive=false, setupVersion=0, setupSnapshot='', setupReadOnly=false;
+let voiceState='idle', voiceRec=null, sttReady=false, voiceIdleMessage='', voiceAttempt=0, voiceClosing=false;
 const advanced=()=>document.body.dataset.mode==='advanced';
 const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
 function errors(items=[]) {
@@ -9,6 +10,12 @@ function errors(items=[]) {
     $('errors').replaceChildren(...display());if($('wizard').open)$('wizard-errors').replaceChildren(...display());
 }
 async function api(path,method='GET',data) {
+    const aiRoutes=['/api/admin/language-profile','/api/admin/plan','/api/admin/copilot','/api/admin/action-draft','/api/admin/draft','/api/admin/suggest'];
+    if(method==='POST'&&aiRoutes.includes(path)&&!setupActive)
+        throw Object.assign(new Error('setup_required'),{response:{errors:[{code:'setup_required'}]}});
+    if(setupReadOnly&&method!=='GET')throw new Error('Настройка открыта в другом клиенте. Здесь доступен только просмотр.');
+    if(setupActive&&data?.configuration&&!path.startsWith('/api/setup/')&&json(draft)!==setupSnapshot)await syncSetupDraft();
+    if(setupActive&&data&&method!=='GET')data={...data,session_id:setupToken};
     const response=await fetch(path,{method,headers:{'Content-Type':'application/json','X-Firefly-Admin':'1'},body:data===undefined?undefined:JSON.stringify(data)});
     const result=await response.json();
     if(result.trace){$('ai-detail').textContent=json({retry_count:result.retry_count,trace:result.trace,suggestion:result.suggestion,errors:result.errors});$('ai-notice').textContent=result.retry_count?(result.ok?'Один из ответов ИИ не прошёл проверку. Повторная попытка подготовила корректный черновик.':'После повторной попытки ИИ не смог завершить предложение. Можно заполнить вручную.'):'Предложение ИИ нужно проверить и подтвердить.';}
@@ -18,9 +25,9 @@ async function api(path,method='GET',data) {
 async function run(fn) {
     if(operation)return;operation=true;errors();$('progress').hidden=false;
     const controls=[...document.querySelectorAll('button,input,textarea,select')].map(e=>[e,e.disabled]);
-    controls.forEach(([e])=>e.disabled=true);
+    controls.forEach(([e])=>{if(e.id!=='setup-cancel'||!setupActive)e.disabled=true;});
     try{await fn();}catch(e){errors(e.response?.errors||[{code:'connection_error',message:e.message}]);if(e.response?.raw_rkllm||e.response?.trace)$('errors').append(node('pre',json(e.response.trace||e.response.raw_rkllm),'advanced'));}
-    finally{operation=false;controls.forEach(([e,disabled])=>{if(e.isConnected)e.disabled=disabled;});$('progress').hidden=true;status();}
+    finally{operation=false;controls.forEach(([e,disabled])=>{if(e.isConnected)e.disabled=disabled;});$('progress').hidden=true;applySetupAccess();status();}
 }
 function validFields(host){const invalid=[...host.querySelectorAll('input,textarea,select')].find(e=>!e.checkValidity());if(invalid){invalid.reportValidity();return false;}return true;}
 function modified(){dirty=true;validated=false;$('draft-state').textContent='Есть изменения в черновике';$('validation').textContent='Проверьте черновик перед сохранением.';$('raw-config').textContent=json(draft);}
@@ -335,6 +342,7 @@ function setVoiceUi(){
         statusEl.textContent='Распознавание…';
         mic.disabled=true;
     }
+    if(voiceClosing)mic.disabled=true;
 }
 async function releaseVoiceCapture(rec){
     if(!rec)return;
@@ -344,7 +352,8 @@ async function releaseVoiceCapture(rec){
     try{if(rec.ctx)await rec.ctx.close();}catch(_){}
 }
 async function startCopilotVoice(){
-    if(voiceState!=='idle')return;
+    if(voiceState!=='idle'||voiceClosing)return;
+    const attempt=++voiceAttempt;
     const gate=M.voiceGate();
     if(!gate.ok){voiceIdleMessage=M.humanError({code:gate.code});setVoiceUi();return;}
     if(!sttReady){voiceIdleMessage=M.humanError({code:'stt_unavailable'});setVoiceUi();return;}
@@ -356,15 +365,18 @@ async function startCopilotVoice(){
         const AudioCtx=window.AudioContext||window.webkitAudioContext;
         ctx=new AudioCtx();
         stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true}});
+        if(attempt!==voiceAttempt){await releaseVoiceCapture({ctx,stream});return;}
         source=ctx.createMediaStreamSource(stream);
         processor=ctx.createScriptProcessor(4096,1,1);
-        const chunks=[], sampleRate=ctx.sampleRate, maxSamples=sampleRate*M.MaxCopilotVoiceSeconds;
+        const chunks=[], sampleRate=ctx.sampleRate, maxSamples=sampleRate*(setupActive?60:M.MaxCopilotVoiceSeconds);
         let samples=0;
         processor.onaudioprocess=e=>{
             if(voiceState!=='recording')return;
             const input=e.inputBuffer.getChannelData(0);
-            chunks.push(new Float32Array(input));
-            samples+=input.length;
+            const kept=input.subarray(0,Math.max(0,maxSamples-samples));
+            chunks.push(new Float32Array(kept));
+            samples+=kept.length;
+            $('copilot-voice-status').textContent=`Запись: ${Math.floor(samples/sampleRate)} / ${setupActive?60:M.MaxCopilotVoiceSeconds} с`;
             if(samples>=maxSamples) stopCopilotVoice(true);
         };
         source.connect(processor);
@@ -374,6 +386,7 @@ async function startCopilotVoice(){
         setVoiceUi();
     }catch(error){
         await releaseVoiceCapture({ctx,stream,source,processor});
+        if(attempt!==voiceAttempt)return;
         voiceRec=null;
         voiceIdleMessage=M.humanError({code:M.mapMicError(error)});
         voiceState=M.nextVoiceState('requesting','fail');
@@ -382,14 +395,10 @@ async function startCopilotVoice(){
 }
 async function stopCopilotVoice(tooLong){
     if(voiceState!=='recording'||!voiceRec)return;
-    const rec=voiceRec; voiceRec=null;
+    const attempt=voiceAttempt, rec=voiceRec; voiceRec=null;
     await releaseVoiceCapture(rec);
-    if(tooLong){
-        voiceIdleMessage=M.humanError({code:'recording_too_long'});
-        voiceState=M.nextVoiceState('recording','too_long');
-        setVoiceUi();
-        return;
-    }
+    if(attempt!==voiceAttempt)return;
+    if(tooLong)voiceIdleMessage='Достигнут лимит записи. Распознаём записанное; можно продолжить следующим сообщением.';
     const total=rec.chunks.reduce((n,c)=>n+c.length,0);
     const merged=new Float32Array(total);
     let offset=0; for(const chunk of rec.chunks){merged.set(chunk,offset);offset+=chunk.length;}
@@ -397,15 +406,17 @@ async function stopCopilotVoice(tooLong){
     voiceState=M.nextVoiceState('recording','stop');
     setVoiceUi();
     try{
-        const response=await fetch('/api/admin/transcribe',{method:'POST',headers:{'Content-Type':'audio/wav','X-Firefly-Admin':'1'},body:wav});
+        const response=await fetch('/api/admin/transcribe',{method:'POST',headers:{'Content-Type':'audio/wav','X-Firefly-Admin':'1','X-Firefly-Setup':setupToken},body:wav});
         const result=await response.json();
+        if(attempt!==voiceAttempt)return;
         if(!response.ok||result.ok===false){
             const err=new Error('stt'); err.response=result; throw err;
         }
-        $('copilot-text').value=result.text||'';
-        voiceIdleMessage='Текст распознан. При необходимости исправьте и нажмите «Предложить изменения».';
+        $('copilot-text').value=result.text||'';updateSetupCounter();
+        voiceIdleMessage=(tooLong?'Достигнут лимит 60 секунд. Записанная часть сохранена в тексте. ':'')+(result.segmented?'Длинная запись распознана по частям; проверьте слова на стыках. ':'')+'Текст распознан. Исправьте при необходимости и отправьте просьбу.';
         voiceState=M.nextVoiceState('transcribing','done');
     }catch(e){
+        if(attempt!==voiceAttempt)return;
         const code=e.response?.errors?.[0]?.code||'stt_failed';
         voiceIdleMessage=M.humanError({code});
         if(e.response?.errors) errors(e.response.errors);
@@ -463,4 +474,112 @@ $('reconcile').onclick=()=>run(async()=>{if(confirm('Проверить и за�
 $('mode').onchange=()=>{document.body.dataset.mode=$('mode').value;localStorage.setItem('firefly-admin-mode',$('mode').value);if(draft)render();};
 $('mode').value=localStorage.getItem('firefly-admin-mode')||'simple';$('mode').onchange();
 window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue='';}});
-run(async()=>{templates=(await api('/api/admin/templates')).templates;await load();await status();await revisions();});setInterval(()=>{if(!operation)status();},4000);
+run(async()=>{templates=(await api('/api/admin/templates')).templates;await load();await status();await revisions();await restoreSetupView();});setInterval(()=>{if(!operation)status();},4000);
+
+function updateSetupCounter(){
+    const count=M.adminCharacterCount($('copilot-text').value);
+    $('setup-counter').textContent=`${count} / 4000`;
+    $('copilot-text').setCustomValidity(count>4000?'Максимум 4000 символов. Текст не обрезан.':'');
+}
+$('copilot-text').addEventListener('input',updateSetupCounter);
+function showSetup(result){
+    setupActive=!!result.active;setupVersion=result.version||0;
+    if(result.session_id){setupToken=result.session_id;sessionStorage.setItem('fireflySetup',setupToken);}
+    if(result.configuration){draft=result.configuration;setupSnapshot=json(draft);modified();render();}
+    const labels={editing:'Можно продолжать диалог.',planning:'Готовлю изменения…',clarification_required:'Нужно уточнение.',entering:'Подготавливаю режим настройки…',restoring:'Возвращаю ассистента…',restoring_for_admission:'Проверяю и применяю настройки…',cancel_pending:'Дожидаюсь завершения текущего шага для отмены.',applied:'Настройки применены. Ассистент включён.',cancelled_draft_saved:'Ассистент включён. Неприменённый черновик сохранён.',restart_required:'Не удалось безопасно восстановить модель. Требуется перезапуск.',planning_failed:'План не завершён. Рабочая конфигурация не изменена.',resume_required:'Есть незавершённый черновик. Его можно продолжить.'};
+    $('setup-state').textContent=(setupActive?'Бытовой ассистент приостановлен. ':'')+(labels[result.status]||result.status);
+    $('setup-preview').hidden=$('setup-apply').hidden=$('setup-cancel').hidden=!setupActive;
+    $('setup-start').hidden=setupActive;$('setup-resume').hidden=setupActive||result.status==='idle'||result.status==='applied';
+    const plan=$('setup-plan');plan.replaceChildren();
+    if(result.configuration){
+        for(const room of draft.rooms){const box=card(plan,room.name);
+            for(const device of draft.devices.filter(d=>d.room_id===room.id))box.append(node('p',device.name+' — '+device.action_ids.map(id=>draft.actions.find(a=>a.id===id)?.name||id).join(', ')));
+        }
+    }
+    if(result.progress&&setupActive)plan.append(node('p',`Шаг ${result.progress.step} / ${result.progress.total_steps}`));
+    for(const question of result.questions||[])plan.append(node('p','Требует уточнения: '+question));
+    if(result.language_warning)plan.append(node('p',result.language_warning));
+    plan.append(node('p',result.connection_note||''));
+    if(!setupActive){setupToken='';sessionStorage.removeItem('fireflySetup');voiceClosing=false;setVoiceUi();}
+}
+async function syncSetupDraft(){
+    if(setupActive&&json(draft)!==setupSnapshot){
+        const reply=await api('/api/setup/draft','POST',{session_id:setupToken,version:setupVersion,configuration:draft});
+        showSetup(reply);pendingCopilot=null;pendingPlan=null;
+    }
+}
+for(const route of ['start','resume'])$('setup-'+route).onclick=()=>run(async()=>{
+    const pending=dirty?M.clone(draft):null;
+    $('setup-state').textContent='Завершаю принятые команды и подготавливаю модель настройки…';
+    showSetup(await api('/api/setup/'+route,'POST',{}));
+    if(route==='start'&&pending){draft=pending;await syncSetupDraft();}
+});
+$('setup-preview').onclick=()=>run(async()=>{await syncSetupDraft();showDiff((await diff('stored')).changes,'Изменения перед подтверждением');});
+$('setup-apply').onclick=()=>run(async()=>{
+    if(voiceState!=='idle')throw Object.assign(new Error('recording_active'),{response:{errors:[{code:'recording_active'}]}});
+    await syncSetupDraft();
+    const result=await api('/api/setup/apply','POST',{session_id:setupToken,version:setupVersion});
+    await load();showSetup(result);dirty=false;
+});
+$('setup-cancel').onclick=async()=>{
+    try {
+        voiceClosing=true;++voiceAttempt;const recording=voiceRec;voiceRec=null;
+        await releaseVoiceCapture(recording);voiceState='idle';
+        voiceIdleMessage='Запись остановлена при отмене настройки.';setVoiceUi();
+        const result=await api('/api/setup/cancel','POST',{session_id:setupToken});
+        if(result.status!=='cancel_pending'){showSetup(result);return;}
+        $('setup-state').textContent='Дожидаюсь завершения текущего шага для отмены…';
+        const poll=async()=>{try{const state=await api('/api/setup/status');
+            if(!state.active||state.status==='restart_required')showSetup(state);else setTimeout(poll,1000);
+        }catch(e){$('setup-state').textContent='Не удалось получить состояние отмены. Черновик не применяется автоматически.';}};
+        setTimeout(poll,1000);
+    }catch(e){errors(e.response?.errors||[{code:'setup_failed',message:e.message}]);}
+};
+$('copilot-propose').textContent='Отправить просьбу';
+$('copilot-propose').onclick=()=>run(async()=>{
+    if(!setupActive)throw Object.assign(new Error('setup_required'),{response:{errors:[{code:'setup_required'}]}});
+    updateSetupCounter();if(!$('copilot-text').reportValidity())return;
+    await syncSetupDraft();
+    const text=$('copilot-text').value;
+    if(!text.trim())throw new Error('Введите просьбу.');
+    const requestId=Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);
+    try {showSetup(await api('/api/setup/message','POST',{session_id:setupToken,version:setupVersion,request_id:requestId,text}));}
+    catch(error){
+        // A failed model step still advances the server draft version. Recover
+        // that authoritative snapshot so a corrected message can continue.
+        try{showSetup(await api('/api/setup/status'));}catch(_){}
+        throw error;
+    }
+});
+setInterval(async()=>{
+    if(!setupToken||operation)return;
+    try {const reply=await api('/api/setup/heartbeat','POST',{session_id:setupToken});
+        if(!setupActive)showSetup(reply);
+    } catch(e){$('setup-state').textContent='Связь с настройкой потеряна. Черновик не применяется автоматически.';}
+},10000);
+
+function applySetupAccess(){
+    if(setupReadOnly){
+        document.querySelectorAll('button,input,textarea,select').forEach(e=>{e.disabled=true;});
+        $('setup-state').textContent='Настройка открыта в другом клиенте. Доступен просмотр текущего плана.';
+    }
+}
+async function restoreSetupView(){
+    const state=await api('/api/setup/status');
+    if(state.active){
+        if(setupToken){
+            try{await api('/api/setup/heartbeat','POST',{session_id:setupToken});}
+            catch(_){setupToken='';sessionStorage.removeItem('fireflySetup');}
+        }
+        setupReadOnly=!setupToken;showSetup(state);applySetupAccess();
+    } else if(state.status==='resume_required'||state.status==='cancelled_draft_saved') {
+        $('setup-state').textContent='Есть сохранённый неприменённый черновик. Нажмите «Продолжить сохранённый черновик».';
+    } else $('setup-resume').hidden=true;
+}
+
+setInterval(async()=>{
+    if(!setupActive||!operation)return;
+    try{const state=await api('/api/setup/status');
+        if(state.progress)$('setup-state').textContent=`Ассистент приостановлен. Шаг ${state.progress.step} / ${state.progress.total_steps}: ${state.progress.phase==='language_profile'?'готовлю язык команд':'готовлю план'}`;
+    }catch(_){}
+},2000);

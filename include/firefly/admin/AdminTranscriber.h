@@ -12,7 +12,7 @@ public:
     explicit AdminTranscriber(std::unique_ptr<voice::SpeechRecognizer> recognizer);
     bool ready() const;
     // Returns JSON object body. Fail-closed on malformed/oversized/busy/empty speech.
-    std::string transcribe(std::string_view wavBytes);
+    std::string transcribe(std::string_view wavBytes, int maximumSeconds = 15);
 
 private:
     std::unique_ptr<voice::SpeechRecognizer> recognizer_;

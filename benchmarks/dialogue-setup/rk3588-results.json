@@ -1,0 +1,756 @@
+{
+  "board": "ROC-RK3588S-PC / RK3588S / 8 GB / Linux aarch64",
+  "baseline_revision": "4c187a78671f736013045d89295e792646405db9",
+  "utc_start": "2026-09-30T13:47:46.540503+00:00",
+  "admin_model_sha256": "58e8e74d8f129ea6f68b8e2101aae65d512668f46bb847a89e88a6a6d6094e5b",
+  "actual_context_limits": [
+    1024,
+    4096
+  ],
+  "model_events": [
+    "load_runtime1024",
+    "destroy",
+    "load_admin4096",
+    "destroy",
+    "load_runtime1024",
+    "destroy",
+    "load_admin4096",
+    "destroy",
+    "load_runtime1024",
+    "destroy"
+  ],
+  "overlapping_model_loads": false,
+  "resource_kib": {
+    "peak_rss": 5149668,
+    "peak_pss": 5147969,
+    "minimum_available": 1916952,
+    "entry_required_available": 6291456,
+    "guard_available": 1048576
+  },
+  "cases": [
+    {
+      "text": "Создай детскую комнату. Там добавь телевизер где просто включаешь и отключаешь также добавь свет где только включаешь и отключаешь.",
+      "status": "editing",
+      "wall_ms": 100639.0,
+      "llm_calls": 9,
+      "input_tokens": 232,
+      "output_tokens": 191,
+      "model_metrics": [
+        {
+          "context_tokens": 450,
+          "finish": "vendor_finish_below_limit",
+          "generation_ms": 3839.14,
+          "input_tokens": 20,
+          "output_budget": 384,
+          "output_tokens": 13,
+          "prefill_ms": 491.373,
+          "wall_ms": 4352
+        },
+        {
+          "context_tokens": 247,
+          "finish": "vendor_finish_below_limit",
+          "generation_ms": 20457.7,
+          "input_tokens": 24,
+          "output_budget": 256,
+          "output_tokens": 72,
+          "prefill_ms": 430.128,
+          "wall_ms": 20918
+        },
+        {
+          "context_tokens": 502,
+          "finish": "vendor_finish_below_limit",
+          "generation_ms": 9438.75,
+          "input_tokens": 44,
+          "output_budget": 384,
+          "output_tokens": 31,
+          "prefill_ms": 725.962,
+          "wall_ms": 10189
+        },
+        {
+          "context_tokens": 275,
+          "finish": "vendor_finish_below_limit",
+          "generation_ms": 4020.99,
+          "input_tokens": 24,
+          "output_budget": 256,
+          "output_tokens": 14,
+          "prefill_ms": 503.677,
+          "wall_ms": 4541
+        },
+        {
+          "context_tokens": 289,
+          "finish": "vendor_finish_below_limit",
+          "generation_ms": 3786.78,
+          "input_tokens": 24,
+          "output_budget": 256,
+          "output_tokens": 13,
+          "prefill_ms": 561.61,
+          "wall_ms": 4364
+        },
+        {
+          "context_tokens": 224,
+          "finish": "vendor_finish_below_limit",
+          "generation_ms": 2707.82,
+          "input_tokens": 24,
+          "output_budget": 256,
+          "output_tokens": 10,
+          "prefill_ms": 433.99,
+          "wall_ms": 3156
+        },
+        {
+          "context_tokens": 225,
+          "finish": "vendor_finish_below_limit",
+          "generation_ms": 4074.87,
+          "input_tokens": 24,
+          "output_budget": 256,
+          "output_tokens": 14,
+          "prefill_ms": 423.631,
+          "wall_ms": 4522
+        },
+        {
+          "context_tokens": 226,
+          "finish": "vendor_finish_below_limit",
+          "generation_ms": 2806.96,
+          "input_tokens": 24,
+          "output_budget": 256,
+          "output_tokens": 10,
+          "prefill_ms": 429.772,
+          "wall_ms": 3257
+        },
+        {
+          "context_tokens": 227,
+          "finish": "vendor_finish_below_limit",
+          "generation_ms": 4064.84,
+          "input_tokens": 24,
+          "output_budget": 256,
+          "output_tokens": 14,
+          "prefill_ms": 429.752,
+          "wall_ms": 4510
+        }
+      ],
+      "questions": [],
+      "language_warning": null,
+      "rooms": [
+        "детская комната"
+      ],
+      "devices": [
+        {
+          "name": "свет",
+          "location": "детская комната",
+          "actions": [
+            "Включить",
+            "Выключить"
+          ],
+          "state_fields": [
+            {
+              "id": "power",
+              "type": "boolean"
+            }
+          ]
+        },
+        {
+          "name": "телевизор",
+          "location": "детская комната",
+          "actions": [
+            "Включить",
+            "Выключить"
+          ],
+          "state_fields": [
+            {
+              "id": "power",
+              "type": "boolean"
+            }
+          ]
+        }
+      ],
+      "bindings_count": 0,
+      "validated": true
+    },
+    {
+      "text": "Свет назови основным. Ещё добавь ночник только с включением и выключением.",
+      "status": "editing",
+      "wall_ms": 44666.9,
+      "llm_calls": 5,
+      "input_tokens": 116,
+      "output_tokens": 73,
+      "model_metrics": [
+        {
+          "context_tokens": 135,
+          "finish": "vendor_finish_below_limit",
+          "generation_ms": 1973.25,
+          "input_tokens": 15,
+          "output_budget": 128,
+          "output_tokens": 7,
+          "prefill_ms": 335.831,
+          "wall_ms": 2322
+        },
+        {
+          "context_tokens": 471,
+          "finish": "vendor_finish_below_limit",
+          "generation_ms": 5443.08,
+          "input_tokens": 29,
+          "output_budget": 384,
+          "output_tokens": 18,
+          "prefill_ms": 643.878,
+          "wall_ms": 6106
+        },
+        {
+          "context_tokens": 282,
+          "finish": "vendor_finish_below_limit",
+          "generation_ms": 7084.66,
+          "input_tokens": 24,
+          "output_budget": 256,
+          "output_tokens": 24,
+          "prefill_ms": 438.243,
+          "wall_ms": 7541
+        },
+        {
+          "context_tokens": 225,
+          "finish": "vendor_finish_below_limit",
+          "generation_ms": 2636.67,
+          "input_tokens": 24,
+          "output_budget": 256,
+          "output_tokens": 10,
+          "prefill_ms": 498.498,
+          "wall_ms": 3148
+        },
+        {
+          "context_tokens": 226,
+          "finish": "vendor_finish_below_limit",
+          "generation_ms": 4090.41,
+          "input_tokens": 24,
+          "output_budget": 256,
+          "output_tokens": 14,
+          "prefill_ms": 426.091,
+          "wall_ms": 4532
+        }
+      ],
+      "questions": [],
+      "language_warning": null,
+      "rooms": [
+        "детская комната"
+      ],
+      "devices": [
+        {
+          "name": "ночник",
+          "location": "детская комната",
+          "actions": [
+            "Включить",
+            "Выключить"
+          ],
+          "state_fields": [
+            {
+              "id": "power",
+              "type": "boolean"
+            }
+          ]
+        },
+        {
+          "name": "основной свет",
+          "location": "детская комната",
+          "actions": [
+            "Включить",
+            "Выключить"
+          ],
+          "state_fields": [
+            {
+              "id": "power",
+              "type": "boolean"
+            }
+          ]
+        },
+        {
+          "name": "телевизор",
+          "location": "детская комната",
+          "actions": [
+            "Включить",
+            "Выключить"
+          ],
+          "state_fields": [
+            {
+              "id": "power",
+              "type": "boolean"
+            }
+          ]
+        }
+      ],
+      "bindings_count": 0,
+      "validated": true
+    },
+    {
+      "text": "Телевизор в детской назови экраном.",
+      "status": "editing",
+      "wall_ms": 4386.0,
+      "llm_calls": 1,
+      "input_tokens": 15,
+      "output_tokens": 6,
+      "model_metrics": [
+        {
+          "context_tokens": 137,
+          "finish": "vendor_finish_below_limit",
+          "generation_ms": 1583.63,
+          "input_tokens": 15,
+          "output_budget": 128,
+          "output_tokens": 6,
+          "prefill_ms": 407.808,
+          "wall_ms": 2004
+        }
+      ],
+      "questions": [],
+      "language_warning": null,
+      "rooms": [
+        "детская комната"
+      ],
+      "devices": [
+        {
+          "name": "ночник",
+          "location": "детская комната",
+          "actions": [
+            "Включить",
+            "Выключить"
+          ],
+          "state_fields": [
+            {
+              "id": "power",
+              "type": "boolean"
+            }
+          ]
+        },
+        {
+          "name": "основной свет",
+          "location": "детская комната",
+          "actions": [
+            "Включить",
+            "Выключить"
+          ],
+          "state_fields": [
+            {
+              "id": "power",
+              "type": "boolean"
+            }
+          ]
+        },
+        {
+          "name": "экран",
+          "location": "детская комната",
+          "actions": [
+            "Включить",
+            "Выключить"
+          ],
+          "state_fields": [
+            {
+              "id": "power",
+              "type": "boolean"
+            }
+          ]
+        }
+      ],
+      "bindings_count": 0,
+      "validated": true
+    },
+    {
+      "text": "Переименуй его.",
+      "status": "clarification_required",
+      "wall_ms": 64.8,
+      "llm_calls": 0,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "model_metrics": [],
+      "questions": [
+        "Какое устройство изменить? Укажите его название и зону."
+      ],
+      "language_warning": null,
+      "rooms": [
+        "детская комната"
+      ],
+      "devices": [
+        {
+          "name": "ночник",
+          "location": "детская комната",
+          "actions": [
+            "Включить",
+            "Выключить"
+          ],
+          "state_fields": [
+            {
+              "id": "power",
+              "type": "boolean"
+            }
+          ]
+        },
+        {
+          "name": "основной свет",
+          "location": "детская комната",
+          "actions": [
+            "Включить",
+            "Выключить"
+          ],
+          "state_fields": [
+            {
+              "id": "power",
+              "type": "boolean"
+            }
+          ]
+        },
+        {
+          "name": "экран",
+          "location": "детская комната",
+          "actions": [
+            "Включить",
+            "Выключить"
+          ],
+          "state_fields": [
+            {
+              "id": "power",
+              "type": "boolean"
+            }
+          ]
+        }
+      ],
+      "bindings_count": 0,
+      "validated": true
+    },
+    {
+      "text": "Экран в детской назови телевизором.",
+      "status": "editing",
+      "wall_ms": 4675.5,
+      "llm_calls": 1,
+      "input_tokens": 19,
+      "output_tokens": 8,
+      "model_metrics": [
+        {
+          "context_tokens": 135,
+          "finish": "vendor_finish_below_limit",
+          "generation_ms": 2086.93,
+          "input_tokens": 19,
+          "output_budget": 128,
+          "output_tokens": 8,
+          "prefill_ms": 371.814,
+          "wall_ms": 2472
+        }
+      ],
+      "questions": [],
+      "language_warning": null,
+      "rooms": [
+        "детская комната"
+      ],
+      "devices": [
+        {
+          "name": "ночник",
+          "location": "детская комната",
+          "actions": [
+            "Включить",
+            "Выключить"
+          ],
+          "state_fields": [
+            {
+              "id": "power",
+              "type": "boolean"
+            }
+          ]
+        },
+        {
+          "name": "основной свет",
+          "location": "детская комната",
+          "actions": [
+            "Включить",
+            "Выключить"
+          ],
+          "state_fields": [
+            {
+              "id": "power",
+              "type": "boolean"
+            }
+          ]
+        },
+        {
+          "name": "телевизор",
+          "location": "детская комната",
+          "actions": [
+            "Включить",
+            "Выключить"
+          ],
+          "state_fields": [
+            {
+              "id": "power",
+              "type": "boolean"
+            }
+          ]
+        }
+      ],
+      "bindings_count": 0,
+      "validated": true
+    },
+    {
+      "text": "Создай кабинет. Там добавь вентилятор только с включением и выключением. Создай кладовую. Там добавь лампу только с включением и выключением. Вентилятор в кабинете пока не добавляй.",
+      "status": "editing",
+      "wall_ms": 171804.6,
+      "llm_calls": 13,
+      "input_tokens": 315,
+      "output_tokens": 353,
+      "model_metrics": [
+        {
+          "context_tokens": 450,
+          "finish": "vendor_finish_below_limit",
+          "generation_ms": 3393.87,
+          "input_tokens": 20,
+          "output_budget": 384,
+          "output_tokens": 12,
+          "prefill_ms": 528.002,
+          "wall_ms": 3948
+        },
+        {
+          "context_tokens": 238,
+          "finish": "vendor_finish_below_limit",
+          "generation_ms": 21196.2,
+          "input_tokens": 24,
+          "output_budget": 256,
+          "output_tokens": 76,
+          "prefill_ms": 434.392,
+          "wall_ms": 21659
+        },
+        {
+          "context_tokens": 302,
+          "finish": "vendor_finish_below_limit",
+          "generation_ms": 20943,
+          "input_tokens": 24,
+          "output_budget": 256,
+          "output_tokens": 74,
+          "prefill_ms": 454.899,
+          "wall_ms": 21425
+        },
+        {
+          "context_tokens": 495,
+          "finish": "vendor_finish_below_limit",
+          "generation_ms": 5634.72,
+          "input_tokens": 31,
+          "output_budget": 384,
+          "output_tokens": 19,
+          "prefill_ms": 703.709,
+          "wall_ms": 6357
+        },
+        {
+          "context_tokens": 288,
+          "finish": "vendor_finish_below_limit",
+          "generation_ms": 6322.23,
+          "input_tokens": 24,
+          "output_budget": 256,
+          "output_tokens": 23,
+          "prefill_ms": 435.436,
+          "wall_ms": 6776
+        },
+        {
+          "context_tokens": 226,
+          "finish": "vendor_finish_below_limit",
+          "generation_ms": 2699.35,
+          "input_tokens": 24,
+          "output_budget": 256,
+          "output_tokens": 10,
+          "prefill_ms": 523.727,
+          "wall_ms": 3238
+        },
+        {
+          "context_tokens": 227,
+          "finish": "vendor_finish_below_limit",
+          "generation_ms": 3803.29,
+          "input_tokens": 24,
+          "output_budget": 256,
+          "output_tokens": 14,
+          "prefill_ms": 493.958,
+          "wall_ms": 4313
+        },
+        {
+          "context_tokens": 495,
+          "finish": "vendor_finish_below_limit",
+          "generation_ms": 3272.88,
+          "input_tokens": 19,
+          "output_budget": 384,
+          "output_tokens": 11,
+          "prefill_ms": 561.134,
+          "wall_ms": 3850
+        },
+        {
+          "context_tokens": 237,
+          "finish": "vendor_finish_below_limit",
+          "generation_ms": 15276.2,
+          "input_tokens": 24,
+          "output_budget": 256,
+          "output_tokens": 54,
+          "prefill_ms": 432.545,
+          "wall_ms": 15733
+        },
+        {
+          "context_tokens": 510,
+          "finish": "vendor_finish_below_limit",
+          "generation_ms": 4934,
+          "input_tokens": 29,
+          "output_budget": 384,
+          "output_tokens": 16,
+          "prefill_ms": 496.265,
+          "wall_ms": 5454
+        },
+        {
+          "context_tokens": 276,
+          "finish": "vendor_finish_below_limit",
+          "generation_ms": 4527.59,
+          "input_tokens": 24,
+          "output_budget": 256,
+          "output_tokens": 16,
+          "prefill_ms": 419.129,
+          "wall_ms": 4962
+        },
+        {
+          "context_tokens": 224,
+          "finish": "vendor_finish_below_limit",
+          "generation_ms": 3728.04,
+          "input_tokens": 24,
+          "output_budget": 256,
+          "output_tokens": 14,
+          "prefill_ms": 491.675,
+          "wall_ms": 4235
+        },
+        {
+          "context_tokens": 225,
+          "finish": "vendor_finish_below_limit",
+          "generation_ms": 3854.01,
+          "input_tokens": 24,
+          "output_budget": 256,
+          "output_tokens": 14,
+          "prefill_ms": 516.835,
+          "wall_ms": 4389
+        }
+      ],
+      "questions": [],
+      "language_warning": "Часть языковых предложений отклонена проверкой; сохранены исходные формы.",
+      "rooms": [
+        "детская комната",
+        "кабинет",
+        "кладовка"
+      ],
+      "devices": [
+        {
+          "name": "лампа",
+          "location": "кладовка",
+          "actions": [
+            "Включить",
+            "Выключить"
+          ],
+          "state_fields": [
+            {
+              "id": "power",
+              "type": "boolean"
+            }
+          ]
+        },
+        {
+          "name": "ночник",
+          "location": "детская комната",
+          "actions": [
+            "Включить",
+            "Выключить"
+          ],
+          "state_fields": [
+            {
+              "id": "power",
+              "type": "boolean"
+            }
+          ]
+        },
+        {
+          "name": "основной свет",
+          "location": "детская комната",
+          "actions": [
+            "Включить",
+            "Выключить"
+          ],
+          "state_fields": [
+            {
+              "id": "power",
+              "type": "boolean"
+            }
+          ]
+        },
+        {
+          "name": "телевизор",
+          "location": "детская комната",
+          "actions": [
+            "Включить",
+            "Выключить"
+          ],
+          "state_fields": [
+            {
+              "id": "power",
+              "type": "boolean"
+            }
+          ]
+        }
+      ],
+      "bindings_count": 0,
+      "validated": true
+    }
+  ],
+  "runtime_compact": {
+    "metrics": {
+      "context_tokens": 340,
+      "finish": "vendor_finish_below_limit",
+      "generation_ms": 984.638,
+      "input_tokens": 96,
+      "output_budget": 128,
+      "output_tokens": 4,
+      "prefill_ms": 1459.37,
+      "wall_ms": 2459
+    },
+    "raw": "[40]"
+  },
+  "admin_stt_60s": {
+    "ok": true,
+    "duration_ms": 60000.0,
+    "stt_ms": 2434.387447,
+    "segmented": true
+  },
+  "stt_replay": {
+    "applied": false,
+    "copilot_started": false,
+    "duration_ms": 2718.0,
+    "ok": true,
+    "saved": false,
+    "segmented": false,
+    "stt_ms": 134.661161,
+    "text": "на кухне поставь свет на сорок процентов"
+  },
+  "raw_artifacts": "build/dialogue-recovery/acceptance-preserved-names.{json,log} and -memory.jsonl",
+  "physical_microphone_tested": false,
+  "speaker_audibility_tested": false,
+  "maximum_model_input_bytes": 199,
+  "total_llm_calls": 29,
+  "semantic_validation": "PASS ValidateReport.py, including requested names, power-only capabilities and final exclusion",
+  "startup_bootstrap": {
+    "calls": 5,
+    "wall_ms": 15972.0,
+    "prefill_ms": 15169.421,
+    "prefill_tokens": 1090.0,
+    "generate_ms": 764.375,
+    "generate_tokens": 5.0
+  },
+  "context_bootstrap": {
+    "calls": 29,
+    "wall_ms": 125664.0,
+    "prefill_ms": 125398.8,
+    "prefill_tokens": 8469.0,
+    "generate_ms": 29.755,
+    "generate_tokens": 29.0
+  },
+  "total_vendor_runs": 64,
+  "call_count_note": "llm_calls counts real Admin content requests, including format retries. Vendor bootstrap runs and the final runtime command are reported separately.",
+  "memory_window_seconds": 561.4,
+  "harness_elapsed_seconds": 562.439560183997,
+  "validation": {
+    "build": "PASS",
+    "focused_suites_passed": 6,
+    "focused_seconds": 38.32,
+    "ctest_suites_passed": 61,
+    "ctest_seconds": 105.66,
+    "chromium": "PASS: fake capture, real HTTP, fake recognizer; recording cap, Apply guard and cancellation track cleanup",
+    "real_qwen_and_real_stt": "PASS",
+    "amina_sha256_unchanged": "bc42cb869d2aace69c5bdf9333c502b96dedfa85df97676be85f5c289dc057d1"
+  }
+}

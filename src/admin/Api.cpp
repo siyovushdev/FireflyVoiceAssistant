@@ -4,6 +4,7 @@
 #include "firefly/config/ConfigLoader.h"
 #include "firefly/config/ConfigValidator.h"
 #include "Json.h"
+#include "SetupSession.h"
 #include "firefly/admin/AdminDraft.h"
 #include "firefly/admin/AdminCopilot.h"
 #include <atomic>
@@ -52,12 +53,22 @@ struct Api::Impl {
     HealthModel health;
     std::mutex writes, runtimeOperation, state;
     std::atomic<bool> busy{false};
+    std::unique_ptr<SetupSession> setup;
+    std::atomic<bool> timerStop{false};
+    std::thread timer;
     Json active = nullptr;
     bool ready = false;
     int workerPid = 0;
     std::string lastError;
     Impl(config::ConfigStore& store, RuntimeClient& runtime, AdminTranscriber* transcriber)
-        : store(store), runtime(runtime), transcriber(transcriber) {}
+        : store(store), runtime(runtime), transcriber(transcriber) {
+        setup = std::make_unique<SetupSession>(store,[this](const Json& value) { return invoke(value); });
+        timer = std::thread([this] { while (!timerStop) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            if (!timerStop) try { setup->tick(); } catch (const std::exception&) { /* explicit setup status remains unavailable */ }
+        }});
+    }
+    ~Impl() { timerStop = true; if (timer.joinable()) timer.join(); }
     void syncHealthFromRuntime(const Json& live) {
         const bool modelReady = live.value("model_ready", false);
         if (modelReady) health.setSubsystem("llm", SubsystemStatus::Ready);
@@ -74,11 +85,28 @@ struct Api::Impl {
         else if (transcriber)
             health.setSubsystem("stt", SubsystemStatus::Failed, "stt_unavailable");
         else health.setSubsystem("stt", SubsystemStatus::Unavailable, "", "not_configured");
+        if (live.value("setup_mode",std::string("ASSISTANT_RUNNING")) != "ASSISTANT_RUNNING") {
+            health.setSubsystem("runtime",SubsystemStatus::Unavailable,"setup_in_progress",live.value("setup_mode",std::string()));
+            health.setSubsystem("hardware_execution",SubsystemStatus::Unavailable,"setup_in_progress");
+            const auto mode=live.value("setup_mode",std::string());
+            health.setSubsystem("setup",mode=="RESTART_REQUIRED"?SubsystemStatus::Failed:SubsystemStatus::Ready,
+                mode=="RESTART_REQUIRED"?"restart_required":"",mode);
+        } else {
+            health.setSubsystem("setup",SubsystemStatus::Ready,{},"ASSISTANT_RUNNING");
+        }
         health.refreshOverall();
     }
     Json invoke(const Json& request) {
-        std::unique_lock<std::mutex> operation(runtimeOperation, std::try_to_lock);
-        if (!operation.owns_lock()) throw ApiError(409, "runtime_busy", "", "Runtime is processing another command or Apply. Retry when idle.");
+        std::unique_lock<std::mutex> operation(runtimeOperation, std::defer_lock);
+        const bool entering = request.value("method",std::string())=="setup_enter";
+        // The local runtime must close voice admission immediately, before the
+        // API mutex of an accepted command is released. Its generation lock then
+        // waits for that command; this does not permit concurrent inference.
+        const bool localEntry = entering && runtime.concurrentSetupEntry();
+        if (entering && !localEntry) operation.lock();
+        else if (localEntry) { /* RuntimeGenerations owns the admission barrier. */ }
+        else operation.try_lock();
+        if (!localEntry && !operation.owns_lock()) throw ApiError(409, "runtime_busy", "", "Runtime is processing another command or Apply. Retry when idle.");
         if (health.snapshot().stopping)
             throw ApiError(503, "runtime_stopping", "", "Runtime is shutting down.");
         struct Busy { std::atomic<bool>& flag; explicit Busy(std::atomic<bool>& f) : flag(f) { flag = true; } ~Busy() { flag = false; } } guard(busy);
@@ -167,6 +195,7 @@ void Api::attachTranscriber(AdminTranscriber* transcriber) {
     impl_->transcriber = transcriber;
 }
 void Api::beginShutdown() {
+    impl_->timerStop = true;
     std::cerr << "SHUTDOWN requested\n";
     impl_->health.setStopping(true);
 }
@@ -258,10 +287,21 @@ void Api::initializeRuntime() {
     }
     impl_->health.refreshOverall();
 }
-HttpReply Api::handle(std::string_view method, std::string_view path, std::string_view body) {
+HttpReply Api::handle(std::string_view method, std::string_view path, std::string_view body, std::string_view setupOwner) {
     int status = 200;
     Json reply;
     try {
+        if (path.substr(0,11) == "/api/setup/") {
+            const auto route=path.substr(11);
+            if ((route=="status" && method!="GET") || (route!="status" && method!="POST"))
+                throw ApiError(405,"method_not_allowed","","Unsupported setup method");
+            try {
+                const auto result=impl_->setup->handle(route,method=="GET"?Json::object():parseMessage(body,true));
+                return {200,"application/json; charset=utf-8",result.dump()};
+            } catch (const std::exception& error) {
+                return {409,"application/json; charset=utf-8",failure("setup_failed","",error.what()).dump()};
+            }
+        }
         const std::map<std::string, std::string> routes{{"/api/admin/language-profile", "POST"}, {"/api/admin/plan", "POST"}, {"/api/admin/copilot", "POST"}, {"/api/admin/copilot/accept", "POST"}, {"/api/admin/transcribe", "POST"}, {"/api/admin/action-draft", "POST"}, {"/api/admin/templates", "GET"}, {"/api/admin/draft", "POST"}, {"/api/config/migrate", "POST"}, {"/api/admin/id", "POST"}, {"/api/admin/suggest", "POST"}, {"/api/config/diff", "POST"},
             {"/api/config/export", "GET"}, {"/api/config/import", "POST"}, {"/api/config/revision", "POST"},
             {"/api/config/restore-candidate", "POST"}, {"/api/dashboard", "GET"}, {"/api/devices/state", "GET"},
@@ -274,15 +314,22 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
             throw ApiError(405, "method_not_allowed", "", "HTTP method is not supported for this endpoint.");
         if (method == "GET" && !body.empty()) throw std::invalid_argument("Unexpected body");
         if (path == "/api/admin/transcribe") {
+            if (impl_->setup->active()) impl_->setup->handle("authorize",Json{{"session_id",setupOwner}});
             if (!impl_->transcriber || !impl_->transcriber->ready())
                 throw ApiError(503, "stt_unavailable", "", "Local speech recognition is not available on this Firefly.");
-            reply = Json::parse(impl_->transcriber->transcribe(body));
+            reply = Json::parse(impl_->transcriber->transcribe(body, impl_->setup->active() ? 60 : 15));
             if (!reply.value("ok", false)) status = reply.contains("errors") &&
                 reply["errors"].is_array() && !reply["errors"].empty() &&
                 reply["errors"][0].value("code", "") == "stt_busy" ? 409 : 422;
             return {status, "application/json; charset=utf-8", reply.dump(-1, ' ', false, Json::error_handler_t::replace)};
         }
         Json request = method == "GET" ? Json::object() : parseMessage(body,true);
+        if (impl_->setup->active() && method != "GET") {
+            if (path == "/api/config" || path == "/api/config/apply" || path == "/api/config/restore" || path == "/api/config/reconcile" || path == "/api/test-command")
+                throw ApiError(409,"setup_in_progress","","Настройка активна; используйте её подтверждение или отмену.");
+            impl_->setup->handle("authorize",request);
+            request.erase("session_id");
+        }
         const auto observation = method == "GET" ? impl_->runtime.observe() : std::string{};
         if (path == "/api/admin/plan" || path == "/api/admin/action-draft" || path == "/api/admin/copilot") {
             if (path == "/api/admin/plan") { members(request,{"text","configuration"}); request["method"] = "plan"; }

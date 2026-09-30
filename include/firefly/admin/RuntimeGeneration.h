@@ -20,6 +20,10 @@ public:
     virtual bool ready() const = 0;
     virtual int contextTokens() const { return -1; }
     virtual void useAdminContext(const std::string& prompt, int) { useContext(prompt); }
+    virtual bool setupRequired() const { return false; }
+    virtual void enterSetup() { throw std::runtime_error("Setup profile unavailable"); }
+    virtual void leaveSetup(const std::string& prompt) { useContext(prompt); }
+    virtual std::string inferAdmin(std::string_view text) { return infer(text); }
     virtual std::string inferenceMetrics() const { return "{}"; }
 };
 class RuntimeGeneration final {
@@ -85,9 +89,21 @@ public:
     bool modelReady() const { return ready_.load(); }
     int contextTokens() const { return contextTokens_.load(); }
     bool busy() const { return busy_.load(); }
+    enum class SetupMode { Running, Entering, Active, Restoring, Degraded };
+    SetupMode setupMode() const { return setupMode_.load(); }
+    bool setupBlocked() const { return setupMode() != SetupMode::Running; }
+    const char* setupModeName() const;
+    void enterSetup();
+    void prepareRestore();
+    void finishRestore();
+    void setAudioDrain(std::function<void()> drain) { audioDrain_ = std::move(drain); }
     void stop() { stopping_ = true; }
 private:
     friend class Request;
+    std::atomic<std::uint64_t> setupEpoch_{0};
+    std::unique_lock<std::timed_mutex> lockRequest();
+    std::atomic<SetupMode> setupMode_{SetupMode::Running};
+    std::function<void()> audioDrain_;
     std::atomic<bool> ready_{false}, busy_{false}, stopping_{false};
     std::atomic<int> contextTokens_{-1};
     std::uint64_t nextGeneration_ = 1, nextEvent_ = 1;

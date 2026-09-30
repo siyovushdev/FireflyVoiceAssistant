@@ -59,8 +59,26 @@
         const action=clone(original);action.id=id;action.name=`${device.name}: яркость`;Object.assign(action.parameters[0],range);return action;
     }
     function humanError(error, config) {
+        if(error.code==='setup_failed'){
+            const detail=String(error.message||'');
+            const reasons=[
+                ['admin_input_size','Максимум 4000 символов в сообщении. Текст не обрезан.'],
+                ['admin_empty_message','Введите просьбу или запишите её голосом.'],
+                ['admin_step_budget','Одно предложение слишком длинное для шага модели. Разделите просьбу на связанные предложения.'],
+                ['setup_busy','Настройка уже открыта или обрабатывает запрос. Дождитесь завершения.'],
+                ['setup_session_conflict','Этот клиент не владеет сессией настройки. Откройте её в исходной вкладке.'],
+                ['stale_','Черновик или сохранённая версия изменились. Перезагрузите страницу и проверьте изменения.'],
+                ['incomplete_setup_plan','Сначала ответьте на уточнения и завершите план.'],
+                ['no_pending_setup_draft','Сохранённого неприменённого черновика нет. Начните новую настройку.'],
+                ['admin_model','Модель настройки отсутствует или не прошла проверку. Проверьте диагностику; подмена модели не выполняется.'],
+                ['admin_memory','Недостаточно свободной памяти для модели настройки. Проверьте состояние ассистента.'],
+                ['invalid_ai_response','ИИ не подготовил корректный план. Изменения этого сообщения не приняты; уточните просьбу.'],
+                ['ai_unavailable','Модель настройки недоступна. Отмените настройку для возврата ассистента или проверьте диагностику.']
+            ];
+            return reasons.find(([key])=>detail.includes(key))?.[1]||'Не удалось завершить настройку. Проверьте состояние и план; подробности доступны в диагностике.';
+        }
         const code=error.code, path=error.path||'', value=path.split('/').slice(1).reduce((v,k)=>v?.[k],config);
-        const messages={invalid_input:'Введите непустую команду: не более 192 байт UTF-8, без управляющих символов.',ai_unavailable:'ИИ недоступен — продолжайте ручное редактирование.',invalid_ai_response:'ИИ не смог подготовить корректное предложение. Можно повторить или заполнить вручную. Конфигурация не изменена.',
+        const messages={recording_active:'Сначала остановите запись и проверьте распознанный текст. Затем примените настройки.',setup_required:'Нажмите «Начать настройку»: ассистент временно освободит рабочую модель для настройки.',invalid_input:'Введите непустую команду: не более 192 байт UTF-8, без управляющих символов.',ai_unavailable:'ИИ недоступен — продолжайте ручное редактирование.',invalid_ai_response:'ИИ не смог подготовить корректное предложение. Можно повторить или заполнить вручную. Конфигурация не изменена.',
             runtime_busy:'Сейчас обрабатывается другой запрос. Повторите после его завершения.',runtime_unavailable:'Модель недоступна. Ручное редактирование и сохранение доступны.',
             revision_conflict:'Конфигурация уже изменена. Загрузите сохранённую версию перед сохранением.',hierarchy_cycle:'Зона не может быть родителем самой себя или своего предка.',
             retired_id:'Этот постоянный идентификатор ранее удалён. Создайте сущность с новым идентификатором.',identity_conflict:'Нельзя изменить категорию существующего идентификатора.',
@@ -88,7 +106,7 @@
             stt_busy:'Распознавание уже выполняется. Дождитесь завершения.',
             stt_failed:'Не удалось распознать речь. Повторите или введите текст.',
             empty_speech:'Речь не распознана. Произнесите короткий запрос и попробуйте снова.',
-            invalid_audio:'Аудиозапись отклонена. Допустима короткая моно WAV/PCM запись до 15 секунд.',
+            invalid_audio:'Аудиозапись отклонена. Нужна моно WAV/PCM: до 60 секунд в режиме настройки, до 15 секунд вне него.',
             mic_denied:'Доступ к микрофону запрещён. Разрешите микрофон в браузере или введите текст.',
             mic_missing:'Микрофон не найден. Проверьте устройство или введите текст.',
             mic_unsupported:'Этот браузер не поддерживает нужный API записи. Введите текст.',
@@ -323,7 +341,8 @@
         if (lastMessage) return lastMessage;
         return sttReady ? '' : 'Голосовой ввод недоступен — введите текст.';
     }
-    const result={scalarNumber,decodeImport,clone,list,metadata,typeName,occupied,location,device,suggestion,wizardErrors,constraintErrors,constrainedAction,humanError,diffLines,commandSummary,stateText,productionStateText,unitText,valueText,constraintText,effectLines,initialValue,simpleAction,executorContract,voiceGate,mapMicError,encodeWavPcm16,nextVoiceState,idleVoiceStatus,MaxCopilotVoiceSeconds,
+    const adminCharacterCount=text=>Array.from(text).length;
+    const result={adminCharacterCount,scalarNumber,decodeImport,clone,list,metadata,typeName,occupied,location,device,suggestion,wizardErrors,constraintErrors,constrainedAction,humanError,diffLines,commandSummary,stateText,productionStateText,unitText,valueText,constraintText,effectLines,initialValue,simpleAction,executorContract,voiceGate,mapMicError,encodeWavPcm16,nextVoiceState,idleVoiceStatus,MaxCopilotVoiceSeconds,
         executableActionIds,bindingFor,connectionCompleteness,connectionStatusText,defaultHttpBinding,upsertBinding,removeBinding,actionNeedsArgument,preferredArgument,healthSummary};
     if(typeof module!=='undefined')module.exports=result; else root.AdminModel=result;
 })(typeof window!=='undefined'?window:globalThis);
