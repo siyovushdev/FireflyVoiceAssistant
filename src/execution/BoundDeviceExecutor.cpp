@@ -3,7 +3,7 @@
 
 namespace firefly::execution {
 BoundDeviceExecutor::BoundDeviceExecutor(config::Catalog catalog, SteadyClockMs clock)
-    : playground_(catalog), production_(catalog, std::move(clock)), resolver_(catalog) {
+    : catalog_(catalog), playground_(catalog), production_(catalog, std::move(clock)), resolver_(catalog) {
     registry_.registerExecutor(config::ExecutorKind::Http, std::make_shared<HttpHardwareExecutor>());
 }
 
@@ -96,8 +96,15 @@ ExecutionResult BoundDeviceExecutor::execute(const actions::GenericAction& actio
         else if (const auto* door = std::get_if<DoorState>(&*predicted.current))
             expected.emplace("position", actions::Scalar(std::string(
                 door->position == DoorPosition::Open ? "OPEN" : "CLOSED")));
-        else if (const auto* typed = std::get_if<TypedState>(&*predicted.current))
-            expected = *typed;
+        else if (const auto* typed = std::get_if<TypedState>(&*predicted.current)) {
+            // Preview includes virtual initial/Playground values. Only assignments
+            // actually made by this accepted action are production evidence.
+            const auto& definition = catalog_->configuration().actions.at(catalog_->actionIndex().at(action.actionId()));
+            for (const auto& assignment : definition.assignments) {
+                if (assignment.argument && !action.arguments().count(*assignment.argument)) continue;
+                expected.emplace(assignment.field, typed->at(assignment.field));
+            }
+        }
         production_.applyPrediction(action.targetId(), expected, now);
     }
     predicted.status = ExecutionStatus::Accepted;

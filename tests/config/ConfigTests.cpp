@@ -254,6 +254,30 @@ void storeTests(Checks& test, const std::string& root) {
     auto latest = sixth;
     for (int i = 0; i < 7; ++i) latest = store.save(latest, expected(latest));
     test.check(store.revisions().size() == 12 && store.revisions().front().revision == 1, "history is retained beyond ten revisions without unsafe pruning");
+    {
+        Scratch temp; ConfigStore compensation(temp.path);
+        auto beforeValue = fourth->configuration();
+        beforeValue.retiredIds = {"room_retired_before_setup"};
+        const auto before = compensation.initialize(ConfigValidator::validate(beforeValue));
+        auto afterValue = before->configuration();
+        for (auto& room : afterValue.rooms) if (room.id == "room_office") room.id = "room_new_in_setup";
+        const auto saved = compensation.save(ConfigValidator::validate(afterValue), expected(before));
+        test.rejects("revision_conflict", [&] { compensation.compensateSave(expected(before), expected(before)); });
+        test.rejects("invalid_compensation", [&] { compensation.compensateSave(expected(saved), {0, before->contentHash()}); });
+        test.rejects("invalid_compensation", [&] { compensation.compensateSave(expected(saved), {1, std::string(64, '0')}); });
+        const auto restored = compensation.compensateSave(expected(saved), expected(before));
+        test.check(restored->roomIndex().count("room_office") && !restored->roomIndex().count("room_new_in_setup"), "compensation restores exact deleted identities");
+        test.check(restored->configuration().retiredIds == std::vector<std::string>{"room_new_in_setup", "room_retired_before_setup"}, "compensation preserves prior history and retires failed creations");
+        test.check(restored->configuration().revision == 3 && compensation.revisions().size() == 2, "compensation is a durable new revision with both backups");
+        test.rejects("revision_conflict", [&] { compensation.compensateSave(expected(saved), expected(before)); });
+        test.rejects("invalid_compensation", [&] { compensation.compensateSave(expected(restored), expected(before)); });
+        auto reuse = restored->configuration(); reuse.retiredIds.clear();
+        Room reused = extra; reused.id = "room_retired_before_setup";
+        reused.mentions = {"гараж"}; reused.locations = {"в гараже"};
+        reuse.rooms.push_back(reused);
+        test.rejects("retired_id", [&] { compensation.save(ConfigValidator::validate(reuse), expected(restored)); });
+        test.check(compensation.current()->contentHash() == restored->contentHash(), "rejected compensation and ordinary reuse preserve current identity");
+    }
     for (const auto step : {StoreStep::BackupWrite, StoreStep::BackupSync, StoreStep::BackupPublish, StoreStep::BackupDirectorySync,
                            StoreStep::Write, StoreStep::FileSync, StoreStep::Rename, StoreStep::DirectorySync}) {
         Scratch temp; const auto initial = ConfigStore(temp.path).initialize(base);

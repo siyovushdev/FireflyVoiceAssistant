@@ -294,6 +294,60 @@ int main(int argc, char** argv) {
                 execution::Connectivity::Unknown, "Playground no connectivity change");
         }
 
+        // Generic actions update only their assignments, never the complete
+        // Playground preview (which contains initial or simulated values).
+        {
+            FakeHttpServer server;
+            std::ifstream input(std::string(root) + "/tests/language/home.json");
+            auto value = Json::parse(input);
+            value["devices"][0]["state"].push_back({{"id", "power"}, {"name", "Питание"},
+                {"type", "boolean"}, {"initial", false}, {"required", true}, {"unit", ""}, {"description", ""}});
+            for (auto& action : value["actions"]) {
+                const auto id = action.at("id").get<std::string>();
+                if (id == "power_on" || id == "power_off")
+                    action["assignments"] = Json::array({{{"field", "power"}, {"value", id == "power_on"}}});
+                if (id == "power_off") {
+                    action["parameters"] = Json::array({{{"id", "level"}, {"name", "Яркость"},
+                        {"type", "integer"}, {"minimum", 0}, {"maximum", 100}, {"required", false},
+                        {"unit", "percent"}, {"description", ""}}});
+                    action["assignments"].push_back({{"field", "level"}, {"argument", "level"}});
+                }
+                Json http = {{"method", "POST"}, {"url", "http://127.0.0.1:" + std::to_string(server.port) + "/command"},
+                    {"timeout_ms", 1000}, {"body", Json::object()}};
+                if (id == "set_level") http["argument"] = "level";
+                value["bindings"].push_back({{"target_id", "lamp_a"}, {"action_id", id}, {"executor", "http"}, {"http", http}});
+            }
+            execution::BoundDeviceExecutor executor(config::ConfigLoader::fromJson(value.dump()), clock);
+            auto property = [&](const std::string& key) { return executor.production().device("lamp_a")->properties.at(key); };
+            auto unchanged = [](const execution::PropertyKnowledge& a, const execution::PropertyKnowledge& b) {
+                return a.value == b.value && a.knowledge == b.knowledge && a.updatedAtMs == b.updatedAtMs && a.observedAtMs == b.observedAtMs;
+            };
+            auto execute = [&](const actions::GenericAction& action, execution::ExecutionIntent intent) {
+                ++clockMs;
+                check(executor.execute(action, intent).success, "generic test action accepted by HTTP or Playground");
+            };
+            const auto unknownPower = property("power");
+            execute({"set_level", "lamp_a", {{"level", actions::Scalar(std::int64_t{40})}}}, execution::ExecutionIntent::Production);
+            check(unchanged(property("power"), unknownPower), "brightness does not promote untouched power Unknown to Predicted");
+            const auto predictedLevel = property("level");
+            check(predictedLevel.value == actions::Scalar(std::int64_t{40}) && predictedLevel.knowledge == execution::StateKnowledge::Predicted, "production brightness is Predicted 40");
+            execute({"power_on", "lamp_a", {}}, execution::ExecutionIntent::Production);
+            check(unchanged(property("level"), predictedLevel), "production ON does not replace brightness with virtual initial zero");
+            const auto predictedPower = property("power");
+            execute({"set_level", "lamp_a", {{"level", actions::Scalar(std::int64_t{55})}}}, execution::ExecutionIntent::Playground);
+            check(unchanged(property("level"), predictedLevel) && unchanged(property("power"), predictedPower), "Playground leaves all production property metadata intact");
+            execute({"power_off", "lamp_a", {}}, execution::ExecutionIntent::Production);
+            check(unchanged(property("level"), predictedLevel), "production OFF never imports Playground 55, absent optional argument leaves field intact");
+            check(property("power").value == actions::Scalar(false), "production OFF updates its literal assignment");
+            executor.observe({"lamp_a", {{"level", actions::Scalar(std::int64_t{70})}}, ++clockMs});
+            const auto confirmedLevel = property("level");
+            execute({"power_on", "lamp_a", {}}, execution::ExecutionIntent::Production);
+            check(confirmedLevel.knowledge == execution::StateKnowledge::Confirmed && unchanged(property("level"), confirmedLevel), "unrelated production command preserves Confirmed value and both timestamps");
+            execute({"power_off", "lamp_a", {{"level", actions::Scalar(std::int64_t{10})}}}, execution::ExecutionIntent::Production);
+            check(property("level").value == actions::Scalar(std::int64_t{10}) && property("level").knowledge == execution::StateKnowledge::Predicted,
+                "present optional argument updates its field as Predicted");
+        }
+
         // --- Stale (deterministic clock, no sleep) ---
         {
             auto value = baseV2(root);

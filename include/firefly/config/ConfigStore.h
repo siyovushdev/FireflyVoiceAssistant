@@ -17,6 +17,9 @@ public:
     Catalog current() const;
     Catalog initialize(const Catalog& candidate);
     Catalog save(const Catalog& candidate, const ExpectedRevision& expected);
+    // Compensate exactly one failed Save/Apply transaction, under the saved CAS.
+    // Only the immutable immediate predecessor may reactivate IDs it contained.
+    Catalog compensateSave(const ExpectedRevision& saved, const ExpectedRevision& predecessor);
     std::vector<StoredRevision> revisions() const;
     Catalog revision(std::int64_t revision) const;
     Catalog restoreCandidate(std::int64_t revision, const ExpectedRevision& expected) const;

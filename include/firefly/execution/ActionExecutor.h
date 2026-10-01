@@ -75,6 +75,7 @@ public:
     const DeviceStateStore& production() const;
     void observe(const StateObservation& observation);
 private:
+    config::Catalog catalog_;
     MockDeviceExecutor playground_;
     DeviceStateStore production_;
     BindingResolver resolver_;

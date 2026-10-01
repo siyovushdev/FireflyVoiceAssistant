@@ -4,6 +4,7 @@
 #include "firefly/InputPolicy.h"
 #include "firefly/admin/Api.h"
 #include <iostream>
+#include <sys/wait.h>
 using namespace firefly::admin;
 using admin_test::Json;
 struct SetupModel : admin_test::Model {
@@ -229,6 +230,103 @@ int main(int argc,char**argv){int failures=0,checks=0;
   rollbackSession.handle("cancel",{{"session_id",retryOwner}});
   const auto current=rollbackStore.current();rollbackStore.save(current,{current->configuration().revision,current->contentHash()});
   check(rejected([&]{rollbackSession.handle("resume",{});}),"stale base revision cannot resume old draft");
+ }
+
+ // Save succeeded, then Apply failed: compensate only our saved revision,
+ // including deletions, never a later independent writer's revision.
+ for(bool concurrentSave : {false,true}) {
+  admin_test::Directory isolated;firefly::config::ConfigStore recoveryStore(isolated.path);
+  const auto original=recoveryStore.initialize(admin_test::catalog(admin_test::bathroom(admin_test::base(argv[1]))));
+  recoveryStore.recordLastKnownGood(original);
+  SetupModel recoveryModel;RuntimeWorker recoveryWorker(recoveryModel);
+  bool failApply=false;firefly::config::Catalog external;
+  auto guarded=[&](const Json& request) {
+   if(failApply && request.at("method")=="apply") {
+    failApply=false;
+    if(concurrentSave) {
+     const auto saved=recoveryStore.current();auto edit=Json::parse(saved->canonicalJson());
+     edit["system"]["name"]="Concurrent confirmed edit";
+     external=recoveryStore.save(admin_test::catalog(edit),{saved->configuration().revision,saved->contentHash()});
+    }
+    return Json{{"ok",false},{"errors",Json::array({"injected Apply failure"})}};
+   }
+   return Json::parse(recoveryWorker.handle(request.dump()));
+  };
+  guarded({{"method","apply"},{"configuration",Json::parse(original->canonicalJson())}});
+  SetupSession recovery(recoveryStore,guarded);auto state=recovery.handle("start",{});const auto token=state.at("session_id");
+  auto candidate=Json::parse(original->canonicalJson());
+  for(const auto* category:{"rooms","devices"}) {
+   const std::string removed=std::string(category)=="rooms"?"room_bathroom":"device_bathroom_light";
+   auto& entries=candidate[category];entries.erase(std::remove_if(entries.begin(),entries.end(),[&](const Json& item){return item.at("id")==removed;}),entries.end());
+  }
+  state=recovery.handle("draft",{{"session_id",token},{"version",0},{"configuration",candidate}});
+  failApply=true;
+  check(rejected([&]{recovery.handle("apply",{{"session_id",token},{"version",state.at("version")}});}),"failed Apply is reported after deletion Save");
+  if(concurrentSave) {
+   check(recoveryStore.current()->contentHash()==external->contentHash(),"rollback CAS never overwrites concurrent confirmed Save");
+   check(recoveryStore.lastKnownGood().value()->contentHash()==original->contentHash(),"CAS conflict does not record false LKG");
+   check(recovery.handle("status",{}).at("status")=="restart_required"&&recoveryWorker.setupBlocked(),"concurrent rollback conflict stays explicitly unavailable");
+  } else {
+   const auto restored=recoveryStore.current();
+   check(restored->deviceIndex().count("device_bathroom_light")&&restored->roomIndex().count("room_bathroom"),"compensation restores deleted room and device");
+   check(restored->configuration().retiredIds.empty(),"only failed transaction retirements are undone");
+   check(recoveryStore.lastKnownGood().value()->contentHash()==restored->contentHash(),"restored configuration recorded as LKG");
+   const auto live=Json::parse(recoveryWorker.observe());
+   check(live.at("active").at("configuration")==Json::parse(restored->canonicalJson()),"runtime and restored store are the same generation");
+   check(recovery.handle("status",{}).at("status")=="apply_failed_restored"&&!recoveryWorker.setupBlocked(),"deletion rollback restores assistant without restart");
+  }
+ }
+
+ // Abrupt process exit after the first sentence has been persisted. No
+ // exception handler runs, so this exercises the actual recovery boundary.
+ {
+  admin_test::Directory isolated;firefly::config::ConfigStore crashStore(isolated.path);
+  const auto original=crashStore.initialize(firefly::config::ConfigLoader::fromFile(std::string(argv[1])+"/config/empty-home.json"));
+  const std::string text="Создай кабинет. Там добавь свет только включать и выключать.";
+  auto proposal=[](const Json& request,int step) {
+   const auto wire=step==1?R"({"ops":[["location","Кабинет"]]})":R"({"ops":[["power_device","Кабинет","Свет"]]})";
+   return Json{{"ok",true},{"suggestion",Json::parse(decodeCopilotProposal(expandDialogueOperations(wire).dump(),admin_test::catalog(request.at("configuration"))))}};
+  };
+  const auto child=::fork();if(child<0)throw std::runtime_error("fork failed");
+  if(child==0) {
+   int steps=0;
+   auto crashCall=[&](const Json& request)->Json {
+    if(request.at("method")=="dialogue") {if(++steps==2)::_exit(73);return proposal(request,steps);}
+    if(request.at("method")=="language_profile")return {{"ok",false},{"errors",Json::array()}};
+    return {{"ok",true}};
+   };
+   try {
+    SetupSession interrupted(crashStore,crashCall);const auto state=interrupted.handle("start",{});
+    interrupted.handle("message",{{"session_id",state.at("session_id")},{"version",0},{"request_id","interrupted"},{"text",text}});
+   } catch(...) {::_exit(74);}
+   ::_exit(75);
+  }
+  int status=0;::waitpid(child,&status,0);
+  check(WIFEXITED(status)&&WEXITSTATUS(status)==73,"crash occurs during second dialogue step");
+  std::ifstream persisted(isolated.path+"/setup-draft.json");const auto partial=Json::parse(persisted);
+  check(partial.at("configuration").at("rooms").size()==1 && partial.at("message_incomplete")==true,"partial first step persisted with incomplete marker");
+  int retrySteps=0,applies=0;
+  auto call=[&](const Json& request)->Json {
+   if(request.at("method")=="dialogue")return proposal(request,++retrySteps);
+   if(request.at("method")=="language_profile")return {{"ok",false},{"errors",Json::array()}};
+   if(request.at("method")=="apply")++applies;
+   return {{"ok",true}};
+  };
+  {
+   SetupSession resumed(crashStore,call);auto state=resumed.handle("resume",{});const auto token=state.at("session_id");
+   check(state.at("status")=="planning_failed"&&state.at("configuration").at("rooms").empty(),"resume restores pre-message checkpoint and exposes incompleteness");
+   check(rejected([&]{resumed.handle("apply",{{"session_id",token},{"version",state.at("version")}});}),"resumed partial message cannot Apply");
+   check(rejected([&]{resumed.handle("draft",{{"session_id",token},{"version",state.at("version")},{"configuration",partial.at("configuration")}});}),"manual draft cannot erase incompleteness");
+   check(rejected([&]{resumed.handle("message",{{"session_id",token},{"version",state.at("version")},{"request_id","unrelated"},{"text","Добавь ночник"}});}),"unrelated message cannot silently complete unfinished request");
+   resumed.handle("cancel",{{"session_id",token}});
+  }
+  SetupSession resumedAgain(crashStore,call);auto state=resumedAgain.handle("resume",{});const auto token=state.at("session_id");
+  check(state.at("message_incomplete")==true&&applies==0&&crashStore.current()->contentHash()==original->contentHash(),"cancel/restart/resume retains incompleteness without automatic Apply");
+  state=resumedAgain.handle("message",{{"session_id",token},{"version",state.at("version")},{"request_id","explicit-retry"},{"text",text}});
+  check(state.at("status")=="editing"&&state.at("message_incomplete")==false&&retrySteps==2,"explicit complete retry resolves both original steps");
+  check(state.at("configuration").at("rooms").size()==1&&state.at("configuration").at("devices").size()==1,"retry does not duplicate partially persisted creations");
+  resumedAgain.handle("apply",{{"session_id",token},{"version",state.at("version")}});
+  check(applies==1&&crashStore.current()->configuration().devices.size()==1,"only completed request can be explicitly applied");
  }
 
  }catch(const std::exception&e){++failures;std::cerr<<"EXCEPTION "<<e.what()<<'\n';}

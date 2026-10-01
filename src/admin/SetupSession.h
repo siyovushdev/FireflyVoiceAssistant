@@ -44,6 +44,20 @@ public:
             ::close(fd);
             if(!bytes.empty())try {
                 data_=Json::parse(bytes);data_["active"]=false;
+                // A crash can leave a valid but partial configuration between
+                // dialogue steps. Recover the message checkpoint, never accept
+                // that prefix as a completed request. Also fail closed for old
+                // drafts persisted in planning before checkpoints existed.
+                const auto status=data_.value("status",std::string());
+                if(data_.contains("pending_message") || status=="planning" || status=="planning_failed")
+                    data_["message_incomplete"]=true;
+                if(data_.value("message_incomplete",false)) {
+                    if(data_.contains("pending_message")) {
+                        data_["configuration"]=data_["pending_message"].at("configuration");
+                        data_["focus"]=data_["pending_message"].at("focus");
+                    }
+                    data_["questions"]=Json::array({"Обработка просьбы не завершена. Повторите её полностью или начните новую настройку."});
+                }
                 if(data_.value("status",std::string())!="applied")data_["status"]="resume_required";
                 owner_.clear();
             } catch(...) {data_=Json::object();}
@@ -79,7 +93,7 @@ public:
                 {"focus",Json::array()},{"version",0},{"last_request",""},{"questions",Json::array()},{"trace",Json::array()}};
             owner_ = token(); std::atomic_store(&publishedOwner_,std::make_shared<const std::string>(owner_));std::atomic_store(&cancelOwner_,std::shared_ptr<const std::string>()); active_ = true; data_["status"]="entering";
             heartbeat_ = activity_ = Clock::now(); persist();
-            try { invoke({{"method","setup_enter"}}); data_["status"]="editing"; }
+            try { invoke({{"method","setup_enter"}}); data_["status"]=data_.value("message_incomplete",false)?"planning_failed":"editing"; }
             catch (...) { active_=false; data_["status"]="entry_failed"; persist(); throw; }
             heartbeat_=Clock::now(); persist(); auto result=view(); result["session_id"]=owner_; return result;
         }
@@ -93,12 +107,16 @@ public:
         if (request.value("version",-1) != data_.at("version").get<int>()) throw std::runtime_error("stale_draft_version");
         checkBase();
         if (route == "draft") {
+            if(data_.value("message_incomplete",false)) throw std::runtime_error("incomplete_setup_plan: повторите незавершённую просьбу полностью");
             auto catalog=config::ConfigLoader::fromJson(request.at("configuration").dump());
             RuntimeGeneration admission(catalog);
             data_["configuration"]=Json::parse(catalog->canonicalJson());
             data_["questions"]=Json::array(); data_["status"]="editing"; advance();
         } else if (route == "message") {
             const auto text=request.at("text").get<std::string>(); validateMessage(text);
+            if(data_.value("message_incomplete",false) &&
+               (!data_.contains("pending_message") || data_["pending_message"].at("text")!=text))
+                throw std::runtime_error("incomplete_setup_plan: повторите незавершённую просьбу полностью");
             const auto id=request.at("request_id").get<std::string>();
             if (id.empty() || id.size()>80) throw std::invalid_argument("invalid_request_id");
             if (id==data_.at("last_request")) return view();
@@ -106,6 +124,8 @@ public:
             const auto unresolved=data_.value("unresolved_text",std::string());
             const auto plannedText=unresolved.empty()?text:unresolved+"\nОтвет на уточнение: "+text;
             data_["messages"].push_back(text); data_["last_request"]=id;
+            data_["message_incomplete"]=true;
+            data_["pending_message"]={{"text",text},{"configuration",data_["configuration"]},{"focus",data_["focus"]}};
             data_["status"]="planning"; persist();
             const auto original=data_["configuration"];
             const auto originalFocus=data_["focus"];
@@ -175,21 +195,22 @@ public:
                 }
                 if (data_["questions"].empty()) { data_["status"]="editing"; data_["unresolved_text"]=""; }
                 else { data_["configuration"]=original; data_["focus"]=originalFocus; } // No partial message presented as complete.
+                data_["message_incomplete"]=false; data_.erase("pending_message");
                 advance();
             } catch (...) { data_["configuration"]=original; data_["focus"]=originalFocus; data_["status"]="planning_failed"; advance(); throw; }
         } else if (route == "apply") {
-            if (data_.at("status")!="editing" || !data_["questions"].empty()) throw std::runtime_error("incomplete_setup_plan");
+            if (data_.value("message_incomplete",false) || data_.at("status")!="editing" || !data_["questions"].empty()) throw std::runtime_error("incomplete_setup_plan");
             for(const auto* category:{"rooms","devices"})for(auto& entity:data_["configuration"].at(category))
                 if(entity.contains("metadata") && entity["metadata"].value("origin",std::string())=="local_ai")entity["metadata"]["confirmed"]=true;
             const auto candidate=config::ConfigLoader::fromJson(data_.at("configuration").dump());
             RuntimeGeneration admission(candidate);
             const auto old=store_.current();
             data_["status"]="restoring_for_admission"; persist();
-            bool saved=false;
+            config::Catalog saved;
             try {
                 invoke({{"method","setup_restore"}});
                 invoke({{"method","preflight"},{"configuration",data_["configuration"]}});
-                const auto next=store_.save(candidate,{old->configuration().revision,old->contentHash()}); saved=true;
+                const auto next=store_.save(candidate,{old->configuration().revision,old->contentHash()}); saved=next;
                 invoke({{"method","apply"},{"configuration",Json::parse(next->canonicalJson())}});
                 store_.recordLastKnownGood(next);
                 invoke({{"method","setup_finish"}});
@@ -200,8 +221,9 @@ public:
                 const auto failure=std::current_exception();
                 try {
                     if (saved) {
-                        const auto current=store_.current();
-                        const auto rollback=store_.save(old,{current->configuration().revision,current->contentHash()});
+                        const auto rollback=store_.compensateSave(
+                            {saved->configuration().revision,saved->contentHash()},
+                            {old->configuration().revision,old->contentHash()});
                         invoke({{"method","apply"},{"configuration",Json::parse(rollback->canonicalJson())}});
                         store_.recordLastKnownGood(rollback);
                     }
@@ -267,7 +289,7 @@ private:
     }
     Json view() const {
         Json result={{"ok",true},{"active",active_.load()},{"status",data_.value("status",std::string("idle"))}};
-        for(const auto* key:{"configuration","version","questions","summary","language_warning","progress"}) if(data_.contains(key)) result[key]=data_.at(key);
+        for(const auto* key:{"configuration","version","questions","summary","language_warning","progress","message_incomplete"}) if(data_.contains(key)) result[key]=data_.at(key);
         result["disconnect_seconds"]=disconnectSeconds_; result["inactivity_seconds"]=inactivitySeconds_;
         result["connection_note"]="Действия настроены программно. Без Binding физическое подключение не задано.";
         return result;

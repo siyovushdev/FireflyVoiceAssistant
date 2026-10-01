@@ -137,7 +137,8 @@ std::map<std::string, std::string> identityKinds(const Configuration& config) {
     for (const auto& item : config.restrictions) result[item.id] = "restriction";
     return result;
 }
-Catalog nextRevision(const Catalog& candidate, const Catalog& previous) {
+Catalog nextRevision(const Catalog& candidate, const Catalog& previous,
+                     const std::set<std::string>& reactivated = {}) {
     if (!candidate) throw ConfigError("invalid_candidate", "", "Validated candidate required");
     auto value = candidate->configuration();
     if (previous) {
@@ -158,14 +159,16 @@ Catalog nextRevision(const Catalog& candidate, const Catalog& previous) {
         const auto active = domainIds(value);
         std::set<std::string> retired(old.retiredIds.begin(), old.retiredIds.end());
         retired.insert(value.retiredIds.begin(), value.retiredIds.end());
+        for (const auto& id : reactivated) retired.erase(id);
         for (const auto& id : domainIds(old)) if (!active.count(id)) retired.insert(id);
         value.retiredIds.assign(retired.begin(), retired.end());
         value.revision = old.revision + 1;
     } else value.revision = 1;
     return ConfigValidator::validate(std::move(value));
 }
-Catalog commit(int directory, const Catalog& candidate, const Catalog& previous, const StoreFault& fault) {
-    const auto next = nextRevision(candidate, previous);
+Catalog commit(int directory, const Catalog& candidate, const Catalog& previous, const StoreFault& fault,
+               const std::set<std::string>& reactivated = {}) {
+    const auto next = nextRevision(candidate, previous, reactivated);
     if (previous) {
         auto backupDirectory = backups(directory);
         const auto name = backupName(previous);
@@ -242,6 +245,24 @@ Catalog ConfigStore::save(const Catalog& candidate, const ExpectedRevision& expe
     const auto previous = readCatalog(store.directory.get(), CurrentFile);
     checkExpected(previous, expected);
     return commit(store.directory.get(), candidate, previous, fault_);
+}
+Catalog ConfigStore::compensateSave(const ExpectedRevision& saved, const ExpectedRevision& predecessor) {
+    LockedStore store(directory_); noPending(store.directory.get());
+    const auto current = readCatalog(store.directory.get(), CurrentFile);
+    checkExpected(current, saved);
+    if (predecessor.revision < 1 || predecessor.revision != saved.revision - 1)
+        throw ConfigError("invalid_compensation", "", "Only the immediate predecessor of this Save may be restored");
+    const auto entries = listBackups(store.directory.get());
+    const auto found = std::find_if(entries.begin(), entries.end(), [&](const auto& entry) {
+        return entry.revision == predecessor.revision && entry.hash == predecessor.hash;
+    });
+    if (found == entries.end())
+        throw ConfigError("invalid_compensation", "", "Exact predecessor backup required");
+    auto directory = backups(store.directory.get());
+    const auto candidate = readCatalog(directory.get(), std::to_string(found->revision) + "-" + found->hash + ".json");
+    // Validated predecessor cannot contain any already retired active IDs.
+    // All other retirement history (including removed creations) is retained.
+    return commit(store.directory.get(), candidate, current, fault_, domainIds(candidate->configuration()));
 }
 std::vector<StoredRevision> ConfigStore::revisions() const {
     LockedStore store(directory_); noPending(store.directory.get());
