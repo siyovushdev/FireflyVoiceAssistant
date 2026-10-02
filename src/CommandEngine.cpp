@@ -22,6 +22,7 @@ CommandResult CommandEngine::process(std::string_view original) {
             result.grounding = domain_.resolve(original);
             language::MatchResult indexed;
             if(index_)indexed=index_->match(original);
+            result.indexMatch=indexed;
             result.indexStatus=language::matchName(indexed.kind);
             if(indexed.kind==language::MatchKind::Ambiguous||indexed.kind==language::MatchKind::Invalid) {
                 result.path=CommandPath::GroundingRejected;result.languageRoute=result.indexStatus;result.reason=indexed.reason;

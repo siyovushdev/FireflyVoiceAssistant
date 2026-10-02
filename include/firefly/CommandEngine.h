@@ -28,6 +28,7 @@ struct CommandResult {
     double latencyMs = 0;
     CommandTimings llmTimings;
     std::string languageRoute = "LEGACY_FAST_PATH", indexStatus = "INDEX_MISS";
+    language::MatchResult indexMatch;
 };
 class CommandEngine {
 public:

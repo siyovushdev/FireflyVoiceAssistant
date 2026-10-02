@@ -43,5 +43,6 @@ public:
     std::string validationReason(const actions::GenericAction& candidate) const;
 private:
     const config::Catalog snapshot_;
+    std::map<std::string, std::vector<std::string>> locationGrammar_;
 };
 }

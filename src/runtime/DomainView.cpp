@@ -1,10 +1,14 @@
 #include "firefly/runtime/DomainView.h"
+#include "firefly/config/LanguageProfile.h"
 #include <algorithm>
 #include <utility>
 #include <sstream>
 namespace firefly::runtime {
 DomainView::DomainView(config::Catalog snapshot) : snapshot_(std::move(snapshot)) {
     if (!snapshot_) throw std::invalid_argument("DomainView requires a validated snapshot");
+    if (snapshot_->configuration().schemaVersion == 2)
+        for (const auto& room : snapshot_->configuration().rooms)
+            if (!room.metadata.container) locationGrammar_.emplace(room.id, config::locationGrammar(room));
 }
 const config::Room* DomainView::room(std::string_view id) const {
     const auto found = snapshot_->roomIndex().find(std::string(id));

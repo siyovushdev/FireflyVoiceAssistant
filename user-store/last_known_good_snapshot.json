@@ -1,0 +1,203 @@
+{
+    "actions": [
+        {
+            "assignments": [
+                {
+                    "field": "power",
+                    "value": true
+                }
+            ],
+            "description": "Питание → Включено.",
+            "enabled": true,
+            "id": "action_svet_vklyuchit",
+            "name": "Включить",
+            "operation": "mock.assign.v1",
+            "origin": "local_ai",
+            "parameters": [],
+            "speech_aliases": [
+                "включи",
+                "включить"
+            ]
+        },
+        {
+            "assignments": [
+                {
+                    "field": "power",
+                    "value": false
+                }
+            ],
+            "description": "Питание → Выключено.",
+            "enabled": true,
+            "id": "action_svet_vyklyuchit",
+            "name": "Выключить",
+            "operation": "mock.assign.v1",
+            "origin": "local_ai",
+            "parameters": [],
+            "speech_aliases": [
+                "выключи",
+                "выключите",
+                "выключить"
+            ]
+        },
+        {
+            "assignments": [
+                {
+                    "field": "power",
+                    "value": true
+                }
+            ],
+            "description": "Питание → Включено.",
+            "enabled": true,
+            "id": "action_televizor_vklyuchit",
+            "name": "Включить",
+            "operation": "mock.assign.v1",
+            "origin": "local_ai",
+            "parameters": [],
+            "speech_aliases": [
+                "включи",
+                "включить"
+            ]
+        },
+        {
+            "assignments": [
+                {
+                    "field": "power",
+                    "value": false
+                }
+            ],
+            "description": "Питание → Выключено.",
+            "enabled": true,
+            "id": "action_televizor_vyklyuchit",
+            "name": "Выключить",
+            "operation": "mock.assign.v1",
+            "origin": "local_ai",
+            "parameters": [],
+            "speech_aliases": [
+                "выключи",
+                "выключите",
+                "выключить"
+            ]
+        }
+    ],
+    "bindings": [],
+    "compatibility": null,
+    "devices": [
+        {
+            "action_ids": [
+                "action_svet_vklyuchit",
+                "action_svet_vyklyuchit"
+            ],
+            "enabled": true,
+            "id": "device_svet",
+            "kind": "generic",
+            "metadata": {
+                "aliases": [
+                    "свет"
+                ],
+                "confirmed": true,
+                "description": "свет",
+                "origin": "local_ai",
+                "type": "power_only"
+            },
+            "name": "свет",
+            "room_id": "location_detskaya_komnata",
+            "spoken_aliases": [
+                "лампа",
+                "освещение",
+                "свет"
+            ],
+            "state": [
+                {
+                    "description": "Питание виртуального устройства.",
+                    "id": "power",
+                    "initial": false,
+                    "name": "Питание",
+                    "required": true,
+                    "type": "boolean",
+                    "unit": ""
+                }
+            ]
+        },
+        {
+            "action_ids": [
+                "action_televizor_vklyuchit",
+                "action_televizor_vyklyuchit"
+            ],
+            "enabled": true,
+            "id": "device_televizor",
+            "kind": "generic",
+            "metadata": {
+                "aliases": [
+                    "телевизор"
+                ],
+                "confirmed": true,
+                "description": "телевизор",
+                "origin": "local_ai",
+                "type": "power_only"
+            },
+            "name": "телевизор",
+            "room_id": "location_detskaya_komnata",
+            "spoken_aliases": [
+                "tv",
+                "тв",
+                "телевизор"
+            ],
+            "state": [
+                {
+                    "description": "Питание виртуального устройства.",
+                    "id": "power",
+                    "initial": false,
+                    "name": "Питание",
+                    "required": true,
+                    "type": "boolean",
+                    "unit": ""
+                }
+            ]
+        }
+    ],
+    "retired_ids": [],
+    "revision": 2,
+    "rooms": [
+        {
+            "id": "location_detskaya_komnata",
+            "metadata": {
+                "aliases": [
+                    "детская",
+                    "детская комната",
+                    "комната",
+                    "комната для детей",
+                    "ребенок s room"
+                ],
+                "confirmed": true,
+                "container": false,
+                "description": "детская комната",
+                "origin": "local_ai",
+                "parent_id": null,
+                "type": "room"
+            },
+            "name": "детская комната",
+            "speech": {
+                "locations": [
+                    "в детская комната",
+                    "в комнату для детей"
+                ],
+                "mentions": [
+                    "детская комната",
+                    "дитя",
+                    "комната",
+                    "ребенок"
+                ]
+            }
+        }
+    ],
+    "safety": {
+        "restrictions": []
+    },
+    "schema_version": 2,
+    "system": {
+        "id": "system_home",
+        "interpretation_profile": "legacy_m4_v1",
+        "locale": "ru-RU",
+        "name": "Firefly V1 Prototype"
+    }
+}

@@ -100,3 +100,64 @@ Production AI endpoints требуют SETUP_ACTIVE: runtime 1024 предвар
 освобождается, Admin 4096 остаётся загруженным на весь диалог. Предложение по-прежнему
 не является источником истины; только явный Apply подтверждает Config и пересобирает
 LanguageIndex одной RuntimeGeneration. Ручное редактирование использует тот же draft.
+
+## Updating language without replacing the user's configuration
+
+Location proposals request grammatical case forms and short synonyms, not
+permutations of whole commands. The decoder still validates the model's bounded
+response, then merges it with existing reviewed atoms. It preserves canonical
+names/action words instead of silently replacing them. The merged result is
+bounded by the existing schema (16 location metadata aliases, 32 other arrays).
+A proposal exceeding those limits is rejected, never silently truncated.
+
+For an existing home, explicitly enter setup, open the entity's **«Язык команд»**,
+press **«Предложить варианты»**, inspect/edit the merged result and conflict
+preview, and confirm it in the shared draft. Obsolete or poor aliases can be
+removed explicitly in those fields. Finish with **«Применить настройки и включить
+ассистента»**. Proposal alone does not Save or Apply. Automatic migration of the
+user store is deliberately absent. Many existing adjective-named rooms already
+benefit from the new derived grammar without changing any persisted atoms.
+
+For new entities, dialogue setup invokes this same profile pipeline. The user
+states the room/device/capabilities once; the matcher handles supported case
+forms, prepositions, neutral «пожалуйста», and word-order permutations. Other noun
+inflections and true synonyms remain reviewed language data, proposed by Qwen.
+No claim is made to understand every possible Russian construction.
+
+## On-board end-to-end text acceptance
+
+Build first, and run the following **sequentially**, only when no other process
+owns RKLLM and at least 6 GiB `MemAvailable` is available. Do not build or run
+parallel tests while the models are resident. The executable rejects another
+RKLLM owner and refuses any configuration with hardware bindings.
+
+```sh
+cmake --build build -j2
+umask 077
+mkdir -p build/language-fastpath-private
+./build/src/admin/language_production_acceptance \
+  build/language-fastpath-private/admin-created.json --create
+```
+
+This creates a separate private store, uses real dialogue and language proposals
+for two rooms and three power-only devices, explicitly Applies that test draft,
+and checks commands through `RuntimeWorker::processVoice` with injected text.
+No aliases are hand-added to the acceptance catalog. The report verifies that
+decoded language atoms actually survived Save/Apply, not merely that the model
+returned a proposal. Logical successes, rejections, physical `binding_missing`
+and actual runtime-model calls are recorded separately.
+
+Take `test_store` from the generated report, then run a **new process**:
+
+```sh
+./build/src/admin/language_production_acceptance \
+  build/language-fastpath-private/restarted.json --restart /absolute/path/to/test_store
+```
+
+For a read-only private copy of an existing configuration, `--config FILE` runs
+the nine child-room command cases without setting up or saving anything. Never
+commit the copy or reports derived from the user's installation. Model startup
+and bootstrap are excluded from `text_parse_median_ms` / `text_parse_p95_ms`;
+these measure CommandEngine understanding, excluding STT, VAD and transport.
+The model is still loaded for fallback availability. Zero runtime calls means
+zero per-command `infer`/`inferCommand` calls, not zero startup bootstrap work.

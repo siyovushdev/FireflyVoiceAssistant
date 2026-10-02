@@ -39,8 +39,10 @@ std::shared_ptr<const LanguageIndex> LanguageCompiler::compile(config::Catalog c
 }
 
 MatchResult LanguageIndex::match(std::string_view original) const {
-    const auto reject = [](MatchKind kind, const std::string& reason) {
-        return MatchResult{kind, actions::Unsupported{}, reason};
+    MatchResult result;
+    const auto reject = [&](MatchKind kind, const std::string& reason) {
+        result.kind = kind; result.candidate = actions::Unsupported{}; result.reason = reason;
+        return result;
     };
     if (original.size() > 192 || original.find_first_not_of(" \t\r\n") == std::string_view::npos)
         return reject(MatchKind::Invalid, "Input length");
@@ -48,18 +50,23 @@ MatchResult LanguageIndex::match(std::string_view original) const {
     catch (const config::ConfigError&) { return reject(MatchKind::Invalid, "Invalid UTF-8"); }
 
     const auto& configuration = domain_.snapshot()->configuration();
-    if (configuration.devices.empty()) return {};
+    result.stage = "entities";
+    if (configuration.devices.empty()) return reject(MatchKind::Miss, "Empty device domain");
     const auto grounding = domain_.resolve(original);
     if (grounding.ambiguous) return reject(MatchKind::Ambiguous, "Several configured entities match");
-    if (grounding.devices.size() != 1) return {};
+    if (grounding.devices.size() != 1) return reject(MatchKind::Miss, "No unique configured device");
     const auto* target = domain_.device(grounding.devices.front());
+    result.targetId = target->id;
+    result.stage = "action";
     const auto intents = domain_.requestedActions(original, *target);
     if (intents.size() > 1) return reject(MatchKind::Ambiguous, "Several configured actions match");
-    if (intents.empty()) return {};
+    if (intents.empty()) return reject(MatchKind::Miss, "No exact configured action");
     const auto& action = configuration.actions.at(domain_.snapshot()->actionIndex().at(intents.front()));
-    if (action.parameters.size() > 1) return {};
+    result.actionId = action.id;
+    result.stage = "arguments";
+    if (action.parameters.size() > 1) return reject(MatchKind::Miss, "Multiple parameter schema requires fallback");
     if (!action.parameters.empty() && action.parameters[0].type != "integer" &&
-        action.parameters[0].type != "boolean" && action.parameters[0].type != "enum") return {};
+        action.parameters[0].type != "boolean" && action.parameters[0].type != "enum") return reject(MatchKind::Miss, "Scalar type requires fallback");
 
     const auto words = detail::words(original);
     const auto lower = detail::lowercase(original);
@@ -137,18 +144,30 @@ MatchResult LanguageIndex::match(std::string_view original) const {
             for (std::size_t i = 0; i < words.size(); ++i)
                 if (!covered[i] && (integerAt(words, i) || words[i] == "true" || words[i] == "false"))
                     return reject(MatchKind::Invalid, "Argument has a different scalar type");
-            return {};
+            return reject(MatchKind::Miss, "No exact scalar value");
         }
         if (!config::accepts(parameter, values.front())) return reject(MatchKind::Invalid, "Argument outside schema");
         arguments.emplace(parameter.id, values.front());
         if (parameter.unit == "percent") for (std::size_t i = 0; i < words.size(); ++i)
             if (percentWord(words[i])) covered[i] = true;
     }
+    result.stage = "coverage";
     for (std::size_t i = 0; i < words.size(); ++i) if (!covered[i]) {
         if (words[i] == "в" || words[i] == "во" || words[i] == "на" || words[i] == "пожалуйста") continue;
-        return {}; // Unknown meaningful text must never be silently consumed.
+        result.uncovered.push_back(words[i]);
     }
-    return {fuzzy ? MatchKind::FuzzyUnique : MatchKind::ExactUnique,
-        actions::GenericAction(action.id, target->id, std::move(arguments)), {}};
+    if (!result.uncovered.empty()) {
+        // A derived location form is usable only as a complete construction.
+        // "... on <adjective> table" must not become an invocation of the
+        // adjective-named room via a model that ignores the remaining noun.
+        const bool derivedLocation = std::any_of(grounding.mentions.begin(), grounding.mentions.end(), [](const auto& m) {
+            return m.category == "location" && m.method == "location_grammar";
+        });
+        return reject(derivedLocation ? MatchKind::Invalid : MatchKind::Miss, "Uncovered meaningful tokens");
+    }
+    result.stage = "complete";
+    result.kind = fuzzy ? MatchKind::FuzzyUnique : MatchKind::ExactUnique;
+    result.candidate = actions::GenericAction(action.id, target->id, std::move(arguments));
+    return result;
 }
 }

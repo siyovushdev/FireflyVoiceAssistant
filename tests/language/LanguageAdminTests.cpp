@@ -19,7 +19,7 @@ int main(int argc,char** argv){try{
     auto document=Json::parse(home->canonicalJson());
     model.raw=R"({"aliases":["Включи","зажги","включи"]})";
     auto proposal=call("POST","/api/admin/language-profile",{{"configuration",document},{"entity","action"},{"id","power_on"}});
-    check(proposal.first==200&&proposal.second["suggestion"]["aliases"].size()==2,"action proposal API");
+    check(proposal.first==200&&proposal.second["suggestion"]["aliases"].size()==3,"action proposal API preserves canonical atoms");
     check(proposal.second["saved"]==false&&proposal.second["applied"]==false&&identity()==initial,"proposal autosaved");
     model.raw=R"({"aliases":["выключи"]})";
     proposal=call("POST","/api/admin/language-profile",{{"configuration",document},{"entity","action"},{"id","power_on"}});

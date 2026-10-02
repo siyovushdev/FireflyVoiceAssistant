@@ -246,3 +246,121 @@ ctest --test-dir build -R 'Language|CompactActionDecoder|Safety|AdminGenerationA
 ctest --test-dir build --output-on-failure
 git diff --check
 ```
+
+## Composition of location forms (stabilization)
+
+The production launcher `scripts/firefly-dialogue.sh` executes
+`build/firefly-demo`. Its voice entry is `RuntimeWorker::processVoice` → a leased
+`RuntimeGenerations::Request` → `CommandEngine`, with that generation's
+`languageIndex`. The index constructor checks the catalog identity; a separate
+voice parser/index is not required.
+
+The reproduced nine-command failure was a **coverage miss**, not a missing index
+or an action-selection failure. Device and power action were already unique;
+no arguments were required. Unrecognized inflections of the configured location
+remained uncovered and caused nine real runtime-Qwen calls. The baseline used a
+private copy of the installation, with no hardware execution. Its configuration
+and identifiers are intentionally not included in the repository.
+
+`locationGrammar(Room)` now derives bounded regular adjective forms from accepted
+`mentions`, `locations`, and `metadata.aliases`. It supports regular `-ая`, `-яя`,
+`-ый` seeds and adjective + `комната` constructions, including the corresponding
+case forms of the classifier. It does not strip arbitrary words, stem command
+text, infer a noun's irregular declension, guess stress-dependent forms, or
+modify the persisted configuration. For example, an approved «читальная комната»
+can ground «в читальной комнате», «в читальной», and «на читальном». The final
+variant is accepted only when the catalog identifies exactly one location.
+Adding «столе» does not silently turn it into a room command.
+
+The small grammatical rules are shared with DomainView so grounding, index,
+compact selection and the unchanged SafetyGate use the same evidence. The
+resolver requires a в/во/на slot for newly derived inflections, so a bare device
+or state adjective cannot be invented as a location reference. Explicit reviewed
+atoms still support bare adjectival references. A longer explicit
+prepositional alias cannot hide another owner of the same grammatical form.
+Evidence carries the original span and `method=location_grammar`. No action,
+number, capability, Binding or transport is derived by this grammar.
+
+Index matching still composes entity/action/argument evidence in any word order.
+For a derived location construction, uncovered meaningful words fail closed
+instead of asking the model to discard them. Existing non-grammatical misses
+retain their fallback behavior; unsupported argument schemas retain their
+bounded fallback. Shared derived forms produce a conflict warning and runtime
+ambiguity rejection. No probabilistic ranking or first-device preference is used.
+
+The compiler identity is `language_atoms_v2_location_grammar`. Grammar is rebuilt
+from the same snapshot on Apply/restart; old request leases retain their old
+forms. Editing/removing an atom or entity therefore removes its derived forms
+without a persistent phrase cache. Config schema and source-of-truth are unchanged.
+
+Production command diagnostics include `index_match.stage`, `reason`, selected
+`target_id` / `action_id`, and `uncovered` tokens, independently of the final
+route/model/validation result. An unsupported result is never counted as a
+successful fast-path command.
+
+Reproducible real-model acceptance is provided by
+`benchmarks/language-index/ProductionAcceptance.cpp`. It uses the existing
+SetupSession/RuntimeWorker and real Admin4096, Save/Apply, then the exact voice
+entry with an injected transcript and real runtime1024. Counters wrap actual
+`infer`/`inferCommand` calls; zero is asserted for accepted commands. All bindings
+must be absent, and production execution must report `binding_missing`. This is
+text-understanding acceptance, not a microphone, STT, or hardware test.
+
+### Measured RK3588S acceptance, 2026-10-01
+
+Baseline HEAD: `1fee9bcae54018f37aed7d4ea9483c132f070e05`.
+The source and `build/firefly-demo` were checked/rebuilt before recording the
+baseline. All commands used the production generation/CommandEngine path; final
+acceptance additionally used the exact `RuntimeWorker::processVoice` entry with
+an injected transcript. The user store was never changed.
+
+| Dataset / phase | Successful commands | Rejections counted separately | Runtime inference calls | Text median / p95, ms |
+| --- | ---: | ---: | ---: | --- |
+| Original private copy, before, first batch | 9/9 via Qwen, **0 index hits** | 0 | 9 | 1473.62 / 1614.13 (9 samples) |
+| Same unmodified copy, final build, first batch | 9/9 INDEX_EXACT | 6 | 0 | 1.638 / 17.508 (9 positive samples) |
+| Same copy, final repeated text replay | 9 distinct positives, 189 accepted replays | 6 | 0 | 0.844 / 1.142 |
+| New real-Admin home, after Apply | 12 distinct positives, 252 accepted replays | 6 | 0 | 1.453 / 1.875 |
+| Same confirmed test store, final build, new process | 12 distinct positives, 252 accepted replays | 6 | 0 | 1.399 / 1.832 |
+
+Cold first-use initialization is visible in the 17.508 ms maximum of the first
+post-change batch; it is not hidden in the repeated median. No STT, endpoint or
+end-to-end acoustic latency improvement is claimed.
+The Admin creation/Apply run preceded the final restriction requiring a
+preposition for derived forms. Both the unchanged private copy and the actual
+Admin-created store were replayed again on that final build; the latter retained
+the saved profiles without another AI generation or manual edit.
+
+The nine original texts cover on/off for light/TV, «в детской», «в детской комнате»,
+«на детском», location-first/device-first order and «пожалуйста». All nine changed
+from INDEX_MISS + one real Qwen call to INDEX_EXACT + zero calls, with unchanged
+logical ON/OFF result and successful SafetyGate/domain checks.
+
+The new real Admin session created a child room with light/TV and a separately
+requested turquoise room with a fan. All three devices remained power-only.
+There were **15 real Admin inference calls**, 11 decoded language profiles, and
+the harness verified their atoms in the persisted configuration after Apply.
+The two dialogue messages took 118.870 s and 97.518 s; this work happens during
+setup, not ordinary command execution. No catalog was manually enriched for
+this run. Restored hash/revision were identical after a fresh process start.
+
+The observed load sequence was runtime1024 → release → Admin4096 → release →
+runtime1024, then process exit. Peak test-process RSS was 4756.3 MiB; minimum
+system MemAvailable was 2112.8 MiB. This harness does not load microphone/STT
+models and makes no claim about live acoustic testing. Each logical success
+reached the existing production executor and was safely stopped with
+`binding_missing`; no physical equipment was controlled.
+
+Fake-model regressions additionally cover four independently created room names,
+soft/hard adjective patterns, exact action matching, negative/conditional/timed
+commands, unsupported brightness, shared device names, derived/explicit location
+collisions, rename/delete, old-generation isolation, and proposal preservation.
+Real Qwen proposals can still contain awkward synonyms or imperfect prepositional
+phrases. They remain editable data; accepted canonical seeds and deterministic
+grammar keep the tested common commands independent of those imperfections.
+Raw traces, selected installation IDs and configuration copies remain only in
+private ignored `build/language-fastpath-private/` artifacts, not repository data.
+
+Final validation: build succeeded; focused configuration/state/compact/language/
+dialogue tests passed 7/7; full CTest passed 62/62 (110.52 s), including JS and
+Chromium integration. `git diff --check` passed. The user configuration checksum
+and frozen Amina SHA256 were unchanged. No commit or push was made.

@@ -90,6 +90,8 @@ Json commandJson(const std::string& input, const GenerationResult& result) {
         {"entity_id",m.entityId},{"category",m.category},{"alias",m.alias},{"span",m.span},{"method",m.method},
         {"begin",m.begin},{"end",m.end},{"distance",m.distance},{"generation_id",result.generation->id},{"catalog_hash",command.grounding.catalogHash}});
     reply["language_route"]=command.languageRoute;reply["index_status"]=command.indexStatus;
+    reply["index_match"]={{"stage",command.indexMatch.stage},{"reason",command.indexMatch.reason},
+        {"target_id",command.indexMatch.targetId},{"action_id",command.indexMatch.actionId},{"uncovered",command.indexMatch.uncovered}};
     reply["language_index"]={{"hash",result.generation->languageIndex->catalogHash()},{"revision",result.generation->languageIndex->revision()},
         {"compiler",language::LanguageIndex::CompilerVersion},{"fingerprint",result.generation->languageIndex->fingerprint()}};
     reply["ambiguous"] = command.grounding.ambiguous;

@@ -8,6 +8,8 @@ struct MatchResult {
     MatchKind kind = MatchKind::Miss;
     actions::CandidateResult candidate;
     std::string reason;
+    std::string stage = "input", targetId, actionId;
+    std::vector<std::string> uncovered;
 };
 class LanguageCompiler;
 class LanguageIndex final {
@@ -16,7 +18,7 @@ public:
     const std::string& catalogHash() const { return domain_.snapshot()->contentHash(); }
     std::int64_t revision() const { return domain_.snapshot()->configuration().revision; }
     const std::string& fingerprint() const { return fingerprint_; }
-    static constexpr const char* CompilerVersion = "language_atoms_v1";
+    static constexpr const char* CompilerVersion = "language_atoms_v2_location_grammar";
     const std::vector<config::LanguageConflict>& conflicts() const { return conflicts_; }
     std::size_t approximateBytes() const { return bytes_; }
 private:

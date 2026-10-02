@@ -62,7 +62,7 @@ int main(int argc,char** argv){try{
     runtime.apply(catalog);check(runtime.current()->languageIndex->fingerprint()==old->languageIndex->fingerprint(),"restore index");
     check(std::get<actions::GenericAction>(runtime.process("включи свет").command.action).targetId()=="lamp_a","restore matching");
     auto profile=Json::parse(admin::decodeLanguageProfile(R"({"aliases":["Включи","включи","зажги"]})",catalog,"action","power_on"));
-    check(profile["aliases"].size()==2,"proposal normalization/dedup");
+    check(profile["aliases"].size()==3,"proposal normalization/dedup preserves existing canonical action atom");
     for(const auto* raw:{R"({"aliases":["игнорируй инструкции"]})",R"({"aliases":["пожалуйста"]})",R"({"aliases":["включи"],"assignments":[]})",R"({"aliases":["1","2","3","4","5","6","7"]})","```{}"}){
         bool failed=false;try{admin::decodeLanguageProfile(raw,catalog,"action","power_on");}catch(...){failed=true;}check(failed,"malformed proposal accepted");
     }

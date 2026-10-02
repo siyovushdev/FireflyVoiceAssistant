@@ -79,6 +79,10 @@ void preferSpecific(std::vector<MentionEvidence>& matches) {
     for (const auto& m : matches) {
         const bool dominated = std::any_of(matches.begin(), matches.end(), [&](const auto& other) {
             if (m.category != other.category || other.begin > m.begin || other.end < m.end) return false;
+            if (m.category == "location" && m.distance == other.distance && m.end == other.end && m.begin > other.begin) {
+                const auto prefix = detail::words(other.span.substr(0, m.begin - other.begin));
+                if (prefix.size() == 1 && (prefix[0] == "в" || prefix[0] == "во" || prefix[0] == "на")) return false;
+            }
             return other.distance < m.distance || (other.distance == m.distance && other.end - other.begin > m.end - m.begin);
         });
         if (!dominated && std::none_of(selected.begin(), selected.end(), [&](const auto& x) {
@@ -99,6 +103,35 @@ Grounding DomainView::resolve(std::string_view original, bool allowTypo) const {
         for (const auto& alias : location.locations) collect(result.mentions, input, original, location.id, "location", alias, allowTypo, numbered);
         if (snapshot_->configuration().schemaVersion == 2)
             for (const auto& alias : location.metadata.aliases) collect(result.mentions,input,original,location.id,"location",alias,allowTypo,numbered);
+        const auto grammar = locationGrammar_.find(location.id);
+        if (grammar != locationGrammar_.end()) for (const auto& alias : grammar->second) {
+            std::vector<MentionEvidence> matches;
+            collect(matches,input,original,location.id,"location",alias,false,numbered);
+            for (auto& grammatical : matches) {
+                // Derived inflections require a location preposition. Do not
+                // reinterpret an adjective describing a device/state as a room.
+                // Explicit reviewed atoms can still express bare modifiers.
+                bool located = false;
+                for (std::size_t token = 1; token < input.size(); ++token)
+                    if (input[token].begin == grammatical.begin &&
+                        (input[token-1].text == "в" || input[token-1].text == "во" || input[token-1].text == "на")) {
+                        grammatical.begin = input[token-1].begin;
+                        grammatical.span = std::string(original.substr(grammatical.begin, grammatical.end-grammatical.begin));
+                        located = true;
+                        break;
+                    }
+                if (!located) continue;
+                const auto begin = grammatical.begin, end = grammatical.end;
+                // Preserve grammatical provenance even when an explicit atom
+                // duplicates the form and preferSpecific deduplicates evidence.
+                for (auto& mention : result.mentions)
+                    if (mention.entityId == location.id && mention.category == "location" &&
+                        mention.begin == begin && mention.end == end && mention.distance == 0)
+                        mention.method = "location_grammar";
+                grammatical.method = "location_grammar";
+                result.mentions.push_back(std::move(grammatical));
+            }
+        }
     }
     if (snapshot_->configuration().schemaVersion == 2) for (const auto& device : snapshot_->configuration().devices) {
         const bool fuzzy = allowTypo && device.kind != config::DeviceKind::EntranceDoor;
