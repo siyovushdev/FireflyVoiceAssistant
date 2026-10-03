@@ -61,18 +61,26 @@ const Connection* findConnection(const Configuration& config, const std::string&
 void validateConnections(const Configuration& config) {
     if (config.schemaVersion != 2 && (!config.connections.empty() || !config.observations.empty()))
         throw ConfigError("unsupported_version", "/connections", "Connections require v2");
-    for (const auto& c : config.connections) {
-        if (c.timeoutMs < 50 || c.timeoutMs > 10000) invalid("Timeout must be 50..10000 ms");
-        if (c.type == ExecutorKind::Http) { url(c.http.baseUrl, true); path(c.http.basePath, true); }
-        else {
-            if (c.enabled) throw ConfigError("unsupported_executor", "/connections", "Planned transports must remain disabled");
-            if (c.type == ExecutorKind::Mqtt || c.type == ExecutorKind::Tcp || c.type == ExecutorKind::Udp) {
-                if (c.network.host.empty() || !clean(c.network.host) || c.network.port < 1 || c.network.port > 65535) invalid("Network endpoint required");
-            } else if (c.type == ExecutorKind::Serial) {
-                if (c.serial.port.rfind("/dev/", 0) != 0 || !clean(c.serial.port) || c.serial.baudRate < 50 || c.serial.baudRate > 4000000) invalid("Serial port and baud rate required");
-            } else if (c.type == ExecutorKind::Can) {
-                if (c.can.interface.empty() || !clean(c.can.interface)) invalid("CAN interface required");
-            } else invalid("Unknown transport type");
+    for (std::size_t i = 0; i < config.connections.size(); ++i) {
+        const auto& c = config.connections[i];
+        std::string field;
+        try {
+            field = "/timeout_ms";
+            if (c.timeoutMs < 50 || c.timeoutMs > 10000) invalid("Timeout must be 50..10000 ms");
+            if (c.type == ExecutorKind::Http) { field = "/http/base_url"; url(c.http.baseUrl, true); field = "/http/base_path"; path(c.http.basePath, true); }
+            else {
+                field = "/type";
+                if (c.enabled) throw ConfigError("unsupported_executor", "/connections", "Planned transports must remain disabled");
+                if (c.type == ExecutorKind::Mqtt || c.type == ExecutorKind::Tcp || c.type == ExecutorKind::Udp) {
+                    if (c.network.host.empty() || !clean(c.network.host) || c.network.port < 1 || c.network.port > 65535) invalid("Network endpoint required");
+                } else if (c.type == ExecutorKind::Serial) {
+                    if (c.serial.port.rfind("/dev/", 0) != 0 || !clean(c.serial.port) || c.serial.baudRate < 50 || c.serial.baudRate > 4000000) invalid("Serial port and baud rate required");
+                } else if (c.type == ExecutorKind::Can) {
+                    if (c.can.interface.empty() || !clean(c.can.interface)) invalid("CAN interface required");
+                } else invalid("Unknown transport type");
+            }
+        } catch (const ConfigError& error) {
+            throw ConfigError(error.code, "/connections/" + std::to_string(i) + field, error.what());
         }
     }
 }

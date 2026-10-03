@@ -6,7 +6,7 @@ export interface DeviceView {
     readonly id: string; readonly name: string; readonly locationId: string | null; readonly location: string;
     readonly enabled: boolean; readonly description: string; readonly actions: readonly ActionDto[];
     readonly properties: readonly PropertyView[]; readonly connection: string; readonly reachability: string;
-    readonly connectionNames: readonly string[]; readonly observation: boolean; readonly lastSuccess: number | null;
+    readonly connectionNames: readonly string[]; readonly endpoints: readonly string[]; readonly observation: boolean; readonly lastSuccess: number | null;
 }
 export function sameGeneration(a: CatalogDto | null | undefined, b: CatalogDto | null | undefined): boolean {
     return !!a && !!b && a.hash === b.hash && a.revision === b.revision && a.generation_id === b.generation_id;
@@ -57,7 +57,7 @@ export function devices(config: ConfigurationDto, active: CatalogDto | null, sta
             enabled: device.enabled, description: device.metadata?.description ?? '', actions,
             properties: properties(device, evidence),
             connection: configured === 0 ? 'Подключение не настроено' : `Настроено действий: ${configured} из ${usable.length}`,
-            connectionNames, observation: (config.observations ?? []).some(item => item.target_id === device.id),
+            connectionNames, endpoints: [...(config.connections ?? []).filter(c => connectionIds.has(c.id)).map(c => (c.http?.base_url ?? '') + (c.http?.base_path ?? '')), ...bindings.filter(b => b.http?.url).map(b => b.http!.url!)], observation: (config.observations ?? []).some(item => item.target_id === device.id),
             reachability: evidence?.connectivity === 'reachable' ? 'Последний обмен успешен' : evidence?.connectivity === 'unreachable' ? 'Последняя попытка связи неуспешна' : 'Связь не проверена',
             lastSuccess: evidence?.last_success_at_ms ?? null };
     });

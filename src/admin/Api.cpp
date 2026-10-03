@@ -307,7 +307,7 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
         const std::map<std::string, std::string> routes{{"/api/admin/language-profile", "POST"}, {"/api/admin/plan", "POST"}, {"/api/admin/copilot", "POST"}, {"/api/admin/copilot/accept", "POST"}, {"/api/admin/transcribe", "POST"}, {"/api/admin/action-draft", "POST"}, {"/api/admin/templates", "GET"}, {"/api/admin/draft", "POST"}, {"/api/config/migrate", "POST"}, {"/api/admin/id", "POST"}, {"/api/admin/suggest", "POST"}, {"/api/config/diff", "POST"},
             {"/api/config/export", "GET"}, {"/api/config/import", "POST"}, {"/api/config/revision", "POST"},
             {"/api/config/restore-candidate", "POST"}, {"/api/dashboard", "GET"}, {"/api/devices/state", "GET"},
-            {"/api/connections/test", "POST"}, {"/api/devices/poll", "POST"},
+            {"/api/connections/test", "POST"}, {"/api/connections/probe", "POST"}, {"/api/devices/command", "POST"}, {"/api/devices/poll", "POST"},
             {"/api/devices/observe", "POST"}, {"/api/executions", "GET"}, {"/api/status", "GET"}, {"/api/config", "GET PUT"},
             {"/api/config/active", "GET"}, {"/api/config/validate", "POST"}, {"/api/config/apply", "POST"},
             {"/api/config/revisions", "GET"}, {"/api/config/restore", "POST"}, {"/api/config/reconcile", "POST"}, {"/api/test-command", "POST"}};
@@ -328,9 +328,14 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
         }
         Json request = method == "GET" ? Json::object() : parseMessage(body,true);
         if (impl_->setup->active() && method != "GET") {
-            if (path == "/api/config" || path == "/api/config/apply" || path == "/api/config/restore" || path == "/api/config/reconcile" || path == "/api/test-command")
+            if (path == "/api/config" || path == "/api/config/apply" || path == "/api/config/restore" || path == "/api/config/reconcile" || path == "/api/test-command" || path == "/api/devices/command")
                 throw ApiError(409,"setup_in_progress","","Настройка активна; используйте её подтверждение или отмену.");
-            impl_->setup->handle("authorize",request);
+            if (path == "/api/connections/probe") {
+                try { impl_->setup->handle("authorize", request); }
+                catch (const std::exception&) {
+                    throw ApiError(409, "setup_authorization_failed", "/session_id", "The active setup owner must authorize this probe.");
+                }
+            } else impl_->setup->handle("authorize",request);
             request.erase("session_id");
         }
         const auto observation = method == "GET" ? impl_->runtime.observe() : std::string{};
@@ -422,6 +427,18 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
             reply = {{"ok",true},{key,live.at(key)},{"active",live.at("active")}};
             if (path == "/api/devices/state" && live.contains("playground_devices"))
                 reply["playground_devices"] = live.at("playground_devices");
+        } else if (path == "/api/connections/probe") {
+            members(request, {"connection"});
+            const auto connection = config::ConfigLoader::connectionFromJson(request.at("connection").dump());
+            const auto result = execution::HttpHardwareExecutor::testConnection(connection);
+            reply = result.success ? Json{{"ok",true},{"scope","tcp_connect_only"},{"saved",false},{"applied",false}}
+                : failure(result.error, "/connection", "TCP reachability test failed. No HTTP bytes were sent.");
+            if (!result.success) status = 422;
+        } else if (path == "/api/devices/command") {
+            members(request, {"text", "expected_hash", "expected_action"});
+            request["method"] = "guarded_command";
+            reply = impl_->invoke(request);
+            if (!reply.value("ok", false)) status = 422;
         } else if (path == "/api/connections/test") {
             members(request, {"configuration", "connection_id"});
             const auto draft = config::ConfigLoader::fromJson(request.at("configuration").dump());

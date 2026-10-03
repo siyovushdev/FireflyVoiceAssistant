@@ -201,6 +201,21 @@ Json encodeHttp(const HttpBinding& h, bool connected) {
     if (!h.headers.empty()) value["headers"] = h.headers;
     return value;
 }
+Connection decodeConnection(const Json& item) {
+    Connection c;
+    static_cast<Identity&>(c) = identity(item);
+    c.type = executorKind(item.at("type")); c.enabled = item.at("enabled"); c.timeoutMs = item.at("timeout_ms");
+    const auto section = c.type == ExecutorKind::Http ? "http" : c.type == ExecutorKind::Serial ? "serial" : c.type == ExecutorKind::Can ? "can" : "network";
+    if (!item.contains(section)) throw ConfigError("missing_field", "/connections", "Transport config required");
+    for (const auto* key : {"http", "network", "serial", "can"})
+        if (item.contains(key) && std::string(key) != section) throw ConfigError("schema_error", "/connections", "Wrong transport config");
+    const auto& config = item.at(section);
+    if (c.type == ExecutorKind::Http) { c.http.baseUrl = config.at("base_url"); c.http.basePath = config.value("base_path", ""); }
+    else if (c.type == ExecutorKind::Serial) { c.serial.port = config.at("port"); c.serial.baudRate = config.at("baud_rate"); }
+    else if (c.type == ExecutorKind::Can) c.can.interface = config.at("interface");
+    else { c.network.host = config.at("host"); c.network.port = config.at("port"); }
+    return c;
+}
 Configuration decode(const Json& value) {
     Configuration result;
     result.schemaVersion = value.at("schema_version"); result.revision = value.at("revision");
@@ -254,18 +269,7 @@ Configuration decode(const Json& value) {
     }
     if (result.schemaVersion == 2) {
         for (const auto& item : value.value("connections", Json::array())) {
-            Connection c;
-            static_cast<Identity&>(c) = identity(item);
-            c.type = executorKind(item.at("type")); c.enabled = item.at("enabled"); c.timeoutMs = item.at("timeout_ms");
-            const auto section = c.type == ExecutorKind::Http ? "http" : c.type == ExecutorKind::Serial ? "serial" : c.type == ExecutorKind::Can ? "can" : "network";
-            if (!item.contains(section)) throw ConfigError("missing_field", "/connections", "Transport config required");
-            for (const auto* key : {"http", "network", "serial", "can"})
-                if (item.contains(key) && std::string(key) != section) throw ConfigError("schema_error", "/connections", "Wrong transport config");
-            const auto& config = item.at(section);
-            if (c.type == ExecutorKind::Http) { c.http.baseUrl = config.at("base_url"); c.http.basePath = config.value("base_path", ""); }
-            else if (c.type == ExecutorKind::Serial) { c.serial.port = config.at("port"); c.serial.baudRate = config.at("baud_rate"); }
-            else if (c.type == ExecutorKind::Can) c.can.interface = config.at("interface");
-            else { c.network.host = config.at("host"); c.network.port = config.at("port"); }
+            auto c = decodeConnection(item);
             result.connections.push_back(std::move(c));
         }
         for (const auto& item : value.value("observations", Json::array())) {
@@ -403,5 +407,24 @@ Json encode(const Configuration& value) {
         {"door_action_id", mapping.doorActionId}, {"door_target_id", mapping.doorTargetId}};
     if (value.schemaVersion == 2 && mapping.lightActionId.empty() && mapping.doorActionId.empty() && mapping.doorTargetId.empty() && mapping.lightTargets.empty()) result["compatibility"] = nullptr;
     return result;
+}
+}
+
+namespace firefly::config {
+Connection ConfigLoader::connectionFromJson(std::string_view bytes) {
+    const auto value = detail::parseDocument(bytes);
+    static const auto schema = detail::Json::parse(detail::SchemaV2Json);
+    detail::checkSchema(value, schema.at("$defs").at("connection"), schema, "/connection");
+    auto connection = detail::decodeConnection(value);
+    ConfigValidator::validateIdentityName(connection, "/connection");
+    Configuration scoped;
+    scoped.schemaVersion = 2;
+    scoped.connections.push_back(connection);
+    try { validateConnections(scoped); }
+    catch (const ConfigError& error) {
+        const auto suffix = error.path.rfind("/connections/0", 0) == 0 ? error.path.substr(14) : std::string{};
+        throw ConfigError(error.code, "/connection" + suffix, error.what());
+    }
+    return connection;
 }
 }

@@ -60,8 +60,7 @@ void checkAlias(const std::string& alias, const std::string& path, bool mention,
         throw ConfigError("reserved_alias", path, "Reserved grammar/security token: " + word);
 }
 void addIdentity(const Identity& value, const std::string& path, std::map<std::string, std::string>& ids) {
-    if (value.name.size() > 128 || value.name.find_first_not_of(' ') == std::string::npos)
-        throw ConfigError("invalid_name", path + "/name", "Display name must be nonblank and at most 128 UTF-8 bytes");
+    ConfigValidator::validateIdentityName(value, path);
     const auto inserted = ids.emplace(value.id, path);
     if (!inserted.second) throw ConfigError("duplicate_id", path + "/id", "ID also appears at " + inserted.first->second + "/id");
 }
@@ -98,6 +97,10 @@ void parameterContract(const Parameter& p, const std::string& path) {
             throw ConfigError("unsafe_constraint", path, "Enum requires distinct nonempty choices");
     }
 }
+}
+void ConfigValidator::validateIdentityName(const Identity& value, const std::string& path) {
+    if (value.name.size() > 128 || value.name.find_first_not_of(' ') == std::string::npos)
+        throw ConfigError("invalid_name", path + "/name", "Display name must be nonblank and at most 128 UTF-8 bytes");
 }
 Catalog ConfigValidator::validate(Configuration configuration) {
     if (configuration.schemaVersion == 1) {

@@ -7,6 +7,7 @@ defineProps<{ property: PropertyView }>();
     <div class="property" :data-knowledge="property.tone">
         <div class="property-value"><span>{{ property.name }}</span><strong>{{ property.value }}</strong></div>
         <span class="evidence" :class="property.tone"><span class="evidence-dot"></span>{{ property.label }}</span>
+        <p v-if="property.tone === 'predicted'" class="muted">Команда принята, состояние не прочитано.</p>
         <p v-if="property.stale" class="stale-text">Данные устарели · последнее известное значение</p>
         <small v-if="property.timestamp">{{ formatTime(property.timestamp) }}</small>
     </div>

@@ -1,3 +1,4 @@
+import { queued } from './transport.js';
 import type { ApiResponses, ReadEndpoint, WireObject } from '../types/wire.js';
 
 export class ApiError extends Error {
@@ -98,7 +99,7 @@ export async function readApi<P extends ReadEndpoint>(path: P): Promise<ApiRespo
     // Deliberately no generic method/body API in B1.
     const allowed: readonly string[] = ['/api/status', '/api/config', '/api/config/active', '/api/devices/state', '/api/executions'];
     if (!allowed.includes(path)) throw new ApiError('Этот запрос недоступен в режиме просмотра.', 'not_read_only');
-    const response = await fetch(path, { method: 'GET', cache: 'no-store', credentials: 'same-origin', redirect: 'error', signal: AbortSignal.timeout(10000) });
+    const response = await queued(() => fetch(path, { method: 'GET', cache: 'no-store', credentials: 'same-origin', redirect: 'error', signal: AbortSignal.timeout(10000) }));
     if (!response.ok) throw new ApiError(`Данные Firefly недоступны (HTTP ${response.status}).`, `http_${response.status}`);
     return decodeResponse(path, await response.json());
 }

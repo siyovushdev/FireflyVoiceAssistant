@@ -77,7 +77,7 @@ Json commandJson(const std::string& input, const GenerationResult& result) {
             {"generation_ms",command.llmTimings.generationMs},{"output_tokens",command.llmTimings.outputTokens}}},
         {"latency_ms", command.latencyMs}, {"revision", result.generation->domain.snapshot()->configuration().revision},
         {"hash", result.generation->domain.snapshot()->contentHash()}};
-    if (command.path == CommandPath::LlmFallback) {
+    if (command.path == CommandPath::LlmFallback && result.guardError.empty()) {
         reply["raw_rkllm"] = command.rawOutput;
         reply["llm_context"] = result.generation->requestPrompt(input);
     }
@@ -101,6 +101,11 @@ Json commandJson(const std::string& input, const GenerationResult& result) {
         !command.error.empty() ? "runtime" : "";
     reply["generation_id"] = result.generation->id;
     reply["execution"] = result.execution ? executionJson(*result.execution) : Json(nullptr);
+    if (!result.guardError.empty()) {
+        reply["ok"] = false;
+        reply["errors"] = failure(result.guardError, "/expected_action", "Guarded command rejected before execution; no hardware request sent.")["errors"];
+        reply["rejection_stage"] = "command_guard";
+    }
     if (result.execution && !result.execution->success) reply["rejection_stage"] = "executor";
     reply["predicted_execution"] = nullptr;
     if (!result.execution) if (const auto* action = std::get_if<actions::GenericAction>(&command.action)) {
@@ -380,6 +385,23 @@ power_device означает ровно ON/OFF. Иные возможности
             reply["raw_rkllm"] = reply.at("trace").back().at("raw");
             reply["latency_ms"] = std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();
             reply["saved"] = false; reply["applied"] = false;
+        } else if (method == "guarded_command") {
+            members(request, {"method", "text", "expected_hash", "expected_action"});
+            const auto input = request.at("text").get<std::string>();
+            const auto hash = request.at("expected_hash").get<std::string>();
+            if (hash.size() != 64 || hash.find_first_not_of("0123456789abcdef") != std::string::npos)
+                throw std::invalid_argument("Invalid expected hash");
+            const auto& expected = request.at("expected_action");
+            members(expected, {"target_id", "action_id", "arguments"});
+            if (!expected.at("arguments").is_object() || expected.at("arguments").size() > 64)
+                throw std::invalid_argument("Invalid expected arguments");
+            actions::GenericAction::Arguments arguments;
+            for (const auto& item : expected.at("arguments").items()) arguments.emplace(item.key(), actions::decodeScalar(item.value()));
+            const CommandGuard guard{hash, actions::GenericAction(expected.at("action_id").get<std::string>(), expected.at("target_id").get<std::string>(), std::move(arguments))};
+            const auto admitted = generations_.beginRequest();
+            const auto result = admitted->process(input, execution::ExecutionIntent::Production, "admin-device", &guard);
+            reply = commandJson(input, result);
+            remember(reply.dump());
         } else if (method == "test") {
             if (request.contains("production")) members(request, {"method", "text", "execute", "production"});
             else if (request.contains("execute")) members(request, {"method", "text", "execute"});

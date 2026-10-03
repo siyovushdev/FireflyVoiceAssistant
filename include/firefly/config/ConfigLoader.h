@@ -6,6 +6,8 @@ namespace firefly::config {
 class ConfigLoader final {
 public:
     static Catalog fromJson(std::string_view bytes);
+    // Strict single-entity decode for TCP-only diagnostics, never publication.
+    static Connection connectionFromJson(std::string_view bytes);
     // Rejects symlink path components and non-regular files; bounded reads.
     static Catalog fromFile(const std::string& path);
 };

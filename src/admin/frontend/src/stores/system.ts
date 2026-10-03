@@ -32,8 +32,13 @@ export function createSystemStore(reader: typeof readApi = readApi) {
             default: return status.value.runtime_ready ? 'Система готова' : 'Ограниченный режим';
         }
     });
-    async function refresh() {
-        if (loading.value) return;
+    let pendingRefresh: Promise<void> | null = null;
+    async function refresh(afterMutation = false) {
+        if (pendingRefresh) { await pendingRefresh; if (!afterMutation) return; }
+        const request = loadSnapshot(); pendingRefresh = request;
+        try { await request; } finally { if (pendingRefresh === request) pendingRefresh = null; }
+    }
+    async function loadSnapshot() {
         loading.value = true;
         const next: Record<string, unknown> = { ...snapshot.value };
         const failures: Record<string, string> = {};
