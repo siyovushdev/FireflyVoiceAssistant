@@ -22,7 +22,7 @@ inline Json expandDialogueOperations(std::string_view raw) {
         throw std::invalid_argument("Dialogue requires 1..3 operations");
     Json operations=Json::array();
     const std::map<std::string,std::vector<std::string>> fields={
-        {"location",{"name"}}, {"power_device",{"location","name"}},
+        {"location",{"name"}}, {"system_name",{"name"}}, {"power_device",{"location","name"}}, {"device",{"location","name"}},
         {"rename_device",{"location","device","name"}},
         {"rename_location",{"location","name","keep_previous_as_alias"}},
         {"delete_device",{"location","device"}},
@@ -37,16 +37,18 @@ inline Json expandDialogueOperations(std::string_view raw) {
             std::string expected;for(const auto& field:schema->second)expected+=(expected.empty()?"":",")+field;
             throw std::invalid_argument(kind+" requires ordered arguments ["+expected+"], got "+std::to_string(tuple.size()-1));
         }
-        Json operation={{"op",kind=="location"?"create_location":kind=="power_device"?"create_device":kind=="bounds"?"set_field_bounds":kind}};
+        Json operation={{"op",kind=="system_name"?"rename_system":kind=="location"?"create_location":(kind=="power_device"||kind=="device")?"create_device":kind=="bounds"?"set_field_bounds":kind}};
         for(std::size_t i=0;i<schema->second.size();++i) {
             const auto& field=schema->second[i];const auto& value=tuple[i+1];
             if(field=="minimum"||field=="maximum") {if(!value.is_number())throw std::invalid_argument("Numeric bound required");}
             else if(field=="keep_previous_as_alias") {if(!value.is_boolean())throw std::invalid_argument("Boolean alias policy required");}
+            else if(field=="location" && (kind=="power_device"||kind=="device") && value.is_null()) {}
             else if(!value.is_string() || value.get_ref<const std::string&>().empty() || value.get_ref<const std::string&>().size()>128)
                 throw std::invalid_argument("Bounded entity name required");
             operation[field]=value;
         }
-        if(kind=="location"){operation["type"]="room";operation["description"]=operation.at("name");}
+        if(kind=="location"){operation["type"]="location";operation["description"]=operation.at("name");}
+        if(kind=="device"){operation["template"]="custom";operation["description"]=operation.at("name");}
         if(kind=="power_device"){operation["template"]="power_only";operation["description"]=operation.at("name");}
         operations.push_back(operation);
     }

@@ -111,7 +111,15 @@ public:
             auto catalog=config::ConfigLoader::fromJson(request.at("configuration").dump());
             RuntimeGeneration admission(catalog);
             data_["configuration"]=Json::parse(catalog->canonicalJson());
-            data_["questions"]=Json::array(); data_["status"]="editing"; advance();
+            data_["questions"]=Json::array(); data_["unresolved_text"]="";
+            // A manual checkpoint restore must not retain references to rejected creations.
+            Json focus=Json::array();
+            for(const auto& id:data_["focus"]) {
+                bool present=false;
+                for(const auto* category:{"rooms","devices"})for(const auto& entity:data_["configuration"].at(category))if(entity.at("id")==id)present=true;
+                if(present && std::find(focus.begin(),focus.end(),id)==focus.end())focus.push_back(id);
+            }
+            data_["focus"]=focus; data_["status"]="editing"; advance();
         } else if (route == "message") {
             const auto text=request.at("text").get<std::string>(); validateMessage(text);
             if(data_.value("message_incomplete",false) &&
@@ -130,7 +138,11 @@ public:
             const auto original=data_["configuration"];
             const auto originalFocus=data_["focus"];
             try {
-                auto steps=unresolved.empty()?split(plannedText):std::vector<std::string>{plannedText};
+                // V2 proposals keep a short request and its final capability restriction
+                // in one validation unit. Legacy clients retain sentence stepping.
+                const bool atomicMessage=request.value("atomic_message",false);
+                if(atomicMessage && plannedText.size()>1800)throw std::runtime_error("admin_step_budget: сократите просьбу до одного небольшого предложения");
+                auto steps=unresolved.empty() && !atomicMessage?split(plannedText):std::vector<std::string>{plannedText};
                 if(!unresolved.empty() && plannedText.size()>1800)throw std::runtime_error("admin_step_budget: уточните незавершённую просьбу меньшими частями");
                 if (steps.size()>16) throw std::runtime_error("setup_step_limit: максимум 16 связанных шагов");
                 data_["questions"]=Json::array();

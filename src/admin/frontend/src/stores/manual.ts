@@ -9,7 +9,15 @@ import { zoneSpeechIssues } from '../adapters/manualValidation.js';
 export type TaskKind = 'system' | 'zone' | 'device' | 'connection';
 export interface TaskBuffer { kind: TaskKind; id: string; buffer: Draft; isNew: boolean; version: number }
 interface Review { candidate: ConfigurationDto; stored: CatalogDto; active: CatalogDto | null; version: number; storedDiff: AdminReply; activeDiff: AdminReply; validation: AdminReply }
+export interface SetupBridge {
+    owns(): boolean;
+    ready(): boolean;
+    sync(configuration: ConfigurationDto): Promise<ConfigurationDto>;
+    apply(): Promise<void>;
+}
 export function createManualStore(api = adminRequest, read = readApi, refresh = () => system.refresh(true)) {
+    let bridge: SetupBridge | undefined;
+    const connectSetup = (value: SetupBridge) => { bridge = value; };
     const base = shallowRef<CatalogDto | null>(null);
     const candidate = shallowRef<ConfigurationDto | null>(null);
     const task = ref<TaskBuffer | null>(null);
@@ -20,14 +28,14 @@ export function createManualStore(api = adminRequest, read = readApi, refresh = 
     const setup = shallowRef<SetupStatus | null>(null);
     const draft = computed(() => candidate.value ?? base.value?.configuration ?? system.stored.value?.configuration ?? system.configuration.value);
     const dirty = computed(() => !!importBuffer.value.trim() || !!task.value || !!candidate.value && JSON.stringify(candidate.value) !== JSON.stringify(base.value?.configuration));
-    const canConfirm = computed(() => !!review.value && review.value.version === version.value && !task.value && !busy.value && !voiceBusy.value && !setup.value?.active && review.value.validation.apply_ready === true);
+    const canConfirm = computed(() => !!review.value && review.value.version === version.value && !task.value && !busy.value && !voiceBusy.value && (!setup.value?.active || !!bridge?.owns() && bridge.ready()) && (review.value.validation.apply_ready === true || !!setup.value?.active && !!bridge?.owns() && review.value.validation.valid === true));
     // Any local edit invalidates review, even if the user later restores a value.
     watch(task, () => { version.value++; review.value = null; }, { deep: true, flush: 'sync' });
     watch(importBuffer, () => { version.value++; review.value = null; }, { flush: 'sync' });
     async function refreshSetupStatus() { setup.value = await api<SetupStatus>('/api/setup/status'); }
     async function checkSetup() {
         await refreshSetupStatus();
-        if (setup.value?.active) throw new AdminError([{ code: 'setup_in_progress', path: '', message: 'Другая сессия настройки активна. Завершите её в прежнем интерфейсе; V2 не захватывает сессию.' }]);
+        if (setup.value?.active && (!bridge?.owns() || !bridge.ready())) throw new AdminError([{ code: 'setup_in_progress', path: '', message: 'Завершите review AI-предложения или вернитесь к принадлежащей вам настройке. Чужая сессия доступна только для просмотра.' }]);
     }
     async function ensure() {
         await checkSetup();
@@ -67,12 +75,13 @@ export function createManualStore(api = adminRequest, read = readApi, refresh = 
         let success = false;
         await run(async () => {
             if (!task.value) return;
-            const next = clone(task.value.buffer);
+            let next = clone(task.value.buffer);
             if (task.value.kind === 'zone') {
                 const incomplete = zoneSpeechIssues(next, task.value.id);
                 if (incomplete.length) throw new AdminError(incomplete);
             }
             await checkSetup(); await api('/api/config/validate', { configuration: next });
+            if (setup.value?.active) next = clone(await bridge!.sync(next));
             candidate.value = freezeDeep(next); version.value++; task.value = null; review.value = null;
             outcome.value = 'Изменения добавлены в план. Система ещё не изменена.'; success = true;
         });
@@ -82,6 +91,7 @@ export function createManualStore(api = adminRequest, read = readApi, refresh = 
         await run(async () => {
             if (task.value) throw Error('Сначала завершите текущую задачу.');
             await ensure(); await api('/api/config/validate', { configuration });
+            if (setup.value?.active) configuration = await bridge!.sync(configuration);
             candidate.value = freezeDeep(clone(configuration)); importBuffer.value = ''; version.value++; review.value = null;
             outcome.value = 'Кандидат принят в план. Требуется общий review и подтверждение.';
         });
@@ -102,7 +112,7 @@ export function createManualStore(api = adminRequest, read = readApi, refresh = 
             const activeDiff = await api('/api/config/diff', { configuration: next, base: 'active' });
             if (version.value !== reviewedVersion || task.value) throw Error('План изменился во время проверки; повторите review.');
             review.value = { candidate: next, stored, active, version: reviewedVersion, storedDiff, activeDiff, validation };
-            if (!validation.apply_ready) issues.value = [{ code: 'not_apply_ready', path: '', message: 'Конфигурация валидна, но runtime preflight недоступен. Применение пока не готово.' }];
+            if (!validation.apply_ready && !setup.value?.active) issues.value = [{ code: 'not_apply_ready', path: '', message: 'Конфигурация валидна, но runtime preflight недоступен. Применение пока не готово.' }];
         });
     }
     const equalIdentity = (a: Identity | null, b: Identity | null) => a?.hash === b?.hash && a?.revision === b?.revision;
@@ -110,14 +120,20 @@ export function createManualStore(api = adminRequest, read = readApi, refresh = 
         if (!canConfirm.value) { issues.value = [{ code: 'review_required', path: '', message: 'Требуется новый review перед применением.' }]; return; }
         const reviewed = review.value!;
         await run(async () => {
-            let saved: CatalogReply | null = null;
+            let saved: CatalogDto | null = null;
             try {
                 await checkSetup();
                 const stored = await read('/api/config'), active = (await read('/api/config/active')).active;
                 if (!equalIdentity(stored, reviewed.stored) || !equalIdentity(active, reviewed.active) || active?.generation_id !== reviewed.active?.generation_id || version.value !== reviewed.version || task.value) throw Error('Основа или план изменились после review. Требуется новая проверка.');
+                if (setup.value?.active) {
+                    await bridge!.apply();
+                    saved = await read('/api/config');
+                    base.value = saved; candidate.value = saved.configuration;
+                } else {
                 saved = await api<CatalogReply>('/api/config', { configuration: reviewed.candidate, expected: identity(reviewed.stored) }, 'PUT');
                 base.value = saved; candidate.value = saved.configuration;
                 await api('/api/config/apply', { expected: identity(saved) });
+                }
                 const activated = (await read('/api/config/active')).active;
                 if (!equalIdentity(activated, saved)) throw Error('Активная версия не совпала с сохранённой.');
                 outcome.value = 'Изменения применены. Активная версия проверена.';
@@ -139,6 +155,6 @@ export function createManualStore(api = adminRequest, read = readApi, refresh = 
     const changes = computed(() => review.value ? readableDiff(review.value.stored.configuration, review.value.candidate) : []);
     const activeChanges = computed(() => review.value?.active ? readableDiff(review.value.active.configuration, review.value.candidate) : []);
     return { base, candidate, task, review, version, busy, voiceBusy, importBuffer, advanced, showReview, issues, outcome, setup, draft, dirty, canConfirm, changes, activeChanges,
-        begin, cancel, stage, prepare, confirm, replaceCandidate, reset, run, checkSetup, refreshSetupStatus };
+        connectSetup, begin, cancel, stage, prepare, confirm, replaceCandidate, reset, run, checkSetup, refreshSetupStatus };
 }
 export const manual = createManualStore();

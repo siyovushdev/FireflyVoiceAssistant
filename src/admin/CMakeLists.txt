@@ -323,3 +323,27 @@ if(BUILD_TESTING)
         set_tests_properties(AdminManualChromium PROPERTIES TIMEOUT 240)
     endif()
 endif()
+
+if(BUILD_TESTING)
+    add_executable(admin_setup_v2_worker "${PROJECT_SOURCE_DIR}/tests/admin/v2/SetupWorker.cpp")
+    target_link_libraries(admin_setup_v2_worker PRIVATE firefly_admin_transport)
+    target_include_directories(admin_setup_v2_worker PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${PROJECT_SOURCE_DIR}/tests/admin")
+    target_include_directories(admin_setup_v2_worker SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
+    if(FIREFLY_ADMIN_DIST_DIR AND FIREFLY_NODE_EXECUTABLE AND FIREFLY_LANGUAGE_CHROMIUM AND NOT "$ENV{DISPLAY}" STREQUAL "")
+        add_test(NAME AdminSetupV2Chromium COMMAND "${FIREFLY_NODE_EXECUTABLE}"
+            "${PROJECT_SOURCE_DIR}/tests/admin/v2/SetupChromiumTests.js" "$<TARGET_FILE:firefly-admin>"
+            "$<TARGET_FILE:admin_setup_v2_worker>" "${PROJECT_SOURCE_DIR}" "${FIREFLY_LANGUAGE_CHROMIUM}" "${PROJECT_BINARY_DIR}/b3-acceptance")
+        set_tests_properties(AdminSetupV2Chromium PROPERTIES TIMEOUT 180)
+    endif()
+endif()
+
+if(FIREFLY_BUILD_ASSISTANT)
+    add_executable(admin_b3_acceptance "${PROJECT_SOURCE_DIR}/benchmarks/web-admin-b3/Acceptance.cpp")
+    target_link_libraries(admin_b3_acceptance PRIVATE firefly_admin_core firefly_rkllm)
+    target_include_directories(admin_b3_acceptance PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+    target_include_directories(admin_b3_acceptance SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
+endif()
+if(BUILD_TESTING)
+    add_test(NAME AdminSetupV2Api COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tests/admin/v2/SetupApiTests.py"
+        "$<TARGET_FILE:firefly-admin>" "$<TARGET_FILE:admin_setup_v2_worker>" "${PROJECT_SOURCE_DIR}")
+endif()

@@ -9,7 +9,7 @@ import PropertyEvidence from '../components/PropertyEvidence.vue';
 const route = useRoute();
 const device = computed(() => system.devices.value.find(item => item.id === route.params.id));
 </script>
-<template>
+<template><RouterLink :to="{ path: '/setup', query: { device: String($route.params.id) } }">Настроить это устройство с AI</RouterLink>
     <RouterLink class="back-link" to="/devices">← Все устройства</RouterLink>
     <template v-if="device"><div class="inline-actions"><button @click="manual.begin('device', device.id)">Редактировать устройство</button><button @click="manual.begin('connection', device.id)">Настроить подключение</button></div><div class="detail-heading"><span class="device-glyph large" aria-hidden="true">◇</span><div><h2>{{ device.name }}</h2><p>{{ device.location }}<span v-if="!device.enabled"> · Отключено в конфигурации</span></p></div></div><p v-if="device.description" class="page-description">{{ device.description }}</p>
         <div class="two-columns"><section class="panel"><h2>Физическое состояние</h2><PropertyEvidence v-for="property in device.properties" :key="property.id" :property="property" /><p v-if="!device.properties.length" class="muted">Свойства состояния не заданы.</p><p class="muted">Начальные значения конфигурации не являются данными оборудования.</p></section>
