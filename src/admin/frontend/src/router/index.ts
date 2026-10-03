@@ -1,3 +1,7 @@
+import ConnectionsView from '../views/ConnectionsView.vue';
+import AdvancedView from '../views/AdvancedView.vue';
+import DiagnosticsView from '../views/DiagnosticsView.vue';
+import PlaygroundView from '../views/PlaygroundView.vue';
 import { createRouter, createWebHashHistory } from 'vue-router';
 import OverviewView from '../views/OverviewView.vue';
 import ZonesView from '../views/ZonesView.vue';
@@ -12,9 +16,9 @@ export const navigation = [
     { path: '/devices', title: 'Устройства', number: '03' },
     { path: '/states', title: 'Состояния', number: '04' },
     { path: '/setup', title: 'AI Настройка', number: '05', planned: true },
-    { path: '/connections', title: 'Подключения', number: '06', planned: true },
-    { path: '/advanced', title: 'Дополнительно', number: '07', planned: true },
-    { path: '/diagnostics', title: 'Диагностика', number: '08', planned: true },
+    { path: '/connections', title: 'Подключения', number: '06' },
+    { path: '/advanced', title: 'Дополнительно', number: '07' },
+    { path: '/diagnostics', title: 'Диагностика', number: '08' },
 ];
 export const router = createRouter({
     history: createWebHashHistory('/v2/'),
@@ -25,6 +29,10 @@ export const router = createRouter({
         { path: '/devices', component: DevicesView, meta: { title: 'Устройства' } },
         { path: '/devices/:id', component: DeviceDetailView, meta: { title: 'Устройство' } },
         { path: '/states', component: StatesView, meta: { title: 'Состояния' } },
+        { path: '/connections', component: ConnectionsView, meta: { title: 'Подключения' } },
+        { path: '/advanced', component: AdvancedView, meta: { title: 'Дополнительно' } },
+        { path: '/advanced/playground', component: PlaygroundView, meta: { title: 'Command Playground' } },
+        { path: '/diagnostics', component: DiagnosticsView, meta: { title: 'Диагностика' } },
         ...navigation.filter(item => item.planned).map(item => ({ path: item.path, component: PlaceholderView, meta: { title: item.title } })),
         { path: '/:pathMatch(.*)*', component: PlaceholderView, meta: { title: 'Страница не найдена', missing: true } },
     ],

@@ -362,17 +362,21 @@ execution::HardwareResult RuntimeGenerations::poll(const std::string& targetId, 
     if (setupBlocked()) return {false, "setup_in_progress", {}, execution::ReachabilityEvidence::None};
     return active->executor->poll(targetId);
 }
-GenerationResult RuntimeGenerations::Request::process(std::string_view input, execution::ExecutionIntent execution, std::string source) {
+GenerationResult RuntimeGenerations::Request::process(std::string_view input, execution::ExecutionIntent execution, std::string source, const CommandGuard* guard) {
     if (processed_) throw std::logic_error("Request already consumed");
     processed_ = true;
     const auto& generation = generation_;
+    if (guard && generation->domain.snapshot()->contentHash() != guard->expectedHash)
+        throw config::ConfigError("revision_conflict", "/expected_hash", "Active configuration changed; refresh before issuing a new command");
     // Bind every fallback to the admitted generation, including recovery after
     // an unsuccessful preflight restoration. Fast-path commands need no model.
     class BoundModel final : public LlmEngine {
     public:
-        BoundModel(ContextModel& model, const RuntimeGeneration& generation) : model_(model), generation_(generation) {}
+        BoundModel(ContextModel& model, const RuntimeGeneration& generation, bool deterministicOnly)
+            : model_(model), generation_(generation), deterministicOnly_(deterministicOnly) {}
         CommandTimings timings;
         std::string infer(std::string_view original) override {
+            if (deterministicOnly_) throw config::ConfigError("deterministic_required", "/text", "Operational controls cannot use LLM fallback");
             const auto start = std::chrono::steady_clock::now();
             if (generation_.protocol != llm::CommandProtocol::Structured)
                 selected_ = llm::selectAction(generation_.domain, original);
@@ -403,12 +407,22 @@ GenerationResult RuntimeGenerations::Request::process(std::string_view input, ex
     private:
         ContextModel& model_;
         const RuntimeGeneration& generation_;
+        const bool deterministicOnly_;
         std::optional<llm::SelectedAction> selected_;
-    } bound(owner_.model_, *generation);
+    } bound(owner_.model_, *generation, guard != nullptr);
     CommandEngine engine(bound, generation->parser, generation->domain, [&](std::string_view raw) { return bound.decode(raw); }, generation->languageIndex.get());
-    GenerationResult result{generation, engine.process(input), std::nullopt};
+    GenerationResult result{generation, engine.process(input), std::nullopt, {}};
     result.command.llmTimings = bound.timings;
     owner_.ready_ = !owner_.setupBlocked() && owner_.model_.ready();
+    if (guard) {
+        const auto* action = std::get_if<actions::GenericAction>(&result.command.action);
+        const auto* door = generation->domain.entranceTarget();
+        if (door && guard->expectedAction.targetId() == door->id) result.guardError = "explicit_manual_intent_required";
+        else if (result.command.path == CommandPath::LlmFallback) result.guardError = "deterministic_required";
+        else if (!action || result.command.safetyRejected || result.command.domainRejected) result.guardError = "command_rejected";
+        else if (result.command.path != CommandPath::FastPath || *action != guard->expectedAction) result.guardError = "expected_action_mismatch";
+        if (!result.guardError.empty()) return result;
+    }
     if (execution != execution::ExecutionIntent::None && !owner_.stopping_) {
         if (const auto* action = std::get_if<actions::GenericAction>(&result.command.action)) {
             // Intent is chosen by the typed call site (voice → Production,

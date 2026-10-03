@@ -46,6 +46,11 @@ struct GenerationResult {
     std::shared_ptr<const RuntimeGeneration> generation;
     CommandResult command;
     std::optional<execution::ExecutionResult> execution;
+    std::string guardError;
+};
+struct CommandGuard {
+    std::string expectedHash;
+    actions::GenericAction expectedAction;
 };
 struct ExecutionEvent {
     std::uint64_t sequence, generation;
@@ -69,7 +74,7 @@ public:
         ~Request();
         GenerationResult process(std::string_view input,
             execution::ExecutionIntent execution = execution::ExecutionIntent::None,
-            std::string source = "text");
+            std::string source = "text", const CommandGuard* guard = nullptr);
         const std::shared_ptr<const RuntimeGeneration>& generation() const { return generation_; }
     private:
         friend class RuntimeGenerations;

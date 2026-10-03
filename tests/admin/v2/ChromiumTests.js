@@ -154,13 +154,16 @@ async function route(name) {
     assert.match(await text(), /Измерительный блок/);
     assert.match(await text(), /Состояние неизвестно/);
     assert.doesNotMatch(await text(), /Подтверждено устройством/);
+    const beforeReload = await js('performance.timeOrigin');
     await send('Page.reload', { ignoreCache: true });
-    await until(async () => (await text()).includes('Измерительный блок'), 'Deep-link reload');
+    await until(async () => await js('performance.timeOrigin') !== beforeReload
+        && (await text()).includes('Измерительный блок'), 'Deep-link reload in new document');
     assert.equal(await js('location.hash'), '#/devices/device_bench');
     await route('states');
     const knowledge = await js(`Object.fromEntries([...document.querySelectorAll('.state-row')].map(row => [row.dataset.deviceId, row.querySelector('.property')?.dataset.knowledge]))`);
     assert.deepEqual(knowledge, { device_fan: 'confirmed', device_lamp: 'predicted', device_pump: 'confirmed', device_bench: 'unknown' });
-    for (const name of ['setup', 'connections', 'advanced', 'diagnostics']) { await route(name); assert.match(await text(), /Будет в следующем этапе/); }
+    await route('setup'); assert.match(await text(), /Будет в следующем этапе/);
+    for (const name of ['connections', 'advanced', 'diagnostics']) { await route(name); assert.doesNotMatch(await text(), /Будет в следующем этапе/); }
     await route('overview');
     for (const [width, height] of [[1280, 800], [800, 600], [390, 844]]) {
         await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });

@@ -1,37 +1,44 @@
 // Wire names stay compatible with the C++ API. Unknown fields are retained,
-// never serialized back by this read-only client.
+// read responses remain immutable; editing uses a separate complete clone.
 export interface WireObject { readonly [key: string]: unknown }
 export type Scalar = string | number | boolean;
 export interface Identity extends WireObject { readonly revision: number; readonly hash: string }
 export interface ZoneDto extends WireObject {
     readonly id: string; readonly name: string;
+    readonly speech?: { readonly mentions: readonly string[]; readonly locations: readonly string[] };
     readonly metadata?: WireObject & { readonly parent_id?: string | null; readonly container?: boolean; readonly description?: string };
 }
 export interface FieldDto extends WireObject {
     readonly id: string; readonly name: string; readonly type: string; readonly unit?: string;
+    readonly required?: boolean; readonly description?: string; readonly initial?: Scalar;
+    readonly minimum?: number; readonly maximum?: number; readonly min_length?: number; readonly max_length?: number; readonly values?: readonly string[];
 }
 export interface DeviceDto extends WireObject {
     readonly id: string; readonly name: string; readonly kind: string;
     readonly room_id: string | null; readonly enabled: boolean;
-    readonly action_ids: readonly string[]; readonly state?: readonly FieldDto[];
+    readonly spoken_aliases?: readonly string[]; readonly action_ids: readonly string[]; readonly state?: readonly FieldDto[];
     readonly metadata?: WireObject & { readonly description?: string; readonly type?: string };
 }
 export interface ActionDto extends WireObject {
     readonly id: string; readonly name: string; readonly enabled: boolean;
+    readonly operation?: string; readonly speech_aliases?: readonly string[];
+    readonly assignments?: readonly (WireObject & { readonly field: string; readonly argument?: string; readonly value?: Scalar })[];
     readonly description?: string; readonly parameters: readonly FieldDto[];
 }
+export interface HttpDto extends WireObject { readonly method: string; readonly path?: string; readonly url?: string; readonly body?: Readonly<Record<string, Scalar>>; readonly argument?: string; readonly timeout_ms?: number; readonly expected_status?: number; readonly content_type?: string; readonly headers?: Readonly<Record<string, string>> }
 export interface BindingDto extends WireObject {
-    readonly target_id: string; readonly action_id: string; readonly connection_id?: string;
+    readonly target_id: string; readonly action_id: string; readonly connection_id?: string; readonly executor?: string; readonly http?: HttpDto;
 }
 export interface ConnectionDto extends WireObject {
-    readonly id: string; readonly name: string; readonly enabled: boolean; readonly type: string;
+    readonly id: string; readonly name: string; readonly enabled: boolean; readonly type: string; readonly timeout_ms?: number; readonly http?: WireObject & { readonly base_url: string; readonly base_path?: string };
 }
 export interface ConfigurationDto extends WireObject {
     readonly schema_version: number; readonly revision: number;
     readonly system: WireObject & { readonly id: string; readonly name: string };
     readonly rooms: readonly ZoneDto[]; readonly devices: readonly DeviceDto[]; readonly actions: readonly ActionDto[];
     readonly bindings: readonly BindingDto[]; readonly connections?: readonly ConnectionDto[];
-    readonly observations?: readonly (WireObject & { readonly target_id: string; readonly connection_id: string })[];
+    readonly observations?: readonly (WireObject & { readonly target_id: string; readonly connection_id: string; readonly executor?: string; readonly http?: HttpDto; readonly fields?: Readonly<Record<string, string>> })[];
+    readonly retired_ids?: readonly string[];
 }
 export interface CatalogDto extends Identity { readonly configuration: ConfigurationDto; readonly generation_id?: number }
 export interface StatusDto extends WireObject {
