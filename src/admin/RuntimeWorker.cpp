@@ -398,6 +398,10 @@ power_device означает ровно ON/OFF. Иные возможности
             const auto result = admitted->process(input, intent, request.value("production", false) ? "admin-production" : "admin-test");
             reply = commandJson(input, result);
             remember(reply.dump());
+        } else if (method == "poll_state") {
+            members(request, {"method", "target_id", "expected_hash"});
+            const auto result = generations_.poll(request.at("target_id"), request.at("expected_hash"));
+            reply = result.success ? Json{{"ok",true}} : failure(result.error, "", "HTTP readback failed; state was not confirmed.");
         } else if (method == "observe_state") {
             // Simulated telemetry/readback for M15 offline verification — not a transport.
             members(request, {"method", "target_id", "properties"});

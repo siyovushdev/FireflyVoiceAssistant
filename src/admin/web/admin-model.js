@@ -15,7 +15,7 @@
     const list = value => value.split('\n').map(s => s.trim()).filter(Boolean);
     const metadata = entity => entity.metadata || {};
     const typeName=value=>({light:'Освещение',entrance_door:'Входная дверь',generic:'Другое устройство',custom:'Свои возможности',tv:'Телевизор',conveyor:'Конвейер',switch:'Переключатель',numeric:'Числовой регулятор',enum:'Выбор режима',room:'Помещение',integer:'Целое число',number:'Число',boolean:'Да / нет',string:'Текст'}[value]||value);
-    const occupied = config => [config.system.id, ...config.retired_ids, ...['rooms','devices','actions'].flatMap(k => config[k].map(x => x.id))];
+    const occupied = config => [config.system.id, ...config.retired_ids, ...['rooms','devices','actions','connections'].flatMap(k => (config[k]||[]).map(x => x.id))];
     function location(name, id) {
         return {id, name, speech:{mentions:[],locations:[]}, metadata:{type:'custom',description:'',aliases:[],parent_id:null,container:false}};
     }
@@ -112,7 +112,7 @@
             mic_unsupported:'Этот браузер не поддерживает нужный API записи. Введите текст.',
             insecure_context:'Голосовой ввод требует безопасный контекст браузера. Откройте Admin через SSH tunnel: http://localhost:…',
             recording_too_long:'Запись длиннее 15 секунд. Остановите раньше и повторите.',
-            malformed_binding:'Проверьте подключение: URL должен быть http://IPv4/путь, method POST или PUT, timeout 50…10000 мс.',
+            malformed_binding:'Проверьте подключение: URL должен быть http://IPv4/путь, method POST/PUT/PATCH/DELETE/GET, timeout 50…10000 мс.',
             duplicate_binding:'Для этого устройства и действия уже есть подключение. Удалите дубликат.',
             unsupported_executor:'Этот тип подключения пока не поддерживается. Доступен только HTTP.',
             binding_missing:'У устройства нет настроенного подключения для этого действия. Настройте подключение в карточке устройства.',
@@ -186,7 +186,7 @@
         const names=new Map(['rooms','devices','actions'].flatMap(k=>(config[k]||[]).map(x=>[x.id,x.name])));
         const display=(v,key)=>v===null?'—':Array.isArray(v)?v.map(x=>display(x,key)).join(', '):typeof v==='object'?Object.entries(v).filter(([k])=>!['id','required','unit','origin','confirmed'].includes(k)).map(([k,v])=>`${fieldNames[k]||({min_length:'Минимальная длина',max_length:'Максимальная длина',initial:'Начальное значение',values:'Варианты'}[k])||k}: ${display(v,k)}`).join('; '):key==='type'?typeName(v):names.get(v)||String(v);
         return changes.flatMap(c=>{
-            const title=`${{location:'Зона',device:'Устройство',capability:'Действие',state:'Состояние'}[c.entity]||'Настройки'}: ${{system:'Пространство',safety:'Безопасность',compatibility:'Системные связи',bindings:'Подключения'}[c.entity]||c.name}`;
+            const title=`${{location:'Зона',device:'Устройство',capability:'Действие',state:'Состояние'}[c.entity]||'Настройки'}: ${{system:'Пространство',safety:'Безопасность',compatibility:'Системные связи',bindings:'Действия подключения',connections:'Подключения',observations:'Чтение состояния'}[c.entity]||c.name}`;
             if(c.change!=='changed') {
                 const lines=[`${c.change==='added'?'+':'−'} ${title}`];
                 if(c.change==='added' && ['location','device','capability'].includes(c.entity))

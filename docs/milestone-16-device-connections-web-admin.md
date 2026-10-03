@@ -1,5 +1,7 @@
 # Milestone 16 — Device Connections in Web Admin
 
+Historical baseline. The current reusable Connection model and HTTP readback are documented in [Device Connectivity & Binding Admin](device-connectivity-binding-admin.md).
+
 Resume baseline: Milestone 15 (`85586d4`). This milestone adds a user-facing
 **«Подключение устройства»** editor on top of the existing M14 `bindings[]`
 model. Runtime transport architecture is unchanged.

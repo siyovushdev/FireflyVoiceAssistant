@@ -3,6 +3,8 @@
 #include "firefly/admin/AdminTranscriber.h"
 #include "firefly/config/ConfigLoader.h"
 #include "firefly/config/ConfigValidator.h"
+#include "firefly/config/Connectivity.h"
+#include "firefly/execution/HttpHardwareExecutor.h"
 #include "Json.h"
 #include "SetupSession.h"
 #include "firefly/admin/AdminDraft.h"
@@ -305,6 +307,7 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
         const std::map<std::string, std::string> routes{{"/api/admin/language-profile", "POST"}, {"/api/admin/plan", "POST"}, {"/api/admin/copilot", "POST"}, {"/api/admin/copilot/accept", "POST"}, {"/api/admin/transcribe", "POST"}, {"/api/admin/action-draft", "POST"}, {"/api/admin/templates", "GET"}, {"/api/admin/draft", "POST"}, {"/api/config/migrate", "POST"}, {"/api/admin/id", "POST"}, {"/api/admin/suggest", "POST"}, {"/api/config/diff", "POST"},
             {"/api/config/export", "GET"}, {"/api/config/import", "POST"}, {"/api/config/revision", "POST"},
             {"/api/config/restore-candidate", "POST"}, {"/api/dashboard", "GET"}, {"/api/devices/state", "GET"},
+            {"/api/connections/test", "POST"}, {"/api/devices/poll", "POST"},
             {"/api/devices/observe", "POST"}, {"/api/executions", "GET"}, {"/api/status", "GET"}, {"/api/config", "GET PUT"},
             {"/api/config/active", "GET"}, {"/api/config/validate", "POST"}, {"/api/config/apply", "POST"},
             {"/api/config/revisions", "GET"}, {"/api/config/restore", "POST"}, {"/api/config/reconcile", "POST"}, {"/api/test-command", "POST"}};
@@ -389,7 +392,7 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
                     // Initial activation/recovery must remain accessible when no
                     // model generation has ever been admitted. Show all entities.
                     previous = Json::parse(next->canonicalJson());
-                    for (const auto* key : {"rooms","devices","actions","bindings"}) previous[key] = Json::array();
+                    for (const auto* key : {"rooms","devices","actions","bindings","connections","observations"}) previous[key] = Json::array();
                     for (const auto* key : {"system","safety","compatibility"}) previous[key] = nullptr;
                 } else previous = active.at("configuration");
             } else throw std::invalid_argument("Unknown diff base");
@@ -419,6 +422,19 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
             reply = {{"ok",true},{key,live.at(key)},{"active",live.at("active")}};
             if (path == "/api/devices/state" && live.contains("playground_devices"))
                 reply["playground_devices"] = live.at("playground_devices");
+        } else if (path == "/api/connections/test") {
+            members(request, {"configuration", "connection_id"});
+            const auto draft = config::ConfigLoader::fromJson(request.at("configuration").dump());
+            const auto* connection = config::findConnection(draft->configuration(), request.at("connection_id"));
+            if (!connection) throw config::ConfigError("dangling_reference", "/connection_id", "Unknown connection");
+            const auto result = execution::HttpHardwareExecutor::testConnection(*connection);
+            reply = result.success ? Json{{"ok",true},{"scope","tcp_connect_only"},{"saved",false},{"applied",false}}
+                : failure(result.error, "", "TCP reachability test failed. No HTTP command was sent.");
+            if (!result.success) status = 422;
+        } else if (path == "/api/devices/poll") {
+            members(request, {"target_id", "expected_hash"});
+            reply = impl_->invoke({{"method","poll_state"},{"target_id",request.at("target_id")},{"expected_hash",request.at("expected_hash")}});
+            if (!reply.value("ok", false)) status = 422;
         } else if (path == "/api/devices/observe") {
             members(request, {"target_id", "properties"});
             Json payload{{"method","observe_state"},{"target_id",request.at("target_id")},{"properties",request.at("properties")}};

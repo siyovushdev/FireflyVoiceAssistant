@@ -7,7 +7,7 @@ const advanced=()=>document.body.dataset.mode==='advanced';
 const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
 function errors(items=[]) {
     const display=()=>items.map(e=>{const li=node('li',M.humanError(e,draft));li.append(node('pre',`${e.code} ${e.path||'/'}\n${e.message||''}`,'advanced'));return li;});
-    $('errors').replaceChildren(...display());if($('wizard').open)$('wizard-errors').replaceChildren(...display());
+    $('errors').replaceChildren(...display());if($('wizard').open)$('wizard-errors').replaceChildren(...display());if($('connection-dialog').open)$('connection-errors').replaceChildren(...display());
 }
 async function api(path,method='GET',data) {
     const aiRoutes=['/api/admin/language-profile','/api/admin/plan','/api/admin/copilot','/api/admin/action-draft','/api/admin/draft','/api/admin/suggest'];
@@ -47,11 +47,13 @@ function field(parent,label,value,set,opts={}) {
 const editorChanged=()=>{if(!wizard||!$('wizard').open)modified();};
 const typed=window.TypedEditor.create({node,field,button,changed:editorChanged});
 const simple=window.SimpleEditor.create({node,field,button,changed:editorChanged});
+const connectivity=window.ConnectionEditor.create({node,field,button,changed:editorChanged,api,run});
+let connectionSnapshot, connectionPreview='';
 function ensureMeta(entity){if(!entity.metadata)entity.metadata={type:'',description:'',aliases:[]};return entity.metadata;}
 const locationChoices=(exclude)=>[{id:'',name:'Без родителя'},...draft.rooms.filter(r=>r.id!==exclude).map(r=>({id:r.id,name:r.name}))];
 function stableField(parent,entity){field(parent,'Постоянный идентификатор',entity.id,v=>entity.id=v,{readonly:savedIds.has(entity.id),advanced:true});}
 function removeEntity(parent,array,entity,pinned){if(pinned){parent.append(node('small','System ID · встроенная сущность','advanced'));return;}
-    button(parent,'Удалить',()=>{if(confirm(`Удалить «${entity.name}» из черновика?`)){array.splice(array.indexOf(entity),1);modified();render();}},'remove');}
+    button(parent,'Удалить',()=>{if(confirm(`Удалить «${entity.name}» из черновика?`)){array.splice(array.indexOf(entity),1);if(array===draft.devices){draft.bindings=(draft.bindings||[]).filter(b=>b.target_id!==entity.id);draft.observations=(draft.observations||[]).filter(o=>o.target_id!==entity.id);}modified();render();}},'remove');}
 function renderTree(){
     $('tree').replaceChildren();const visited=new Set();
     function level(parent,host){const ul=node('ul');host.append(ul);for(const r of draft.rooms.filter(r=>(M.metadata(r).parent_id||null)===parent)){
@@ -167,6 +169,7 @@ function renderStates(devices,history){$('device-state').replaceChildren();const
         n.append(node('p',`${zone?.name||'Общая зона'} · ${M.typeName(M.metadata(def||{}).type||def?.kind||'Устройство')}`),
             node('h3',M.productionStateText?M.productionStateText(d,def):M.stateText(d.state,def)));
         if(def)n.append(node('small',M.connectionStatusText(M.connectionCompleteness(def,config))));
+        if((config.observations||[]).some(o=>o.target_id===d.targetId))button(n,'Прочитать состояние',()=>run(async()=>{const current=await api('/api/config/active');await api('/api/devices/poll','POST',{target_id:d.targetId,expected_hash:current.active.hash});await status();}));
         n.append(node('small',def?.action_ids.map(id=>config.actions.find(a=>a.id===id)?.name||id).join(', ')||'Нет исполняемых операций'),
             node('small',last?`Последнее действие: ${config.actions.find(a=>a.id===last.execution.actionId)?.name||'Действие'} · ${new Date(last.timestamp_ms).toLocaleString()}`:'С момента запуска действий не было'));
         n.append(node('pre',json(d),'advanced'));}
@@ -174,12 +177,28 @@ function renderStates(devices,history){$('device-state').replaceChildren();const
     if(!history.length)$('execution-history').append(node('p','Действий пока нет. Предварительные проверки сюда не добавляются.'));
 }
 function openConnectionEditor(device){
-    if(!Array.isArray(draft.bindings))draft.bindings=[];
+    connectionSnapshot={draft:M.clone(draft),dirty,validated};connectionPreview='';
+    $('connection-preview-result').textContent='';$('connection-errors').replaceChildren();
+    $('connection-apply').hidden=setupActive;
     const current=draft.devices.find(d=>d.id===device.id)||device;
-    simple.connectionEditor($('connection-content'),current,draft,advanced());
+    connectivity.editor($('connection-content'),current,draft);
     $('connection-dialog').showModal();
 }
-$('connection-close').onclick=$('connection-done').onclick=()=>{$('connection-dialog').close();render();};
+async function cancelConnection(){draft=connectionSnapshot.draft;dirty=connectionSnapshot.dirty;validated=connectionSnapshot.validated;if(setupActive)await syncSetupDraft();$('connection-dialog').close();render();}
+$('connection-close').onclick=$('connection-cancel').onclick=()=>run(cancelConnection);
+$('connection-dialog').addEventListener('cancel',e=>{e.preventDefault();run(cancelConnection);});
+$('connection-done').onclick=()=>{$('connection-dialog').close();render();};
+$('connection-preview').onclick=()=>run(async()=>{
+    await validate();const result=await diff();connectionPreview=json(draft);
+    $('connection-preview-result').textContent=M.diffLines(result.changes,draft).join('\n')+'\nApply применит весь проверенный черновик. Запросов устройствам не будет.';
+});
+$('connection-apply').onclick=()=>run(async()=>{
+    if(!connectionPreview||connectionPreview!==json(draft)){$('connection-preview-result').textContent='Сначала выполните Preview текущего черновика.';return;}
+    const saved=await api('/api/config','PUT',{configuration:draft,expected});
+    expected={revision:saved.revision,hash:saved.hash};
+    await api('/api/config/apply','POST',{expected});
+    $('connection-dialog').close();await load();await status();
+});
 async function validate(){if(!validFields(document))throw Object.assign(new Error('invalid form'),{response:{errors:[{code:'invalid_form',human:'Исправьте отмеченные поля.'}]}});const r=await api('/api/config/validate','POST',{configuration:draft});validated=true;$('validation').textContent=r.apply_ready?'✓ Конфигурация проверена. Можно сохранить.':'✓ Структура конфигурации проверена. Модель недоступна; можно сохранить, а применить после её восстановления.';if(r.language_conflicts?.length)$('validation').textContent+=' Язык: '+json(r.language_conflicts);if(r.language_examples?.length)$('validation').textContent+=' Примеры: '+r.language_examples.join('; ');return r;}
 async function diff(base='active'){return api('/api/config/diff','POST',{configuration:draft,base});}
 function showDiff(changes,title,canApply=false){$('diff-title').textContent=title;$('diff-list').replaceChildren(...M.diffLines(changes,draft).map(x=>node('li',x)));if(!changes.length)$('diff-list').append(node('li','Изменений нет.'));$('diff-raw').textContent=json(changes);$('confirm-apply').hidden=!canApply;$('diff-dialog').showModal();}

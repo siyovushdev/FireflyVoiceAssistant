@@ -74,6 +74,7 @@ public:
     DeviceStateStore& production();
     const DeviceStateStore& production() const;
     void observe(const StateObservation& observation);
+    HardwareResult poll(const std::string& targetId);
 private:
     config::Catalog catalog_;
     MockDeviceExecutor playground_;

@@ -164,6 +164,10 @@ std::string configurationDiff(std::string_view before, std::string_view after) {
     }
     for (const auto* key : {"schema_version", "system", "safety", "compatibility", "bindings"})
         if (old.at(key) != next.at(key)) changes.push_back({{"entity",key},{"name",key},{"change",old.at(key).is_null()?"added":"changed"},{"before",old.at(key)},{"after",next.at(key)}});
+    for (const auto* key : {"connections", "observations"}) {
+        const auto a = old.value(key, Json::array()), b = next.value(key, Json::array());
+        if (a != b) changes.push_back({{"entity",key},{"name",key},{"change","changed"},{"before",a},{"after",b}});
+    }
     return changes.dump();
 }
 }

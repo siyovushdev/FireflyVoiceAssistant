@@ -130,7 +130,7 @@ struct HttpServer::Impl {
     ~Impl() { for (auto& client : clients) if (client.thread.joinable()) client.thread.join(); }
 };
 HttpServer::HttpServer(Api& api, const std::string& bindAddress, unsigned short port) : impl_(std::make_unique<Impl>(api)) {
-    for (const auto& file : std::map<std::string, std::string>{{"index.html", "text/html; charset=utf-8"}, {"admin.js", "text/javascript; charset=utf-8"}, {"admin-model.js", "text/javascript; charset=utf-8"}, {"typed-editor.js", "text/javascript; charset=utf-8"}, {"simple-editor.js", "text/javascript; charset=utf-8"}, {"admin.css", "text/css; charset=utf-8"}}) {
+    for (const auto& file : std::map<std::string, std::string>{{"index.html", "text/html; charset=utf-8"}, {"admin.js", "text/javascript; charset=utf-8"}, {"admin-model.js", "text/javascript; charset=utf-8"}, {"typed-editor.js", "text/javascript; charset=utf-8"}, {"simple-editor.js", "text/javascript; charset=utf-8"}, {"connection-editor.js", "text/javascript; charset=utf-8"}, {"admin.css", "text/css; charset=utf-8"}}) {
         std::ifstream stream(std::string(FIREFLY_ADMIN_ASSETS) + "/" + file.first, std::ios::binary);
         if (!stream) throw std::runtime_error("Admin static assets unavailable");
         impl_->assets[file.first == "index.html" ? "/" : "/" + file.first] = {200, file.second, {std::istreambuf_iterator<char>(stream), {}}};

@@ -76,7 +76,23 @@ struct LegacyMapping {
     std::map<char, std::string> lightTargets;
 };
 // Physical transport mapping only. Semantic GenericAction / SafetyGate never read this.
-enum class ExecutorKind { Unknown, Http };
+enum class ExecutorKind { Unknown, Http, Mqtt, Tcp, Udp, Serial, Can };
+struct HttpConnection {
+    std::string baseUrl, basePath;
+};
+// Planned transports are configuration contracts only; no executor is registered.
+struct NetworkConnection { std::string host; std::int64_t port = 0; };
+struct SerialConnection { std::string port; std::int64_t baudRate = 9600; };
+struct CanConnection { std::string interface; };
+struct Connection : Identity {
+    ExecutorKind type = ExecutorKind::Unknown;
+    bool enabled = true;
+    std::int64_t timeoutMs = 2000;
+    HttpConnection http;
+    NetworkConnection network;
+    SerialConnection serial;
+    CanConnection can;
+};
 struct HttpBinding {
     std::string method = "POST";
     std::string url;
@@ -86,11 +102,23 @@ struct HttpBinding {
     std::map<std::string, actions::Scalar> body;
     // Optional validated GenericAction argument id copied into the request body.
     std::optional<std::string> argument;
+    std::string path;
+    // 0 = any 2xx for legacy mappings; new mappings explicitly select a status.
+    std::int64_t expectedStatus = 0;
+    std::map<std::string, std::string> headers;
 };
 struct Binding {
     std::string targetId, actionId;
     ExecutorKind executor = ExecutorKind::Unknown;
     HttpBinding http;
+    std::string connectionId;
+};
+struct ObservationBinding {
+    std::string targetId, connectionId;
+    ExecutorKind executor = ExecutorKind::Http;
+    HttpBinding http;
+    // Top-level JSON response member -> existing state property. No expressions.
+    std::map<std::string, std::string> fields;
 };
 struct Configuration {
     std::int64_t schemaVersion = 1, revision = 1;
@@ -101,6 +129,8 @@ struct Configuration {
     std::vector<ActionDefinition> actions;
     std::vector<DenyAction> restrictions;
     std::vector<Binding> bindings;
+    std::vector<Connection> connections;
+    std::vector<ObservationBinding> observations;
     LegacyMapping compatibility;
 };
 struct EffectiveAction {

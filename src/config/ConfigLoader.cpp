@@ -3,6 +3,7 @@
 #include "JsonInternal.h"
 #include "Platform.h"
 #include "ConfigSchema.h"
+#include "firefly/config/Connectivity.h"
 #include <algorithm>
 #include <regex>
 #include <cmath>
@@ -175,6 +176,31 @@ Parameter decodeParameter(const Json& entry) {
     }
     return p;
 }
+HttpBinding decodeHttp(const Json& http, bool connected) {
+    HttpBinding h;
+    h.method = http.at("method"); h.url = http.value("url", ""); h.path = http.value("path", "");
+    h.timeoutMs = http.value("timeout_ms", connected ? 0 : 2000);
+    h.contentType = http.value("content_type", "application/json"); h.expectedStatus = http.value("expected_status", 0);
+    if (http.contains("headers")) h.headers = http.at("headers").get<std::map<std::string, std::string>>();
+    if (http.contains("argument")) h.argument = http.at("argument").get<std::string>();
+    const auto body = http.value("body", Json::object());
+    for (const auto& item : body.items()) {
+        try { h.body.emplace(item.key(), actions::decodeScalar(item.value())); }
+        catch (...) { throw ConfigError("malformed_binding", "/bindings/http/body", "Body values must be JSON scalars"); }
+    }
+    return h;
+}
+Json encodeHttp(const HttpBinding& h, bool connected) {
+    Json body = Json::object();
+    for (const auto& [key, scalar] : h.body) body[key] = actions::scalarJson(scalar);
+    Json value{{"method",h.method},{"timeout_ms",h.timeoutMs},{"content_type",h.contentType},{"body",std::move(body)}};
+    if (connected) { value["path"] = h.path; if (!h.url.empty()) value["url"] = h.url; }
+    else { value["url"] = h.url; if (!h.path.empty()) value["path"] = h.path; }
+    if (h.argument) value["argument"] = *h.argument;
+    if (h.expectedStatus) value["expected_status"] = h.expectedStatus;
+    if (!h.headers.empty()) value["headers"] = h.headers;
+    return value;
+}
 Configuration decode(const Json& value) {
     Configuration result;
     result.schemaVersion = value.at("schema_version"); result.revision = value.at("revision");
@@ -227,26 +253,36 @@ Configuration decode(const Json& value) {
         result.restrictions.push_back(std::move(deny));
     }
     if (result.schemaVersion == 2) {
+        for (const auto& item : value.value("connections", Json::array())) {
+            Connection c;
+            static_cast<Identity&>(c) = identity(item);
+            c.type = executorKind(item.at("type")); c.enabled = item.at("enabled"); c.timeoutMs = item.at("timeout_ms");
+            const auto section = c.type == ExecutorKind::Http ? "http" : c.type == ExecutorKind::Serial ? "serial" : c.type == ExecutorKind::Can ? "can" : "network";
+            if (!item.contains(section)) throw ConfigError("missing_field", "/connections", "Transport config required");
+            for (const auto* key : {"http", "network", "serial", "can"})
+                if (item.contains(key) && std::string(key) != section) throw ConfigError("schema_error", "/connections", "Wrong transport config");
+            const auto& config = item.at(section);
+            if (c.type == ExecutorKind::Http) { c.http.baseUrl = config.at("base_url"); c.http.basePath = config.value("base_path", ""); }
+            else if (c.type == ExecutorKind::Serial) { c.serial.port = config.at("port"); c.serial.baudRate = config.at("baud_rate"); }
+            else if (c.type == ExecutorKind::Can) c.can.interface = config.at("interface");
+            else { c.network.host = config.at("host"); c.network.port = config.at("port"); }
+            result.connections.push_back(std::move(c));
+        }
+        for (const auto& item : value.value("observations", Json::array())) {
+            ObservationBinding o;
+            o.targetId = item.at("target_id"); o.connectionId = item.at("connection_id");
+            o.executor = executorKind(item.at("executor"));
+            o.http = decodeHttp(item.at("http"), true);
+            o.fields = item.at("fields").get<std::map<std::string, std::string>>();
+            result.observations.push_back(std::move(o));
+        }
         for (const auto& item : value.at("bindings")) {
             Binding binding;
             binding.targetId = item.at("target_id");
             binding.actionId = item.at("action_id");
-            binding.executor = item.at("executor") == "http" ? ExecutorKind::Http : ExecutorKind::Unknown;
-            const auto& http = item.at("http");
-            binding.http.method = http.at("method");
-            binding.http.url = http.at("url");
-            binding.http.timeoutMs = http.at("timeout_ms");
-            binding.http.contentType = http.value("content_type", "application/json");
-            if (http.contains("argument")) binding.http.argument = http.at("argument").get<std::string>();
-            if (http.contains("body")) {
-                for (auto field = http.at("body").begin(); field != http.at("body").end(); ++field) {
-                    try { binding.http.body.emplace(field.key(), actions::decodeScalar(field.value())); }
-                    catch (const std::exception&) {
-                        throw ConfigError("malformed_binding", "/bindings/http/body/" + field.key(),
-                            "HTTP body values must be JSON scalars");
-                    }
-                }
-            }
+            binding.executor = executorKind(item.at("executor"));
+            binding.connectionId = item.value("connection_id", "");
+            binding.http = decodeHttp(item.at("http"), !binding.connectionId.empty());
             result.bindings.push_back(std::move(binding));
         }
     }
@@ -277,13 +313,6 @@ std::string kindName(DeviceKind value) {
         case DeviceKind::EntranceDoor: return "entrance_door";
     }
     throw ConfigError("unsupported_kind", "/devices", "Unknown device kind enum");
-}
-std::string executorName(ExecutorKind value) {
-    switch (value) {
-        case ExecutorKind::Unknown: break;
-        case ExecutorKind::Http: return "http";
-    }
-    throw ConfigError("unsupported_executor", "/bindings", "Unknown executor kind");
 }
 Json encodeParameter(const Parameter& p, bool v2) {
     auto entry = identityJson(p);
@@ -345,14 +374,26 @@ Json encode(const Configuration& value) {
         result["safety"]["restrictions"].push_back(std::move(item));
     }
     if (value.schemaVersion == 2) {
+        // Omit empty extension arrays to preserve existing on-disk canonical hashes.
+        if (!value.connections.empty()) result["connections"] = Json::array();
+        for (const auto& c : value.connections) {
+            Json entry{{"id",c.id},{"name",c.name},{"type",executorName(c.type)}, {"enabled",c.enabled},{"timeout_ms",c.timeoutMs}};
+            if (c.type == ExecutorKind::Http) entry["http"] = {{"base_url",c.http.baseUrl},{"base_path",c.http.basePath}};
+            else if (c.type == ExecutorKind::Serial) entry["serial"] = {{"port",c.serial.port},{"baud_rate",c.serial.baudRate}};
+            else if (c.type == ExecutorKind::Can) entry["can"] = {{"interface",c.can.interface}};
+            else entry["network"] = {{"host",c.network.host},{"port",c.network.port}};
+            result["connections"].push_back(std::move(entry));
+        }
+        if (!value.observations.empty()) result["observations"] = Json::array();
+        for (const auto& o : value.observations)
+            result["observations"].push_back({{"target_id",o.targetId},{"connection_id",o.connectionId},{"executor",executorName(o.executor)},
+                {"http",encodeHttp(o.http,true)},{"fields",o.fields}});
         for (const auto& binding : value.bindings) {
-            Json body = Json::object();
-            for (const auto& [key, scalar] : binding.http.body) body[key] = actions::scalarJson(scalar);
-            Json http{{"method", binding.http.method}, {"url", binding.http.url},
-                {"timeout_ms", binding.http.timeoutMs}, {"content_type", binding.http.contentType}, {"body", std::move(body)}};
-            if (binding.http.argument) http["argument"] = *binding.http.argument;
-            result["bindings"].push_back({{"target_id", binding.targetId}, {"action_id", binding.actionId},
-                {"executor", executorName(binding.executor)}, {"http", std::move(http)}});
+            Json http = encodeHttp(binding.http, !binding.connectionId.empty());
+            Json entry{{"target_id", binding.targetId}, {"action_id", binding.actionId},
+                {"executor", executorName(binding.executor)}, {"http", std::move(http)}};
+            if (!binding.connectionId.empty()) entry["connection_id"] = binding.connectionId;
+            result["bindings"].push_back(std::move(entry));
         }
     }
     const auto& mapping = value.compatibility;

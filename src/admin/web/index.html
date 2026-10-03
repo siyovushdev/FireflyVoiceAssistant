@@ -9,6 +9,7 @@
 </script>
 <script src="/typed-editor.js" defer></script>
 <script src="/simple-editor.js" defer></script>
+<script src="/connection-editor.js" defer></script>
 <script src="/admin.js" defer>
 </script>
 </head>
@@ -248,9 +249,16 @@
 <button id="connection-close" type="button" aria-label="Закрыть">×</button>
 </div>
 <p>Настройка меняет только черновик конфигурации. HTTP-команды оборудованию при редактировании, Validate, Save и Apply не отправляются.</p>
+<ul id="connection-errors" class="error" role="alert"></ul>
 <div id="connection-content"></div>
 <div class="buttons">
-<button id="connection-done" type="button" class="primary">Готово</button>
+<button id="connection-preview" type="button">Preview</button>
+<button id="connection-apply" type="button" class="primary">Apply</button>
+<button id="connection-done" type="button">Оставить в черновике</button>
+<button id="connection-cancel" type="button">Cancel</button>
+</div>
+<pre id="connection-preview-result"></pre>
+<div>
 </div>
 </dialog>
 </body>

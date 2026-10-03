@@ -127,6 +127,7 @@ std::set<std::string> domainIds(const Configuration& config) {
     for (const auto& item : config.devices) result.insert(item.id);
     for (const auto& item : config.actions) result.insert(item.id);
     for (const auto& item : config.restrictions) result.insert(item.id);
+    for (const auto& item : config.connections) result.insert(item.id);
     return result;
 }
 std::map<std::string, std::string> identityKinds(const Configuration& config) {
@@ -135,6 +136,7 @@ std::map<std::string, std::string> identityKinds(const Configuration& config) {
     for (const auto& item : config.devices) result[item.id] = "device";
     for (const auto& item : config.actions) result[item.id] = "action";
     for (const auto& item : config.restrictions) result[item.id] = "restriction";
+    for (const auto& item : config.connections) result[item.id] = "connection";
     return result;
 }
 Catalog nextRevision(const Catalog& candidate, const Catalog& previous,

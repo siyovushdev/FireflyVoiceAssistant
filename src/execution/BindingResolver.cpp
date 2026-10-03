@@ -46,4 +46,9 @@ HardwareResult ExecutorRegistry::execute(const config::Binding& binding, const a
         return {false, "unsupported_executor", {}, ReachabilityEvidence::None};
     return found->second->execute(binding, action);
 }
+HardwareObservation ExecutorRegistry::observe(const config::ObservationBinding& binding) const {
+    const auto found = executors_.find(binding.executor);
+    if (found == executors_.end()) return {{false, "unsupported_executor", {}, ReachabilityEvidence::None}, {}};
+    return found->second->observe(binding);
+}
 }

@@ -1,10 +1,36 @@
 #include "firefly/execution/ActionExecutor.h"
 #include "firefly/execution/HttpHardwareExecutor.h"
+#include <nlohmann/json.hpp>
 
 namespace firefly::execution {
+namespace {
+// Transport-neutral identity of the physical mapping. Display-name edits retain
+// evidence; changing endpoints/mappings invalidates it on generation publication.
+std::map<std::string, std::string> physicalMappings(config::Catalog catalog) {
+    using Json = nlohmann::json;
+    const auto config = Json::parse(catalog->canonicalJson());
+    std::map<std::string, Json> mappings;
+    for (const auto* section : {"bindings", "observations"}) {
+        for (const auto& item : config.value(section, Json::array())) {
+            auto entry = item;
+            if (item.contains("connection_id")) {
+                for (auto connection : config.value("connections", Json::array())) {
+                    if (connection.at("id") != item.at("connection_id")) continue;
+                    connection.erase("name");
+                    entry["connection"] = std::move(connection);
+                }
+            }
+            mappings[item.at("target_id")][section].push_back(std::move(entry));
+        }
+    }
+    std::map<std::string, std::string> result;
+    for (const auto& [target, value] : mappings) result[target] = value.dump();
+    return result;
+}
+}
 BoundDeviceExecutor::BoundDeviceExecutor(config::Catalog catalog, SteadyClockMs clock)
     : catalog_(catalog), playground_(catalog), production_(catalog, std::move(clock)), resolver_(catalog) {
-    registry_.registerExecutor(config::ExecutorKind::Http, std::make_shared<HttpHardwareExecutor>());
+    registry_.registerExecutor(config::ExecutorKind::Http, std::make_shared<HttpHardwareExecutor>(catalog));
 }
 
 ExecutionResult BoundDeviceExecutor::preview(const actions::GenericAction& action) const {
@@ -20,6 +46,9 @@ void BoundDeviceExecutor::reconcile(const std::vector<DeviceRecord>& previous) {
 void BoundDeviceExecutor::reconcile(const BoundDeviceExecutor& previous) {
     playground_.reconcile(previous.playground_.states());
     production_.reconcile(previous.production_);
+    auto before = physicalMappings(previous.catalog_), after = physicalMappings(catalog_);
+    for (const auto& device : catalog_->configuration().devices)
+        if (before[device.id] != after[device.id]) production_.invalidate(device.id);
 }
 
 DeviceStateStore& BoundDeviceExecutor::production() { return production_; }
@@ -27,6 +56,20 @@ const DeviceStateStore& BoundDeviceExecutor::production() const { return product
 
 void BoundDeviceExecutor::observe(const StateObservation& observation) {
     production_.applyObservation(observation);
+}
+HardwareResult BoundDeviceExecutor::poll(const std::string& targetId) {
+    for (const auto& binding : catalog_->configuration().observations) {
+        if (binding.targetId != targetId) continue;
+        const auto observation = registry_.observe(binding);
+        const auto now = production_.nowMs();
+        if (observation.result.reachability == ReachabilityEvidence::Reachable) production_.markReachable(targetId, now);
+        else if (observation.result.reachability == ReachabilityEvidence::Unreachable) production_.markUnreachable(targetId, now);
+        if (!observation.result.success) return observation.result;
+        try { production_.applyObservation({targetId, observation.properties, now}); }
+        catch (const config::ConfigError&) { return {false, "invalid_observation", {}, observation.result.reachability}; }
+        return observation.result;
+    }
+    return {false, "observe_missing", {}, ReachabilityEvidence::None};
 }
 
 ExecutionResult BoundDeviceExecutor::execute(const actions::GenericAction& action) {

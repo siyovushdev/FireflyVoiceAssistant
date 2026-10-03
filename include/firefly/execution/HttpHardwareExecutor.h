@@ -6,7 +6,15 @@ namespace firefly::execution {
 // non-idempotent; retry policy belongs on an explicit later binding/action field.
 class HttpHardwareExecutor final : public HardwareExecutor {
 public:
+    explicit HttpHardwareExecutor(config::Catalog catalog = {}) : catalog_(std::move(catalog)) {}
     HardwareResult execute(const config::Binding& binding,
                            const actions::GenericAction& action) override;
+    HardwareObservation observe(const config::ObservationBinding& binding) override;
+    // Connect-only reachability probe: sends zero HTTP bytes.
+    static HardwareResult testConnection(const config::Connection& connection);
+private:
+    config::Catalog catalog_;
+    HardwareResult prepare(const std::string& connectionId, const config::HttpBinding& mapping,
+                           config::HttpBinding& effective, bool observe = false) const;
 };
 }

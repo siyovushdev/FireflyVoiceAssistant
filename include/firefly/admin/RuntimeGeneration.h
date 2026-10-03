@@ -85,6 +85,7 @@ public:
         std::string source = "text");
     // Simulated independent telemetry into the active generation's DeviceStateStore.
     void observe(execution::StateObservation observation);
+    execution::HardwareResult poll(const std::string& targetId, const std::string& expectedHash);
     std::vector<ExecutionEvent> history() const;
     bool modelReady() const { return ready_.load(); }
     int contextTokens() const { return contextTokens_.load(); }

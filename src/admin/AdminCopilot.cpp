@@ -309,6 +309,10 @@ void applyOperation(Json& value, std::set<std::string>& ids, const Json& op, con
             op.at("location").is_null() ? "" : op.at("location").get<std::string>());
         if (pinnedDevice(value, *device)) unsupported("Protected or system device cannot be deleted by Copilot");
         if (device->at("kind") == "entrance_door") unsupported("Protected entrance door cannot be deleted by Copilot");
+        for (const auto* key : {"bindings", "observations"}) if (value.contains(key)) {
+            auto& list = value.at(key);
+            list.erase(std::remove_if(list.begin(), list.end(), [&](const auto& b) { return b.at("target_id") == device->at("id"); }), list.end());
+        }
         removeExclusiveActions(value, *device);
         auto& devices = value.at("devices");
         devices.erase(std::remove_if(devices.begin(), devices.end(), [&](const Json& d) { return d.at("id") == device->at("id"); }), devices.end());
@@ -360,7 +364,35 @@ void applyOperation(Json& value, std::set<std::string>& ids, const Json& op, con
                     }
             }
         }
+    } else if (kind == "set_http_connection") {
+        members(op, {"op", "connection"});
+        const auto& entry = op.at("connection");
+        if (!entry.is_object() || entry.value("type", "") != "http") unsupported("Only HTTP connections are implemented");
+        if (!value.contains("connections")) value["connections"] = Json::array();
+        auto& list = value.at("connections");
+        const auto id = entry.at("id");
+        const auto found = std::find_if(list.begin(), list.end(), [&](const auto& c) { return c.at("id") == id; });
+        if (found == list.end()) list.push_back(entry); else *found = entry;
+    } else if (kind == "set_connection_binding") {
+        members(op, {"op", "binding"});
+        const auto& entry = op.at("binding");
+        if (!entry.is_object() || !entry.contains("connection_id")) unsupported("Connection ID required");
+        auto& list = value.at("bindings");
+        const auto found = std::find_if(list.begin(), list.end(), [&](const auto& b) {
+            return b.at("target_id") == entry.at("target_id") && b.at("action_id") == entry.at("action_id");
+        });
+        if (found == list.end()) list.push_back(entry); else *found = entry;
+    } else if (kind == "set_http_observe") {
+        members(op, {"op", "observation"});
+        const auto& entry = op.at("observation");
+        if (!entry.is_object()) unsupported("Observation object required");
+        if (!value.contains("observations")) value["observations"] = Json::array();
+        auto& list = value.at("observations");
+        const auto found = std::find_if(list.begin(), list.end(), [&](const auto& o) { return o.at("target_id") == entry.at("target_id"); });
+        if (found == list.end()) list.push_back(entry); else *found = entry;
     } else if (kind == "set_http_binding") {
+        const std::set<std::string> allowed{"op","device","location","action","method","url","timeout_ms","content_type","body","argument"};
+        for (const auto& item : op.items()) if (!allowed.count(item.key())) throw std::invalid_argument("Unknown binding operation field");
         // Explicit hardware connection only — never invent IP/path/protocol.
         for (const auto* key : {"op", "device", "location", "action", "method", "url"})
             if (!op.contains(key)) throw std::invalid_argument(std::string("Missing field ") + key);
@@ -455,7 +487,16 @@ std::string draftFingerprint(config::Catalog draft) {
 
 std::string copilotPrompt(config::Catalog draft) {
     const auto value = migrated(draft);
-    const auto scope = scopedInventory(value);
+    auto scope = scopedInventory(value);
+    Json physical = {{"devices",Json::array()},{"connections",value.value("connections",Json::array())}};
+    for (const auto& device : value.at("devices")) {
+        Json actions = Json::array();
+        for (const auto& id : device.at("action_ids")) for (const auto& action : value.at("actions"))
+            if (action.at("id") == id) actions.push_back({{"id",id},{"name",action.at("name")},{"parameters",action.at("parameters")}});
+        physical["devices"].push_back({{"id",device.at("id")},{"name",device.at("name")},
+            {"actions",actions},{"state",device.value("state",Json::array())}});
+    }
+    scope += "\nBinding IDs (existing capabilities only):" + physical.dump();
     return std::string(R"(Admin Copilot. Только JSON.
 {"status":"ok|ambiguous|unsupported","summary":"…","operations":[{"op":"…"}]}
 Каждый element operations — плоский объект с discriminator "op" (строка). Пример:
@@ -470,11 +511,15 @@ add_location_mention{op,location,mention}
 add_location_phrase{op,location,phrase}
 delete_device{op,device,location}
 set_field_bounds{op,device,location,field,minimum,maximum}
+set_http_connection{op,connection:{id,name,type:"http",enabled:true,timeout_ms:2000,http:{base_url,base_path:""}}}
+set_connection_binding{op,binding:{target_id,action_id,connection_id,executor:"http",http:{method,path,body,expected_status:200}}}
+set_http_observe{op,observation:{target_id,connection_id,executor:"http",http:{method:"GET",path,expected_status:200},fields:{response_field:existing_state_id}}}
+В настройке подключения используй только эти три операции. Не меняй capabilities, не создавай устройства/действия; используй существующие IDs. Никогда не выполняй запросы. Не выдумывай адрес, путь, JSON contract или поле состояния. Проверку и Apply делает человек.
 set_http_binding{op,device,location,action,method,url,timeout_ms?,content_type?,body?,argument?}
 clear_http_binding{op,device,location,action}
 Для явно запрошенного только включения/выключения используй template power_only (не tv/light).
 create_device не меняет speech зоны. add_location_* только если пользователь просил речь.
-Не угадывай location. Не door/входную дверь как switch. Без ID/Save/Apply.
+Не угадывай location. Не door/входную дверь как switch. Не выполняй Save/Apply.
 HTTP-подключение: только из явно указанных пользователем method+URL (http://IPv4/…).
 Не выдумывай IP, порт, path, protocol, credentials, GPIO, RS-485, payload.
 Если данных мало → status unsupported/ambiguous и пустые operations.
@@ -500,15 +545,18 @@ std::string decodeCopilotProposal(std::string_view raw, config::Catalog draft) {
     if (proposal.at("operations").empty()) throw std::invalid_argument("ok status requires operations");
 
     std::size_t createLocations = 0, createDevices = 0;
-    bool speechEdit = false;
+    bool speechEdit = false, connectivity = false, semantic = false;
     for (const auto& op : proposal.at("operations")) {
         if (!op.is_object() || !op.contains("op") || !op.at("op").is_string())
             throw std::invalid_argument("Invalid operation: each item needs string discriminator \"op\"");
         const auto kind = op.at("op").get<std::string>();
+        const bool physical = kind == "set_http_connection" || kind == "set_connection_binding" || kind == "set_http_observe" || kind == "set_http_binding" || kind == "clear_http_binding";
+        connectivity = connectivity || physical; semantic = semantic || !physical;
         if (kind == "create_location") ++createLocations;
         if (kind == "create_device") ++createDevices;
         if (kind == "add_location_mention" || kind == "add_location_phrase") speechEdit = true;
     }
+    if (connectivity && semantic) throw std::invalid_argument("Connection proposals cannot change capabilities or semantic entities");
     if (createLocations > 2) unsupported("At most two new locations per Copilot proposal");
     if (createDevices > 6) unsupported("At most six new devices per Copilot proposal");
     if (createDevices > 0 && speechEdit)

@@ -353,6 +353,15 @@ void RuntimeGenerations::observe(execution::StateObservation observation) {
     if (observation.timestampMs <= 0) observation.timestampMs = active->executor->production().nowMs();
     active->executor->observe(observation);
 }
+execution::HardwareResult RuntimeGenerations::poll(const std::string& targetId, const std::string& expectedHash) {
+    auto lock = lockOperation();
+    Busy busy(busy_);
+    const auto active = current();
+    if (!active || active->domain.snapshot()->contentHash() != expectedHash)
+        return {false, "revision_conflict", {}, execution::ReachabilityEvidence::None};
+    if (setupBlocked()) return {false, "setup_in_progress", {}, execution::ReachabilityEvidence::None};
+    return active->executor->poll(targetId);
+}
 GenerationResult RuntimeGenerations::Request::process(std::string_view input, execution::ExecutionIntent execution, std::string source) {
     if (processed_) throw std::logic_error("Request already consumed");
     processed_ = true;

@@ -23,6 +23,8 @@ ctest --test-dir build --output-on-failure
 - `CommandEngine`: LanguageIndex → legacy parser or RKLLM → typed candidate → SafetyGate → config-backed domain validation → typed final result.
 - `CompactV1Adapter`: outward CLI/debug/regression compatibility only. `D`, `L|K/B/G/C|N`, `U` are not the model output or internal semantic representation.
 
+[Device Connectivity & Binding Admin](docs/device-connectivity-binding-admin.md) adds reusable Connections, HTTP command mappings and independent state readback through the existing draft/Preview/Apply flow.
+
 Production execution requires explicit bindings; V1 acceptance uses the loopback HTTP mock. The gate enforces the documented specific rules; it is not a general natural-language safety classifier. See [Milestone 8](docs/milestone-8-config-driven-llm.md) and the [voice guide](docs/live-voice.md).
 
 Public headers are in `include/firefly`, implementations in `src`, tests in `tests`. Reference files under `~/demo_Linux_aarch64` remain read-only. JSON v3.12.0 and its MIT license are vendored; builds download nothing.

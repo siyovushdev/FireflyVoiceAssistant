@@ -95,7 +95,10 @@
             "maxItems": 256
         },
         "compatibility": {
-            "type": ["object", "null"],
+            "type": [
+                "object",
+                "null"
+            ],
             "properties": {
                 "codec": {
                     "const": "compact_v1"
@@ -142,6 +145,20 @@
                 "door_target_id"
             ],
             "additionalProperties": false
+        },
+        "connections": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/connection"
+            },
+            "maxItems": 128
+        },
+        "observations": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/observation"
+            },
+            "maxItems": 128
         }
     },
     "required": [
@@ -622,7 +639,10 @@
                 "method": {
                     "enum": [
                         "POST",
-                        "PUT"
+                        "PUT",
+                        "PATCH",
+                        "DELETE",
+                        "GET"
                     ]
                 },
                 "url": {
@@ -633,7 +653,7 @@
                 },
                 "timeout_ms": {
                     "type": "integer",
-                    "minimum": 50,
+                    "minimum": 0,
                     "maximum": 10000
                 },
                 "content_type": {
@@ -646,12 +666,23 @@
                 },
                 "argument": {
                     "$ref": "#/$defs/id"
+                },
+                "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512
+                },
+                "expected_status": {
+                    "type": "integer",
+                    "minimum": 200,
+                    "maximum": 299
+                },
+                "headers": {
+                    "type": "object"
                 }
             },
             "required": [
-                "method",
-                "url",
-                "timeout_ms"
+                "method"
             ],
             "additionalProperties": false
         },
@@ -671,6 +702,9 @@
                 },
                 "http": {
                     "$ref": "#/$defs/http_binding"
+                },
+                "connection_id": {
+                    "$ref": "#/$defs/id"
                 }
             },
             "required": [
@@ -678,6 +712,143 @@
                 "action_id",
                 "executor",
                 "http"
+            ],
+            "additionalProperties": false
+        },
+        "connection": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "$ref": "#/$defs/id"
+                },
+                "name": {
+                    "$ref": "#/$defs/name"
+                },
+                "type": {
+                    "enum": [
+                        "http",
+                        "mqtt",
+                        "tcp",
+                        "udp",
+                        "serial",
+                        "can"
+                    ]
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "timeout_ms": {
+                    "type": "integer",
+                    "minimum": 50,
+                    "maximum": 10000
+                },
+                "http": {
+                    "type": "object",
+                    "properties": {
+                        "base_url": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 512
+                        },
+                        "base_path": {
+                            "type": "string",
+                            "maxLength": 512
+                        }
+                    },
+                    "required": [
+                        "base_url"
+                    ],
+                    "additionalProperties": false
+                },
+                "network": {
+                    "type": "object",
+                    "properties": {
+                        "host": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 253
+                        },
+                        "port": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 65535
+                        }
+                    },
+                    "required": [
+                        "host",
+                        "port"
+                    ],
+                    "additionalProperties": false
+                },
+                "serial": {
+                    "type": "object",
+                    "properties": {
+                        "port": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256
+                        },
+                        "baud_rate": {
+                            "type": "integer",
+                            "minimum": 50,
+                            "maximum": 4000000
+                        }
+                    },
+                    "required": [
+                        "port",
+                        "baud_rate"
+                    ],
+                    "additionalProperties": false
+                },
+                "can": {
+                    "type": "object",
+                    "properties": {
+                        "interface": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64
+                        }
+                    },
+                    "required": [
+                        "interface"
+                    ],
+                    "additionalProperties": false
+                }
+            },
+            "required": [
+                "id",
+                "name",
+                "type",
+                "enabled",
+                "timeout_ms"
+            ],
+            "additionalProperties": false
+        },
+        "observation": {
+            "type": "object",
+            "properties": {
+                "target_id": {
+                    "$ref": "#/$defs/id"
+                },
+                "connection_id": {
+                    "$ref": "#/$defs/id"
+                },
+                "executor": {
+                    "const": "http"
+                },
+                "http": {
+                    "$ref": "#/$defs/http_binding"
+                },
+                "fields": {
+                    "type": "object"
+                }
+            },
+            "required": [
+                "target_id",
+                "connection_id",
+                "executor",
+                "http",
+                "fields"
             ],
             "additionalProperties": false
         }

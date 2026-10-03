@@ -1,4 +1,5 @@
 #include "firefly/config/ConfigValidator.h"
+#include "firefly/config/Connectivity.h"
 #include "JsonInternal.h"
 #include "Platform.h"
 #include "firefly/actions/ScalarJson.h"
@@ -83,45 +84,7 @@ const std::vector<LegacyRoom>& legacyRooms() {
 bool sameStrings(std::vector<std::string> a, std::vector<std::string> b) {
     std::sort(a.begin(), a.end()); std::sort(b.begin(), b.end()); return a == b;
 }
-// http://IPv4[:port]/path[?query] — numeric IPv4 only. DNS hostnames are rejected
-// because blocking getaddrinfo is not covered by the HTTP socket deadline (M14).
-void checkHttpUrl(const std::string& url, const std::string& path) {
-    static constexpr std::string_view prefix = "http://";
-    if (url.rfind(prefix.data(), 0) != 0)
-        throw ConfigError("malformed_binding", path, "HTTP binding URL must use http://");
-    const auto rest = url.substr(prefix.size());
-    if (rest.empty() || rest.find('@') != std::string::npos || rest.find('#') != std::string::npos)
-        throw ConfigError("malformed_binding", path, "HTTP binding URL rejects credentials and fragments");
-    const auto slash = rest.find('/');
-    const auto authority = slash == std::string::npos ? rest : rest.substr(0, slash);
-    const auto resource = slash == std::string::npos ? "/" : rest.substr(slash);
-    if (authority.empty() || authority.front() == '[' || authority.front() == ':')
-        throw ConfigError("malformed_binding", path, "HTTP binding host is required");
-    if (resource.empty() || resource.front() != '/')
-        throw ConfigError("malformed_binding", path, "HTTP binding path must begin with /");
-    for (unsigned char c : url) if (c < 0x20 || c == 0x7f)
-        throw ConfigError("malformed_binding", path, "HTTP binding URL contains control characters");
-    std::string host = authority;
-    const auto colon = authority.rfind(':');
-    if (colon != std::string::npos) {
-        host = authority.substr(0, colon);
-        const auto portText = authority.substr(colon + 1);
-        if (host.empty() || portText.empty() || portText.find_first_not_of("0123456789") != std::string::npos)
-            throw ConfigError("malformed_binding", path, "HTTP binding port must be decimal digits");
-        try {
-            const auto port = std::stoi(portText);
-            if (port <= 0 || port > 65535)
-                throw ConfigError("malformed_binding", path, "HTTP binding port is out of range");
-        } catch (const ConfigError&) { throw; }
-        catch (...) {
-            throw ConfigError("malformed_binding", path, "HTTP binding port is invalid");
-        }
-    }
-    in_addr address{};
-    if (::inet_pton(AF_INET, host.c_str(), &address) != 1)
-        throw ConfigError("malformed_binding", path,
-            "HTTP binding host must be a numeric IPv4 address (DNS hostnames are not supported in M14)");
-}
+
 }
 namespace {
 void parameterContract(const Parameter& p, const std::string& path) {
@@ -152,6 +115,8 @@ Catalog ConfigValidator::validate(Configuration configuration) {
     const auto identify = [&](const auto& values, const std::string& path) {
         for (std::size_t i = 0; i < values.size(); ++i) addIdentity(values[i], path + "/" + std::to_string(i), ids);
     };
+    identify(configuration.connections, "/connections");
+    validateConnections(configuration);
     identify(configuration.rooms, "/rooms"); identify(configuration.devices, "/devices");
     identify(configuration.actions, "/actions"); identify(configuration.restrictions, "/safety/restrictions");
     std::set<std::string> retired;
@@ -203,6 +168,8 @@ Catalog ConfigValidator::validate(Configuration configuration) {
         for (const auto& [other, target] : catalog->locations_) if (room != target && containsPhrase(phrase, other))
             throw ConfigError("ambiguous_alias", locationPaths.at(phrase), "Overlapping location at " + locationPaths.at(other));
     }
+    sortIdentities(configuration.connections);
+    std::sort(configuration.observations.begin(), configuration.observations.end(), [](const auto& a, const auto& b) { return a.targetId < b.targetId; });
     sortIdentities(configuration.rooms); sortIdentities(configuration.devices);
     sortIdentities(configuration.actions); sortIdentities(configuration.restrictions);
     std::sort(configuration.retiredIds.begin(), configuration.retiredIds.end());
@@ -334,18 +301,10 @@ Catalog ConfigValidator::validate(Configuration configuration) {
         if (!catalog->bindings_.emplace(key, i).second)
             throw ConfigError("duplicate_binding", path, "Duplicate binding for the same target and action");
         const auto& http = binding.http;
-        if (http.method != "POST" && http.method != "PUT")
-            throw ConfigError("malformed_binding", path + "/http/method", "HTTP binding supports POST or PUT only");
-        checkHttpUrl(http.url, path + "/http/url");
-        if (http.timeoutMs < 50 || http.timeoutMs > 10000)
-            throw ConfigError("malformed_binding", path + "/http/timeout_ms", "HTTP timeout must be 50..10000 ms");
-        if (http.contentType.empty() || http.contentType.size() > 128)
-            throw ConfigError("malformed_binding", path + "/http/content_type", "HTTP content type is required");
-        for (const auto& [key, value] : http.body) {
-            if (key.empty() || key.size() > 64)
-                throw ConfigError("malformed_binding", path + "/http/body", "HTTP body keys must be 1..64 bytes");
-            (void)value;
-        }
+        const auto* connection = findConnection(configuration, binding.connectionId);
+        if (!binding.connectionId.empty() && !connection)
+            throw ConfigError("dangling_reference", path + "/connection_id", "Unknown connection");
+        validateHttpMapping(http, connection);
         if (http.argument) {
             const auto& action = configuration.actions[catalog->actions_.at(binding.actionId)];
             const auto found = std::find_if(action.parameters.begin(), action.parameters.end(),
@@ -354,6 +313,25 @@ Catalog ConfigValidator::validate(Configuration configuration) {
                 throw ConfigError("dangling_reference", path + "/http/argument", "HTTP argument is not an action parameter");
             if (http.body.count(*http.argument))
                 throw ConfigError("malformed_binding", path + "/http/argument", "HTTP argument collides with a fixed body field");
+        }
+    }
+    std::set<std::string> observedTargets;
+    for (const auto& observation : configuration.observations) {
+        if (!catalog->devices_.count(observation.targetId)) throw ConfigError("dangling_reference", "/observations", "Unknown observe target");
+        const auto& device = configuration.devices[catalog->devices_.at(observation.targetId)];
+        const auto* connection = findConnection(configuration, observation.connectionId);
+        if (!connection) throw ConfigError("dangling_reference", "/observations/connection_id", "Unknown observe connection");
+        if (!device.enabled || observation.executor != ExecutorKind::Http) throw ConfigError("unsafe_constraint", "/observations", "Observe target must be enabled and transport supported");
+        if (!observedTargets.insert(device.id).second) throw ConfigError("duplicate_binding", "/observations", "Only one observation mapping per device");
+        validateHttpMapping(observation.http, connection, true);
+        if (observation.fields.empty() || observation.fields.size() > 32) throw ConfigError("malformed_binding", "/observations/fields", "Observe fields required (max 32)");
+        std::set<std::string> fields;
+        for (const auto& [source, destination] : observation.fields) {
+            if (source.empty() || source.size() > 64 || !fields.insert(destination).second)
+                throw ConfigError("malformed_binding", "/observations/fields", "Distinct state fields required");
+            bool exists = device.kind == DeviceKind::Light ? destination == "brightness" : device.kind == DeviceKind::EntranceDoor ? destination == "position" : false;
+            for (const auto& field : device.state) if (field.id == destination) exists = true;
+            if (!exists) throw ConfigError("dangling_reference", "/observations/fields", "Unknown state field");
         }
     }
     const auto& mapping = configuration.compatibility;

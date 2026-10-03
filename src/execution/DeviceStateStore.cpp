@@ -178,6 +178,15 @@ void DeviceStateStore::markUnreachable(const std::string& targetId, std::int64_t
     found->second.lastFailureAtMs = atMs;
 }
 
+void DeviceStateStore::invalidate(const std::string& targetId) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto found = devices_.find(targetId);
+    if (found == devices_.end()) return;
+    for (auto& [key, property] : found->second.properties) { (void)key; property = {}; }
+    found->second.connectivity = Connectivity::Unknown;
+    found->second.lastSuccessAtMs = found->second.lastFailureAtMs = 0;
+}
+
 void DeviceStateStore::reconcile(const DeviceStateStore& previous) {
     std::lock_guard<std::mutex> lock(mutex_);
     const auto prior = previous.devices();

@@ -78,6 +78,8 @@ public:
     // In-process generation Apply: retain compatible knowledge; new devices Unknown;
     // removed devices drop; incompatible schema → state_conflict.
     void reconcile(const DeviceStateStore& previous);
+    // A changed physical mapping cannot inherit evidence from the old endpoint.
+    void invalidate(const std::string& targetId);
 
     std::int64_t nowMs() const;
     static std::string knowledgeName(StateKnowledge value);

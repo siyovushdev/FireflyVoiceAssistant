@@ -27,12 +27,19 @@ struct HardwareResult {
     // of success; HTTP status codes stay in detail, never branched on here.
     ReachabilityEvidence reachability = ReachabilityEvidence::None;
 };
+struct HardwareObservation {
+    HardwareResult result;
+    std::map<std::string, actions::Scalar> properties;
+};
 
 class HardwareExecutor {
 public:
     virtual ~HardwareExecutor() = default;
     virtual HardwareResult execute(const config::Binding& binding,
                                    const actions::GenericAction& action) = 0;
+    virtual HardwareObservation observe(const config::ObservationBinding&) {
+        return {{false, "unsupported_executor", {}, ReachabilityEvidence::None}, {}};
+    }
 };
 
 class ExecutorRegistry {
@@ -40,6 +47,7 @@ public:
     ExecutorRegistry();
     void registerExecutor(config::ExecutorKind kind, std::shared_ptr<HardwareExecutor> executor);
     HardwareResult execute(const config::Binding& binding, const actions::GenericAction& action) const;
+    HardwareObservation observe(const config::ObservationBinding& binding) const;
 private:
     std::map<config::ExecutorKind, std::shared_ptr<HardwareExecutor>> executors_;
 };
