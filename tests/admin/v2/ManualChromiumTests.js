@@ -24,6 +24,11 @@ async function click(label, scope = '') {
     await js(`(() => { ${lookup} node.scrollIntoView({block:'center'}); node.click(); })()`); await delay(80);
 }
 async function fill(label, value, scope = '') { await js(`(() => { const root = (${JSON.stringify(scope)} ? document.querySelector(${JSON.stringify(scope)}) : null) || document.querySelector('dialog[open]') || document.querySelector('main'); const label = [...root.querySelectorAll('label')].find(n => n.textContent.trim().startsWith(${JSON.stringify(label)}) && n.getClientRects().length); const control = label?.querySelector('input,textarea'); if (!control) throw Error('Field missing: ' + ${JSON.stringify(label)}); control.focus(); control.value = ${JSON.stringify(value)}; control.dispatchEvent(new Event('input', {bubbles:true})); control.dispatchEvent(new Event('change', {bubbles:true})); })()`); }
+async function insertRaw(text) {
+    const before = await js('document.activeElement.value');
+    await send('Input.insertText', { text }); await delay(60);
+    assert.equal(await js('document.activeElement.value'), before + text, 'typing preserves trailing spaces and newlines');
+}
 async function select(label, option, scope = '') { await js(`(() => { const root = (${JSON.stringify(scope)} ? document.querySelector(${JSON.stringify(scope)}) : null) || document.querySelector('dialog[open]') || document.querySelector('main'); const node = [...root.querySelectorAll('label')].find(n => n.textContent.trim().startsWith(${JSON.stringify(label)}))?.querySelector('select'); const value = [...node.options].find(o => o.textContent.trim() === ${JSON.stringify(option)})?.value; if (value === undefined) throw Error('Option missing: ' + ${JSON.stringify(option)}); node.value = value; node.dispatchEvent(new Event('change', {bubbles:true})); })()`); await delay(50); }
 async function check(label) { await js(`(() => { const node = [...document.querySelectorAll('dialog[open] label')].find(n => n.textContent.trim().replace(/\\s*↗$/, '') === ${JSON.stringify(label)})?.querySelector('input[type=checkbox]'); if (!node) throw Error('Checkbox missing'); node.click(); })()`); }
 async function route(name) { await js(`document.querySelector('nav a[href$="#/${name}"]').click()`); await until(() => js(`location.hash === '#/${name}'`), name); }
@@ -71,33 +76,57 @@ async function screenshot(name) { const r = await send('Page.captureScreenshot',
         assert.match(await text(), /Укажите, как обозначать местоположение/);
         assert.doesNotMatch(await text(), /Command location requires|container/);
         assert.equal(await js('document.querySelectorAll("dialog textarea[aria-invalid=true]").length'), 2);
+        await click('Перейти к полю или сущности', 'dialog .task-errors li:nth-of-type(2)');
+        assert.equal(await js('document.activeElement.dataset.path.endsWith("/speech/locations")'), true, 'error link focuses current task field');
         assert.equal(requests.filter(r => r.url.endsWith('/api/config/validate')).length, validationCount, 'incomplete zone never sent to backend');
         assert.equal(await js(`document.querySelector('dialog input[data-path$="/name"]').value`), name);
         if (name !== 'Цех') { await click('Отмена'); continue; }
         await screenshot('zone-required-speech');
-        await fill('Как назвать зону', 'цех'); await click('Добавить в план');
+        await fill('Как назвать зону', 'цех'); await insertRaw(' '); await insertRaw('\n'); await insertRaw('цех '); await click('Добавить в план');
         await until(() => js('document.activeElement?.dataset.path?.endsWith("/speech/locations")'), 'focus remaining speech field');
         assert.equal(requests.filter(r => r.url.endsWith('/api/config/validate')).length, validationCount);
-        await fill('Как указать местоположение', 'в цехе'); await stage();
+        await fill('Как указать местоположение', 'в'); await insertRaw(' '); await insertRaw('цехе'); await stage();
         const submitted = JSON.parse(requests.filter(r => r.url.endsWith('/api/config/validate')).at(-1).body).configuration;
         assert.deepEqual(submitted.rooms.at(-1).speech, { mentions: ['цех'], locations: ['в цехе'] });
     }
     await click('Цех · редактировать'); await ready(); await fill('Как назвать зону', 'цех\nучасток'); await stage();
+    await click('Создать зону'); await ready(); await fill('Название зоны', 'Другой участок'); await fill('Как назвать зону', 'цех'); await fill('Как указать местоположение', 'на другом участке'); await click('Добавить в план');
+    await until(() => js('document.activeElement?.dataset.path?.endsWith("/speech/mentions")'), 'backend indexed alias error focuses list field');
+    await click('Перейти к полю или сущности'); assert.equal(await js('document.activeElement.dataset.path.endsWith("/speech/mentions")'), true);
+    await click('Отмена');
+
     await route('devices');
-    for (const [name, alias, zone] of [['Измерительный блок', 'измерительный блок', 'Без зоны'], ['Вентилятор', 'вентилятор', 'Цех']]) { await click('Создать устройство'); await ready(); await fill('Название устройства', name); await fill('Как обращаться к устройству', alias); await select('Зона', zone); await stage(); }
+    for (const [name, alias, zone] of [['Измерительный блок', 'измерительный блок', 'Без зоны'], ['Вентилятор', 'вентилятор', 'Цех']]) { await click('Создать устройство'); await ready(); await fill('Название устройства', name); await fill('Как обращаться к устройству', alias); await insertRaw(' '); await select('Зона', zone); await stage(); }
     assert.equal((await api('/api/config')).hash, before.hash); assert.equal(hardware.length, 0);
     console.log('D/N: wizard, inline error, three viewports, isolated probe');
-    await planDevice('Вентилятор', 'Настроить подключение'); await click('HTTP / REST →'); await fill('Название подключения', 'Контроллер цеха'); await click('Далее');
+    await planDevice('Вентилятор', 'Настроить подключение'); await click('HTTP / REST →'); await fill('Название подключения', 'Контроллер цеха'); assert.match(await text(), /http:\/\/192\.168\.68\.120:8765/); assert.match(await text(), /порт 80/); await click('Далее');
     await until(() => js('document.activeElement?.getAttribute("data-path") === "/connection/http/base_url"'), 'inline error focus');
     for (const [width, height] of [[390, 844], [800, 600], [1280, 800]]) { await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false }); await delay(80); assert.equal(await js('document.querySelector("dialog").scrollWidth <= document.querySelector("dialog").clientWidth + 1'), true, 'task horizontal overflow'); await screenshot('wizard-error-' + width); }
     await fill('Endpoint', endpoint); await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 }); await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 }); await delay(100); assert.match(await text(), /ШАГ 2 ИЗ 5/, 'Enter cannot bypass wizard review'); await click('Проверить доступность'); await until(async () => (await text()).includes('TCP-соединение установлено'), 'probe'); assert.equal(hardware.length, 0); assert.ok(tcpConnections >= 1);
     await fill('Endpoint', endpoint + '/'); assert.match(await text(), /Результат проверки устарел/); await fill('Endpoint', endpoint);
     await click('Далее'); await check('Включить'); await check('Выключить');
+    const firstMapping = '.mapping-editor:nth-of-type(1)';
+    assert.equal(await js(`document.querySelector('${firstMapping} .inline-actions input').value`), '');
+    assert.match(await text(), /Введите имя нового поля JSON/);
+    await fill('Новое поле JSON', 'on', firstMapping); assert.match(await text(), /Такое поле уже существует/);
+    assert.equal(await js(`Array.from(document.querySelectorAll('${firstMapping} button')).find(b => b.textContent === 'Добавить поле JSON').disabled`), true);
+    await fill('Новое поле JSON', 'aux', firstMapping); await click('Добавить поле JSON', firstMapping);
+    await js(`Array.from(document.querySelectorAll('${firstMapping} .body-row')).find(r => r.querySelector('strong').textContent === 'aux').querySelector('button').click()`);
+
     await fill('Путь', '/relay/1', '.mapping-editor:nth-of-type(1)'); await fill('Путь', '/relay/1', '.mapping-editor:nth-of-type(2)');
-    await click('Далее'); await select('Чтение состояния', 'Есть независимый GET'); await fill('Путь', '/relay/1'); await click('Добавить поле Observe'); await fill('Top-level поле ответа', 'on'); await click('Далее'); assert.match(await text(), /Оборудование командами ещё не проверялось/); await click('Сохранить и применить');
+    await click('Далее'); await select('Чтение состояния', 'Есть независимый GET'); await fill('Путь', '/relay/1'); await click('Добавить поле Observe'); await fill('Top-level поле ответа', 'on'); await click('Далее'); assert.match(await text(), /Оборудование командами ещё не проверялось/); assert.match(await js('document.querySelector(".review-connection").innerText'), /Будут использовать подключение: Вентилятор/); await click('Сохранить и применить');
     await until(async () => (await text()).includes('Изменения относительно сохранённой'), 'full review');
     assert.equal((await api('/api/config')).hash, before.hash); assert.equal(hardware.length, 0);
     for (const name of ['Цех', 'Вентилятор', 'Измерительный блок', 'Контроллер цеха']) assert.ok((await text()).includes(name), 'all pending ' + name);
+    const simpleReview = await js('document.querySelector("dialog").innerText');
+    assert.match(simpleReview, /POST http:\/\/127\.0\.0\.1:/); assert.match(simpleReview, /on = Да/); assert.match(simpleReview, /on → Питание/);
+    assert.doesNotMatch(simpleReview, /executor|timeout_ms|Timeout|Content-Type|application\/json|Backend пересчитает|Изменения добавлены в план/);
+    await click('Назад к плану'); await js('document.querySelector("header input[type=checkbox]").click()'); await review();
+    await js(`Array.from(document.querySelectorAll('.review-change')).find(n => n.querySelector('h4').textContent.startsWith('Настройка действия')).querySelector('summary').click()`);
+    assert.match(await js('document.querySelector("dialog").innerText'), /"executor": "http"/);
+    assert.match(await js('document.querySelector("dialog").innerText'), /"timeout_ms": 0/);
+    await click('Назад к плану'); await js('document.querySelector("header input[type=checkbox]").click()'); await review();
+
     console.log('I/J: edit invalidates review; Cancel only discards current task');
     await click('Назад к плану'); await planDevice('Вентилятор', 'Редактировать'); await fill('Название устройства', 'Вентилятор цеха'); await stage();
     assert.equal(await js('[...document.querySelectorAll("button")].some(b => b.textContent.trim() === "Подтвердить применение" && !b.disabled)'), false);
@@ -132,16 +161,17 @@ async function screenshot(name) { const r = await send('Page.captureScreenshot',
         await fill('Название свойства', name, scope); await select('Тип значения', type, scope);
         if (i === 2) await fill('Единица измерения', 'об/мин', scope);
         if (i === 3) { await fill('Минимум', '-20', scope); await fill('Максимум', '120', scope); await fill('Единица измерения', '°C', scope); }
+        if (i === 4) { await fill('Варианты', 'normal\neco', scope); await insertRaw(' '); }
         if (i === 5) await fill('Максимальная длина', '64', scope);
     }
     await click('Добавить действие'); const actionScope = 'dialog .action-editor:last-of-type';
-    await fill('Название действия', 'Установить скорость', actionScope); await fill('Фразы действия', 'скорость', actionScope); await click('Добавить параметр', actionScope); await fill('Название свойства', 'Скорость', actionScope); await click('Добавить результат', actionScope); await select('Свойство', 'Скорость', actionScope); await select('Источник значения', 'Параметр команды', actionScope); await stage(); await review(); await apply();
+    await fill('Название действия', 'Установить скорость', actionScope); await fill('Фразы действия', 'скорость', actionScope); await insertRaw(' '); await click('Добавить параметр', actionScope); await fill('Название свойства', 'Скорость', actionScope); await click('Добавить результат', actionScope); await select('Свойство', 'Скорость', actionScope); await select('Источник значения', 'Параметр команды', actionScope); await stage(); await review(); await apply();
     const typed = (await api('/api/config')).configuration.devices.find(d => d.name === 'Лабораторный стенд'); assert.deepEqual(typed.state.map(s => s.type), ['boolean', 'integer', 'number', 'enum', 'string']);
     console.log('E: unfinished imported B blocks full review; scoped probe A still works');
     await route('advanced'); const beforeImport = await api('/api/config'); const invalid = structuredClone(beforeImport.configuration); invalid.connections.push({ id: 'connection_unfinished', name: 'Незавершённое B', type: 'http', enabled: true, timeout_ms: 2000, http: { base_url: '' } });
-    await fill('Документ кандидата', JSON.stringify(invalid)); await click('Проверить импорт и добавить в план'); await until(() => js('!!document.querySelector("main section [role=alert]")'), 'inline import validation');
+    await fill('Документ кандидата', JSON.stringify(invalid)); await click('Проверить импорт и добавить в план'); await until(() => js('!!document.querySelector("main section [role=alert]")'), 'inline import validation'); assert.equal(await js('document.querySelectorAll("main .task-errors .text-button").length'), 0, 'no dead navigation for unaddressable imported JSON error');
     await route('connections'); await click('Редактировать общее подключение'); await click('HTTP / REST →'); await click('Проверить доступность'); await until(async () => (await text()).includes('TCP-соединение установлено'), 'probe A despite B'); await click('Отмена');
-    await click('Сохранить и применить', 'main .manual-toolbar'); await until(async () => (await text()).includes('Непроверенный импорт блокирует'), 'unfinished import blocks review'); assert.equal(await js('[...document.querySelectorAll("button")].some(b => b.textContent.trim() === "Подтвердить применение" && !b.disabled)'), false); await click('Назад к плану'); assert.equal((await api('/api/config')).hash, beforeImport.hash);
+    await click('Сохранить и применить', 'main .manual-toolbar'); await until(async () => (await text()).includes('Непроверенный импорт блокирует'), 'unfinished import blocks review'); assert.equal(await js('[...document.querySelectorAll("button")].some(b => b.textContent.trim() === "Подтвердить применение" && !b.disabled)'), false); await click('Перейти к полю или сущности'); await until(() => js('location.hash === "#/advanced" && !document.querySelector("dialog[open]")'), 'blocking import navigation'); assert.equal((await api('/api/config')).hash, beforeImport.hash);
     await route('advanced'); assert.match(await js('document.querySelector("main textarea").value'), /connection_unfinished/); await click('Отбросить импорт');
     const imported = structuredClone(beforeImport.configuration); imported.system.name = 'Ручной импорт стенда'; await fill('Документ кандидата', JSON.stringify(imported)); await click('Проверить импорт и добавить в план'); await until(async () => (await text()).includes('Кандидат принят в план'), 'import candidate'); assert.equal((await api('/api/config')).hash, beforeImport.hash); await review(); await apply();
     await route('advanced'); await click('Экспорт сохранённой конфигурации'); await click('Экспорт локального плана');

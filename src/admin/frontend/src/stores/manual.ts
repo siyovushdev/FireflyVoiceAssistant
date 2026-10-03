@@ -87,7 +87,7 @@ export function createManualStore(api = adminRequest, read = readApi, refresh = 
         });
     }
     async function prepare() {
-        showReview.value = true;
+        showReview.value = true; outcome.value = '';
         await run(async () => {
             if (task.value) throw Error('Завершите локальную задачу перед общим review.');
             if (voiceBusy.value) throw Error('Завершите запись и распознавание перед review.');

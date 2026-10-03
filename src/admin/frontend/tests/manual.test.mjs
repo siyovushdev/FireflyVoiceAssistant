@@ -149,3 +149,45 @@ test('backend zone errors have human presentation without changing technical det
     const unrelated = { ...issue, message: 'Duplicate alias' };
     assert.equal(issueMessage(unrelated), 'Duplicate alias');
 });
+
+test('line editing preserves spaces/newlines until explicit blur normalization', async () => {
+    const { rawLines, lines } = await import('../.test-build/adapters/editing.js');
+    let editing = rawLines('в '); assert.equal(editing.join('\n'), 'в ');
+    editing = rawLines(editing.join('\n') + 'цехе\n\nна складе ');
+    assert.equal(editing.join('\n'), 'в цехе\n\nна складе ');
+    assert.deepEqual(lines(editing.join('\n')), ['в цехе', 'на складе']);
+    assert.deepEqual(lines('eco mode \n normal\n normal '), ['eco mode', 'normal']);
+});
+
+test('wizard projection includes new and Observe-only consumers and removes detached consumers without writes', async () => {
+    const { projectConnectivity, consumers } = await import('../.test-build/adapters/editing.js');
+    const config = clone(fixture), before = clone(config), device = config.devices[0];
+    const connection = { id: 'connection_new', name: 'Контроллер', enabled: true, type: 'http', http: { base_url: 'http://127.0.0.1:8765' } };
+    const mapping = { target_id: device.id, action_id: 'action_on', connection_id: connection.id, executor: 'http', http: { method: 'POST', path: '/relay/1', body: { on: true } } };
+    let projected = projectConnectivity(config, connection, device.id, [mapping]);
+    assert.deepEqual(consumers(projected, connection.id), [device.name]); assert.deepEqual(config, before);
+    projected = projectConnectivity(projected, connection, device.id, []);
+    assert.deepEqual(consumers(projected, connection.id), []);
+    projected = projectConnectivity(projected, connection, device.id, [], { target_id: device.id, connection_id: connection.id, fields: { on: 'power' }, http: { method: 'GET', path: '/relay/1' } });
+    assert.deepEqual(consumers(projected, connection.id), [device.name]);
+});
+
+test('Simple review shows HTTP contract without internals; exact data and technical-only changes remain reviewable', () => {
+    const before = clone(fixture), after = clone(fixture);
+    after.connections = [{ id: 'connection_new', name: 'Контроллер', enabled: true, type: 'http', timeout_ms: 2000, http: { base_url: 'http://127.0.0.1:8765' } }];
+    after.bindings = [{ target_id: 'device_fan', action_id: 'action_on', connection_id: 'connection_new', executor: 'http', http: { method: 'POST', path: '/relay/1', body: { on: true }, timeout_ms: 0, content_type: 'application/json', expected_status: 200 } }];
+    after.observations = [{ target_id: 'device_fan', connection_id: 'connection_new', executor: 'http', http: { method: 'GET', path: '/relay/1', timeout_ms: 0 }, fields: { on: 'power' } }];
+    const changes = readableDiff(before, after), simple = changes.map(c => c.afterText).join('\n');
+    assert.match(simple, /POST http:\/\/127.0.0.1:8765\/relay\/1/); assert.match(simple, /on = Да/); assert.match(simple, /on →/);
+    assert.doesNotMatch(simple, /executor|timeout|Timeout|Content-Type|application\/json|connection_new|device_fan/);
+    assert.equal(changes.find(c => c.title.startsWith('Настройка действия')).after.http.timeout_ms, 0);
+    const technical = clone(after); technical.connections[0].timeout_ms = 3000;
+    const diff = readableDiff(after, technical);
+    assert.equal(diff.length, 1); assert.match(diff[0].afterText, /Изменены технические параметры/);
+});
+
+test('opening final review clears obsolete task-staged status while preserving pending changes', async () => {
+    const h = harness(); await h.store.begin('system'); h.store.task.value.buffer.system.name = 'Склад'; await h.store.stage();
+    assert.match(h.store.outcome.value, /добавлены в план/);
+    await h.store.prepare(); assert.equal(h.store.outcome.value, ''); assert.equal(h.store.review.value.candidate.system.name, 'Склад');
+});

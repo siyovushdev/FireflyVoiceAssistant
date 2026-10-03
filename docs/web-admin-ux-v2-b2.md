@@ -76,6 +76,21 @@ Legacy absolute URL mappings открываются и сохраняются б
 
 Regression: unit/state tests проверяют «Цех», «Склад», «Лабораторный стенд», пустые/whitespace speech, group constraints, отсутствие validate requests до готовности, сохранение вводимых значений в candidate и технических backend details. Production Chromium через видимые controls проверяет видимые примеры отдельно от пустых значений, русские inline errors/focus, отсутствие отправки incomplete candidate, сохранение имени и настоящий speech payload после ввода. Дополнительный снимок: [required speech error](../build/b2-acceptance/zone-required-speech.png).
 
+## Исправления последнего review PR #1
+
+По [review владельца от 2026-10-03](https://github.com/siyovushdev/FireflyVoiceAssistant/pull/1#pullrequestreview-5401207412) закрываются все шесть замечаний:
+
+1. **Пробелы при наборе списков.** Общий `LineListInput` сохраняет raw строки, конечные пробелы и пустые строки во время ввода. Trim/удаление пустых строк/дубликатов выполняются при blur — после завершения редактирования поля. Это применяется к Zone mentions/locations, Device aliases, Action aliases и enum values. Незавершённый текст остаётся внутри TaskBuffer; кнопка завершения задачи сначала завершает редактирование поля, затем запускает строгую проверку.
+2. **Переход к ошибке.** `TaskErrors` сам фокусирует и прокручивает адресуемое поле текущей формы, раскрывая содержащие его details. Backend path с индексом элемента списка (например `/speech/mentions/0`) адресует textarea всего списка. Для ошибки уровня сущности доступен переход в её редактор из общего review; `/import` открывает Advanced import. Кнопка отсутствует, если нет адресуемого поля или безопасного перехода. Незавершённая текущая задача автоматически не отменяется.
+3. **Порт endpoint.** Подсказка показывает оба примера: `http://192.168.68.120` (порт 80) и `http://192.168.68.120:8765` (явный другой порт). Никаких изменений URL validation.
+4. **Новый JSON key.** Поле начинается пустым, пример `on` находится отдельно. Рядом с недоступной кнопкой показана причина: пустое имя, существующий key либо GET без тела. После добавления поле очищается. Реальный preset `on: true/false` существующего power mapping сохранён. Остальные примеры и реальные presets проверены: повторения этой пары «default key уже существует → необъяснимый disabled» не обнаружены.
+5. **Consumers wizard.** Step 5 и сборка candidate используют одну чистую проекцию pending Connection/mappings/Observe. Новый mapped device и Observe-only consumer видны до принятия задачи; удалённые связи не оставляют ложных consumers. Проекция не мутирует общий candidate.
+6. **Simple review.** Подключения и mappings показываются как имя/endpoint, method/path, typed values, параметр запроса, Observe field → свойство и затронутые устройства. Executor, inherited timeout `0`, Content-Type, headers, IDs и точные структуры остаются в Advanced. Изменение только технического параметра не исчезает: review явно сообщает о нём и направляет в расширенный режим. Предупреждение о возможном сбросе evidence переведено в пользовательские термины. При открытии review очищается устаревшее сообщение «Изменения добавлены в план»; результаты Save/Apply и предупреждение о явном подтверждении сохранены.
+
+Unit/state regression покрывает raw/normalized списки, pending/Observe-only consumers и их удаление, Simple contract/Advanced payload и technical-only diff, очистку старого outcome. Chromium вводит текст через `Input.insertText` с реальными пробелами и переводом строки; проверяет фокус по ссылке текущей ошибки и реальной backend ошибки ambiguous alias с индексом, переход к блокирующему импорту, отсутствие нерабочих links, обе подсказки порта, JSON key reasons, pending consumer, Simple/Advanced review и прежние hardware counts. Все сценарии работают через production bundle/C++ server и временные stores.
+
+B3 AI-first conversation и Contextual AI Assist остаются требованиями ниже; AI calls не добавлены. Owner acceptance всё ещё открыта, PR остаётся Draft.
+
 ## Remaining B3: Contextual AI Assist inside manual editors
 
 B3 должен сохранить **два равноправных AI-assisted способа** настройки:
@@ -186,25 +201,25 @@ Failure fixture ограничена test-only `ManualWorker.cpp`: marker вкл
 
 В `build/v2-acceptance/` остаются отдельные B1 artifacts. Browser network interception отвергает внешние requests.
 
-Результаты окончательной сборки после manual-acceptance polish:
+Результаты окончательной сборки после исправления всех шести замечаний review PR #1:
 
 | Проверка | Результат |
 | --- | --- |
 | TypeScript / vue-tsc | PASS |
-| Frontend unit/state после polish | 20/20 PASS |
+| Frontend unit/state после review | 24/24 PASS |
 | Vite + offline artifact check | PASS; 4 объявленных локальных файла, hashed JS/CSS |
 | CMake configure / build `-j4` | PASS |
-| Полный CTest | **70/70 PASS**, 226.56 s |
-| B1 `AdminV2Chromium` внутри полного CTest | PASS, 62.28 s; реальный Stale TTL |
-| B2 `AdminManualChromium` внутри полного CTest | PASS, 29.28 s |
-| Отдельный focused V2/API run | **4/4 PASS**, 97.15 s; B1 Chromium 63.36 s, guarded 0.09 s, API 4.44 s, B2 Chromium 29.24 s |
+| Полный CTest | **70/70 PASS**, 230.33 s |
+| B1 `AdminV2Chromium` внутри полного CTest | PASS, 63.30 s; реальный Stale TTL |
+| B2 `AdminManualChromium` внутри полного CTest | PASS, 32.28 s |
+| Отдельный focused V2/API run | **4/4 PASS**, 99.90 s; B1 Chromium 63.30 s, guarded 0.08 s, API 4.25 s, B2 Chromium 32.26 s |
 | `git diff --check` + whitespace новых файлов | PASS |
 
 API contract suite содержит 3 integration-теста; CTest регистрирует их как один `AdminManualApi`. Оба Chromium suites зарегистрированы и фактически исполнялись через production static dist и C++ HttpServer; Chromium не заменён mock DOM.
 
 Промежуточные отказы разобраны: гонка ожидания reload в B1 harness исправлена, пересечение пересборки test worker с запущенным CTest устранено последовательным запуском. Числа выше относятся к полностью завершённому запуску после финальной сборки.
 
-После polish все проверки повторены последовательно: frontend → C++ bundle build → focused Chromium/API → `cmake --build build -j4` → полный CTest. Логи: [frontend](../build/b2-polish-frontend.log), [focused](../build/b2-polish-focused.log), [финальная сборка](../build/b2-polish-build-final.log), [полный CTest](../build/b2-polish-ctest.log). Ручная owner acceptance, включая повторное создание зоны через `/v2/`, остаётся обязательной до принятия milestone.
+После review проверки повторены последовательно: frontend → `cmake --build build -j4` с новым production bundle → focused Chromium/API → полный CTest. Логи: [frontend](../build/b2-review-frontend.log), [focused](../build/b2-review-focused.log), [сборка](../build/b2-review-build.log), [полный CTest](../build/b2-review-ctest.log). Ручная owner acceptance, включая повторное создание зоны через `/v2/`, остаётся обязательной до принятия milestone.
 
 ## Доступ и продолжение
 
@@ -222,9 +237,9 @@ B3 остаются AI-first conversation, semantic→connectivity coordinator, 
 
 ## Изменённые и новые файлы
 
-Git status до публикации B2: **24 изменённых tracked файла + 25 новых файлов**. В рабочем дереве также остаются исходные пользовательские изменения трёх `user-store/*.json` и один untracked backup; они не относятся к B2 и не затрагивались. Staging выполняется только по явному списку файлов B2, без `user-store`, build, dist, node_modules и local artifacts.
+Состав B2 относительно B1: **24 изменённых файла + 26 новых файлов**. В рабочем дереве также остаются исходные пользовательские изменения трёх `user-store/*.json` и один untracked backup; они не относятся к B2 и не затрагивались. Staging выполняется только по явному списку файлов B2, без `user-store`, build, dist, node_modules и local artifacts.
 
-Полный список B2 (49 файлов), без пользовательского `user-store` и build artifacts:
+Полный список B2 (50 файлов), без пользовательского `user-store` и build artifacts:
 
 - `docs/web-admin-ux-v2-b2.md`
 - `include/firefly/admin/RuntimeGeneration.h`
@@ -250,6 +265,7 @@ Git status до публикации B2: **24 изменённых tracked фа�
 - `src/admin/frontend/src/components/PropertyEvidence.vue`
 - `src/admin/frontend/src/components/TaskPanel.vue`
 - `src/admin/frontend/src/components/forms/FieldSchema.vue`
+- `src/admin/frontend/src/components/forms/LineListInput.vue`
 - `src/admin/frontend/src/components/forms/ScalarInput.vue`
 - `src/admin/frontend/src/components/forms/TaskErrors.vue`
 - `src/admin/frontend/src/composables/useRefresh.ts`

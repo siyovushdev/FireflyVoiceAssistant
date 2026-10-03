@@ -1,4 +1,4 @@
-import type { ActionDto, ConfigurationDto, DeviceDto, FieldDto, Scalar } from '../types/wire.js';
+import type { ActionDto, ConfigurationDto, DeviceDto, FieldDto, Scalar, ConnectionDto, BindingDto } from '../types/wire.js';
 export type Mutable<T> = T extends object ? { -readonly [K in keyof T]: Mutable<T[K]> } : T;
 export type Draft = Mutable<ConfigurationDto>;
 export type Field = Mutable<FieldDto>;
@@ -6,6 +6,7 @@ export type Device = Mutable<DeviceDto>;
 export type Action = Mutable<ActionDto>;
 export function clone<T>(value: T): Mutable<T> { return JSON.parse(JSON.stringify(value)) as Mutable<T>; }
 export const lines = (value: string): string[] => [...new Set(value.split('\n').map(s => s.trim()).filter(Boolean))];
+export const rawLines = (value: string): string[] => value.split('\n');
 export function allocate(config: ConfigurationDto, prefix: string): string {
     const ids = new Set([config.system.id, ...config.rooms.map(x => x.id), ...config.devices.map(x => x.id), ...config.actions.map(x => x.id), ...(config.connections ?? []).map(x => x.id), ...(config.retired_ids ?? [])]);
     let n = 1; while (ids.has(`${prefix}_${n}`)) n++;
@@ -38,6 +39,36 @@ export function consumers(config: ConfigurationDto, connectionId: string): strin
     const ids = new Set([...config.bindings.filter(b => b.connection_id === connectionId).map(b => b.target_id), ...(config.observations ?? []).filter(o => o.connection_id === connectionId).map(o => o.target_id)]);
     return [...ids].map(id => config.devices.find(d => d.id === id)?.name ?? id);
 }
+export function projectConnectivity(config: ConfigurationDto, connection: ConnectionDto | null, targetId: string,
+    mappings: readonly BindingDto[], observation?: NonNullable<ConfigurationDto['observations']>[number]): Draft {
+    const next = clone(config);
+    if (connection) {
+        const index = (next.connections ??= []).findIndex(c => c.id === connection.id);
+        if (index < 0) next.connections.push(clone(connection)); else next.connections[index] = clone(connection);
+    }
+    if (targetId) {
+        next.bindings = [...next.bindings.filter(b => b.target_id !== targetId), ...clone(mappings)];
+        next.observations = (next.observations ?? []).filter(o => o.target_id !== targetId);
+        if (observation) next.observations.push(clone(observation));
+    }
+    return next;
+}
+function connectivitySummary(value: Record<string, unknown>, config: ConfigurationDto): string | null {
+    if (!value.http || typeof value.http !== 'object') return null;
+    const http = value.http as Record<string, unknown>;
+    if ('base_url' in http) return `${value.name} · ${http.base_url}${http.base_path ?? ''}${value.enabled === false ? ' · отключено' : ''}`;
+    const device = config.devices.find(d => d.id === value.target_id);
+    const connection = config.connections?.find(c => c.id === value.connection_id);
+    const action = config.actions.find(a => a.id === value.action_id);
+    const endpoint = http.url ?? `${connection?.http?.base_url ?? ''}${connection?.http?.base_path ?? ''}${http.path ?? ''}`;
+    const parts = [device?.name, action?.name, `${http.method} ${endpoint}`].filter(Boolean);
+    if (http.body && typeof http.body === 'object' && Object.keys(http.body).length)
+        parts.push('Значения: ' + Object.entries(http.body).map(([key, v]) => `${key} = ${typeof v === 'boolean' ? v ? 'Да' : 'Нет' : JSON.stringify(v)}`).join(', '));
+    if (http.argument) parts.push(`Параметр «${action?.parameters.find(p => p.id === http.argument)?.name ?? http.argument}» → поле ${http.argument}`);
+    if (value.fields && typeof value.fields === 'object') parts.push('Чтение: ' + Object.entries(value.fields)
+        .map(([key, field]) => `${key} → ${device?.state?.find(p => p.id === field)?.name ?? field}`).join(', '));
+    return parts.join(' · ');
+}
 export interface Change { title: string; before: unknown; after: unknown; beforeText: string; afterText: string; consumers: string[] }
 export function describeChange(value: unknown, config: ConfigurationDto, key = ''): string {
     if (value === undefined) return 'Отсутствует';
@@ -56,12 +87,19 @@ export function describeChange(value: unknown, config: ConfigurationDto, key = '
     if (typeof value === 'boolean') return value ? 'Да' : 'Нет';
     if (typeof value !== 'object') return String(value);
     if (Array.isArray(value)) return value.map(v => describeChange(v, config)).join('; ');
+    const connectivity = connectivitySummary(value as Record<string, unknown>, config);
+    if (connectivity !== null) return connectivity;
     const labels: Record<string, string> = { name: 'Название', description: 'Описание', speech: 'Речь', mentions: 'Обращения', locations: 'Местоположение в команде', metadata: 'Сведения', parent_id: 'Родительская зона', container: 'Зона-группа', room_id: 'Зона', action_ids: 'Действия', spoken_aliases: 'Обращения', speech_aliases: 'Фразы действия', state: 'Свойства', assignments: 'Результаты', parameters: 'Параметры', field: 'Свойство', value: 'Значение', argument: 'Параметр', type: 'Тип', required: 'Обязательно', unit: 'Единица', initial: 'Начальное виртуальное значение', minimum: 'Минимум', maximum: 'Максимум', min_length: 'Минимальная длина', max_length: 'Максимальная длина', values: 'Варианты', connection_id: 'Подключение', target_id: 'Устройство', action_id: 'Действие', http: 'HTTP', method: 'Метод', path: 'Путь', url: 'URL', base_url: 'Endpoint', base_path: 'Префикс', body: 'Точный JSON', fields: 'Поля чтения', timeout_ms: 'Timeout, мс', expected_status: 'Ожидаемый status', content_type: 'Content-Type', headers: 'Headers', enabled: 'Активно' };
-    return Object.entries(value).filter(([k, v]) => !['id', 'operation', 'origin', 'kind'].includes(k) && v !== '' && !(Array.isArray(v) && !v.length)).map(([k, v]) => `${labels[k] ?? k}: ${describeChange(v, config, k)}`).join('; ');
+    return Object.entries(value).filter(([k, v]) => !['id', 'operation', 'origin', 'kind', 'executor', 'timeout_ms', 'content_type', 'headers', 'expected_status'].includes(k) && v !== '' && !(Array.isArray(v) && !v.length)).map(([k, v]) => `${labels[k] ?? k}: ${describeChange(v, config, k)}`).join('; ');
 }
 export function readableDiff(before: ConfigurationDto, after: ConfigurationDto): Change[] {
     const changes: Change[] = [];
-    const add = (title: string, a: unknown, b: unknown, affected: string[] = []) => { if (JSON.stringify(a) !== JSON.stringify(b)) changes.push({ title, before: a, after: b, beforeText: describeChange(a, before), afterText: describeChange(b, after), consumers: affected }); };
+    const add = (title: string, a: unknown, b: unknown, affected: string[] = []) => {
+        if (JSON.stringify(a) === JSON.stringify(b)) return;
+        const beforeText = describeChange(a, before), afterText = describeChange(b, after);
+        changes.push({ title, before: a, after: b, beforeText, afterText: afterText === beforeText
+            ? afterText + ' · Изменены технические параметры; подробности в расширенном режиме.' : afterText, consumers: affected });
+    };
     add('Система', before.system, after.system);
     for (const [key, label] of [['rooms', 'Зона'], ['devices', 'Устройство'], ['actions', 'Действие'], ['connections', 'Подключение']] as const) {
         const previous = before[key] ?? [], next = after[key] ?? [];
