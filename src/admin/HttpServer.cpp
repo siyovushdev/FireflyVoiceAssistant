@@ -1,4 +1,5 @@
 #include "HttpServer.h"
+#include "AdminV2Assets.h"
 #include "Json.h"
 #include <arpa/inet.h>
 #include <atomic>
@@ -135,6 +136,9 @@ HttpServer::HttpServer(Api& api, const std::string& bindAddress, unsigned short 
         if (!stream) throw std::runtime_error("Admin static assets unavailable");
         impl_->assets[file.first == "index.html" ? "/" : "/" + file.first] = {200, file.second, {std::istreambuf_iterator<char>(stream), {}}};
     }
+    // Generated, verified allowlist. B1 keeps vanilla at / and V2 at /v2/.
+    // Requests never translate their URL into a filesystem path.
+    addV2Assets(impl_->assets);
     sockaddr_in address{}; address.sin_family = AF_INET; address.sin_port = htons(port);
     if (::inet_pton(AF_INET, bindAddress.c_str(), &address.sin_addr) != 1) throw std::invalid_argument("Admin bind must be an explicit IPv4 address");
     impl_->listener.fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);

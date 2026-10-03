@@ -1,0 +1,230 @@
+{
+    "actions": [
+        {
+            "id": "action_on",
+            "name": "Включить",
+            "operation": "mock.assign.v1",
+            "enabled": true,
+            "description": "Питание → Включено.",
+            "parameters": [],
+            "speech_aliases": [
+                "включи",
+                "включить",
+                "включите"
+            ],
+            "assignments": [
+                {
+                    "field": "power",
+                    "value": true
+                }
+            ]
+        },
+        {
+            "id": "action_off",
+            "name": "Выключить",
+            "operation": "mock.assign.v1",
+            "enabled": true,
+            "description": "Питание → Выключено.",
+            "parameters": [],
+            "speech_aliases": [
+                "выключи",
+                "выключить",
+                "выключите"
+            ],
+            "assignments": [
+                {
+                    "field": "power",
+                    "value": false
+                }
+            ]
+        }
+    ],
+    "bindings": [],
+    "compatibility": null,
+    "devices": [
+        {
+            "id": "device_fan",
+            "name": "Вентилятор",
+            "kind": "generic",
+            "room_id": "zone_workshop",
+            "enabled": true,
+            "action_ids": [
+                "action_on",
+                "action_off"
+            ],
+            "spoken_aliases": [
+                "вентилятор"
+            ],
+            "state": [
+                {
+                    "id": "power",
+                    "name": "Питание",
+                    "type": "boolean",
+                    "required": true,
+                    "description": "",
+                    "unit": "",
+                    "initial": true
+                }
+            ],
+            "metadata": {
+                "type": "equipment",
+                "description": "Оборудование локальной системы."
+            }
+        },
+        {
+            "id": "device_lamp",
+            "name": "Сигнальная лампа",
+            "kind": "generic",
+            "room_id": "zone_warehouse",
+            "enabled": true,
+            "action_ids": [
+                "action_on",
+                "action_off"
+            ],
+            "spoken_aliases": [
+                "сигнальную лампу"
+            ],
+            "state": [
+                {
+                    "id": "power",
+                    "name": "Питание",
+                    "type": "boolean",
+                    "required": true,
+                    "description": "",
+                    "unit": "",
+                    "initial": true
+                }
+            ],
+            "metadata": {
+                "type": "equipment",
+                "description": "Оборудование локальной системы."
+            }
+        },
+        {
+            "id": "device_pump",
+            "name": "Насос",
+            "kind": "generic",
+            "room_id": "zone_lab",
+            "enabled": true,
+            "action_ids": [
+                "action_on",
+                "action_off"
+            ],
+            "spoken_aliases": [
+                "насос"
+            ],
+            "state": [
+                {
+                    "id": "power",
+                    "name": "Питание",
+                    "type": "boolean",
+                    "required": true,
+                    "description": "",
+                    "unit": "",
+                    "initial": true
+                }
+            ],
+            "metadata": {
+                "type": "equipment",
+                "description": "Оборудование локальной системы."
+            }
+        },
+        {
+            "id": "device_bench",
+            "name": "Измерительный блок",
+            "kind": "generic",
+            "room_id": null,
+            "enabled": true,
+            "action_ids": [
+                "action_on",
+                "action_off"
+            ],
+            "spoken_aliases": [
+                "измерительный блок"
+            ],
+            "state": [
+                {
+                    "id": "power",
+                    "name": "Питание",
+                    "type": "boolean",
+                    "required": true,
+                    "description": "",
+                    "unit": "",
+                    "initial": true
+                }
+            ],
+            "metadata": {
+                "type": "equipment",
+                "description": "Оборудование локальной системы."
+            }
+        }
+    ],
+    "retired_ids": [],
+    "revision": 1,
+    "rooms": [
+        {
+            "id": "zone_workshop",
+            "name": "Цех",
+            "speech": {
+                "mentions": [
+                    "цех"
+                ],
+                "locations": [
+                    "в цехе"
+                ]
+            },
+            "metadata": {
+                "type": "location",
+                "description": "",
+                "parent_id": null,
+                "container": false
+            }
+        },
+        {
+            "id": "zone_warehouse",
+            "name": "Склад",
+            "speech": {
+                "mentions": [
+                    "склад"
+                ],
+                "locations": [
+                    "на складе"
+                ]
+            },
+            "metadata": {
+                "type": "location",
+                "description": "",
+                "parent_id": null,
+                "container": false
+            }
+        },
+        {
+            "id": "zone_lab",
+            "name": "Лабораторный стенд",
+            "speech": {
+                "mentions": [
+                    "лабораторный стенд"
+                ],
+                "locations": [
+                    "на лабораторном стенде"
+                ]
+            },
+            "metadata": {
+                "type": "location",
+                "description": "",
+                "parent_id": null,
+                "container": false
+            }
+        }
+    ],
+    "safety": {
+        "restrictions": []
+    },
+    "schema_version": 2,
+    "system": {
+        "id": "system_edge",
+        "interpretation_profile": "legacy_m4_v1",
+        "locale": "ru-RU",
+        "name": "Производственный участок"
+    }
+}

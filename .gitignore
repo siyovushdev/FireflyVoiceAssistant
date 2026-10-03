@@ -1,3 +1,6 @@
 /build/
 
 __pycache__/
+/src/admin/frontend/node_modules/
+/src/admin/frontend/dist/
+/src/admin/frontend/.test-build/
