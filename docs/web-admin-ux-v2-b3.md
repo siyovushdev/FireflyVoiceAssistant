@@ -1,6 +1,6 @@
 # Web Admin UX V2 B3 — AI-first setup
 
-Статус: **deterministic gate PASS; physical C PASS без NPU; semantic no-zone retest PASS; Language Profile quality + live index gate PASS; real voice smoke owner pending; B3 не принят владельцем**. B2 принят владельцем; PR #1 переведён в Ready и merged в master как `0c8436b7b5d7e52e5b06b3a3e9f7e9a32e0858df`, с head `ff23b562cb24f96657b6fbbe34d916d6d2bd9c21`. Локальный master обновлён, работа B3 выполняется в `feature/web-admin-ux-v2-b3`. Источник дизайна: [утверждённый design](web-admin-ux-v2-design.md).
+Статус: **deterministic gate PASS; physical C PASS без NPU; semantic no-zone retest PASS; Language Profile quality + live index gate PASS; owner manual acceptance PASS; real browser voice/setup smoke PASS; B3 принят владельцем**. B2 принят владельцем; PR #1 переведён в Ready и merged в master как `0c8436b7b5d7e52e5b06b3a3e9f7e9a32e0858df`, с head `ff23b562cb24f96657b6fbbe34d916d6d2bd9c21`. Локальный master обновлён, работа B3 выполняется в `feature/web-admin-ux-v2-b3`. Источник дизайна: [утверждённый design](web-admin-ux-v2-design.md).
 
 ## Coordinator и proposal lifecycle
 
@@ -114,7 +114,7 @@ A: context 511 tokens, input 44, output 34/384, system prompt 2629 bytes. B: con
 
 Артефакты (локальные, не Git): `build/b3-live/run-20261003-1624.json`, `.log`, `-memory.jsonl`. В JSON есть полный explicit input и trace; private store `/tmp/firefly-b3-npu-Ot3URv`.
 
-**B3 live acceptance НЕ PASS.** Согласно owner constraint работа над inference/budget остановлена. Deadline, context, inventory и output budget не увеличены. На момент прогона требовалось отдельное решение владельца о дальнейшей диагностике/изменении Admin contract или профильных лимитов. На момент этого прогона оставшиеся live A–F и real voice не объявлялись завершёнными; последующее owner decision и диагностика приведены ниже. Draft PR фиксирует проверенную реализацию и этот blocker, а не готовность к merge.
+**Исторический результат раннего B3 live прогона: НЕ PASS (blocker закрыт ниже).** Согласно owner constraint работа над inference/budget остановлена. Deadline, context, inventory и output budget не увеличены. На момент прогона требовалось отдельное решение владельца о дальнейшей диагностике/изменении Admin contract или профильных лимитов. На момент этого прогона оставшиеся live A–F и real voice не объявлялись завершёнными; последующее owner decision и диагностика приведены ниже. Draft PR фиксирует проверенную реализацию и этот blocker, а не готовность к merge.
 
 ### Owner decision и отдельная staged-диагностика — 2026-10-04
 
@@ -142,13 +142,13 @@ C1 raw содержит ровно одну `set_http_connection` с задан�
 
 Во всех трёх прогонах `stored_unchanged=true`, hardware requests 0, inference retries 0. Production user-store не использовался и его существующие локальные изменения не затронуты. Минимальный MemAvailable: C1 2,054,528 KiB, C2 2,041,052 KiB, C3 2,068,268 KiB; memory admission не блокировал запросы. C3 является отдельным валидным diagnostic proposal, но не исправляет отказы C1/C2.
 
-**Исторический staged-Qwen implementation gate не пройден:** необходимы валидные proposals всех трёх stages, а не только отсутствие timeout. В этом диагностическом commit coordinator, UX, inference limits, prompt и profile не изменялись. Staged C и последующие D/E/F/no-zone/Цех/Склад/Лабораторный стенд не запускаются. Real browser microphone smoke остаётся owner manual pending после text gate. PR остаётся Draft, B4 не начат.
+**Исторический staged-Qwen implementation gate не пройден:** необходимы валидные proposals всех трёх stages, а не только отсутствие timeout. В этом диагностическом commit coordinator, UX, inference limits, prompt и profile не изменялись. Staged C и последующие D/E/F/no-zone/Цех/Склад/Лабораторный стенд не запускаются. В этом историческом прогоне real browser microphone smoke ещё не выполнялся; итоговая owner acceptance с voice/setup — PASS, см. ниже.
 
 Для этого documentation-only изменения frontend tests, полный CTest и Chromium повторно не запускались: результаты 29/29, 72/72 и Chromium PASS выше относятся к baseline 2026-10-03, а не к новой staged реализации. Проверяется `git diff --check`.
 
 ### Real voice — отдельно
 
-**Baseline 2026-10-03: owner microphone smoke pending, после прежнего text blocker не запускался.** Текущая реальная попытка описана ниже. Fake recognition и browser controls не являются доказательством реального microphone/STT. Требуется произнести «Добавь вентилятор в Цех», проверить transcript, явно Send, увидеть proposal без Apply.
+**Исторический baseline 2026-10-03: microphone smoke после прежнего text blocker не запускался.** Последующая диагностическая попытка и итоговый owner PASS описаны ниже. Fake recognition и browser controls не являются доказательством реального microphone/STT. Требуется произнести «Добавь вентилятор в Цех», проверить transcript, явно Send, увидеть proposal без Apply.
 
 ## Ограничения и B4
 
@@ -156,7 +156,7 @@ C1 raw содержит ровно одну `set_http_connection` с задан�
 - Для legacy Copilot full catalog остаётся в существующем context; inventory около 900 bytes/output 384 не увеличены. При измеренном блокере требуется отдельное решение владельца.
 - Setup conversation не durable chat; checkpoints/ownership обеспечивают безопасный reload, история беседы не production state.
 - B4 не начат: vanilla `/` остаётся fallback, `/v2/` не становится default. Cloud, auth, HTTPS, новые executors, STT/VAD/wake и production inference не изменяются.
-- Owner acceptance B3 отдельная; публикация PR не означает принятия.
+- Owner acceptance B3 завершена PASS; разрешён merge и последующий B4.
 
 URL: **http://localhost:8080/v2/#/setup** (после запуска binary с актуальным dist).
 
@@ -255,15 +255,15 @@ python3 benchmarks/web-admin-b3/Monitor.py --no-zone \
 
 Context tokens взяты из штатных RKLLM metrics; prompt bytes — длина UTF-8 system instruction из trace, без chat template. Dialogue prefill/generation: 0.645 / 4.697 s; profile: 0.487 / 7.373 s. Model load/bootstrap и enter/restore lifecycle учитываются отдельно от request deadline. Raw, decoded/validation results, per-call metrics и memory trace сохранены в `build/b3-live/no-zone-narrowing-20261004.{json,log}`, `-memory.jsonl`, `-run.log`.
 
-Run exit 0, полный lifecycle 149.73 s, minimum MemAvailable 1,942,880 KiB. Private store `/tmp/firefly-b3-npu-WoxUqz`: `stored_unchanged=true`, hardware requests **0**, final Apply отсутствует. После cancel тестовый engine завершён, private demo восстановлен с исходными аргументами. A/B/F, non-home и contextual cases в этом fix не перезапускались; их предыдущие результаты приведены выше. No-zone semantic blocker закрыт этим retest; реальный голос остаётся отдельным owner pending gate.
+Run exit 0, полный lifecycle 149.73 s, minimum MemAvailable 1,942,880 KiB. Private store `/tmp/firefly-b3-npu-WoxUqz`: `stored_unchanged=true`, hardware requests **0**, final Apply отсутствует. После cancel тестовый engine завершён, private demo восстановлен с исходными аргументами. A/B/F, non-home и contextual cases в этом fix не перезапускались; их предыдущие результаты приведены выше. No-zone semantic blocker закрыт этим retest; реальный voice/setup flow впоследствии принят владельцем, см. итоговую acceptance ниже.
 
 ### Real browser microphone smoke — 2026-10-04
 
 В отдельном native `firefly-demo` с private store, штатным AdminSetup Zipformer и настоящим Chromium (без fake media/device/STT) выполнена одна запись на 6 секунд. Browser enumerated `reSpeaker XVF3800 4-Mic Array Analog Stereo`, системный default source — этот же физический вход. Запись сделана после отдельной отметки готовности. Raw WAV на диск не записывался.
 
-Local STT вернул «ха»; ожидаемая фраза «Добавь вентилятор в Цех» не получена. Результат появился в editable transcript. **Transcript не исправлялся и не отправлялся**: `/api/admin/transcribe` — 1 запрос, `/api/setup/message` — 0, Apply — 0, executions — 0; stored hash до/после одинаковый. Это подтверждает реальный capture → native STT → editable transcript и отсутствие auto Send, но **не** полный speech → semantic proposal PASS. Owner manual smoke с произнесённой фразой остаётся pending; без успешной фразы explicit Send не имитируется.
+Local STT вернул «ха»; ожидаемая фраза «Добавь вентилятор в Цех» не получена. Результат появился в editable transcript. **Transcript не исправлялся и не отправлялся**: `/api/admin/transcribe` — 1 запрос, `/api/setup/message` — 0, Apply — 0, executions — 0; stored hash до/после одинаковый. Это подтверждает реальный capture → native STT → editable transcript и отсутствие auto Send, но **не** полный speech → semantic proposal PASS. Это исторический диагностический результат; последующий owner real browser voice/setup smoke завершён PASS, см. итоговую acceptance ниже.
 
-Артефакты: `build/b3-live/explicit-real-voice-20261004.{json,log,png}`, `-run.log`; diagnostic script `build/b3-live/RealVoiceSmoke.cjs` локальный, не Git. После завершения private demo `/tmp/firefly-b2-manual` восстановлен с исходными аргументами, включая прежний voice/wake режим; эти настройки не менялись. PR остаётся Draft, без merge; B4 не начат.
+Артефакты: `build/b3-live/explicit-real-voice-20261004.{json,log,png}`, `-run.log`; diagnostic script `build/b3-live/RealVoiceSmoke.cjs` локальный, не Git. После завершения private demo `/tmp/firefly-b2-manual` восстановлен с исходными аргументами, включая прежний voice/wake режим; эти настройки не менялись. Это исторический прогон до итоговой owner acceptance; итоговый статус B3 — PASS.
 
 ## Startup/reload ownership — owner acceptance fix
 
@@ -277,7 +277,7 @@ Regressions используют блокируемый model-entry seam: token 
 
 Проверки startup fix (2026-10-04): frontend typecheck **PASS**, unit/state/adapter **34/34 PASS**, production frontend build/offline assets и CMake build **PASS**. Focused Setup/B2/B3 Chromium/API + Setup model **7/7 PASS**, **105.44 s**. Полный CTest **72/72 PASS**, **269.67 s**. `git diff --check` **PASS**. Legacy Chromium readiness при reload теперь ждёт новый document, чтобы не прочитать globals уходящей страницы.
 
-Логи: `build/b3-entry-{typecheck,frontend-test,frontend-build,build,focused,ctest}.log`; Chromium artifacts — `build/b3-acceptance/`. Private demo `/tmp/firefly-b3-manual` восстановлен с исходными аргументами после проверок. PR #2 остаётся Draft; real voice smoke owner pending, без merge и B4.
+Логи: `build/b3-entry-{typecheck,frontend-test,frontend-build,build,focused,ctest}.log`; Chromium artifacts — `build/b3-acceptance/`. Private demo `/tmp/firefly-b3-manual` восстановлен с исходными аргументами после проверок. После этой проверки итоговая owner acceptance и real browser voice/setup smoke завершены PASS; PR #2 разрешён к merge.
 
 ## Changed files
 
@@ -333,7 +333,7 @@ Regressions: Цех / Кухня / Детская / Склад проходят 
 
 Проверки Language Profile fix (2026-10-04): frontend typecheck **PASS**, **34/34** frontend tests, production build/offline gate и CMake build **PASS**. Focused language/admin + B2/B3 Chromium/API: **14/14 PASS**, **125.04 s**. Логи: `build/b3-language-{typecheck,frontend-test,frontend-build,build,focused}.log`.
 
-Полный CTest для Language Profile fix: **72/72 PASS**, **271.13 s** (`build/b3-language-ctest.log`); `git diff --check` **PASS**. Реальный microphone smoke не перезапускался и остаётся **owner pending**; Voice/STT не менялись.
+Полный CTest для Language Profile fix: **72/72 PASS**, **271.13 s** (`build/b3-language-ctest.log`); `git diff --check` **PASS**. В этом code fix microphone smoke не перезапускался; последующий owner real browser voice/setup smoke — **PASS**; Voice/STT не менялись.
 
 Первый диагностический profile-only smoke (`build/b3-live/language-quality-20261004.*`) дал aliases/mentions `["цех"]`, `["кухня"]`, `["склад"]`, но locations `["в цехе"]`, `["в кухне"]`, `["в складе"]`. JSON validation прошла без retry (inference/API wall: 6.099/11.698 s, 6.697/13.095 s, 6.009/12.757 s); это **не считалось quality acceptance** для обычных команд «на кухне» / «на складе». Общее правило prompt дополнено выбором самого употребительного ответа на «где?»: нахождение внутри здания не повод заменять привычное «на» на «в». Использованы примеры других мест (остановка / кабинет / двор), без production mapping по названиям. Live harness теперь также проверяет ON/OFF corpus через LanguageIndex на фактических AI suggestions, без command inference, bindings или hardware.
 
@@ -352,3 +352,10 @@ Regressions: Цех / Кухня / Детская / Склад проходят 
 | Склад | `["склад"]` | `["на складе"]` | 2221 / 443 | 49 / 24 | 18 | 5.970 s | 12.328 s |
 
 Во всех трёх ответах `conflicts: []`; raw JSON совпадает с указанными массивами без лишних aliases, bare oblique mentions или альтернативных предлогов. После authoritative decode фактические suggestions использованы для отдельного in-memory fixture с ON/OFF Света: «Включи свет» / «Выключи свет» + соответствующая обычная location phrase — **6/6 ExactUnique**, без runtime Qwen и без execution. Детская покрыта unit + B3 Chromium, отдельного live inference для неё не запускалось. AI suggestions остаются editable/reviewed; это smoke результата модели, не новая автоматическая проверка русской морфологии и не автоматическое исправление ответа.
+
+
+## Final owner acceptance — 2026-10-04
+
+**Owner manual acceptance: PASS. Real browser voice/setup smoke: PASS.** [Exact owner acceptance](https://github.com/siyovushdev/FireflyVoiceAssistant/pull/2#issuecomment-5980447868) подтверждает ручную проверку реального V2 UI, включая итоговый voice/setup flow, и отсутствие оставшихся owner blockers. Предыдущая запись «ха» сохраняется как диагностическая история и не описывает итоговый gate. Новые timings или transcript этого owner run не выдумываются.
+
+Обновление acceptance затрагивает только документацию/PR metadata. Code не менялся; выполнен `git diff --check`, полный rerun не нужен. Владелец разрешил Ready/merge PR #2 в master и начало B4 после merge.
