@@ -1,6 +1,6 @@
 """Real RKLLM typed runtime smoke. Own ephemeral store; never touches the user's store.
 Usage: python3 TypedHttpSmoke.py DEMO MODEL REVIEW_CONFIG ARTIFACT_DIRECTORY
-DEMO is the absolute path to firefly-demo. REVIEW_CONFIG comes from TypedWebTests.
+DEMO is the absolute path to firefly-demo. REVIEW_CONFIG is an explicitly reviewed schema-v2 config (for example exported from Vue Advanced).
 """
 import concurrent.futures
 import hashlib

@@ -2,6 +2,7 @@
 import copy
 import http.client
 import json
+import re
 import select
 import socket
 import subprocess
@@ -90,7 +91,15 @@ class HttpTests(unittest.TestCase):
                 self.port=previous;process.terminate();process.wait(timeout=10);process.stdout.close()
 
     def test_protocol_static_and_errors(self):
-        for path,mime in [('/','text/html'),('/admin.js','text/javascript'),('/admin.css','text/css')]:
+        html = self.request('/')[1].decode()
+        self.assertIn('type="module"', html)
+        assets = re.findall(r'(?:src|href)="(/assets/[^\"]+)"', html)
+        self.assertTrue(assets)
+        for alias in ['/index.html', '/v2', '/v2/', '/v2/index.html']:
+            self.assertEqual(self.request(alias)[1].decode(), html)
+        for legacy in ['/admin.js', '/admin.css', '/admin-model.js', '/typed-editor.js', '/simple-editor.js', '/connection-editor.js']:
+            self.assertEqual(self.request(legacy)[0], 404)
+        for path,mime in [('/', 'text/html')] + [(asset, 'text/css' if asset.endswith('.css') else 'image/svg+xml' if asset.endswith('.svg') else 'text/javascript') for asset in assets]:
             status,body,headers=self.request(path);self.assertEqual(status,200);self.assertTrue(headers['Content-Type'].startswith(mime));self.assertGreater(len(body),100)
             self.assertIn("frame-ancestors 'none'",headers['Content-Security-Policy']);self.assertEqual(headers['Cache-Control'],'no-store')
         self.assertEqual(self.request('/../../etc/passwd')[0],404)

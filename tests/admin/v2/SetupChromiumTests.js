@@ -62,7 +62,7 @@ async function screenshot(name) { const r = await send('Page.captureScreenshot',
     };
     await send('Runtime.enable'); await send('Page.enable'); await send('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
     await send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
-    await send('Page.navigate', { url: url + '/v2/' }); await until(async () => (await text()).includes('Пустой стенд'), 'overview');
+    await send('Page.navigate', { url: url + '/' }); await until(async () => (await text()).includes('Пустой стенд'), 'overview');
 
     await route('setup');
     assert.equal(requests.filter(r => r.url.endsWith('/api/setup/start')).length, 0, 'opening setup never starts ownership');
@@ -81,7 +81,7 @@ async function screenshot(name) { const r = await send('Page.captureScreenshot',
     assert.equal(await js('JSON.parse(sessionStorage.getItem("firefly-v2-setup-owner")).token'),entryToken);
     assert.doesNotMatch(await text(), /другим браузером|принадлежит другому браузеру/);
     // A separate page without opener has independent sessionStorage.
-    const peer = await send('Target.createTarget',{url:url+'/v2/#/setup'});
+    const peer = await send('Target.createTarget',{url:url+'/#/setup'});
     const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
     const peerSocket = new WebSocket(targets.find(t=>t.id===peer.targetId).webSocketDebuggerUrl);
     await new Promise((resolve,reject)=>{peerSocket.onopen=resolve;peerSocket.onerror=reject;});

@@ -1,10 +1,12 @@
 # Web Admin UX V2 B3 — AI-first setup
 
+> Исторический отчёт milestone. Текущая доставка описана в [B4](web-admin-ux-v2-b4.md): Vue является основным UI на `http://localhost:8080/`; `/v2/` — alias того же bundle. Упоминания vanilla/opt-in ниже относятся к состоянию до B4.
+
 Статус: **deterministic gate PASS; physical C PASS без NPU; semantic no-zone retest PASS; Language Profile quality + live index gate PASS; owner manual acceptance PASS; real browser voice/setup smoke PASS; B3 принят владельцем**. B2 принят владельцем; PR #1 переведён в Ready и merged в master как `0c8436b7b5d7e52e5b06b3a3e9f7e9a32e0858df`, с head `ff23b562cb24f96657b6fbbe34d916d6d2bd9c21`. Локальный master обновлён, работа B3 выполняется в `feature/web-admin-ux-v2-b3`. Источник дизайна: [утверждённый design](web-admin-ux-v2-design.md).
 
 ## Coordinator и proposal lifecycle
 
-`/v2/#/setup` — первый пункт navigation. Empty Overview ведёт в AI setup. Открытие route читает status, но не вызывает Start, не останавливает рабочий runtime и не получает ownership. Только явное «Начать настройку» вызывает существующий setup lifecycle. Banner настройки виден на всех routes. Старый `/` сохранён.
+`/#/setup` — первый пункт navigation (до B4: `/v2/#/setup`). Empty Overview ведёт в AI setup. Открытие route читает status, но не вызывает Start, не останавливает рабочий runtime и не получает ownership. Только явное «Начать настройку» вызывает существующий setup lifecycle. Banner настройки виден на всех routes. Старый `/` сохранён.
 
 Одна беседа использует два внутренних пути:
 
@@ -155,10 +157,10 @@ C1 raw содержит ровно одну `set_http_connection` с задан�
 - Автоматический разбор connectivity facts ограничен power-only HTTP; typed/non-power, nested/unsupported contracts остаются ручными B2 workflows. Observe без nested JSONPath/coercion.
 - Для legacy Copilot full catalog остаётся в существующем context; inventory около 900 bytes/output 384 не увеличены. При измеренном блокере требуется отдельное решение владельца.
 - Setup conversation не durable chat; checkpoints/ownership обеспечивают безопасный reload, история беседы не production state.
-- B4 не начат: vanilla `/` остаётся fallback, `/v2/` не становится default. Cloud, auth, HTTPS, новые executors, STT/VAD/wake и production inference не изменяются.
+- На момент завершения B3 B4 ещё не начат: vanilla `/` оставался fallback. Последующее переключение default описано в B4. Cloud, auth, HTTPS, новые executors, STT/VAD/wake и production inference не изменяются.
 - Owner acceptance B3 завершена PASS; разрешён merge и последующий B4.
 
-URL: **http://localhost:8080/v2/#/setup** (после запуска binary с актуальным dist).
+URL: **http://localhost:8080/#/setup** (после запуска binary с актуальным dist).
 
 ## Deterministic physical lane — owner decision 2026-10-04
 

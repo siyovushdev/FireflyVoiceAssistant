@@ -68,7 +68,7 @@ def package(directory, output):
              'namespace firefly::admin {',
              'inline void addV2Assets(std::map<std::string, HttpReply>& assets) {']
     for name, body in sorted(files.items()):
-        url = '/v2/' if name == 'index.html' else '/v2/' + name
+        url = '/' if name == 'index.html' else '/' + name
         # Fixed-width octal string escapes support every byte, including NUL.
         encoded = [''.join('\\%03o' % byte for byte in body[start:start + 64])
                    for start in range(0, len(body), 64)] or ['']

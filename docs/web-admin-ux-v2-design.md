@@ -1,12 +1,12 @@
 # Web Admin UX V2 + AI-first setup
 
-Статус: **design proposal, без реализации**. Дата: 2026-10-03. Изученная рабочая точка: `bc52022` — «Добавить Device Connectivity и HTTP bindings».
+Статус: **исторический утверждённый design**. Реализация B1–B3 завершена; default migration — [B4](web-admin-ux-v2-b4.md). Дата: 2026-10-03. Изученная рабочая точка: `bc52022` — «Добавить Device Connectivity и HTTP bindings».
 
 Firefly — универсальная локальная embedded/edge automation platform. Новый Web Admin строится вокруг задачи пользователя: описать систему, проверить предложенные устройства и возможности, настроить связь с оборудованием, явно применить изменения. AI и голос — основной вход в настройку; визуальный интерфейс показывает результат и обеспечивает ручную работу.
 
 Предлагается новый frontend на Vue 3 + TypeScript + Vite поверх существующего C++ backend. ConfigStore, immutable validated catalog, Draft, validation, diff, CAS, Apply, runtime generations, LanguageIndex, SafetyGate, Bindings, Executor и DeviceStateStore сохраняются. Это не переименование старых форм и не backend rewrite.
 
-В этом документе «предлагается» означает работу будущего milestone. Ни новые endpoints, ни Vue project, ни изменения runtime сейчас не реализованы. Исторические результаты тестов отделены от критериев будущей приёмки.
+В этом документе «предлагается» относится к состоянию design на 2026-10-03; актуальная реализация и delivery описаны в отчётах B1–B4. Исторические результаты тестов отделены от критериев будущей приёмки.
 
 ## 1. Current-state analysis
 
@@ -14,11 +14,11 @@ Firefly — универсальная локальная embedded/edge automati
 
 | Источник | Существенное для V2 |
 | --- | --- |
-| [index.html](../src/admin/web/index.html), [admin.css](../src/admin/web/admin.css) | Одна длинная страница с якорями, карточками-формами и несколькими dialog; Simple/Advanced переключается CSS. Универсальные названия уже частично введены. |
-| [admin.js](../src/admin/web/admin.js) | Глобальные draft/stored/expected/active, ручное построение DOM, общий `run()` блокирует почти все controls; ошибки копируются в общую панель и открытые dialog. Здесь же setup lifecycle, WAV capture, API, review, apply, состояния. |
-| [admin-model.js](../src/admin/web/admin-model.js) | Полезные чистые функции: отображение diff/errors/state, числовые ограничения, completeness bindings, voice state machine. Их поведение и тесты можно перенести в TS; глобальные зависимости переносить не нужно. |
-| [simple-editor.js](../src/admin/web/simple-editor.js), [typed-editor.js](../src/admin/web/typed-editor.js) | Уже есть человекочитаемые описания effects и типизированные boolean/integer/number/string/enum. Но карточка совмещает просмотр, редактирование схемы и настройку исполнения. |
-| [connection-editor.js](../src/admin/web/connection-editor.js) | Редактирует общий draft немедленно; создание Connection вставляет `Новое подключение` с пустым URL. ON/OFF и Observe раскрываются в том же длинном dialog. |
+| [index.html](https://github.com/siyovushdev/FireflyVoiceAssistant/blob/a1fd5be64261ceb14abfaab4b49f703e135c683e/src/admin/web/index.html), [admin.css](https://github.com/siyovushdev/FireflyVoiceAssistant/blob/a1fd5be64261ceb14abfaab4b49f703e135c683e/src/admin/web/admin.css) | Одна длинная страница с якорями, карточками-формами и несколькими dialog; Simple/Advanced переключается CSS. Универсальные названия уже частично введены. |
+| [admin.js](https://github.com/siyovushdev/FireflyVoiceAssistant/blob/a1fd5be64261ceb14abfaab4b49f703e135c683e/src/admin/web/admin.js) | Глобальные draft/stored/expected/active, ручное построение DOM, общий `run()` блокирует почти все controls; ошибки копируются в общую панель и открытые dialog. Здесь же setup lifecycle, WAV capture, API, review, apply, состояния. |
+| [admin-model.js](https://github.com/siyovushdev/FireflyVoiceAssistant/blob/a1fd5be64261ceb14abfaab4b49f703e135c683e/src/admin/web/admin-model.js) | Полезные чистые функции: отображение diff/errors/state, числовые ограничения, completeness bindings, voice state machine. Их поведение и тесты можно перенести в TS; глобальные зависимости переносить не нужно. |
+| [simple-editor.js](https://github.com/siyovushdev/FireflyVoiceAssistant/blob/a1fd5be64261ceb14abfaab4b49f703e135c683e/src/admin/web/simple-editor.js), [typed-editor.js](https://github.com/siyovushdev/FireflyVoiceAssistant/blob/a1fd5be64261ceb14abfaab4b49f703e135c683e/src/admin/web/typed-editor.js) | Уже есть человекочитаемые описания effects и типизированные boolean/integer/number/string/enum. Но карточка совмещает просмотр, редактирование схемы и настройку исполнения. |
+| [connection-editor.js](https://github.com/siyovushdev/FireflyVoiceAssistant/blob/a1fd5be64261ceb14abfaab4b49f703e135c683e/src/admin/web/connection-editor.js) | Редактирует общий draft немедленно; создание Connection вставляет `Новое подключение` с пустым URL. ON/OFF и Observe раскрываются в том же длинном dialog. |
 | [Api.cpp](../src/admin/Api.cpp), [AdminDraft.cpp](../src/admin/AdminDraft.cpp) | Уже существуют validation, diff, CAS save/apply, restore/import candidates, state/poll и strict error envelopes. Diff connectivity сейчас агрегирует целые массивы. |
 | [AdminCopilot.cpp](../src/admin/AdminCopilot.cpp) | Structured semantic/connectivity operations, hash-bound proposal acceptance, отдельный запрет смешивать их в одном proposal. Acceptance меняет только возвращаемый candidate. |
 | [SetupSession.h](../src/admin/SetupSession.h), [DialogueOperations.h](../src/admin/DialogueOperations.h), [RuntimeWorker.cpp](../src/admin/RuntimeWorker.cpp) | Server-owned setup draft, owner token/version, resume, heartbeat, rollback; текущий dialogue decoder ограничен семантическими операциями. Это отдельная дорожка относительно полного Copilot. |
@@ -462,7 +462,7 @@ Release устанавливается как согласованный наб�
 
 ### 9.2. Обязательная UX-правка: isolated connection probe
 
-Предлагается **новый** `POST /api/connections/probe` с payload `{connection: <один Connection>}`. Старый `/connections/test` остаётся совместимым до удаления vanilla UI. Probe принимает отредактированный объект до Save, не требует полного configuration и не принимает URL из production voice command.
+Предлагается **новый** `POST /api/connections/probe` с payload `{connection: <один Connection>}`. Существующий `/api/connections/test` остаётся совместимым и после удаления vanilla UI: backend API сохраняется для диагностики и regression tests. Probe принимает отредактированный объект до Save, не требует полного configuration и не принимает URL из production voice command.
 
 Server contract:
 
@@ -521,12 +521,12 @@ Rollback — возврат предыдущего совместимого bina
 
 | Текущие тесты | Что переносится / сохраняется |
 | --- | --- |
-| [AdminModelTests.js](../tests/admin11/AdminModelTests.js), [SetupWebTests.js](../tests/admin/SetupWebTests.js) | Scalar limits/precision, error text, diff/state formatting, Unicode count, voice state/encoding |
-| [WebAdminTests.js](../tests/admin11/WebAdminTests.js), [TypedWebTests.js](../tests/admin11/TypedWebTests.js), [FinalUxWebTests.js](../tests/admin11/FinalUxWebTests.js), [OfflineWebTests.js](../tests/admin11/OfflineWebTests.js) | Forms, typed capabilities, validation and manual fallback; сверить актуальные fixtures/selectors, не переносить старый DOM контракт буквально |
-| [SetupTests.cpp](../tests/admin/SetupTests.cpp), [SetupWebBrowserTests.js](../tests/admin/SetupWebBrowserTests.js) | Ownership, version/CAS, duplicate request ID, partial-message rollback, recovery, cancellation, assistant pause/restore, запись tracks |
+| [AdminModelTests.js](https://github.com/siyovushdev/FireflyVoiceAssistant/blob/a1fd5be64261ceb14abfaab4b49f703e135c683e/tests/admin11/AdminModelTests.js), [SetupWebTests.js](https://github.com/siyovushdev/FireflyVoiceAssistant/blob/a1fd5be64261ceb14abfaab4b49f703e135c683e/tests/admin/SetupWebTests.js) | Scalar limits/precision, error text, diff/state formatting, Unicode count, voice state/encoding |
+| [WebAdminTests.js](https://github.com/siyovushdev/FireflyVoiceAssistant/blob/a1fd5be64261ceb14abfaab4b49f703e135c683e/tests/admin11/WebAdminTests.js), [TypedWebTests.js](https://github.com/siyovushdev/FireflyVoiceAssistant/blob/a1fd5be64261ceb14abfaab4b49f703e135c683e/tests/admin11/TypedWebTests.js), [FinalUxWebTests.js](https://github.com/siyovushdev/FireflyVoiceAssistant/blob/a1fd5be64261ceb14abfaab4b49f703e135c683e/tests/admin11/FinalUxWebTests.js), [OfflineWebTests.js](https://github.com/siyovushdev/FireflyVoiceAssistant/blob/a1fd5be64261ceb14abfaab4b49f703e135c683e/tests/admin11/OfflineWebTests.js) | Forms, typed capabilities, validation and manual fallback; сверить актуальные fixtures/selectors, не переносить старый DOM контракт буквально |
+| [SetupTests.cpp](../tests/admin/SetupTests.cpp), [SetupWebBrowserTests.js](https://github.com/siyovushdev/FireflyVoiceAssistant/blob/a1fd5be64261ceb14abfaab4b49f703e135c683e/tests/admin/SetupWebBrowserTests.js) | Ownership, version/CAS, duplicate request ID, partial-message rollback, recovery, cancellation, assistant pause/restore, запись tracks |
 | [AdminDraftTests.cpp](../tests/admin11/AdminDraftTests.cpp), [AdminCopilotTests.cpp](../tests/admin12/AdminCopilotTests.cpp), [AdminTranscribeTests.cpp](../tests/admin13/AdminTranscribeTests.cpp) | Strict structured decoding, forbidden operations, proposal fingerprint, transcription limits; independent of real NPU |
 | [ConnectionAdminTests.py](../tests/admin/ConnectionAdminTests.py), [ConnectivityConfigTests.cpp](../tests/execution/ConnectivityConfigTests.cpp) | Draft→Save→Apply isolation, validation, graph references, shared connections, compatibility |
-| [ConnectivityWebTests.js](../tests/admin/ConnectivityWebTests.js), [ConnectivityHttpTests.py](../tests/execution/ConnectivityHttpTests.py) | Реальный Chromium/C++ HTTP/mock: semantic setup, TCP probe без HTTP bytes, ON/OFF payload, Observe, Preview/Cancel/Apply, Predicted→Confirmed, stale mapping/restart/errors |
+| [ConnectivityWebTests.js](https://github.com/siyovushdev/FireflyVoiceAssistant/blob/a1fd5be64261ceb14abfaab4b49f703e135c683e/tests/admin/ConnectivityWebTests.js), [ConnectivityHttpTests.py](../tests/execution/ConnectivityHttpTests.py) | Реальный Chromium/C++ HTTP/mock: semantic setup, TCP probe без HTTP bytes, ON/OFF payload, Observe, Preview/Cancel/Apply, Predicted→Confirmed, stale mapping/restart/errors |
 | DeviceState/HardwareBinding/LanguageAdmin suites | Evidence lifecycle, transport failures, no HTTP after semantic rejection, unchanged SafetyGate/LanguageIndex |
 
 Исторический [Connectivity report](device-connectivity-binding-admin.md) фиксирует 65/65 CTest и Chromium acceptance на 2026-10-02. В этой design работе сборка, CTest, NPU и hardware smoke **не запускались**; это не новое подтверждение 65/65. Browser tests регистрируются условно при Node/Chromium/DISPLAY: зелёный core-only CTest без этих suites не считается UX acceptance.

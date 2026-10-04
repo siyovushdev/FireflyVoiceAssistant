@@ -9,7 +9,6 @@ import ZonesView from '../views/ZonesView.vue';
 import DevicesView from '../views/DevicesView.vue';
 import DeviceDetailView from '../views/DeviceDetailView.vue';
 import StatesView from '../views/StatesView.vue';
-import PlaceholderView from '../views/PlaceholderView.vue';
 
 export const navigation = [
     { path: '/setup', title: 'AI Настройка', number: 'AI' },
@@ -22,7 +21,7 @@ export const navigation = [
     { path: '/diagnostics', title: 'Диагностика', number: '08' },
 ];
 export const router = createRouter({
-    history: createWebHashHistory('/v2/'),
+    history: createWebHashHistory('/'),
     routes: [
         { path: '/', redirect: '/overview' },
         { path: '/setup', component: SetupView, meta: { title: 'AI Настройка' } },
@@ -35,7 +34,15 @@ export const router = createRouter({
         { path: '/advanced', component: AdvancedView, meta: { title: 'Дополнительно' } },
         { path: '/advanced/playground', component: PlaygroundView, meta: { title: 'Command Playground' } },
         { path: '/diagnostics', component: DiagnosticsView, meta: { title: 'Диагностика' } },
-        { path: '/:pathMatch(.*)*', component: PlaceholderView, meta: { title: 'Страница не найдена', missing: true } },
+        // Previous vanilla anchors remain safe bookmarks after upgrading.
+        { path: '/copilot-section', redirect: '/setup' },
+        { path: '/locations-section', redirect: '/zones' },
+        { path: '/devices-section', redirect: '/devices' },
+        { path: '/capabilities-section', redirect: '/advanced' },
+        { path: '/playground', redirect: '/advanced/playground' },
+        { path: '/states-section', redirect: '/states' },
+        { path: '/revisions-section', redirect: '/advanced' },
+        { path: '/:pathMatch(.*)*', redirect: '/overview' },
     ],
     scrollBehavior: () => ({ top: 0 }),
 });

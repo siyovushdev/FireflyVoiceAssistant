@@ -87,25 +87,28 @@ async function route(name) {
     const beforeState = await api('/api/devices/state');
     const beforeHistory = await api('/api/executions');
 
-    // Old UI and transport policies still apply. No API/static SPA fallback.
-    const vanilla = await fetch(url + '/');
-    assert.equal(vanilla.status, 200);
-    assert.match(await vanilla.text(), /admin\.js/);
-    const entry = await fetch(url + '/v2/');
+    // Root and compatibility entries serve one embedded bundle; no API SPA fallback.
+    const entry = await fetch(url + '/');
     assert.equal(entry.status, 200);
     assert.equal(entry.headers.get('cache-control'), 'no-store');
     assert.equal(entry.headers.get('x-content-type-options'), 'nosniff');
     assert.match(entry.headers.get('content-security-policy'), /script-src 'self'/);
     const html = await entry.text();
     assert.match(html, /type="module"/);
-    for (const [, asset] of html.matchAll(/(?:src|href)="(\/v2\/assets\/[^\"]+)"/g)) {
+    assert.doesNotMatch(html, /admin\.js|Открыть прежний интерфейс/);
+    for (const alias of ['/index.html', '/v2', '/v2/', '/v2/index.html']) {
+        const response = await fetch(url + alias);
+        assert.equal(response.status, 200);
+        assert.equal(await response.text(), html, 'One entry for ' + alias);
+    }
+    for (const [, asset] of html.matchAll(/(?:src|href)="(\/assets\/[^\"]+)"/g)) {
         const response = await fetch(url + asset);
         assert.equal(response.status, 200);
         assert.match(response.headers.get('content-type'), asset.endsWith('.css') ? /text\/css/ : asset.endsWith('.svg') ? /image\/svg\+xml/ : /text\/javascript/);
         assert.equal(response.headers.get('cache-control'), 'no-store');
     }
-    for (const endpoint of ['/v2/no-such-route', '/v2/assets/', '/v2/firefly-assets.json', '/api/no-such-route', '/v2/assets/not-declared.js']) assert.equal((await fetch(url + endpoint)).status, 404, endpoint);
-    assert.equal((await fetch(url + '/v2/?cache=1')).status, 400);
+    for (const endpoint of ['/missing', '/assets/', '/assets/not-declared.js', '/firefly-assets.json', '/v2/no-such-route', '/v2/assets/', '/v2/firefly-assets.json', '/api/no-such-route', '/v2/assets/not-declared.js', '/admin.js', '/admin-model.js', '/admin.css', '/typed-editor.js', '/simple-editor.js', '/connection-editor.js']) assert.equal((await fetch(url + endpoint)).status, 404, endpoint);
+    assert.equal((await fetch(url + '/?cache=1')).status, 400);
     assert.equal((await fetch(url + '/api/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status, 403);
     assert.equal((await fetch(url + '/api/config', { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Firefly-Admin': '1', Origin: 'http://other.invalid' }, body: '{}' })).status, 403);
 
@@ -134,9 +137,17 @@ async function route(name) {
     await send('Runtime.enable'); await send('Page.enable'); await send('Network.enable');
     await send('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
     await send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
-    await send('Page.navigate', { url: url + '/v2/' });
+    await send('Page.navigate', { url: url + '/' });
     await until(async () => (await text()).includes('Вентилятор'), 'V2 overview real catalog');
     assert.equal(await js('location.hash'), '#/overview');
+    // Old fragments are read-only navigation, including unknown bookmarks.
+    for (const [fragment, expected] of [['overview', 'overview'], ['copilot-section', 'setup'], ['locations-section', 'zones'], ['devices-section', 'devices'], ['capabilities-section', 'advanced'], ['playground', 'advanced/playground'], ['states-section', 'states'], ['revisions-section', 'advanced'], ['diagnostics', 'diagnostics'], ['/obsolete-bookmark', 'overview']]) {
+        await send('Page.navigate', { url: url + '/#' + fragment });
+        await until(() => js(`location.hash === '#/${expected}' && document.querySelector('main h1')?.innerText === document.title.split(' · ')[0]`), 'Old bookmark ' + fragment);
+    }
+    await send('Page.navigate', { url: url + '/v2/#/zones' });
+    await until(() => js(`location.hash === '#/zones' && document.querySelector('main')?.innerText.includes('Цех') && !document.querySelector('button.refresh').disabled`), 'V2 compatibility bookmark and loaded catalog');
+    await route('overview');
     assert.match(await text(), /сохранённые, но не применённые/);
     assert.match(await js('document.querySelector("header").innerText'), /Производственный участок/);
     assert.doesNotMatch(await text(), /Неактивное переименование/);
@@ -194,8 +205,8 @@ async function route(name) {
     const withoutAge = value => JSON.parse(JSON.stringify(value, (key, item) => key === 'stale' ? undefined : item));
     assert.deepEqual(withoutAge((await api('/api/devices/state')).devices), withoutAge(beforeState.devices), 'State evidence unchanged; only computed age advances');
     assert.deepEqual((await api('/api/executions')).executions, beforeHistory.executions, 'History unchanged');
-    fs.writeFileSync(path.join(artifactDir, 'acceptance.json'), JSON.stringify({ passed: true, url: url + '/v2/#/overview', browserRequests, hardwareRequests, knowledge, stored: saved.hash, active: active.hash }, null, 2));
-    console.log('PASS Admin V2 Chromium: C++ production dist, vanilla /, all hash routes/reload, real API, stored/active isolation, non-home/no-zone, all evidence states, 3 viewports, no mutations/external requests/hardware I/O');
+    fs.writeFileSync(path.join(artifactDir, 'acceptance.json'), JSON.stringify({ passed: true, url: url + '/#/overview', browserRequests, hardwareRequests, knowledge, stored: saved.hash, active: active.hash }, null, 2));
+    console.log('PASS Admin V2 Chromium: C++ production dist at /, single /v2 alias, legacy bookmarks, all hash routes/reload, real API, stored/active isolation, non-home/no-zone, all evidence states, 3 viewports, no mutations/external requests/hardware I/O');
 })().catch(error => {
     console.error(error);
     console.error(fs.readFileSync(path.join(artifactDir, 'server.log'), 'utf8').slice(-4000));

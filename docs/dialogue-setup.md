@@ -1,5 +1,7 @@
 # Диалоговая настройка ассистента
 
+> Historical frontend report. The current Vue Web Admin opens at `http://localhost:8080/`; legacy vanilla assets are removed. See [B4 delivery and rollback](web-admin-ux-v2-b4.md). Backend contracts below remain supported.
+
 Исходная ревизия: `4c187a78671f736013045d89295e792646405db9`.
 До изменений: чистое дерево, 58/58 CTest. Сохранённый baseline переиспользован после reboot; незавершённые команды до отключения питания не засчитывались. Все последующие config mutations выполнены на отдельных test stores.
 

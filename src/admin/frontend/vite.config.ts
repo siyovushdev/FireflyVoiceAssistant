@@ -2,7 +2,7 @@ import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 
 export default defineConfig({
-    base: '/v2/',
+    base: '/',
     plugins: [vue(), {
         name: 'firefly-explicit-assets',
         enforce: 'post',

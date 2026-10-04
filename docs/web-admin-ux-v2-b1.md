@@ -1,16 +1,18 @@
 # Web Admin UX V2 — B1 foundation and delivery
 
-Дата: 2026-10-03. Основа: [утверждённый дизайн](web-admin-ux-v2-design.md), commit `f666e7c`. B1 добавляет отдельный read-only Vue frontend; production vanilla UI остаётся на `/`.
+> Исторический отчёт milestone. Текущая доставка описана в [B4](web-admin-ux-v2-b4.md): Vue является основным UI на `http://localhost:8080/`; `/v2/` — alias того же bundle. Упоминания vanilla/opt-in ниже относятся к состоянию до B4.
+
+Дата: 2026-10-03. Основа: [утверждённый дизайн](web-admin-ux-v2-design.md), commit `f666e7c`. При реализации B1 Vue был отдельным read-only frontend, а vanilla оставался default до переключения в B4.
 
 ## Доступ и границы B1
 
 После запуска **пересобранного** C++ Admin/assistant server на штатном порту 8080:
 
 - прежний UI: `http://localhost:8080/`;
-- V2: `http://localhost:8080/v2/#/overview`;
-- зоны: `http://localhost:8080/v2/#/zones`;
-- устройства: `http://localhost:8080/v2/#/devices`;
-- состояния: `http://localhost:8080/v2/#/states`.
+- V2: `http://localhost:8080/#/overview`;
+- зоны: `http://localhost:8080/#/zones`;
+- устройства: `http://localhost:8080/#/devices`;
+- состояния: `http://localhost:8080/#/states`.
 
 На другой машине можно использовать существующий localhost/SSH tunnel:
 
@@ -62,7 +64,7 @@ ctest --test-dir build --output-on-failure
 git diff --check
 ```
 
-Флаг `FIREFLY_ADMIN_DIST_DIR` — явный opt-in. Без него новый чистый build оставляет vanilla-only delivery; backend/core не требуют npm или готового frontend. Если флаг задан, но manifest отсутствует, конфигурация завершается объяснимой ошибкой. CMake никогда не запускает `npm install`, `npm ci` или network fetch. Используется разрешённый вариант delivery через **готовый dist**, без автоматического frontend build target.
+Исторически в B1 флаг `FIREFLY_ADMIN_DIST_DIR` был opt-in, а build без него оставался vanilla-only (после B4 Admin build обязательно требует Vue dist); backend/core не требуют npm или готового frontend. Если флаг задан, но manifest отсутствует, конфигурация завершается объяснимой ошибкой. CMake никогда не запускает `npm install`, `npm ci` или network fetch. Используется разрешённый вариант delivery через **готовый dist**, без автоматического frontend build target.
 
 Проверка отдельного backend build без V2, Node tool invocation и inference:
 
@@ -91,7 +93,7 @@ Vue/TS + package-lock
 
 Упаковщик разрешает только `index.html` и известные типы файлов в плоском `assets/`, проверяет digest, дубликаты, bounds, существование regular files и отсутствие symlinks в asset path. Traversal/absolute paths/query/неподдерживаемые расширения отклоняются. Необъявленный файл даже внутри dist не встраивается. Сервер использует прежний map lookup, без directory listing и filesystem resolution по URL.
 
-Старый allowlist и vanilla files не изменены. Его текущая build-directory доставка (`build/src/admin/web`, путь `FIREFLY_ADMIN_ASSETS`) по-прежнему нужна при запуске существующего binary; B1 не меняет packaging прежнего UI. V2 не требует dist, Node, npm или `node_modules` после линковки. Runtime package должен содержать штатные binaries/libraries/vanilla assets; frontend source/dependencies/dev server в него не входят.
+В B1 старый allowlist и vanilla files не менялись. Его тогдашняя build-directory доставка (`build/src/admin/web`, путь `FIREFLY_ADMIN_ASSETS`) нужна только для rollback к прежнему B3-compatible binary; B1 не меняет packaging прежнего UI. V2 не требует dist, Node, npm или `node_modules` после линковки. Прежний B1–B3 runtime package содержал binaries/libraries/vanilla assets; после B4 Vue assets embedded в binary, frontend source/dependencies/dev server в него не входят.
 
 CSP self-only, no-store, nosniff, same-origin mutation guards и `X-Firefly-Admin` остались без изменений. UI использует только локальный SVG и system fonts. На стороне frontend нет cloud SDK, telemetry, CDN или service worker.
 

@@ -15,8 +15,8 @@ for (const entry of manifest.files) {
     const text = bytes.toString('utf8');
     if (entry.file.endsWith('.html')) {
         for (const [, url] of text.matchAll(/(?:src|href)="([^"]+)"/g)) {
-            assert.ok(url.startsWith('/v2/'), `non-local resource ${url}`);
-            assert.ok(names.has(url.slice(4)), `undeclared resource ${url}`);
+            assert.ok(url.startsWith('/assets/'), `non-local resource ${url}`);
+            assert.ok(names.has(url.slice(1)), `undeclared resource ${url}`);
             assert.ok(!url.includes('?'), 'no query-string cache busters');
         }
         assert.doesNotMatch(text, /<script(?![^>]*\bsrc=)[^>]*>|<style\b/i, 'no inline scripts/styles');

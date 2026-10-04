@@ -5,7 +5,6 @@
 #include <atomic>
 #include <charconv>
 #include <chrono>
-#include <fstream>
 #include <map>
 #include <poll.h>
 #include <sstream>
@@ -131,14 +130,12 @@ struct HttpServer::Impl {
     ~Impl() { for (auto& client : clients) if (client.thread.joinable()) client.thread.join(); }
 };
 HttpServer::HttpServer(Api& api, const std::string& bindAddress, unsigned short port) : impl_(std::make_unique<Impl>(api)) {
-    for (const auto& file : std::map<std::string, std::string>{{"index.html", "text/html; charset=utf-8"}, {"admin.js", "text/javascript; charset=utf-8"}, {"admin-model.js", "text/javascript; charset=utf-8"}, {"typed-editor.js", "text/javascript; charset=utf-8"}, {"simple-editor.js", "text/javascript; charset=utf-8"}, {"connection-editor.js", "text/javascript; charset=utf-8"}, {"admin.css", "text/css; charset=utf-8"}}) {
-        std::ifstream stream(std::string(FIREFLY_ADMIN_ASSETS) + "/" + file.first, std::ios::binary);
-        if (!stream) throw std::runtime_error("Admin static assets unavailable");
-        impl_->assets[file.first == "index.html" ? "/" : "/" + file.first] = {200, file.second, {std::istreambuf_iterator<char>(stream), {}}};
-    }
-    // Generated, verified allowlist. B1 keeps vanilla at / and V2 at /v2/.
-    // Requests never translate their URL into a filesystem path.
+    // One verified production bundle; URLs never become filesystem paths.
     addV2Assets(impl_->assets);
+    // Previous V2 bookmarks use the same entry and root assets, not a second UI.
+    for (const auto* alias : {"/index.html", "/v2", "/v2/", "/v2/index.html"}) {
+        impl_->assets.emplace(alias, impl_->assets.at("/"));
+    }
     sockaddr_in address{}; address.sin_family = AF_INET; address.sin_port = htons(port);
     if (::inet_pton(AF_INET, bindAddress.c_str(), &address.sin_addr) != 1) throw std::invalid_argument("Admin bind must be an explicit IPv4 address");
     impl_->listener.fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);

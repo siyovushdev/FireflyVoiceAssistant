@@ -1,5 +1,7 @@
 # Milestone 9 — Local Web Admin, immutable live Apply, Test Command
 
+> Historical frontend report. The current Vue Web Admin opens at `http://localhost:8080/`; legacy vanilla assets are removed. See [B4 delivery and rollback](web-admin-ux-v2-b4.md). Backend contracts below remain supported.
+
 Milestone 8 was audited and committed separately as
 `bb57730b75ec63e1d970689b2a4a100954e1622a` (`Milestone 8: config-driven structured LLM actions`).
 Its 38-file review manifest, recorded hardware results, whitespace and local documentation links
