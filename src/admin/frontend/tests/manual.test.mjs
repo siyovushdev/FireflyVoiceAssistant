@@ -33,6 +33,27 @@ function harness() {
 }
 const writes = state => state.calls.filter(c => c.method === 'PUT' || c.path === '/api/config/apply');
 
+test('offline runtime retains manual edits and validation while final Apply stays blocked', async () => {
+    const stored = { ok: true, configuration: clone(fixture), revision: 1, hash: 'a'.repeat(64) };
+    const calls = [];
+    const api = async (path, body, method) => {
+        calls.push({ path, method });
+        if (path === '/api/setup/status') return { ok: true, active: false, status: 'idle' };
+        if (path === '/api/config/validate') return { ok: true, valid: true, apply_ready: false, runtime_preflight: 'unavailable' };
+        if (path === '/api/config/diff') return { ok: true, changes: [] };
+        throw Error('Unexpected write ' + path);
+    };
+    const store = createManualStore(api, async path => path === '/api/config' ? stored : { ok: true, active: null }, async () => {});
+    await store.begin('system'); store.task.value.buffer.system.name = 'Offline plan';
+    assert.equal(await store.stage(), true);
+    await store.prepare(); assert.equal(store.canConfirm.value, false);
+    assert.ok(store.issues.value.some(issue => issue.code === 'not_apply_ready'));
+    await store.confirm();
+    assert.equal(store.candidate.value.system.name, 'Offline plan');
+    assert.equal(stored.configuration.system.name, fixture.system.name);
+    assert.equal(writes({ calls }).length, 0);
+});
+
 test('incomplete TaskBuffer stays isolated; Cancel retains previously staged task and unknown fields', async () => {
     const h = harness(); h.stored.configuration.extension = { rare: 'retained' };
     await h.store.begin('system'); h.store.task.value.buffer.system.name = 'Цех';

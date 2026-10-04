@@ -1,5 +1,7 @@
 # Milestone 10: Unified Assistant Runtime + Mock Device Execution
 
+> Historical frontend report. The current Vue Web Admin opens at `http://localhost:8080/`; legacy vanilla assets are removed. See [B4 delivery and rollback](web-admin-ux-v2-b4.md). Backend contracts below remain supported.
+
 Resume baseline: `1ba63b877975cba1f7028564b7088c9380e29275` (Milestone 9).
 Status: accepted by the user for commit on 2026-09-20. The recovered implementation
 and all available automated/real-NPU checks have been audited. **Live voice smoke

@@ -1,5 +1,7 @@
 # Milestone 11 — generalized AI-assisted administration and typed mock execution
 
+> Historical frontend report. The current Vue Web Admin opens at `http://localhost:8080/`; legacy vanilla assets are removed. See [B4 delivery and rollback](web-admin-ux-v2-b4.md). Backend contracts below remain supported.
+
 This is the continuation of the existing, uncommitted Milestone 11, based on
 `99c635d3534789d5c132b245ee53caf236383e12`. It is one product stage; no commit is
 made. Earlier M11 results are historical, not verification of the continuation.

@@ -60,7 +60,7 @@ async function screenshot(name) { const r = await send('Page.captureScreenshot',
     };
     await send('Runtime.enable'); await send('Page.enable'); await send('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
     await send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
-    await send('Page.navigate', { url: url + '/v2/' }); await until(async () => (await text()).includes('Пустой стенд'), 'overview');
+    await send('Page.navigate', { url: url + '/' }); await until(async () => (await text()).includes('Пустой стенд'), 'overview');
     console.log('A: zone create/edit; B/C: no-zone device and Цех → Вентилятор');
     await route('zones');
     console.log('Manual acceptance regression: visible examples are not speech values');

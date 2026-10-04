@@ -31,7 +31,7 @@ const focusMain = () => document.getElementById('main-content')?.focus();
                     <span class="nav-number">{{ item.number }}</span><span>{{ item.title }}</span>
                 </RouterLink>
             </nav>
-            <div class="sidebar-foot"><span class="local-dot"></span> Работает локально<p>Данные остаются на Firefly</p><a href="/">Открыть прежний интерфейс ↗</a></div>
+            <div class="sidebar-foot"><span class="local-dot"></span> Работает локально<p>Данные остаются на Firefly</p></div>
         </aside>
         <div class="workspace">
             <header class="topbar">

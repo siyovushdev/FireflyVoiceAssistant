@@ -1,6 +1,8 @@
 # Web Admin UX V2 — B2 Complete Manual UX
 
-Дата: 2026-10-03. Основа: утверждённый [дизайн](web-admin-ux-v2-design.md), B1 commit `0c81088`. Старый vanilla UI остаётся на `/`; V2 — на `/v2/`. B3 не начат. **Ручная owner acceptance B2 ещё не завершена; автоматические PASS не означают принятие владельцем.**
+> Исторический отчёт milestone. Текущая доставка описана в [B4](web-admin-ux-v2-b4.md): Vue является основным UI на `http://localhost:8080/`; `/v2/` — alias того же bundle. Упоминания vanilla/opt-in ниже относятся к состоянию до B4.
+
+Дата: 2026-10-03. Основа: утверждённый [дизайн](web-admin-ux-v2-design.md), B1 commit `0c81088`. На момент B2 vanilla был default на `/`, а V2 размещался на `/v2/`; тогда B3 ещё не был начат. Текущий default после B4 — Vue на `/`. **Ручная owner acceptance B2 ещё не завершена; автоматические PASS не означают принятие владельцем.**
 
 ## Реализованная ручная настройка
 
@@ -225,11 +227,11 @@ API contract suite содержит 3 integration-теста; CTest регист
 
 После штатного запуска/перезапуска пересобранного C++ server:
 
-- `http://localhost:8080/v2/#/overview`
-- `http://localhost:8080/v2/#/devices`
-- `http://localhost:8080/v2/#/connections`
-- `http://localhost:8080/v2/#/advanced`
-- `http://localhost:8080/v2/#/advanced/playground`
+- `http://localhost:8080/#/overview`
+- `http://localhost:8080/#/devices`
+- `http://localhost:8080/#/connections`
+- `http://localhost:8080/#/advanced`
+- `http://localhost:8080/#/advanced/playground`
 
 Production service в этой работе не перезапускается; acceptance поднимает и останавливает свои localhost servers. Доступ с другой машины — прежний SSH tunnel. Пользовательские изменения `user-store` не изменяются и не включаются в список B2.
 

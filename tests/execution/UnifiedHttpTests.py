@@ -1,6 +1,7 @@
 """Actual unified main/HTTP/UI/runtime with the existing stub vendor C API only."""
 import json
 import os
+import re
 from pathlib import Path
 import signal
 import subprocess
@@ -37,7 +38,14 @@ with tempfile.TemporaryDirectory() as directory:
         assert status['executor']=='bound' and status['voice']=='disabled' and status['device_count']==5
         with urllib.request.urlopen(url) as response:
             html=response.read().decode()
-            assert 'Состояния устройств' in html and 'Последние действия' in html and 'Command Playground' in html and 'Execute' in html
+            # Vue renders these flows in the B2/B3 Chromium suites. The unified
+            # server delivers the same production entry, not vanilla inline DOM.
+            assert 'type="module"' in html and 'admin.js' not in html
+            assets=re.findall(r'(?:src|href)="(/assets/[^\"]+)"', html)
+            assert assets
+            for asset in assets:
+                with urllib.request.urlopen(url+asset) as resource:
+                    assert resource.status==200 and resource.headers['Cache-Control']=='no-store'
         before=api('/api/devices/state')[1]['devices']
         preview=api('/api/test-command', {'text':'На кухне поставь свет на 40 процентов'})[1]
         assert preview['execution'] is None and api('/api/devices/state')[1]['devices']==before

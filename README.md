@@ -3,7 +3,21 @@
 C++17 text and offline voice assistant for Firefly ROC-RK3588S-PC (RK3588S, 8 GB), Linux/aarch64, Ubuntu 22.04. Inference is fixed to RKLLM 1.3.0 and Qwen3-4B W8A8 on NPU.
 
 ## Build and test
-Requires a C++17 compiler, CMake 3.16+, and Make (Ubuntu packages `g++ cmake make`). No third-party test dependencies or model downloads.
+Requires a C++17 compiler, CMake 3.16+, and Make (Ubuntu packages `g++ cmake make`). No model downloads. Web Admin builds require a prepared offline Vue dist (Node is build-time only); core-only builds can set `-DFIREFLY_BUILD_ADMIN=OFF`.
+
+Prepare the frontend once with existing dependencies (`src/admin/frontend`):
+
+```sh
+cd src/admin/frontend
+npm run typecheck
+npm test
+npm run build
+cd ../../..
+```
+
+The C++ build embeds the verified dist; it never installs npm dependencies or fetches assets.
+The deployed Web Admin opens directly at `http://localhost:8080/` (previous `/v2/` bookmarks remain aliases).
+See [Web Admin B4](docs/web-admin-ux-v2-b4.md) for delivery, acceptance and release rollback.
 
 ```sh
 cmake -S . -B build -DRKLLM_ROOT=/home/firefly/demo_Linux_aarch64 -DFIREFLY_BUILD_CONFIG_TOOLS=ON
@@ -45,7 +59,7 @@ Callback userdata points to the owning implementation: no global bridge is neede
 
 For unit tests without the SDK/runtime, use a separate build directory:
 ```sh
-cmake -S . -B build/unit -DFIREFLY_BUILD_ASSISTANT=OFF -DFIREFLY_BUILD_CONFIG_TOOLS=ON
+cmake -S . -B build/unit -DFIREFLY_BUILD_ASSISTANT=OFF -DFIREFLY_BUILD_ADMIN=OFF -DFIREFLY_BUILD_CONFIG_TOOLS=ON
 cmake --build build/unit
 ctest --test-dir build/unit --output-on-failure
 ```

@@ -35,8 +35,9 @@ class PackagingTests(unittest.TestCase):
         packager.package(self.root, output)
         self.assertEqual(len(packager.read_assets(self.root)), 2)
         text = output.read_text()
-        self.assertIn('/v2/', text)
-        self.assertIn('/v2/assets/app-abcd1234.js', text)
+        self.assertIn('assets.emplace("/"', text)
+        self.assertNotIn('/v2/assets/', text)
+        self.assertIn('/assets/app-abcd1234.js', text)
         self.assertNotIn('secret', text)
         self.assertNotIn(str(self.root), text)
 
