@@ -202,7 +202,10 @@ std::string scopedInventory(const Json& value) {
 void applyOperation(Json& value, std::set<std::string>& ids, const Json& op, const Json& templates) {
     requireText(op.at("op"), 64);
     const auto kind = op.at("op").get<std::string>();
-    if (kind == "create_location") {
+    if (kind == "rename_system") {
+        members(op, {"op", "name"}); requireText(op.at("name"), 128);
+        value["system"]["name"] = op.at("name");
+    } else if (kind == "create_location") {
         for (const auto* key : {"op", "name", "type", "description"})
             if (!op.contains(key)) throw std::invalid_argument(std::string("Missing field ") + key);
         requireText(op.at("name"), 128); requireText(op.at("type"), 64); requireText(op.at("description"), 256);
@@ -217,16 +220,18 @@ void applyOperation(Json& value, std::set<std::string>& ids, const Json& op, con
     } else if (kind == "create_device") {
         for (const auto* key : {"op", "location", "name", "template", "description"})
             if (!op.contains(key)) throw std::invalid_argument(std::string("Missing field ") + key);
-        requireText(op.at("location"), 128); requireText(op.at("name"), 128); requireText(op.at("template"), 32);
+        if (!op.at("location").is_null()) requireText(op.at("location"), 128);
+        requireText(op.at("name"), 128); requireText(op.at("template"), 32);
         requireText(op.at("description"), 256);
         Json aliases = op.contains("aliases") ? op.at("aliases") : Json::array({detail::lowercase(op.at("name").get<std::string>())});
         requireStrings(aliases, 8);
         Json deviceLike = op;
         deviceLike["aliases"] = aliases;
         if (protectedEntranceDoorSpeech(deviceLike)) rejectProtectedEntranceDoor();
-        const auto locationRef = op.at("location").get<std::string>();
-        const auto* location = resolveLocation(value, locationRef, false);
-        if (!location) {
+        const bool noLocation = op.at("location").is_null();
+        const auto locationRef = noLocation ? std::string{} : op.at("location").get<std::string>();
+        const auto* location = noLocation ? nullptr : resolveLocation(value, locationRef, false);
+        if (!noLocation && !location) {
             rejectProposal("unknown_location",
                 "Зона «" + locationRef + "» не найдена в черновике. Сначала явно создайте её "
                 "(create_location), затем добавьте устройство.");
@@ -244,7 +249,7 @@ void applyOperation(Json& value, std::set<std::string>& ids, const Json& op, con
             value["actions"].push_back(action);
         }
         value["devices"].push_back({{"id", id}, {"name", name}, {"kind", light ? "light" : "generic"},
-            {"room_id", location->at("id")}, {"enabled", true}, {"action_ids", actionIds},
+            {"room_id", location ? location->at("id") : Json(nullptr)}, {"enabled", true}, {"action_ids", actionIds},
             {"spoken_aliases", aliases}, {"state", selected.at("state")},
             {"metadata", {{"type", selected.at("type")}, {"description", op.at("description")},
                 {"aliases", aliases}, {"origin", "local_ai"}, {"confirmed", false}}}});
@@ -502,6 +507,7 @@ std::string copilotPrompt(config::Catalog draft) {
 Каждый element operations — плоский объект с discriminator "op" (строка). Пример:
 {"op":"create_device","location":"Гостиная","name":"Телевизор","template":"tv","description":"ТВ.","aliases":["телевизор"]}
 ≠ {"create_device":{…}}. ≤8 ops; ≤2 create_location; ≤6 create_device.
+rename_system{op,name} — только отображаемое название существующей Системы.
 create_location{op,name,type,description,mentions?,locations?}
 create_device{op,location,name,template,description,aliases?}
 rename_location{op,location,name,keep_previous_as_alias}
@@ -519,7 +525,7 @@ set_http_binding{op,device,location,action,method,url,timeout_ms?,content_type?,
 clear_http_binding{op,device,location,action}
 Для явно запрошенного только включения/выключения используй template power_only (не tv/light).
 create_device не меняет speech зоны. add_location_* только если пользователь просил речь.
-Не угадывай location. Не door/входную дверь как switch. Не выполняй Save/Apply.
+location:null только при явном «без зоны». Не угадывай location. Не door/входную дверь как switch. Не выполняй Save/Apply.
 HTTP-подключение: только из явно указанных пользователем method+URL (http://IPv4/…).
 Не выдумывай IP, порт, path, protocol, credentials, GPIO, RS-485, payload.
 Если данных мало → status unsupported/ambiguous и пустые operations.

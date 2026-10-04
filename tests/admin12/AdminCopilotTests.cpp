@@ -35,7 +35,15 @@ int main(int argc, char** argv) {
         if (argc != 2) return 2;
         const auto baseline = base(argv[1]);
         const auto snap = catalog(baseline);
+        const auto systemName = Json::parse(firefly::admin::decodeCopilotProposal(R"({"status":"ok","summary":"Имя системы","operations":[{"op":"rename_system","name":"Лабораторный стенд"}]})", snap));
+        check(systemName.at("configuration").at("system").at("name")=="Лабораторный стенд", "Admin rename changes display name only");
+        check(systemName.at("configuration").at("system").at("id")==baseline.at("system").at("id"), "System stable identity retained");
         const auto baseHash = firefly::admin::draftFingerprint(snap);
+        const auto unzoned = Json::parse(firefly::admin::decodeCopilotProposal(R"({"status":"ok","summary":"Стенд без зоны","operations":[{"op":"create_device","location":null,"name":"Контроллер стенда","template":"custom","description":"Отдельное оборудование"}]})", snap));
+        check((*std::find_if(unzoned.at("configuration").at("devices").begin(), unzoned.at("configuration").at("devices").end(), [](const auto& d){return d.at("name")=="Контроллер стенда";})).at("room_id").is_null(), "Explicit nullable location creates no-zone device");
+        check((*std::find_if(unzoned.at("configuration").at("devices").begin(), unzoned.at("configuration").at("devices").end(), [](const auto& d){return d.at("name")=="Контроллер стенда";})).at("action_ids").empty(), "No capabilities invented for standalone controller");
+        check(unzoned.at("configuration").at("rooms").size()==baseline.at("rooms").size(), "No fake location created");
+
 
         const auto created = Json::parse(firefly::admin::decodeCopilotProposal(officeCreateRaw(), snap));
         check(created.at("saved") == false && created.at("applied") == false, "Proposal never saves/applies");

@@ -11,8 +11,10 @@ std::string deterministicId(std::string_view category, std::string_view name,
                             const std::set<std::string>& occupied = {});
 std::string suggestionPrompt(std::string_view entity);
 std::string templatesJson();
-std::string languageProfilePrompt(config::Catalog, std::string_view entity, std::string_view id);
-std::string decodeLanguageProfile(std::string_view raw, config::Catalog, std::string_view entity, std::string_view id);
+// initialLocation is internal to first setup enrichment of a new location.
+// It replaces only the generated "в + name" placeholder, never reviewed profiles.
+std::string languageProfilePrompt(config::Catalog, std::string_view entity, std::string_view id, bool initialLocation = false);
+std::string decodeLanguageProfile(std::string_view raw, config::Catalog, std::string_view entity, std::string_view id, bool initialLocation = false);
 std::string draftPrompt(std::string_view entity, std::string_view group);
 std::string decodeDraftGroup(std::string_view raw, std::string_view entity, std::string_view group);
 std::string planPrompt();

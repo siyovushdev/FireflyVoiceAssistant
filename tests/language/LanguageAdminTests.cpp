@@ -28,6 +28,12 @@ int main(int argc,char** argv){try{
     check(call("POST","/api/config/validate",{{"configuration",bad}}).first!=200,"Validate admits conflict");
     check(call("PUT","/api/config",{{"configuration",bad},{"expected",identity()}}).first!=200,"Save admits conflict");
     check(identity()==initial,"failed validation saved");
+    const auto locationId=document.at("rooms")[0].at("id");
+    model.raw=R"({"aliases":["кухня"],"mentions":["кухня"],"locations":["кухне"]})";
+    check(call("POST","/api/admin/language-profile",{{"configuration",document},{"entity","location"},{"id",locationId}}).first==422,"Bare noun accepted as a complete location phrase");
+    model.raw=R"({"aliases":["кухня"],"mentions":["кухня"],"locations":["на кухне"]})";
+    check(call("POST","/api/admin/language-profile",{{"configuration",document},{"entity","location"},{"id",locationId},{"initial_location",true}}).first!=200,"External caller could replace reviewed seed forms");
+    check(identity()==initial,"Language validation changed the store");
     model.raw="null";
     check(call("POST","/api/config/validate",{{"configuration",document}}).first==200,"home validate");
     check(call("PUT","/api/config",{{"configuration",document},{"expected",identity()}}).first==200,"home save");

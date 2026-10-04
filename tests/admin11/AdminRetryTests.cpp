@@ -110,7 +110,7 @@ int main(int argc, char** argv) {
         const std::string language=R"({"name":"детская комната","name_location":"в детской комнате","short":"детская","short_location":"в детской","synonym":"комната для детей","synonym_location":"в комнате для детей"})";
         model.script({"{",identity,language});reply=call("/api/admin/draft",{{"entity","location"},{"name","Детская комната"}});
         check(reply.first==200 && reply.second.at("trace").size()==3,"Grouped draft retries failed group only");
-        check(reply.second.at("suggestion").at("mentions").size()==9 && !reply.second.at("suggestion").at("description").empty(),"Complete description and language draft");
+        check(reply.second.at("suggestion").at("mentions").size()==3 && !reply.second.at("suggestion").at("description").empty(),"Complete description and language draft");
         check(model.budgets==std::vector<int>({256,256,256}),"Entity task budget stays separate");unchanged();
         model.script({"{",identity,"{"});reply=call("/api/admin/draft",{{"entity","location"},{"name","Детская комната"}});
         check(reply.first==422 && reply.second.at("trace").size()==3 && !reply.second.contains("suggestion"),"Request-wide retry allowance and no partial draft");unchanged();

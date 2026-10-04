@@ -9,7 +9,7 @@ const delay=ms=>new Promise(r=>setTimeout(r,ms));
 async function until(fn,label){for(let i=0;i<300;i++){if(await fn())return;await delay(100);}throw Error('Timeout '+label);}
 function send(method,params={}){return new Promise((resolve,reject)=>{const current=++id;pending.set(current,{resolve,reject});socket.send(JSON.stringify({id:current,method,params}));});}
 async function js(expression){const r=await send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(JSON.stringify(r.exceptionDetails));return r.result.value;}
-async function idle(){await until(()=>js('!operation'),'idle');}
+async function idle(){await until(()=>js("typeof operation!=='undefined'&&!operation"),'idle');}
 async function click(id){await idle();await js(`document.getElementById(${JSON.stringify(id)}).click()`);await idle();}
 (async()=>{
  await until(()=>output.includes('DEMO_LISTEN'),'listener');const url=output.match(/DEMO_LISTEN (http:\/\/[^\s]+)/)[1];
@@ -45,7 +45,8 @@ async function click(id){await idle();await js(`document.getElementById(${JSON.s
  await click('copilot-propose');assert.equal(await js('draft.devices.length'),3);
  assert.ok(await js(`document.getElementById('setup-plan').textContent.includes('Основной свет')`));
  // Reconnect recovers the SAME server draft, not an independent form snapshot.
- await js('dirty=false');await send('Page.reload');await until(()=>js(`typeof setupActive!=='undefined'&&setupActive&&!operation&&draft.devices.length===3`),'reconnect');
+ await js('dirty=false');const previousDocument=await js('performance.timeOrigin');await send('Page.reload');
+ await until(()=>js(`performance.timeOrigin!==${previousDocument}&&typeof setupActive!=='undefined'&&setupActive&&!operation&&draft.devices.length===3`),'reconnect');
  await click('setup-apply');assert.equal(await js('setupActive'),false);
  assert.notEqual((await config()).hash,before.hash);
  await click('setup-start');await click('copilot-mic');await until(()=>js(`voiceState==='recording'`),'second capture');

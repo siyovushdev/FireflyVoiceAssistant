@@ -162,7 +162,7 @@ async function route(name) {
     await route('states');
     const knowledge = await js(`Object.fromEntries([...document.querySelectorAll('.state-row')].map(row => [row.dataset.deviceId, row.querySelector('.property')?.dataset.knowledge]))`);
     assert.deepEqual(knowledge, { device_fan: 'confirmed', device_lamp: 'predicted', device_pump: 'confirmed', device_bench: 'unknown' });
-    await route('setup'); assert.match(await text(), /Будет в следующем этапе/);
+    await route('setup'); assert.match(await text(), /Начать настройку/); // Opening is still read-only; ownership requires explicit Start.
     for (const name of ['connections', 'advanced', 'diagnostics']) { await route(name); assert.doesNotMatch(await text(), /Будет в следующем этапе/); }
     await route('overview');
     for (const [width, height] of [[1280, 800], [800, 600], [390, 844]]) {

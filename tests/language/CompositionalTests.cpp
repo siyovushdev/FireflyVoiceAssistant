@@ -1,6 +1,7 @@
 #include "../admin/Support.h"
 #include "firefly/admin/AdminCopilot.h"
 #include "firefly/admin/AdminDraft.h"
+#include "firefly/config/LanguageProfile.h"
 #include "firefly/voice/VoiceProcessor.h"
 #include <iostream>
 using namespace firefly;
@@ -78,6 +79,43 @@ int main(int argc,char**argv){try{
         check(command.at("execution").at("error")=="binding_missing","no hardware or mock execution without binding");
         check(command.at("language_index").at("hash")==status.at("active").at("hash"),"voice mixed generation");
     }
+    // Natural names and full locations suffice for LanguageIndex without bare
+    // noun declensions or runtime inference. Exercise both AI decoding lanes.
+    for (const auto& pair : std::vector<std::pair<std::string,std::string>>{
+        {"Цех","в цехе"}, {"Кухня","на кухне"}, {"Детская","в детской"}, {"Склад","на складе"}}) {
+        const auto seed = home(root, pair.first);
+        const auto name = config::normalizeLanguageAtom(pair.first);
+        const auto id = seed->configuration().rooms[0].id;
+        const Json raw = {{"aliases",{name}}, {"mentions",{name}}, {"locations",{pair.second}}};
+        const auto suggestion = Json::parse(admin::decodeLanguageProfile(raw.dump(),seed,"location",id,true));
+        check(suggestion.at("mentions")==Json::array({name}) && suggestion.at("aliases")==Json::array({name}),"AI names expanded into declensions");
+        check(suggestion.at("locations")==Json::array({pair.second}),"Unreviewed nominative placeholder survived initial enrichment");
+        auto document = Json::parse(seed->canonicalJson());
+        document["rooms"][0]["speech"]={{"mentions",suggestion.at("mentions")},{"locations",suggestion.at("locations")}};
+        document["rooms"][0]["metadata"]["aliases"]=suggestion.at("aliases");
+        const auto reviewed=admin_test::catalog(document);
+        Model naturalModel; naturalModel.raw="[]";
+        admin::RuntimeGenerations naturalRuntime(naturalModel); naturalRuntime.apply(reviewed);
+        for (const auto& text : {"Включи свет "+pair.second, "Выключи телевизор "+pair.second, pair.second+" включи свет"}) {
+            const auto result=naturalRuntime.process(text).command;
+            check(result.languageRoute=="INDEX_EXACT" && !result.safetyRejected &&
+                std::holds_alternative<actions::GenericAction>(result.action) && naturalModel.inferences==0,"Natural location lost index route: "+text);
+        }
+        if (pair.first!="Детская") {
+            check(config::locationGrammar(reviewed->configuration().rooms[0]).empty(),"Arbitrary noun inflection guessed");
+            check(naturalRuntime.current()->domain.resolve("свет "+pair.second.substr(pair.second.find(' ')+1)).locations.empty(),"Bare noun mention derived from a location phrase");
+        }
+        const Json grouped={{"name",name},{"short",name},{"synonym",name},
+            {"name_location",pair.second},{"short_location",pair.second},{"synonym_location",pair.second}};
+        const auto group=Json::parse(admin::decodeDraftGroup(grouped.dump(),"location","language"));
+        check(group.at("mentions")==Json::array({name}) && group.at("locations")==Json::array({pair.second}),"Grouped decoder copied phrases or stripped nouns into mentions");
+        // Existing reviewed forms are never removed by contextual suggestions.
+        const auto merged=Json::parse(admin::decodeLanguageProfile(raw.dump(),seed,"location",id));
+        check(std::find(merged.at("locations").begin(),merged.at("locations").end(),"в "+name)!=merged.at("locations").end(),"Existing reviewed location erased");
+    }
+    const Json courtyard={{"name","двор"},{"short","двор"},{"synonym","двор"},
+        {"name_location","во дворе"},{"short_location","во дворе"},{"synonym_location","во дворе"}};
+    check(Json::parse(admin::decodeDraftGroup(courtyard.dump(),"location","language")).at("mentions")==Json::array({"двор"}),"во phrase was stripped into a mention");
     const auto catalog=home(root,"Детская комната");auto two=Json::parse(catalog->canonicalJson());
     auto room=two["rooms"][0];room["id"]="second_location";room["name"]="Голубая комната";
     room["speech"]={{"mentions",{"голубая комната"}},{"locations",{"в голубой комнате"}}};room["metadata"]["aliases"]=Json::array();two["rooms"].push_back(room);

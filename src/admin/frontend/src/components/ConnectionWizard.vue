@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { manual } from '../stores/manual.js';
-import { allocate, clone, consumers, projectConnectivity, type Mutable } from '../adapters/editing.js';
+import { clone, consumers, projectConnectivity, newHttpConnection, defaultHttpMapping, type Mutable } from '../adapters/editing.js';
 import type { BindingDto, ConnectionDto, HttpDto } from '../types/wire.js';
 import { adminRequest, issuesOf, type Issue } from '../api/admin.js';
 import HttpMappingEditor from './HttpMappingEditor.vue';
@@ -15,14 +15,14 @@ const actions = computed(() => config.actions.filter(a => device.value?.action_i
 const existing = task.id.startsWith('@') ? task.id.slice(1) : config.bindings.find(b => b.target_id === task.id)?.connection_id ?? config.observations?.find(o => o.target_id === task.id)?.connection_id ?? (config.bindings.some(b => b.target_id === task.id && b.http?.url) ? '__legacy__' : '');
 const selected = ref(existing);
 const legacy = computed(() => selected.value === '__legacy__');
-function fresh(): Mutable<ConnectionDto> { return { id: allocate(config, 'connection_http'), name: '', type: 'http', enabled: true, timeout_ms: 2000, http: { base_url: '', base_path: '' } }; }
+function fresh(): Mutable<ConnectionDto> { return newHttpConnection(config); }
 const connection = ref<Mutable<ConnectionDto>>(clone(config.connections?.find(c => c.id === existing) ?? fresh()));
 const issues = ref<Issue[]>([]), probe = ref(''), probeSnapshot = ref(''), probing = ref(false);
 const fingerprint = computed(() => JSON.stringify(connection.value));
 const probeStale = computed(() => !!probe.value && probeSnapshot.value !== fingerprint.value);
 const mappings = ref<Mutable<BindingDto>[]>([]);
 function loadMappings() { mappings.value = config.bindings.filter(b => b.target_id === targetId.value).map(clone); }
-function defaultHttp(): Mutable<HttpDto> { return { method: 'POST', path: '', body: {}, timeout_ms: 0, content_type: 'application/json', expected_status: 200 }; }
+const defaultHttp = defaultHttpMapping;
 function toggle(actionId: string, enabled: boolean) {
     if (!enabled) { mappings.value = mappings.value.filter(b => b.action_id !== actionId); return; }
     const assignment = actions.value.find(a => a.id === actionId)?.assignments?.find(a => a.field === 'power');

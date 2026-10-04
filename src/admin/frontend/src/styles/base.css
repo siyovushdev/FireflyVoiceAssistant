@@ -173,3 +173,15 @@ summary { cursor: pointer; font-weight: 600; }
 
 .field-example { display: block; color: #576752; font-size: 12px; margin: 4px 0 10px; }
 input::placeholder, textarea::placeholder { color: #687367; font-style: italic; opacity: 1; }
+
+/* AI setup shares the manual review and field language. Long contracts wrap. */
+.setup-screen { min-width: 0; }
+.setup-screen .conversation { padding-left: 1.2rem; max-height: 24rem; overflow: auto; }
+.setup-screen .conversation p, .setup-screen dd, .proposal-card p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.setup-screen textarea { width: 100%; min-height: 7rem; }
+.context-chips { display: flex; flex-wrap: wrap; gap: .6rem; margin: 1rem 0; }
+.context-chips > span { padding: .4rem .7rem; border: 1px solid var(--line); border-radius: 1rem; }
+.proposal-card { margin: 1.2rem 0; border-left: 3px solid #527d54; }
+.setup-screen .inline-actions { flex-wrap: wrap; }
+
+.setup-fields { border: 0; padding: 0; margin: 0; min-width: 0; }

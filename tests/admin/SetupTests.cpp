@@ -23,7 +23,7 @@ struct SetupModel : admin_test::Model {
             if(wire.contains("ops") && wire["ops"].size()>1) {
                 if(prompt.find("Извлеки НОВОЕ имя")!=std::string::npos) {
                     for(const auto& op:wire["ops"])if(op[0]=="rename_device")raw=Json{{"name",op[3]}}.dump();
-                } else if(prompt.find("Помощник настройки дома")!=std::string::npos) {
+                } else if(prompt.find("Помощник настройки системы и оборудования")!=std::string::npos) {
                     Json selected=Json::array();
                     for(const auto& op:wire["ops"]){const auto kind=op[0].get<std::string>();
                         if((std::string(text).find("Создай")!=std::string::npos && kind=="location") ||
@@ -43,6 +43,10 @@ int main(int argc,char**argv){int failures=0,checks=0;
  check(argc==2,"root argument");
  const auto operations=expandDialogueOperations(R"({"ops":[["location","Кабинет"],["power_device","Кабинет","Лампа"]]})");
  check(operations.at("operations")[1].at("template")=="power_only","short dialogue operations expand trusted capability fields");
+ check(expandDialogueOperations(R"({"ops":[["power_device",null,"Вентилятор"]]})").at("operations")[0].at("location").is_null(),"explicit null zone survives typed operation");
+ check(expandDialogueOperations(R"({"ops":[["device",null,"Контроллер стенда"]]})").at("operations")[0].at("template")=="custom","unspecified standalone capabilities remain empty");
+ check(rejected([&]{expandDialogueOperations(R"({"ops":[["device",false,"Контроллер"]]})");}),"nullable location does not admit other types");
+
  check(rejected([&]{expandDialogueOperations(R"({"ops":[["power_device","Кабинет","Лампа","generic_light"]]})");}),"extra operation arguments rejected");
  check(rejected([&]{expandDialogueOperations(R"({"ops":[["set_http_binding","1.2.3.4"]]})");}),"wire codec cannot create bindings");
  check(rejected([&]{expandDialogueOperations(R"({"ops":[["bounds","Зона","Лампа","level","0",100]]})");}),"numeric type never repaired");
@@ -98,6 +102,56 @@ int main(int argc,char**argv){int failures=0,checks=0;
   api.handle("POST","/api/setup/cancel",Json{{"session_id",enteredSetup.at("session_id")}}.dump());
  }
 
+ // Slow entry must not hold ownership/heartbeat hostage to model loading.
+ for(const auto* outcome:{"editing","cancel","disconnect","failure"}) {
+  struct SlowEntry : SetupModel {
+   std::atomic<bool> entered{false},release{false}; bool fail=false;
+   void enterSetup() override {
+    entered=true;
+    while(!release)std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    if(fail)throw std::runtime_error("injected entry failure");
+    SetupModel::enterSetup();
+   }
+  } slow;
+  slow.fail=std::string(outcome)=="failure";
+  admin_test::Directory isolated;firefly::config::ConfigStore isolatedStore(isolated.path);
+  auto original=isolatedStore.initialize(firefly::config::ConfigLoader::fromFile(std::string(argv[1])+"/config/empty-home.json"));
+  RuntimeWorker slowWorker(slow);
+  const auto runtimeCall=[&](const Json& request){return Json::parse(slowWorker.handle(request.dump()));};
+  runtimeCall({{"method","apply"},{"configuration",Json::parse(original->canonicalJson())}});
+  SetupSession asyncSession(isolatedStore,runtimeCall);
+  check(rejected([&]{asyncSession.handle("start",{{"async_enter","yes"}});})&&!asyncSession.active(),"invalid entry flag cannot create an orphaned owner");
+  const auto started=asyncSession.handle("start",{{"async_enter",true}});const auto token=started.at("session_id");
+  check(started.at("status")=="entering"&&!token.get<std::string>().empty(),"Start returns ownership before entry finishes");
+  for(int i=0;i<1000&&!slow.entered;++i)std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  check(slow.entered&&slowWorker.setupBlocked(),"background entry closes command admission");
+  check(!asyncSession.handle("status",{}).contains("session_id"),"read-only status never exposes owner token");
+  check(asyncSession.handle("heartbeat",{{"session_id",token}}).at("status")=="entering","same tab token authorizes heartbeat during entry/reload");
+  check(rejected([&]{asyncSession.handle("heartbeat",{{"session_id","another-browser"}});}),"second browser cannot renew owner heartbeat");
+  check(rejected([&]{asyncSession.handle("cancel",{{"session_id","another-browser"}});}),"second browser cannot cancel entry");
+  check(rejected([&]{asyncSession.handle("start",{{"async_enter",true}});}),"duplicate Start during entry blocked");
+  for(const auto* route:{"message","draft","apply","authorize"})
+   check(rejected([&]{asyncSession.handle(route,{{"session_id",token},{"version",0},{"configuration",Json::parse(original->canonicalJson())},{"text","Добавь устройство"},{"request_id","early"}});}),"entry blocks conflicting mutations and auxiliary AI/probe authorization");
+  if(std::string(outcome)=="cancel")check(asyncSession.handle("cancel",{{"session_id",token}}).at("status")=="cancel_pending","entry cancel queues restoration without racing the model");
+  if(std::string(outcome)=="disconnect")asyncSession.tick(std::chrono::steady_clock::now()+std::chrono::seconds(121));
+  slow.release=true;
+  Json completed;
+  for(int i=0;i<3000;++i) {
+   completed=asyncSession.handle("status",{});
+   if(completed.at("status")!="entering"&&completed.at("status")!="cancel_pending"&&completed.at("status")!="restoring")break;
+   std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  if(std::string(outcome)=="editing") {
+   check(completed.at("status")=="editing"&&completed.at("version")==0,"entry automatically becomes editing without changing CAS version");
+   asyncSession.handle("cancel",{{"session_id",token}});
+   for(int i=0;i<3000&&asyncSession.active();++i) {
+    asyncSession.tick();std::this_thread::sleep_for(std::chrono::milliseconds(1));
+   }
+  } else if(slow.fail)check(completed.at("status")=="entry_failed"&&!asyncSession.active(),"entry failure remains explicit without automatic retry");
+  else check(completed.at("status")=="cancelled_draft_saved"&&!asyncSession.active(),"entry cancellation or disconnect restores runtime and saves only draft");
+  check(!slowWorker.setupBlocked()&&isolatedStore.current()->contentHash()==original->contentHash(),"entry/cancel never Save or Apply and reopen restored runtime");
+ }
+
  std::string emoji;for(int i=0;i<4000;++i)emoji+="😀";
  check(validateMessage(emoji)==4000,"4000 unicode accepted");
  check(rejected([&]{validateMessage(emoji+"я");}),"4001 rejected");
@@ -123,6 +177,55 @@ int main(int argc,char**argv){int failures=0,checks=0;
  for(const auto& d:reply.at("configuration").at("devices"))check(d.at("action_ids").size()==2&&d.at("state").size()==1,"power only capability exact");
  const int previousCalls=model.inferences;
  auto duplicate=session.handle("message",message);check(duplicate.at("version")==reply.at("version")&&model.inferences==previousCalls,"idempotent transport retry");
+ // Unrequested power is narrowed, never repaired by another model call.
+ // Different names and both scopes exercise the general rule rather than a phrase exception.
+ for(const auto* name:{"Вентилятор","Контроллер стенда","Измерительный блок"})for(bool noZone:{false,true}) {
+  const Json location=noZone?Json(nullptr):Json("Детская");
+  const std::string text=std::string("Добавь ")+name+(noZone?" без зоны.":", зона Детская.");
+  const auto preview=[&](const char* operation,const std::string& input) {
+   model.raw=Json{{"ops",Json::array({Json::array({operation,location,name})})}}.dump();
+   const auto before=model.inferences;
+   auto result=call({{"method","dialogue"},{"configuration",reply.at("configuration")},{"text",input},{"focus",Json::array()}});
+   check(result.value("ok",false)&&model.inferences==before+1,"capability narrowing uses exactly one inference, no retry");
+   return result.at("suggestion").at("configuration");
+  };
+  const auto created=[&](const Json& config)->const Json& {
+   const auto& devices=config.at("devices");
+   const auto found=std::find_if(devices.begin(),devices.end(),[&](const Json& device){return device.at("name")==name;});
+   if(found==devices.end())throw std::runtime_error("proposed device missing");
+   return *found;
+  };
+  const auto narrowed=preview("power_device",text);
+  const auto& device=created(narrowed);
+  check(device.at("action_ids").empty()&&device.at("state").empty(),"unrequested power produces zero actions and state capabilities");
+  check(narrowed.at("actions")==reply.at("configuration").at("actions"),"narrowing adds no detached actions");
+  check(device.at("room_id")== (noZone?Json(nullptr):reply.at("configuration").at("rooms")[0].at("id")),"narrowing preserves explicit nullable or named zone");
+  check(narrowed==preview("device",text),"narrowed power proposal equals authoritative custom construction");
+  const auto power=preview("power_device",text+" Только включение и выключение.");
+  const auto& powered=created(power);
+  check(powered.at("action_ids").size()==2&&powered.at("state").size()==1,"explicit power still creates exactly ON and OFF");
+  std::set<bool> values;
+  for(const auto& action:power.at("actions"))if(std::find(powered.at("action_ids").begin(),powered.at("action_ids").end(),action.at("id"))!=powered.at("action_ids").end()) {
+   check(action.at("parameters").empty()&&action.at("assignments").size()==1&&action.at("assignments")[0].at("field")=="power","ON/OFF has only the power assignment");
+   values.insert(action.at("assignments")[0].at("value").get<bool>());
+  }
+  check(values==std::set<bool>{false,true},"explicit power has one ON and one OFF");
+  check(created(preview("device",text+" Только ON/OFF.")).at("action_ids").empty(),"custom proposal is never upgraded to power");
+ }
+ for(const auto* raw:{
+    R"({"ops":[["power_device",null,"Входная дверь"]]})",
+    R"({"ops":[["power_device","Детская","Дверь на входе"]]})",
+    R"({"ops":[["power_device","Несуществующая зона","Контроллер"]]})",
+    R"({"ops":[["power_device",null,"Контроллер","door"]]})",
+    R"({"ops":[["power_device",null,"Контроллер"],["set_http_binding","1.2.3.4"]]})"}) {
+  model.raw=raw;
+  const auto denied=call({{"method","dialogue"},{"configuration",reply.at("configuration")},{"text","Добавь устройство без зоны, без возможностей."},{"focus",Json::array()}});
+  check(!denied.value("ok",false) || (denied.at("suggestion").value("rejected",false)&&!denied.at("suggestion").contains("configuration")),"narrowing does not admit protected, unknown-zone, malformed or unsupported proposals");
+ }
+ model.raw=R"({"ops":[["power_device",null,"Контроллер"]]})";
+ const auto ungrounded=call({{"method","dialogue"},{"configuration",reply.at("configuration")},{"text","Добавь контроллер."},{"focus",Json::array()}});
+ check(ungrounded.value("ok",false)&&ungrounded.at("suggestion").at("status")=="ambiguous"&&!ungrounded.at("suggestion").contains("configuration"),"narrowing cannot invent no-zone scope");
+ check(store.current()->contentHash()==base->contentHash(),"narrowing never saves or applies");
  model.raw=R"({"ops":[["rename_device","Детская","Свет","Основной свет"],["power_device","Детская","Ночник"]]})";
  reply=session.handle("message",{{"session_id",owner},{"version",reply.at("version")},{"request_id","second"},{"text","Свет назови основным. Ещё добавь ночник только с включением и выключением."}});
  check(reply.at("configuration").at("devices").size()==3,"followup extends draft");
@@ -327,6 +430,29 @@ int main(int argc,char**argv){int failures=0,checks=0;
   check(state.at("configuration").at("rooms").size()==1&&state.at("configuration").at("devices").size()==1,"retry does not duplicate partially persisted creations");
   resumedAgain.handle("apply",{{"session_id",token},{"version",state.at("version")}});
   check(applies==1&&crashStore.current()->configuration().devices.size()==1,"only completed request can be explicitly applied");
+ }
+
+ {
+  admin_test::Directory dir;firefly::config::ConfigStore store(dir.path);
+  const auto base=store.initialize(firefly::config::ConfigLoader::fromFile(std::string(argv[1])+"/config/empty-home.json"));
+  int dialogueCalls=0,hardware=0;
+  const std::string original="Создай Детскую, добавь туда Свет и Телевизор. Оба только включаются и выключаются.";
+  SetupSession session(store,[&](const Json& request)->Json {
+   if(request.at("method")=="dialogue") {
+    ++dialogueCalls;check(request.at("text")==original,"atomic request retains final restrictions unchanged");
+    const auto ops=expandDialogueOperations(R"({"ops":[["location","Детская"],["power_device","Детская","Свет"],["power_device","Детская","Телевизор"]]})");
+    return {{"ok",true},{"suggestion",Json::parse(decodeCopilotProposal(ops.dump(),admin_test::catalog(request.at("configuration"))))}};
+   }
+   if(request.at("method")=="language_profile")return {{"ok",false}};
+   if(request.at("method")=="execute")++hardware;
+   return {{"ok",true}};
+  });
+  auto state=session.handle("start",{});const auto token=state.at("session_id");
+  state=session.handle("message",{{"session_id",token},{"version",state.at("version")},{"request_id","atomic"},{"text",original},{"atomic_message",true}});
+  check(dialogueCalls==1 && state.at("configuration").at("devices").size()==2,"atomic A plan in one validated unit");
+  for(const auto& device:state.at("configuration").at("devices"))check(device.at("action_ids").size()==2,"only explicit ON/OFF capabilities");
+  check(store.current()->contentHash()==base->contentHash()&&hardware==0,"atomic proposal never publishes or executes");
+  session.handle("cancel",{{"session_id",token}});
  }
 
  }catch(const std::exception&e){++failures;std::cerr<<"EXCEPTION "<<e.what()<<'\n';}

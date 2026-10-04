@@ -64,17 +64,18 @@ public:
         }
         std::atomic_store(&published_,std::make_shared<const Json>(view()));
     }
+    ~SetupSession() { if(entryWorker_.joinable())entryWorker_.join(); }
     bool active() const { return active_; }
     Json handle(std::string_view route, const Json& request) {
         if(route=="status") {
             const auto snapshot=std::atomic_load(&published_);
             return snapshot?*snapshot:Json{{"ok",true},{"active",false},{"status","idle"}};
         }
-        if(route=="cancel") {
+        if(route!="start" && route!="resume") {
             const auto owner=std::atomic_load(&publishedOwner_);
             if(!active_ || !owner || request.value("session_id",std::string())!=*owner)
                 throw std::runtime_error("setup_session_conflict");
-            std::atomic_store(&cancelOwner_,owner);
+            if(route=="cancel")std::atomic_store(&cancelOwner_,owner);
         }
         std::unique_lock<std::mutex> lock(mutex_,std::try_to_lock);
         if (!lock.owns_lock()) {
@@ -84,6 +85,7 @@ public:
         if (route == "status") return view();
         if (route == "start" || route == "resume") {
             if (active_) throw std::runtime_error("setup_busy: другая сессия уже настраивает ассистента");
+            const bool asyncEntry=request.is_object() && request.value("async_enter",false);
             const auto base = store_.current();
             if (route == "resume") {
                 if(data_.value("status",std::string())=="applied")throw std::runtime_error("no_pending_setup_draft");
@@ -93,6 +95,15 @@ public:
                 {"focus",Json::array()},{"version",0},{"last_request",""},{"questions",Json::array()},{"trace",Json::array()}};
             owner_ = token(); std::atomic_store(&publishedOwner_,std::make_shared<const std::string>(owner_));std::atomic_store(&cancelOwner_,std::shared_ptr<const std::string>()); active_ = true; data_["status"]="entering";
             heartbeat_ = activity_ = Clock::now(); persist();
+            if(asyncEntry) {
+                // Publish ownership immediately. The joined server worker owns
+                // entry even if the initiating HTTP connection is closed/reloaded.
+                if(entryWorker_.joinable())entryWorker_.join();
+                entryRunning_=true;
+                try { entryWorker_=std::thread([this]{ enterInBackground(); }); }
+                catch (...) { entryRunning_=false;active_=false;data_["status"]="entry_failed";persist();throw; }
+                auto result=view();result["session_id"]=owner_;return result;
+            }
             try { invoke({{"method","setup_enter"}}); data_["status"]=data_.value("message_incomplete",false)?"planning_failed":"editing"; }
             catch (...) { active_=false; data_["status"]="entry_failed"; persist(); throw; }
             heartbeat_=Clock::now(); persist(); auto result=view(); result["session_id"]=owner_; return result;
@@ -100,7 +111,12 @@ public:
         if (!active_ || request.value("session_id",std::string()) != owner_)
             throw std::runtime_error("setup_session_conflict");
         heartbeat_ = Clock::now();
-        if (route == "heartbeat" || route == "authorize") return view();
+        if (route == "heartbeat") return view();
+        if(entryRunning_) {
+            if(route=="cancel") { data_["status"]="cancel_pending";persist();return view(); }
+            throw std::runtime_error("setup_entering");
+        }
+        if (route == "authorize") return view();
         activity_ = Clock::now();
         if (route == "cancel") { restore(); return view(); }
         if (route == "message" && request.value("request_id",std::string()) == data_.value("last_request",std::string()) && !request.value("request_id",std::string()).empty()) return view();
@@ -111,7 +127,15 @@ public:
             auto catalog=config::ConfigLoader::fromJson(request.at("configuration").dump());
             RuntimeGeneration admission(catalog);
             data_["configuration"]=Json::parse(catalog->canonicalJson());
-            data_["questions"]=Json::array(); data_["status"]="editing"; advance();
+            data_["questions"]=Json::array(); data_["unresolved_text"]="";
+            // A manual checkpoint restore must not retain references to rejected creations.
+            Json focus=Json::array();
+            for(const auto& id:data_["focus"]) {
+                bool present=false;
+                for(const auto* category:{"rooms","devices"})for(const auto& entity:data_["configuration"].at(category))if(entity.at("id")==id)present=true;
+                if(present && std::find(focus.begin(),focus.end(),id)==focus.end())focus.push_back(id);
+            }
+            data_["focus"]=focus; data_["status"]="editing"; advance();
         } else if (route == "message") {
             const auto text=request.at("text").get<std::string>(); validateMessage(text);
             if(data_.value("message_incomplete",false) &&
@@ -130,7 +154,11 @@ public:
             const auto original=data_["configuration"];
             const auto originalFocus=data_["focus"];
             try {
-                auto steps=unresolved.empty()?split(plannedText):std::vector<std::string>{plannedText};
+                // V2 proposals keep a short request and its final capability restriction
+                // in one validation unit. Legacy clients retain sentence stepping.
+                const bool atomicMessage=request.value("atomic_message",false);
+                if(atomicMessage && plannedText.size()>1800)throw std::runtime_error("admin_step_budget: сократите просьбу до одного небольшого предложения");
+                auto steps=unresolved.empty() && !atomicMessage?split(plannedText):std::vector<std::string>{plannedText};
                 if(!unresolved.empty() && plannedText.size()>1800)throw std::runtime_error("admin_step_budget: уточните незавершённую просьбу меньшими частями");
                 if (steps.size()>16) throw std::runtime_error("setup_step_limit: максимум 16 связанных шагов");
                 data_["questions"]=Json::array();
@@ -175,7 +203,8 @@ public:
                             try {
                                 data_["progress"]["phase"]="language_profile";persist();
                                 auto language=invoke({{"method","language_profile"},{"configuration",data_["configuration"]},
-                                    {"entity",std::string(category)=="rooms"?"location":std::string(category)=="devices"?"device":"action"},{"id",entity.at("id")}});
+                                    {"entity",std::string(category)=="rooms"?"location":std::string(category)=="devices"?"device":"action"},{"id",entity.at("id")},
+                                    {"initial_location",std::string(category)=="rooms"}});
 
                                 auto next=data_["configuration"];
                                 for(auto& target:next.at(category)) if(target.at("id")==entity.at("id")) {
@@ -239,14 +268,20 @@ public:
     void tick(std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now()) {
         std::unique_lock<std::mutex> lock(mutex_,std::try_to_lock);
         if (!lock.owns_lock() || !active_ || data_.value("status",std::string())=="restart_required") return;
-        if (cancellationRequested() || now-heartbeat_>std::chrono::seconds(disconnectSeconds_) || now-activity_>std::chrono::seconds(inactivitySeconds_))
-            try { restore(); } catch (...) { data_["status"]="restart_required"; persist(); }
+        if (cancellationRequested() || now-heartbeat_>std::chrono::seconds(disconnectSeconds_) || now-activity_>std::chrono::seconds(inactivitySeconds_)) {
+            if(entryRunning_) {
+                std::atomic_store(&cancelOwner_,std::atomic_load(&publishedOwner_));
+                data_["status"]="cancel_pending";persist();
+            } else try { restore(); } catch (...) { data_["status"]="restart_required"; persist(); }
+        }
     }
 private:
     int disconnectSeconds_=120, inactivitySeconds_=1800;
     using Clock=std::chrono::steady_clock;
     config::ConfigStore& store_; Call call_; std::string path_,owner_;
     mutable std::mutex mutex_; std::atomic<bool> active_{false};
+    std::thread entryWorker_;
+    bool entryRunning_=false; // Protected by mutex_; heavy runtime entry holds no session lock.
     std::shared_ptr<const Json> published_;
     std::shared_ptr<const std::string> publishedOwner_;
     std::shared_ptr<const std::string> cancelOwner_;
@@ -256,6 +291,22 @@ private:
         return requested && requested==std::atomic_load(&publishedOwner_);
     }
     Json data_=Json::object(); Clock::time_point heartbeat_=Clock::now(),activity_=Clock::now();
+    void enterInBackground() {
+        // call_ returns only runtime data; unlike invoke it does not mutate the
+        // draft while heartbeats/cancellation access it under mutex_.
+        bool entered=false;
+        try { entered=call_({{"method","setup_enter"}}).value("ok",false); }
+        catch (...) { /* Runtime entry already owns its failure restoration. */ }
+        std::lock_guard<std::mutex> lock(mutex_);
+        entryRunning_=false;
+        try {
+            if(!entered) { active_=false;data_["status"]="entry_failed";persist();return; }
+            const auto now=Clock::now();
+            if(cancellationRequested() || now-heartbeat_>std::chrono::seconds(disconnectSeconds_) ||
+                now-activity_>std::chrono::seconds(inactivitySeconds_))restore();
+            else { data_["status"]=data_.value("message_incomplete",false)?"planning_failed":"editing";persist(); }
+        } catch (...) { data_["status"]="restart_required";try { persist(); } catch (...) {} }
+    }
     static int limit(const char* key,int fallback,int low,int high) {
         const char* value=std::getenv(key);if(!value)return fallback;
         const std::string text(value);int result=0;
