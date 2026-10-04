@@ -102,6 +102,56 @@ int main(int argc,char**argv){int failures=0,checks=0;
   api.handle("POST","/api/setup/cancel",Json{{"session_id",enteredSetup.at("session_id")}}.dump());
  }
 
+ // Slow entry must not hold ownership/heartbeat hostage to model loading.
+ for(const auto* outcome:{"editing","cancel","disconnect","failure"}) {
+  struct SlowEntry : SetupModel {
+   std::atomic<bool> entered{false},release{false}; bool fail=false;
+   void enterSetup() override {
+    entered=true;
+    while(!release)std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    if(fail)throw std::runtime_error("injected entry failure");
+    SetupModel::enterSetup();
+   }
+  } slow;
+  slow.fail=std::string(outcome)=="failure";
+  admin_test::Directory isolated;firefly::config::ConfigStore isolatedStore(isolated.path);
+  auto original=isolatedStore.initialize(firefly::config::ConfigLoader::fromFile(std::string(argv[1])+"/config/empty-home.json"));
+  RuntimeWorker slowWorker(slow);
+  const auto runtimeCall=[&](const Json& request){return Json::parse(slowWorker.handle(request.dump()));};
+  runtimeCall({{"method","apply"},{"configuration",Json::parse(original->canonicalJson())}});
+  SetupSession asyncSession(isolatedStore,runtimeCall);
+  check(rejected([&]{asyncSession.handle("start",{{"async_enter","yes"}});})&&!asyncSession.active(),"invalid entry flag cannot create an orphaned owner");
+  const auto started=asyncSession.handle("start",{{"async_enter",true}});const auto token=started.at("session_id");
+  check(started.at("status")=="entering"&&!token.get<std::string>().empty(),"Start returns ownership before entry finishes");
+  for(int i=0;i<1000&&!slow.entered;++i)std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  check(slow.entered&&slowWorker.setupBlocked(),"background entry closes command admission");
+  check(!asyncSession.handle("status",{}).contains("session_id"),"read-only status never exposes owner token");
+  check(asyncSession.handle("heartbeat",{{"session_id",token}}).at("status")=="entering","same tab token authorizes heartbeat during entry/reload");
+  check(rejected([&]{asyncSession.handle("heartbeat",{{"session_id","another-browser"}});}),"second browser cannot renew owner heartbeat");
+  check(rejected([&]{asyncSession.handle("cancel",{{"session_id","another-browser"}});}),"second browser cannot cancel entry");
+  check(rejected([&]{asyncSession.handle("start",{{"async_enter",true}});}),"duplicate Start during entry blocked");
+  for(const auto* route:{"message","draft","apply","authorize"})
+   check(rejected([&]{asyncSession.handle(route,{{"session_id",token},{"version",0},{"configuration",Json::parse(original->canonicalJson())},{"text","Добавь устройство"},{"request_id","early"}});}),"entry blocks conflicting mutations and auxiliary AI/probe authorization");
+  if(std::string(outcome)=="cancel")check(asyncSession.handle("cancel",{{"session_id",token}}).at("status")=="cancel_pending","entry cancel queues restoration without racing the model");
+  if(std::string(outcome)=="disconnect")asyncSession.tick(std::chrono::steady_clock::now()+std::chrono::seconds(121));
+  slow.release=true;
+  Json completed;
+  for(int i=0;i<3000;++i) {
+   completed=asyncSession.handle("status",{});
+   if(completed.at("status")!="entering"&&completed.at("status")!="cancel_pending"&&completed.at("status")!="restoring")break;
+   std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  if(std::string(outcome)=="editing") {
+   check(completed.at("status")=="editing"&&completed.at("version")==0,"entry automatically becomes editing without changing CAS version");
+   asyncSession.handle("cancel",{{"session_id",token}});
+   for(int i=0;i<3000&&asyncSession.active();++i) {
+    asyncSession.tick();std::this_thread::sleep_for(std::chrono::milliseconds(1));
+   }
+  } else if(slow.fail)check(completed.at("status")=="entry_failed"&&!asyncSession.active(),"entry failure remains explicit without automatic retry");
+  else check(completed.at("status")=="cancelled_draft_saved"&&!asyncSession.active(),"entry cancellation or disconnect restores runtime and saves only draft");
+  check(!slowWorker.setupBlocked()&&isolatedStore.current()->contentHash()==original->contentHash(),"entry/cancel never Save or Apply and reopen restored runtime");
+ }
+
  std::string emoji;for(int i=0;i<4000;++i)emoji+="😀";
  check(validateMessage(emoji)==4000,"4000 unicode accepted");
  check(rejected([&]{validateMessage(emoji+"я");}),"4001 rejected");

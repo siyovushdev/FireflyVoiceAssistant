@@ -265,12 +265,27 @@ Local STT вернул «ха»; ожидаемая фраза «Добавь в
 
 Артефакты: `build/b3-live/explicit-real-voice-20261004.{json,log,png}`, `-run.log`; diagnostic script `build/b3-live/RealVoiceSmoke.cjs` локальный, не Git. После завершения private demo `/tmp/firefly-b2-manual` восстановлен с исходными аргументами, включая прежний voice/wake режим; эти настройки не менялись. PR остаётся Draft, без merge; B4 не начат.
 
+## Startup/reload ownership — owner acceptance fix
+
+V2 Start/Resume передаёт `async_enter: true`. SetupSession создаёт и публикует ownership/version/entering state и немедленно возвращает owner token; загрузка Admin Qwen продолжается в принадлежащем сессии joined worker. Старые клиенты без optional flag сохраняют синхронный контракт. Worker живёт независимо от HTTP request и reload, при завершении API его join выполняется до уничтожения используемых runtime/state объектов.
+
+Браузер сразу записывает token в tab sessionStorage до любых следующих запросов. Во время entering показаны «Подготавливаем локальный AI… Это может занять некоторое время.» и indeterminate progress. Повторный Start, Send, Apply, ручные изменения и Contextual Assist блокируются; Cancel остаётся доступным. Heartbeat/status не ждут загрузки модели. Reload того же tab проверяет сохранённый token через heartbeat, сохраняет ownership и показывает preparation до автоматического перехода в editing. Новый tab без token остаётся read-only; status не раскрывает token. Ownership проверяется до ответа setup_busy, поэтому краткая блокировка checkpoint при завершении entry не считается чужой сессией. После завершения асинхронной отмены браузер очищает token.
+
+Backend во время entry отклоняет message/draft/apply/authorize и duplicate Start. Cancel и истечение disconnect/inactivity deadline ставят pending cancellation; worker выполняет штатные setup_restore/setup_finish после окончания entry, без параллельного обращения к модели. Heartbeat и CAS/version сохраняются; окончание загрузки не продлевает heartbeat задним числом. Entry failure публикует entry_failed без автоматического повтора. Уже имеющийся локальный manual plan переносится в setup draft после editing одним CAS request; pending flag хранится при reload и расходуется до запроса, поэтому response loss не вызывает auto retry. Конфликтующие UI действия остаются заблокированными до ответа CAS, включая переход entering → editing. Apply не выполняется.
+
+Regressions используют блокируемый model-entry seam: token до завершения loading, heartbeat/reload с прежним owner, второй tab read-only, duplicate Start и конфликтующие запросы rejected, cancel/disconnect restore, entry failure без retry, zero hidden Apply/hardware. Chromium проверяет настоящий production bundle + C++ API и две вкладки с разным sessionStorage. Language Profile generation, prompts, limits, STT и модели не изменены; в этом fix реальный NPU/voice gate не перезапускался.
+
+Проверки startup fix (2026-10-04): frontend typecheck **PASS**, unit/state/adapter **34/34 PASS**, production frontend build/offline assets и CMake build **PASS**. Focused Setup/B2/B3 Chromium/API + Setup model **7/7 PASS**, **105.44 s**. Полный CTest **72/72 PASS**, **269.67 s**. `git diff --check` **PASS**. Legacy Chromium readiness при reload теперь ждёт новый document, чтобы не прочитать globals уходящей страницы.
+
+Логи: `build/b3-entry-{typecheck,frontend-test,frontend-build,build,focused,ctest}.log`; Chromium artifacts — `build/b3-acceptance/`. Private demo `/tmp/firefly-b3-manual` восстановлен с исходными аргументами после проверок. PR #2 остаётся Draft; real voice smoke owner pending, без merge и B4.
+
 ## Changed files
 
 - `benchmarks/web-admin-b3/Acceptance.cpp`
 - `benchmarks/web-admin-b3/Monitor.py`
 - `docs/web-admin-ux-v2-b3.md`
 - `src/admin/AdminCopilot.cpp`
+- `src/admin/Api.cpp`
 - `src/admin/CMakeLists.txt`
 - `src/admin/DialogueOperations.h`
 - `src/admin/RuntimeWorker.cpp`
@@ -296,6 +311,7 @@ Local STT вернул «ха»; ожидаемая фраза «Добавь в
 - `src/admin/frontend/src/views/ZonesView.vue`
 - `src/admin/frontend/tests/setup.test.mjs`
 - `tests/admin/SetupTests.cpp`
+- `tests/admin/SetupWebBrowserTests.js`
 - `tests/admin/v2/ChromiumTests.js`
 - `tests/admin/v2/SetupApiTests.py`
 - `tests/admin/v2/SetupChromiumTests.js`

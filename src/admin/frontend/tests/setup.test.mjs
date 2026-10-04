@@ -144,3 +144,80 @@ test('physical coordinator validates before review and Accept, never calls AI; s
         assert.equal(calls.filter(c=>c.path==='/api/setup/draft').length,1,'only explicit successful Accept patches draft');
     } finally {globalThis.fetch=originalFetch;}
 });
+
+test('startup persists ownership during entering, restores same tab, and blocks competing actions', async () => {
+    const s = await import('../.test-build/stores/setup.js');
+    const { setupAuth } = await import('../.test-build/api/setup.js');
+    const { manual } = await import('../.test-build/stores/manual.js');
+    const memory = new Map(), calls = [], key = 'firefly-v2-setup-owner';
+    globalThis.sessionStorage = { getItem:k=>memory.get(k)??null, setItem:(k,v)=>memory.set(k,v), removeItem:k=>memory.delete(k) };
+    setupAuth.token='';s.session.value=null;s.proposal.value=null;manual.base.value=null;manual.candidate.value=null;manual.task.value=null;
+    let state={ok:true,active:false,status:'idle'}, heartbeatBusy=false;
+    const originalFetch=globalThis.fetch;
+    globalThis.fetch=async(path,options={})=>{
+        const body=options.body?JSON.parse(options.body):{};calls.push({path,body});let reply;
+        if(path==='/api/config')reply={ok:true,hash:'base',revision:1,configuration:base};
+        else if(path==='/api/setup/status')reply=state;
+        else if(path==='/api/setup/start') {
+            assert.equal(body.async_enter,true);
+            state={ok:true,active:true,status:'entering',version:0,configuration:base};reply={...state,session_id:'entry-owner'};
+        } else if(path==='/api/setup/heartbeat') {
+            assert.equal(body.session_id,'entry-owner');
+            if(heartbeatBusy){heartbeatBusy=false;return new Response(JSON.stringify({ok:false,errors:[{code:'setup_failed',path:'',message:'setup_busy'}]}),{status:409});}
+            reply=state;
+        } else if(path==='/api/setup/cancel')reply=state={...state,status:'cancel_pending'};
+        else throw Error('Unexpected mutation '+path);
+        return new Response(JSON.stringify(reply),{status:200});
+    };
+    try {
+        await s.startSetup();
+        const persisted=memory.get(key);
+        assert.equal(JSON.parse(persisted).token,'entry-owner');assert.equal(state.status,'entering');
+        assert.equal(s.owned.value,true);assert.equal(s.entering.value,true);assert.equal(s.ready.value,false);
+        s.composer.value='Добавь устройство';await s.sendMessage();await s.startSetup();
+        assert.equal(calls.filter(c=>c.path==='/api/setup/start').length,1);
+        assert.equal(calls.filter(c=>c.path==='/api/setup/message').length,0);
+        setupAuth.token='';s.session.value=null;heartbeatBusy=true;
+        await s.restoreSession();
+        assert.equal(s.owned.value,true);assert.equal(s.entering.value,true);assert.equal(setupAuth.token,'entry-owner');
+        assert.doesNotMatch(s.setupNotice.value,/другим браузером/);
+        memory.delete(key);setupAuth.token='';s.session.value=null;
+        await s.restoreSession();assert.equal(s.owned.value,false);assert.match(s.setupNotice.value,/только просмотр/);
+        memory.set(key,persisted);await s.restoreSession();
+        state={...state,status:'editing'};await s.refreshSession();
+        assert.equal(s.entering.value,false);assert.equal(s.ready.value,true);
+        state={...state,status:'entering'};await s.refreshSession();await s.cancelSetup();
+        assert.equal(s.session.value.status,'cancel_pending');assert.equal(s.transitioning.value,true);assert.equal(s.ready.value,false);
+        state={...state,active:false,status:'cancelled_draft_saved'};await s.refreshSession();
+        assert.equal(s.owned.value,false);assert.equal(setupAuth.token,'');assert.equal(memory.has(key),false);
+        assert.equal(calls.filter(c=>/apply|command|poll|probe|execute|setup\/draft/.test(c.path)).length,0);
+    } finally { globalThis.fetch=originalFetch;setupAuth.token='';s.session.value=null;s.proposal.value=null; }
+});
+
+test('manual plan carried into Start waits for entry and uses one CAS draft request after reload', async () => {
+    const s=await import('../.test-build/stores/setup.js');
+    const {manual}=await import('../.test-build/stores/manual.js');
+    const {setupAuth}=await import('../.test-build/api/setup.js');
+    const memory=new Map(),calls=[],planned=fixture();
+    globalThis.sessionStorage={getItem:k=>memory.get(k)??null,setItem:(k,v)=>memory.set(k,v),removeItem:k=>memory.delete(k)};
+    setupAuth.token='';s.session.value=null;s.proposal.value=null;manual.base.value={ok:true,hash:'base',revision:1,configuration:base};manual.candidate.value=planned;manual.task.value=null;
+    let state={ok:true,active:false,status:'idle'};
+    const originalFetch=globalThis.fetch;
+    globalThis.fetch=async(path,options={})=>{
+        const body=options.body?JSON.parse(options.body):{};calls.push(path);let reply;
+        if(path==='/api/config')reply={ok:true,hash:'base',revision:1,configuration:base};
+        else if(path==='/api/setup/status'||path==='/api/setup/heartbeat')reply=state;
+        else if(path==='/api/setup/start')reply={...(state={ok:true,active:true,status:'entering',version:0,configuration:base}),session_id:'owner'};
+        else if(path==='/api/setup/draft') {assert.equal(body.version,0);assert.deepEqual(body.configuration,planned);reply=state={...state,version:1,configuration:planned};}
+        else throw Error('Unexpected request '+path);
+        return new Response(JSON.stringify(reply),{status:200});
+    };
+    try {
+        await s.startSetup();assert.equal(calls.includes('/api/setup/draft'),false);
+        setupAuth.token='';s.session.value=null;await s.restoreSession();
+        assert.equal(calls.includes('/api/setup/draft'),false);assert.deepEqual(manual.candidate.value,planned);
+        state={...state,status:'editing'};await s.refreshSession();await s.refreshSession();
+        assert.equal(calls.filter(p=>p==='/api/setup/draft').length,1);assert.equal(s.ready.value,true);
+        assert.equal(calls.some(p=>/apply|command|probe|poll|execute/.test(p)),false);
+    } finally {globalThis.fetch=originalFetch;setupAuth.token='';s.session.value=null;s.proposal.value=null;}
+});

@@ -1,10 +1,11 @@
 """Private C++ API fixture: owner/version/atomic/no-zone/recovery, no hardware."""
-import copy, json, pathlib, subprocess, sys, tempfile, time, urllib.request, urllib.error
+import copy, os, json, pathlib, subprocess, sys, tempfile, time, urllib.request, urllib.error
 app, worker, root = sys.argv[1:]
 with tempfile.TemporaryDirectory(prefix='firefly-b3-api-') as temp:
     pathlib.Path(temp, 'store').mkdir(mode=0o700)
     log = open(pathlib.Path(temp)/'server.log', 'w+')
-    process = subprocess.Popen([app, '--store', temp+'/store', '--init-config', root+'/config/empty-home.json', '--runtime-worker', worker, '--admin-port', '0'], stdout=log, stderr=log)
+    gate = pathlib.Path(temp, 'entry-gate'); gate.touch()
+    process = subprocess.Popen([app, '--store', temp+'/store', '--init-config', root+'/config/empty-home.json', '--runtime-worker', worker, '--admin-port', '0'], stdout=log, stderr=log, env={**os.environ,'FIREFLY_B3_ENTRY_GATE':str(gate)})
     try:
         url = None
         for _ in range(200):
@@ -19,13 +20,36 @@ with tempfile.TemporaryDirectory(prefix='firefly-b3-api-') as temp:
             try:
                 with urllib.request.urlopen(request, timeout=20) as response: status, data = response.status, json.load(response)
             except urllib.error.HTTPError as error: status, data = error.code, json.load(error)
-            assert status == code, (path,status,data)
+            assert status in (code if isinstance(code, tuple) else (code,)), (path,status,data)
             return data
         for _ in range(200):
             if call('/api/status')['runtime_ready']: break
             time.sleep(.05)
         original = call('/api/config'); assert not call('/api/setup/status')['active']
-        state = call('/api/setup/start', {}); token = state['session_id']
+        state = call('/api/setup/start', {'async_enter':True}); token = state['session_id']
+        assert state['status'] == 'entering' and token
+        assert 'session_id' not in call('/api/setup/status')
+        assert call('/api/setup/heartbeat', {'session_id':token})['status'] == 'entering'
+        call('/api/setup/heartbeat', {'session_id':'second-browser'},409)
+        call('/api/setup/start', {'async_enter':True},409)
+        for route in ['message','draft','apply','authorize']:
+            call('/api/setup/'+route, {'session_id':token,'version':0},409)
+        # Cancel during entry stays pending until model load returns, then restores.
+        assert call('/api/setup/cancel', {'session_id':token})['status'] == 'cancel_pending'
+        gate.unlink()
+        for _ in range(200):
+            if not call('/api/setup/status')['active']: break
+            time.sleep(.02)
+        assert call('/api/setup/status')['status'] == 'cancelled_draft_saved'
+        assert call('/api/config')['hash'] == original['hash']
+        state = call('/api/setup/resume', {'async_enter':True}); token = state['session_id']
+        for _ in range(200):
+            state = call('/api/setup/heartbeat', {'session_id':token}, (200,409))
+            if state.get('status') == 'editing': break
+            if not state.get('ok'): assert state['errors'][0]['message'] == 'setup_busy'
+            time.sleep(.02)
+        assert state['status'] == 'editing'
+
         body = {'session_id':token,'version':state['version'],'request_id':'no-zone','text':'Добавь контроллер стенда без зоны.','atomic_message':True}
         call('/api/setup/message', {**body,'session_id':'not-owner'},409)
         call('/api/setup/message', {**body,'version':-1},409)

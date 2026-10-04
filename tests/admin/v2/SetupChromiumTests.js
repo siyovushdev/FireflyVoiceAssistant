@@ -6,6 +6,7 @@ const assert = require('node:assert/strict');
 const [app, worker, root, chromium, artifacts] = process.argv.slice(2);
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'firefly-b3-browser-'));
 fs.mkdirSync(path.join(temp, 'store'), { mode: 0o700 }); fs.mkdirSync(artifacts, { recursive: true });
+const entryGate = path.join(temp, 'entry-gate'); fs.writeFileSync(entryGate, 'hold');
 const log = fs.openSync(path.join(artifacts, 'server.log'), 'w'), failFile = path.join(temp, 'fail-apply');
 let server, chrome, socket, output = '', nextId = 0, url, power = false;
 const pending = new Map(), requests = [], external = [], exceptions = [], hardware = [];
@@ -46,7 +47,7 @@ async function screenshot(name) { const r = await send('Page.captureScreenshot',
     const config = JSON.parse(fs.readFileSync(path.join(root, 'tests/admin/v2/system.json')));
     config.rooms = []; config.devices = []; config.actions = []; config.system.name = 'Пустой стенд';
     const fixture = path.join(temp, 'empty.json'); fs.writeFileSync(fixture, JSON.stringify(config));
-    server = spawn(app, ['--store', path.join(temp, 'store'), '--init-config', fixture, '--runtime-worker', worker, '--admin-port', '0'], { stdio: ['ignore', 'pipe', log], env: { ...process.env, FIREFLY_B2_FAIL_APPLY_FILE: failFile } });
+    server = spawn(app, ['--store', path.join(temp, 'store'), '--init-config', fixture, '--runtime-worker', worker, '--admin-port', '0'], { stdio: ['ignore', 'pipe', log], env: { ...process.env, FIREFLY_B2_FAIL_APPLY_FILE: failFile, FIREFLY_B3_ENTRY_GATE: entryGate } });
     server.stdout.on('data', b => output += b); await until(() => output.includes('ADMIN_LISTEN'), 'C++ server'); url = output.match(/ADMIN_LISTEN (http:\/\/\S+)/)[1];
     await until(async () => (await api('/api/status')).runtime_ready, 'runtime');
     const before = await api('/api/config');
@@ -67,6 +68,35 @@ async function screenshot(name) { const r = await send('Page.captureScreenshot',
     assert.equal(requests.filter(r => r.url.endsWith('/api/setup/start')).length, 0, 'opening setup never starts ownership');
     assert.equal((await api('/api/setup/status')).active, false);
     await click('Начать настройку'); await until(async () => (await api('/api/setup/status')).active, 'setup active');
+    await until(() => js('!!JSON.parse(sessionStorage.getItem("firefly-v2-setup-owner") || "{}").token'), 'owner persisted before entry finishes');
+    const entryToken = await js('JSON.parse(sessionStorage.getItem("firefly-v2-setup-owner")).token');
+    assert.equal((await api('/api/setup/status')).status, 'entering');
+    assert.match(await text(), /Подготавливаем локальный AI/);
+    assert.ok(await js('document.querySelector(".setup-fields").disabled'));
+    assert.ok(await js('document.querySelector("main .manual-toolbar button").disabled'));
+    assert.equal(await js('[...document.querySelectorAll("main button")].some(b => b.textContent === "Начать настройку" && !b.disabled)'),false);
+    await send('Page.reload');
+    await until(async () => (await text()).includes('Подготавливаем локальный AI'), 'reload preparation state');
+    await until(() => js('!!document.querySelector(".setup-fields")'), 'same owner after reload');
+    assert.equal(await js('JSON.parse(sessionStorage.getItem("firefly-v2-setup-owner")).token'),entryToken);
+    assert.doesNotMatch(await text(), /другим браузером|принадлежит другому браузеру/);
+    // A separate page without opener has independent sessionStorage.
+    const peer = await send('Target.createTarget',{url:url+'/v2/#/setup'});
+    const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
+    const peerSocket = new WebSocket(targets.find(t=>t.id===peer.targetId).webSocketDebuggerUrl);
+    await new Promise((resolve,reject)=>{peerSocket.onopen=resolve;peerSocket.onerror=reject;});
+    let peerSeq=0; const peerPending=new Map();
+    peerSocket.onmessage=e=>{const m=JSON.parse(e.data);if(m.id){peerPending.get(m.id)?.(m.result);peerPending.delete(m.id);}};
+    const peerJs=expression=>new Promise(resolve=>{const id=++peerSeq;peerPending.set(id,r=>resolve(r.result?.value));peerSocket.send(JSON.stringify({id,method:'Runtime.evaluate',params:{expression,returnByValue:true}}));});
+    await until(async()=>String(await peerJs('document.body.innerText')).includes('Доступен только просмотр'),'second tab read-only');
+    assert.equal(await peerJs('sessionStorage.getItem("firefly-v2-setup-owner")'),null);
+    assert.equal(await peerJs('!!document.querySelector(".setup-fields")'),false);
+    await send('Target.closeTarget',{targetId:peer.targetId});peerSocket.close();
+    assert.equal((await api('/api/config')).hash,before.hash);
+    assert.equal(hardware.length,0);
+    assert.equal(requests.filter(r=>r.url.endsWith('/api/setup/apply')).length,0);
+    fs.unlinkSync(entryGate);
+    await until(() => js('!!document.querySelector(".setup-fields") && !document.querySelector(".setup-fields").disabled'), 'automatic entry completion');
     async function ask(value) { await until(() => js('[...document.querySelectorAll("main label")].some(l => l.textContent.startsWith("Ваша просьба") && l.getClientRects().length)'), 'composer ready'); await fill('Ваша просьба', value); await click('Отправить'); await until(() => js('!document.querySelector("main .setup-screen [role=status]")?.textContent.includes("Локальный AI")'), 'AI done'); await delay(150); }
     async function proposal() { await until(() => js('!!document.querySelector(".proposal-card")'), 'proposal card'); }
     async function accept(physical = false) { await click(physical ? 'Принять подключение в план' : 'Принять в план'); await until(() => js('!document.querySelector(".proposal-card")'), 'proposal accepted'); }

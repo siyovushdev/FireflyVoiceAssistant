@@ -70,7 +70,7 @@ struct Api::Impl {
             if (!timerStop) try { setup->tick(); } catch (const std::exception&) { /* explicit setup status remains unavailable */ }
         }});
     }
-    ~Impl() { timerStop = true; if (timer.joinable()) timer.join(); }
+    ~Impl() { timerStop = true; if (timer.joinable()) timer.join(); setup.reset(); }
     void syncHealthFromRuntime(const Json& live) {
         const bool modelReady = live.value("model_ready", false);
         if (modelReady) health.setSubsystem("llm", SubsystemStatus::Ready);

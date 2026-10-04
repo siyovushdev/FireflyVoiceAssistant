@@ -3,12 +3,21 @@
 #include "Ipc.h"
 #include <poll.h>
 #include <iostream>
+#include <thread>
 using admin_test::Json;
 class Model final : public admin_test::Model {
 public:
     Json request;
     bool setupRequired() const override { return true; }
-    void enterSetup() override {}
+    void enterSetup() override {
+        const char* gate=std::getenv("FIREFLY_B3_ENTRY_GATE");
+        if(!gate)return;
+        const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(60);
+        while(::access(gate,F_OK)==0) {
+            if(std::chrono::steady_clock::now()>deadline)throw std::runtime_error("fixture entry gate timeout");
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
     void leaveSetup(const std::string& p) override { useContext(p); }
     void useAdminContext(const std::string& p, int) override { prompt=p; }
     std::string inferAdmin(std::string_view input) override {

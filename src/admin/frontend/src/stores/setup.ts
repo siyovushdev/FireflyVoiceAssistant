@@ -18,9 +18,12 @@ export const proposal = shallowRef<Pending | null>(null);
 export const facts = ref(emptyFacts()), sharedChoice = ref(''), probeResult = ref('');
 const accepted = shallowRef<ConfigurationDto | null>(null);
 const retryText = ref('');
+const initialPlanPending = ref(false), initialPlanSyncing = ref(false);
+export const entering = computed(() => session.value?.active && session.value.status === 'entering');
+export const transitioning = computed(() => !!session.value?.active && (initialPlanPending.value || initialPlanSyncing.value || ['entering', 'cancel_pending', 'restoring', 'restoring_for_admission'].includes(session.value.status)));
 const connectivityContext = () => JSON.stringify({ target: deviceContext.value, facts: facts.value, shared: sharedChoice.value });
 export const owned = computed(() => !!setupAuth.token && !!session.value?.active);
-export const ready = computed(() => owned.value && !proposal.value && !session.value?.message_incomplete && session.value?.status === 'editing' && !setupBusy.value && JSON.stringify(session.value?.configuration) === JSON.stringify(accepted.value));
+export const ready = computed(() => owned.value && !transitioning.value && !proposal.value && !session.value?.message_incomplete && session.value?.status === 'editing' && !setupBusy.value && JSON.stringify(session.value?.configuration) === JSON.stringify(accepted.value));
 export const proposalChanges = computed(() => proposal.value ? setupChanges(proposal.value.before, proposal.value.after) : []);
 export const selectedConsumers = computed(() => {
     const config = manual.draft.value;
@@ -30,14 +33,18 @@ export const selectedConsumers = computed(() => {
 });
 function persist() {
     if (!setupAuth.token) return;
-    sessionStorage.setItem(storageKey, JSON.stringify({ token: setupAuth.token, accepted: accepted.value, proposal: proposal.value, retryText: retryText.value, version: session.value?.version, facts: facts.value, device: deviceContext.value, zone: zoneContext.value, lane: lane.value, shared: sharedChoice.value }));
+    sessionStorage.setItem(storageKey, JSON.stringify({ token: setupAuth.token, initialPlanPending: initialPlanPending.value, accepted: accepted.value, proposal: proposal.value, retryText: retryText.value, version: session.value?.version, facts: facts.value, device: deviceContext.value, zone: zoneContext.value, lane: lane.value, shared: sharedChoice.value }));
 }
 function receive(value: Session) {
     if (session.value?.version !== value.version || session.value?.active !== value.active) manual.review.value = null;
     session.value = value; manual.setup.value = value;
+    if (!value.active && setupAuth.token) {
+        setupAuth.token = ''; sessionStorage.removeItem(storageKey);
+        initialPlanPending.value = false; proposal.value = null;
+    }
 }
 function installPlan(configuration: ConfigurationDto) { accepted.value = freezeDeep(clone(configuration)); manual.candidate.value = accepted.value; manual.review.value = null; manual.version.value++; persist(); }
-async function guardVersion(version = session.value?.version) {
+async function guardVersion(version = session.value?.version, allowTransition = false) {
     let current: Session;
     try { current = await setupRequest('heartbeat', {}); }
     catch (error) {
@@ -45,6 +52,7 @@ async function guardVersion(version = session.value?.version) {
         throw error;
     }
     receive(current);
+    if (!allowTransition && transitioning.value) throw Error('Подготовка или восстановление AI ещё не завершены.');
     if (current.version !== version) { manual.review.value = null; throw Error('План изменён другой вкладкой. Ввод сохранён; перечитайте предложение и выполните новый review.'); }
 }
 export async function setupRun(operation: () => Promise<void>) {
@@ -57,27 +65,42 @@ export async function setupRun(operation: () => Promise<void>) {
 export async function refreshSession() {
     const value = await setupRequest('status'); receive(value);
     if (setupAuth.token && value.active && !setupBusy.value && !manual.busy.value) {
-        try { await guardVersion(); } catch (error) { setupIssues.value = issuesOf(error); }
+        try { await guardVersion(undefined, true); await finishInitialPlan(); }
+        catch (error) { const issues = issuesOf(error); if (!issues.some(e => e.message.includes('setup_busy'))) setupIssues.value = issues; }
     }
 }
 export async function restoreSession() {
     await setupRun(async () => {
-        let saved: { token?: string; accepted?: ConfigurationDto; proposal?: Pending; retryText?: string; version?: number; facts?: ReturnType<typeof emptyFacts>; device?: string; zone?: string; lane?: 'semantic' | 'connectivity'; shared?: string } = {};
+        setupNotice.value = '';
+        let saved: { token?: string; initialPlanPending?: boolean; accepted?: ConfigurationDto; proposal?: Pending; retryText?: string; version?: number; facts?: ReturnType<typeof emptyFacts>; device?: string; zone?: string; lane?: 'semantic' | 'connectivity'; shared?: string } = {};
         try { saved = JSON.parse(sessionStorage.getItem(storageKey) ?? '{}'); } catch { /* No authority inferred from invalid storage. */ }
         const value = await setupRequest('status'); receive(value);
         if (!value.active) return;
         if (!saved.token) {
+            setupAuth.token = '';
             setupNotice.value = 'Настройка открыта другим браузером. Доступен только просмотр.';
             const base = await readApi('/api/config');
             if (value.configuration) proposal.value = { lane: 'semantic', before: base.configuration, after: value.configuration, version: value.version! };
             return;
         }
         setupAuth.token = saved.token;
-        try { await setupRequest('heartbeat', {}); } catch { setupAuth.token = ''; throw Error('Эта настройка принадлежит другой сессии.'); }
+        try { receive(await setupRequest('heartbeat', {})); }
+        catch (error) {
+            const issues = issuesOf(error);
+            if (issues.some(e => e.message.includes('setup_session_conflict'))) {
+                setupAuth.token = ''; sessionStorage.removeItem(storageKey);
+                throw Error('Эта настройка принадлежит другой сессии.');
+            }
+            // Backend checks ownership before reporting busy. A short entry
+            // completion/checkpoint lock cannot turn this owner into another tab.
+            if (!issues.some(e => e.message.includes('setup_busy'))) throw error;
+        }
         const base = await readApi('/api/config'); manual.base.value = base;
+        initialPlanPending.value = saved.initialPlanPending ?? false;
         accepted.value = saved.accepted ?? base.configuration; manual.candidate.value = accepted.value;
         retryText.value = saved.retryText ?? ''; facts.value = saved.facts ?? emptyFacts(); deviceContext.value = saved.device ?? ''; zoneContext.value = saved.zone ?? ''; lane.value = saved.lane ?? 'semantic'; sharedChoice.value = saved.shared ?? '';
-        if (value.configuration) {
+        if (initialPlanPending.value) proposal.value = null;
+        else if (value.configuration) {
             // Reload always re-reviews a persisted unconfirmed server result.
             proposal.value = saved.proposal?.version === value.version ? saved.proposal! :
                 JSON.stringify(value.configuration) !== JSON.stringify(accepted.value) ? { lane: 'semantic', before: accepted.value, after: value.configuration, version: value.version! } : null;
@@ -85,8 +108,18 @@ export async function restoreSession() {
         if (proposal.value?.lane === 'connectivity' && proposal.value.source !== 'explicit') {
             proposal.value = null; setupNotice.value = 'Прежнее AI-предложение подключения устарело. Подготовьте предложение из явных фактов заново.';
         } else if (proposal.value) setupNotice.value = 'Неподтверждённое предложение восстановлено. Проверьте и примите его заново.';
-        persist();
+        persist(); await finishInitialPlan();
     });
+}
+async function finishInitialPlan() {
+    if (!initialPlanPending.value || session.value?.status !== 'editing') return;
+    // This is the manual plan explicitly carried into Start. Consume the flag
+    // before the CAS request so failure/response loss cannot trigger an auto retry.
+    initialPlanSyncing.value = true; initialPlanPending.value = false; persist();
+    try {
+        receive(await setupRequest('draft', { version: session.value.version, configuration: accepted.value }));
+        installPlan(session.value!.configuration!);
+    } finally { initialPlanSyncing.value = false; }
 }
 export async function startSetup(resume = false) {
     await setupRun(async () => {
@@ -95,12 +128,14 @@ export async function startSetup(resume = false) {
         const base = await readApi('/api/config');
         if (manual.base.value && manual.base.value.hash !== base.hash && manual.dirty.value) throw Error('Основа локального плана изменилась; сначала согласуйте его в Advanced.');
         setupAuth.token = '';
-        const value = await setupRequest(resume ? 'resume' : 'start', {}); receive(value);
-        setupAuth.token = value.session_id!; lane.value = 'semantic'; facts.value = emptyFacts(); manual.base.value = base; accepted.value = manual.candidate.value ?? base.configuration;
-        proposal.value = null;
+        const value = await setupRequest(resume ? 'resume' : 'start', { async_enter: true }); receive(value);
+        setupAuth.token = value.session_id!;
+        // Persist identity before any follow-up request or model-ready handling.
+        sessionStorage.setItem(storageKey, JSON.stringify({ token: setupAuth.token }));
+        lane.value = 'semantic'; facts.value = emptyFacts(); manual.base.value = base; accepted.value = manual.candidate.value ?? base.configuration;
+        proposal.value = null; initialPlanPending.value = !resume && JSON.stringify(accepted.value) !== JSON.stringify(value.configuration);
         if (resume && value.configuration && JSON.stringify(value.configuration) !== JSON.stringify(accepted.value)) proposal.value = { lane: 'semantic', before: accepted.value, after: value.configuration, version: value.version! };
-        else if (!resume && JSON.stringify(accepted.value) !== JSON.stringify(value.configuration)) receive(await setupRequest('draft', { version: value.version, configuration: accepted.value }));
-        accepted.value = proposal.value ? accepted.value : session.value!.configuration!; manual.candidate.value = accepted.value; persist(); setupNotice.value = 'Настройка начата. Рабочие голосовые команды приостановлены.';
+        accepted.value = proposal.value || initialPlanPending.value ? accepted.value : session.value!.configuration!; manual.candidate.value = accepted.value; persist(); setupNotice.value = ''; await finishInitialPlan();
     });
 }
 export async function manualAfterQuestion() {
@@ -127,7 +162,7 @@ export function connectDevice(id: string) {
 }
 export async function sendMessage(retry = false) {
     await setupRun(async () => {
-        if (!owned.value || proposal.value || manual.task.value || manual.voiceBusy.value) throw Error('Начните настройку и завершите текущий review или ручную задачу.');
+        if (!owned.value || transitioning.value || proposal.value || manual.task.value || manual.voiceBusy.value) throw Error('Начните настройку и завершите текущий review или ручную задачу.');
         const text = retry ? retryText.value : composer.value.trim();
         if (!text) throw Error('Введите просьбу.');
         if (session.value?.message_incomplete && !retry) throw Error('Незавершённую просьбу нужно повторить полностью через «Повторить просьбу» либо отменить настройку.');
