@@ -9,10 +9,10 @@ fs.mkdirSync(path.join(temp, 'store'), { mode: 0o700 }); fs.mkdirSync(artifacts,
 const log = fs.openSync(path.join(artifacts, 'server.log'), 'w'), failFile = path.join(temp, 'fail-apply');
 let server, chrome, socket, output = '', nextId = 0, url, power = false;
 const pending = new Map(), requests = [], external = [], exceptions = [], hardware = [];
-let tcpConnections = 0, holdStt = false, pendingStt = null;
+let tcpConnections = 0, tcpBytes = 0, holdStt = false, pendingStt = null;
 const sttResult = Buffer.from(JSON.stringify({ok:true,text:'Добавь вентилятор в Цех'})).toString('base64');
 const mock = http.createServer((req, res) => { let body = ''; req.on('data', b => body += b); req.on('end', () => { hardware.push({ method: req.method, url: req.url, body }); if (req.method === 'POST') power = JSON.parse(body).on; const response = JSON.stringify({ on: power }); res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(response) }); res.end(response); }); });
-mock.on('connection', () => tcpConnections++);
+mock.on('connection', socket => { tcpConnections++; socket.on('data', bytes => tcpBytes += bytes.length); });
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(check, label, ms = 25000) { const end = Date.now() + ms; while (Date.now() < end) { if (await check()) return; await delay(80); } throw Error('Timeout: ' + label); }
 function send(method, params = {}) { return new Promise((resolve, reject) => { const id = ++nextId; pending.set(id, { resolve, reject }); socket.send(JSON.stringify({ id, method, params })); }); }
@@ -99,27 +99,46 @@ async function screenshot(name) { const r = await send('Page.captureScreenshot',
     await ask('Добавь контроллер стенда без зоны.'); await proposal(); await accept();
     draft = (await api('/api/setup/status')).configuration;
     const standalone = draft.devices.find(d => d.name === 'Контроллер стенда'); assert.equal(standalone.room_id, null); assert.equal(standalone.action_ids.length, 0); assert.equal(draft.rooms.length, 4);
+    await click('Настроить подключение: Контроллер стенда'); await click('Настроить подключение вручную'); await until(() => js('!!document.querySelector("dialog .wizard")'), 'non-power B2 fallback'); await click('Отмена');
     console.log('D: insufficient facts never call Copilot; follow-up accumulates explicit contract');
     await click('Настроить подключение: Вентилятор');
+    await select('Общее подключение:', 'Создать отдельное подключение для выбранного устройства');
     const copilotBefore = requests.filter(r => r.url.endsWith('/api/admin/copilot')).length;
     await ask('Подключи насос к контроллеру.'); assert.match(await text(), /Какой адрес и протокол/);
     await ask('как обычно'); assert.equal(requests.filter(r => r.url.endsWith('/api/admin/copilot')).length, copilotBefore);
     await ask(endpoint); await ask('POST /relay/1 {"on":true}'); await ask('POST /relay/1 {"on":false}'); await ask('GET /relay/1, поле on'); await proposal();
+    assert.match(await text(), /Подключение из явных фактов/);
+    assert.equal(requests.filter(r => r.url.endsWith('/api/admin/copilot') || r.url.endsWith('/api/admin/copilot/accept')).length,0);
+    assert.equal((await api('/api/setup/status')).configuration.bindings.length,0,'physical proposal is not yet accepted');
+    await send('Page.reload'); await until(async () => (await text()).includes('Неподтверждённое предложение восстановлено'), 'physical reload'); await proposal();
+    const physicalOwner = await js('JSON.parse(sessionStorage.getItem("firefly-v2-setup-owner")).token'), physicalBase = await api('/api/setup/status');
+    const racedPhysical = await fetch(url+'/api/setup/draft',{method:'POST',headers:{'Content-Type':'application/json','X-Firefly-Admin':'1',Origin:url},body:JSON.stringify({session_id:physicalOwner,version:physicalBase.version,configuration:physicalBase.configuration})});
+    assert.equal(racedPhysical.status,200); await click('Принять подключение в план'); await until(async ()=>(await text()).includes('План изменён другой вкладкой'),'physical stale version');
+    assert.equal((await api('/api/setup/status')).configuration.bindings.length,0);
+    await click('Перечитать серверный черновик для review'); await until(()=>js('!document.querySelector(".proposal-card")'),'stale proposal cleared');
+    await ask(endpoint); await proposal();
+    assert.equal(requests.filter(r=>r.url.endsWith('/api/admin/copilot')).length,0);
     assert.equal(requests.filter(r => r.url.endsWith('/api/setup/message') && /127\.0\.0\.1|relay\/1/.test(r.body)).length, 0);
     assert.equal((await api('/api/config')).hash, before.hash); assert.equal(hardware.length, 0);
+    await click('Изменить: Подключение'); await until(()=>js('!!document.querySelector("dialog .wizard")'),'manual physical edit');
+    await click('HTTP / REST →');
+    assert.equal(await js('[...document.querySelectorAll("dialog label")].find(l=>l.textContent.startsWith("Endpoint")).querySelector("input").value'),endpoint,'B2 receives explicit proposal values');
+    await click('Отмена'); assert.equal((await api('/api/setup/status')).configuration.bindings.length,0);
+    await ask(endpoint); await proposal();
     // Fault fixture enters an unrelated incomplete connection through the visible import form.
     await route('advanced'); const invalid = structuredClone((await api('/api/setup/status')).configuration);
     invalid.connections = [...(invalid.connections ?? []), { id:'unfinished', name:'Незавершённое B', type:'http', enabled:true, timeout_ms:2000, http:{base_url:''} }];
     await fill('Документ кандидата', JSON.stringify(invalid)); await click('Проверить импорт и добавить в план'); await until(() => js('!!document.querySelector("main [role=alert]")'), 'invalid import');
     await route('setup');
-    await click('Проверить доступность'); await until(async () => (await text()).includes('TCP доступен'), 'TCP probe'); assert.equal(hardware.length, 0); assert.ok(tcpConnections > 0);
+    await click('Проверить доступность'); await until(async () => (await text()).includes('TCP доступен'), 'TCP probe'); assert.equal(hardware.length, 0); assert.ok(tcpConnections > 0); assert.equal(tcpBytes,0,'probe sends exactly zero HTTP bytes');
     await accept(true);
     await click('Сохранить и применить', 'main .manual-toolbar'); await until(async () => (await text()).includes('Непроверенный импорт блокирует'), 'unrelated incomplete task blocks final Apply');
     await click('Перейти к полю или сущности'); await click('Отбросить импорт'); await route('setup');
     console.log('C: one explicit final setup Apply, zero hardware; independent read confirms');
     await click('Сохранить и применить', 'main .manual-toolbar'); await until(() => js('[...document.querySelectorAll("dialog button")].some(b => b.textContent === "Подтвердить применение" && !b.disabled)'), 'setup final review');
     assert.equal(hardware.length, 0); assert.equal((await api('/api/config')).hash, before.hash);
-    await screenshot('ai-final-review'); await click('Подтвердить применение'); await until(async () => (await api('/api/setup/status')).status === 'applied', 'setup Apply'); assert.equal(hardware.length, 0);
+    assert.match(await text(),/on = Да/); assert.match(await text(),/on = Нет/); assert.match(await text(),/on → Питание/);
+    await screenshot('explicit-final-review'); await click('Подтвердить применение'); await until(async () => (await api('/api/setup/status')).status === 'applied', 'setup Apply'); assert.equal(hardware.length, 0);
     assert.equal(requests.filter(r => r.method === 'PUT' || r.url.endsWith('/api/config/apply')).length, 0, 'setup lifecycle cannot be bypassed');
     await click('Назад к плану');
     const applied = (await api('/api/config')).configuration; const fan = applied.devices.find(d => d.name === 'Вентилятор');
@@ -144,7 +163,7 @@ async function screenshot(name) { const r = await send('Page.captureScreenshot',
     await click('✨ Заполнить с AI', 'dialog .ai-assist'); await until(async () => (await text()).includes('✨ Предложено AI'), 'device assist'); await click('Принять AI-поля');
     await click('✨ Заполнить с AI', 'dialog .action-editor .ai-assist'); await until(async () => (await text()).includes('✨ Предложено AI'), 'action assist'); await click('Принять AI-поля'); await click('Отмена');
     assert.equal(hardware.length, 1);
-    console.log('Shared connection: explicit choice and every consumer in AI proposal');
+    console.log('Shared connection: explicit choice and every consumer in deterministic proposal');
     await route('advanced'); const shared = structuredClone((await api('/api/setup/status')).configuration);
     const light = shared.devices.find(d => d.name === 'Свет');
     for (const a of light.action_ids) {
@@ -169,8 +188,8 @@ async function screenshot(name) { const r = await send('Page.captureScreenshot',
         await send('Emulation.setDeviceMetricsOverride', { width,height,deviceScaleFactor:1,mobile:false });
         assert.ok(await js('document.documentElement.scrollWidth <= innerWidth + 2'), 'setup fits viewport'); await screenshot('setup-' + width);
     }
-    assert.equal(hardware.length, 1); assert.equal(external.length, 0); assert.equal(exceptions.length, 0);
-    fs.writeFileSync(path.join(artifacts, 'results.json'), JSON.stringify({ passed:true, cases:['A','B','C','D','E-malformed','F','contextual','no-zone','non-home','reload'], hardware, tcpConnections, external, requests:requests.map(r=>({url:r.url,method:r.method})) }, null, 2));
+    assert.equal(hardware.length, 1); assert.equal(requests.filter(r=>/\/api\/admin\/copilot/.test(r.url)).length,0,'connectivity never invokes Copilot or its acceptance'); assert.equal(external.length, 0); assert.equal(exceptions.length, 0);
+    fs.writeFileSync(path.join(artifacts, 'results.json'), JSON.stringify({ passed:true, cases:['A','B','C','D','E-malformed','F','contextual','no-zone','non-home','reload'], hardware, tcpConnections, tcpBytes, connectivityAiCalls:0, external, requests:requests.map(r=>({url:r.url,method:r.method})) }, null, 2));
     console.log('PASS B3 visible AI setup controls; zero hardware before Apply; explicit poll=1 GET; offline');
 })().catch(async error => { console.error(error); if (socket) { try { console.error((await text()).slice(-12000)); await screenshot('failure'); } catch {} } process.exitCode = 1; }).finally(async () => {
     if (socket) socket.close(); mock.closeAllConnections(); await new Promise(resolve => mock.close(resolve));

@@ -9,6 +9,7 @@ import time
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--prefix', required=True)
+parser.add_argument('--remaining', help='Prior report with successful B fixture; run only non-home and contextual cases')
 args = parser.parse_args()
 prefix = Path(args.prefix)
 prefix.parent.mkdir(parents=True, exist_ok=True)
@@ -30,7 +31,10 @@ if available() < 6 * 1024 * 1024:
     raise SystemExit('6 GiB available memory required for existing Admin admission')
 
 with open(str(prefix) + '.log', 'w') as log, open(str(prefix) + '-memory.jsonl', 'w', buffering=1) as memory:
-    process = subprocess.Popen(['build/src/admin/admin_b3_acceptance', str(prefix) + '.json'], stdout=log, stderr=subprocess.STDOUT)
+    command = ['build/src/admin/admin_b3_acceptance', str(prefix) + '.json']
+    if args.remaining:
+        command += ['--remaining', args.remaining]
+    process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT)
     start = time.monotonic()
     stopped = None
     while process.poll() is None:

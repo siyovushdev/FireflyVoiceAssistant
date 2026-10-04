@@ -48,11 +48,11 @@ export function createManualStore(api = adminRequest, read = readApi, refresh = 
         catch (error) { issues.value = issuesOf(error); }
         finally { busy.value = false; }
     }
-    async function begin(kind: TaskKind, id = '') {
+    async function begin(kind: TaskKind, id = '', initial?: ConfigurationDto) {
         await run(async () => {
             if (task.value) throw Error('Завершите или отмените текущую задачу.');
             await ensure(); outcome.value = ''; showReview.value = false;
-            const buffer = clone(candidate.value!); let isNew = !id;
+            const buffer = clone(initial ?? candidate.value!); let isNew = !id;
             if (kind === 'system') { id = buffer.system.id; isNew = false; }
             if (kind === 'zone' && !id) {
                 id = allocate(buffer, 'zone'); buffer.rooms.push({ id, name: '', speech: { mentions: [], locations: [] }, metadata: { type: 'location', parent_id: null, container: false, description: '' } });

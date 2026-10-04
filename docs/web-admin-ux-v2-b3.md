@@ -1,6 +1,6 @@
 # Web Admin UX V2 B3 — AI-first setup
 
-Статус: **deterministic gate PASS; live NPU gate BLOCKED; B3 не принят владельцем**. B2 принят владельцем; PR #1 переведён в Ready и merged в master как `0c8436b7b5d7e52e5b06b3a3e9f7e9a32e0858df`, с head `ff23b562cb24f96657b6fbbe34d916d6d2bd9c21`. Локальный master обновлён, работа B3 выполняется в `feature/web-admin-ux-v2-b3`. Источник дизайна: [утверждённый design](web-admin-ux-v2-design.md).
+Статус: **deterministic gate PASS; physical C PASS без NPU; semantic live gate BLOCKED на no-zone; B3 не принят владельцем**. B2 принят владельцем; PR #1 переведён в Ready и merged в master как `0c8436b7b5d7e52e5b06b3a3e9f7e9a32e0858df`, с head `ff23b562cb24f96657b6fbbe34d916d6d2bd9c21`. Локальный master обновлён, работа B3 выполняется в `feature/web-admin-ux-v2-b3`. Источник дизайна: [утверждённый design](web-admin-ux-v2-design.md).
 
 ## Coordinator и proposal lifecycle
 
@@ -9,17 +9,17 @@
 Одна беседа использует два внутренних пути:
 
 - Semantic: `/api/setup/message`, server draft → неподтверждённая card → «Принять в план». Server draft не считается человеческим подтверждением. Reject восстанавливает предыдущий принятый checkpoint через `/setup/draft`.
-- Connectivity: явные факты собираются локально; полный input передаётся `/api/admin/copilot`, затем отдельная card → `/copilot/accept` → `/setup/draft`. IP и JSON никогда не отправляются в sentence splitter.
+- Connectivity (owner decision 2026-10-04): после сбора всех explicit facts кандидат строится локально через общие B2 `newHttpConnection`, `defaultHttpMapping`, `projectConnectivity`. Затем `/config/validate` → отдельная card → человеческий Accept → повторная validation и `/setup/draft` по текущей версии. `/copilot` и `/copilot/accept` не вызываются. IP и JSON не отправляются в sentence splitter. Legacy Admin Copilot API сохранён.
 
 `stores/setup.ts` хранит текущую session/version, принятый checkpoint, pending proposal и короткие explicit connectivity facts. Текст беседы показывается пользователю, но не отправляется целиком в модель и не хранится как durable chat. `stores/manual.ts` сохраняет TaskBuffer и общий readable review B2. Узкий lifecycle bridge синхронизирует законченные ручные задачи в принадлежащий этому tab server draft; во время setup никогда не делает прямые config Save/Apply.
 
-Proposal cards показывают зоны, устройства, возможности, внешний HTTP contract и shared consumers; exact JSON доступен в Advanced. Ручное редактирование proposal сначала возвращает checkpoint, затем открывает B2 TaskBuffer. Cancel не теряет предыдущий принятый план. Изменённое предложение требует новой проверки.
+Proposal cards показывают зоны, устройства, возможности, внешний HTTP contract и shared consumers; physical card помечена «Подключение из явных фактов», exact JSON доступен в Advanced. Ручное редактирование proposal сначала возвращает checkpoint, затем открывает B2 TaskBuffer. Cancel не теряет предыдущий принятый план. Изменённое предложение требует новой проверки.
 
 ## Факты и сетевые гарантии
 
-Follow-up сохраняет только явно введённые endpoint, ON/OFF method/path/scalar JSON, Observe GET path/response field либо явное отсутствие чтения. «Как обычно» не заполняет поля. IPv4 без протокола вызывает уточнение; протокол не угадывается. Для физических proposals используется существующее boolean `power`; иные контракты доступны через B2 wizard.
+Follow-up сохраняет только явно введённые endpoint, ON/OFF method/path/scalar JSON, Observe GET path/response field либо явное отсутствие чтения. «Как обычно» не заполняет поля. IPv4 без протокола вызывает уточнение; протокол не угадывается. Для физических proposals нужны ровно два однозначных безаргументных ON/OFF actions и одно существующее boolean `power`; иные контракты доступны через B2 wizard. Пустой body для POST/PUT/PATCH задаётся явно как `{}`. Endpoint с неявным path/protocol, nested body/field и противоречивые HTTP facts не исправляются. Shared/separate choice всегда явный. Если существующих Connection несколько либо задан base path, редактирование общего подключения передаётся ручному B2 wizard.
 
-Перед принятием V2 сверяет structured proposal с explicit facts: semantic changes, неизвестные operations, чужой target, выдуманные endpoint/path/body/response mapping/headers отклоняются целиком. Полная C++ validation и hash-bound Copilot acceptance остаются authoritative. Context/output budgets не увеличиваются.
+Перед показом и принятием V2 использует полный текущий accepted configuration. `verifyConnectivity` повторно строит кандидат из pinned facts/target/shared choice и отклоняет любое расхождение, включая чужие mappings или semantic changes. Setup heartbeat/version, сопоставление accepted/server draft и CAS `/setup/draft` не дают принять устаревшую основу. Полные C++ ConfigLoader/ConfigValidator остаются authoritative. Context/output budgets не увеличиваются; physical lane не генерирует AI JSON.
 
 При изменении общего Connection показываются все consumers; пользователь явно выбирает общий edit либо отдельное Connection. Отдельный вариант не разрешает модели менять endpoint общего Connection. TCP probe использует B2 `/api/connections/probe`: connect/close, ноль HTTP bytes, не проверка hardware/API. Нет auto-poll, hardware execution, auto-Apply или blind retries из setup.
 
@@ -55,7 +55,7 @@ Owner token хранится только в tab sessionStorage; не в URL, tr
 
 Существующий local WAV/STT: permission → recording с timer → transcribing → editable transcript → отдельное Send. `X-Firefly-Setup` передаёт существующую setup ownership. Запись/распознавание блокирует Apply. Отмена и navigation закрывают tracks, late responses не вставляются в новую задачу; PCM очищается после обработки. Raw audio не сохраняется. Secure-context baseline — localhost / SSH tunnel. Plain LAN HTTP получает объяснение и текстовый fallback.
 
-## Проверки
+## Проверки baseline 2026-10-03
 
 Frontend: typecheck PASS, **29/29** unit/state/adapter tests PASS, production build и offline artifact gate PASS (4 declared local assets, hashed JS/CSS). Fake model доказывает contracts/UI, но не качество реального Qwen.
 
@@ -142,23 +142,89 @@ C1 raw содержит ровно одну `set_http_connection` с задан�
 
 Во всех трёх прогонах `stored_unchanged=true`, hardware requests 0, inference retries 0. Production user-store не использовался и его существующие локальные изменения не затронуты. Минимальный MemAvailable: C1 2,054,528 KiB, C2 2,041,052 KiB, C3 2,068,268 KiB; memory admission не блокировал запросы. C3 является отдельным валидным diagnostic proposal, но не исправляет отказы C1/C2.
 
-**Implementation gate не пройден:** необходимы валидные proposals всех трёх stages, а не только отсутствие timeout. Coordinator, UX, inference limits, prompt и profile не изменяются. Staged C и последующие D/E/F/no-zone/Цех/Склад/Лабораторный стенд не запускаются. Real browser microphone smoke остаётся owner manual pending после text gate. PR остаётся Draft, B4 не начат.
+**Исторический staged-Qwen implementation gate не пройден:** необходимы валидные proposals всех трёх stages, а не только отсутствие timeout. В этом диагностическом commit coordinator, UX, inference limits, prompt и profile не изменялись. Staged C и последующие D/E/F/no-zone/Цех/Склад/Лабораторный стенд не запускаются. Real browser microphone smoke остаётся owner manual pending после text gate. PR остаётся Draft, B4 не начат.
 
 Для этого documentation-only изменения frontend tests, полный CTest и Chromium повторно не запускались: результаты 29/29, 72/72 и Chromium PASS выше относятся к baseline 2026-10-03, а не к новой staged реализации. Проверяется `git diff --check`.
 
 ### Real voice — отдельно
 
-**Owner microphone smoke pending; после text live blocker не запускался.** Fake recognition и browser controls не являются доказательством реального microphone/STT. Требуется произнести «Добавь вентилятор в Цех», проверить transcript, явно Send, увидеть proposal без Apply.
+**Baseline 2026-10-03: owner microphone smoke pending, после прежнего text blocker не запускался.** Текущая реальная попытка описана ниже. Fake recognition и browser controls не являются доказательством реального microphone/STT. Требуется произнести «Добавь вентилятор в Цех», проверить transcript, явно Send, увидеть proposal без Apply.
 
 ## Ограничения и B4
 
 - Автоматический разбор connectivity facts ограничен power-only HTTP; typed/non-power, nested/unsupported contracts остаются ручными B2 workflows. Observe без nested JSONPath/coercion.
-- Full catalog остаётся в существующем Copilot context; inventory около 900 bytes/output 384 не увеличены. При измеренном блокере требуется отдельное решение владельца.
+- Для legacy Copilot full catalog остаётся в существующем context; inventory около 900 bytes/output 384 не увеличены. При измеренном блокере требуется отдельное решение владельца.
 - Setup conversation не durable chat; checkpoints/ownership обеспечивают безопасный reload, история беседы не production state.
 - B4 не начат: vanilla `/` остаётся fallback, `/v2/` не становится default. Cloud, auth, HTTPS, новые executors, STT/VAD/wake и production inference не изменяются.
 - Owner acceptance B3 отдельная; публикация PR не означает принятия.
 
 URL: **http://localhost:8080/v2/#/setup** (после запуска binary с актуальным dist).
+
+## Deterministic physical lane — owner decision 2026-10-04
+
+[Последний owner comment](https://github.com/siyovushdev/FireflyVoiceAssistant/pull/2#issuecomment-5977519061) заменяет staged-Qwen направление: поддерживаемый power-only HTTP proposal собирается из уже известных фактов без NPU. Semantic setup и Contextual AI Assist остаются на Qwen. C больше не NPU-сценарий; прежние C/C1/C2/C3 таблицы выше сохраняются только как история решения.
+
+Общая B2 construction path сохраняет полный candidate, stable IDs и нетронутых consumers. Separate создаёт новый ID штатным allocator с учётом retired IDs; shared меняет выбранное единственное существующее Connection и показывает его consumers, включая Observe-only. Explicit no-observe удаляет только чтение выбранного устройства. Неизвестные headers, вложенные body, дополнительные actions и legacy/non-power контракты не синтезируются.
+
+Ready-to-review proposal ещё не меняет setup draft. Accept повторяет backend validation и проверку версии, затем записывает только draft. Final review содержит весь combined connectivity и требует отдельного Apply. Повреждённый/устаревший proposal или отказ backend сохраняет предыдущий accepted plan. Reload сохраняет неподтверждённый deterministic proposal; старые AI connectivity cards считаются устаревшими. Ручной B2 editor получает исходный proposal до создания формы, поэтому endpoint/mappings не теряются; Cancel сохраняет accepted checkpoint.
+
+Регрессии проверяют отсутствие запросов `/api/admin/copilot` и `/accept` на всём B3 connectivity пути; точные typed bodies; no-observe; shared/separate и Observe-only consumers; строгую полную validation; stale version/facts; сохранение плана после отказа; reload; B2 edit/cancel; общий review и explicit Apply; TCP probe с нулём HTTP bytes. Semantic malformed/mixed и старый Copilot остаются покрыты существующими suites.
+
+Проверки финального production/frontend кода 2026-10-04:
+
+| Проверка | Результат |
+| --- | --- |
+| Frontend typecheck | PASS |
+| Frontend unit/state/adapter | 32/32 PASS |
+| Frontend production build / offline gate | PASS, 4 local assets |
+| CMake build | PASS |
+| Focused B2+B3 Chromium/API + Setup/Copilot/GuardedCommand | 7/7 PASS, 70.99 s |
+| Full CTest | 72/72 PASS, 256.74 s |
+| C Chromium/API | PASS: zero Copilot/accept calls, proposal → explicit Accept → combined review → final confirmation → Apply |
+| Network assertions | До explicit operational action: hardware requests 0; TCP probe: 0 HTTP bytes; затем ровно один explicit GET |
+| B2 manual edit/cancel, regressions | PASS |
+| `git diff --check` | PASS |
+
+Logs: `build/b3-explicit-{typecheck,frontend-test,frontend-build,build,focused,ctest}.log`; screenshots/network report: `build/b3-acceptance/`. Первоначальный focused запуск пересёкся с линковкой и один B2 API fixture не дождался runtime; suite повторён после сборки и прошёл. Дополнительная browser regression выявила, что старый edit-proposal путь открывал wizard до замены buffer; передача initial candidate в `manual.begin` исправляет потерю endpoint и покрыта тестом.
+
+### Semantic и Contextual live NPU после deterministic gate
+
+```sh
+python3 benchmarks/web-admin-b3/Monitor.py --prefix build/b3-live/explicit-semantic-20261004-0735
+python3 benchmarks/web-admin-b3/Monitor.py --prefix build/b3-live/explicit-remaining-20261004-0741 \
+  --remaining build/b3-live/explicit-semantic-20261004-0735.json
+```
+
+`--remaining` — явное продолжение только ранее не выполненных non-home/contextual сценариев с validated fixture успешного B из указанного отчёта. Оно не повторяет no-zone, A/B/F и не меняет модель или profile. Используются новый private store и штатный новый engine после отмены незавершённой тестовой сессии. Production user-store не используется.
+
+| Сценарий | Результат | Полный message/API wall | Основные inference calls |
+| --- | --- | --- | --- |
+| A: Детская, Свет и Телевизор только ON/OFF | PASS | 112.050 s | dialogue 11.529 s |
+| B: Вентилятор в Цех упаковки, ON/OFF | PASS | 50.435 s | dialogue 7.708 s |
+| F: Вентилятор → Вытяжка, stable ID/actions | PASS | 4.926 s | dialogue 2.681 s |
+| no-zone: «Добавь контроллер стенда без зоны.» | **FAIL, безопасный validation rejection** | 28.803 s | 6.115 s + 6.368 s |
+| Цех | PASS | 35.265 s | dialogue 3.614 s |
+| Склад | PASS | 34.718 s | dialogue 4.078 s |
+| Лабораторный стенд | PASS после существующего format-retry | 63.953 s | 4.985 s + 5.540 s |
+| Contextual Zone draft | Validated suggestion | 31.499 s | 7.711 s + 15.363 s |
+| Contextual Device draft | Validated suggestion | 42.181 s | 8.683 s + 2.856 s + 18.943 s |
+| Contextual Action language | Validated suggestion | 8.938 s | 4.619 s |
+| Contextual Action schema | Validated suggestion | 25.075 s | 20.863 s |
+| Physical C | **Не NPU scenario** | Chromium/API gate выше | 0 AI calls |
+
+Message wall включает context admission и штатное дополнение языковых профилей. JSON artifacts содержат latency/trace/metrics/raw для **каждого** AI call, включая все профили; в таблице dialogue показан отдельно. Несколько inference calls в contextual draft — существующие группы генерации, не новый staged connectivity coordinator.
+
+No-zone дважды выдал `{"ops":[["power_device",null,"контроллер стенда"]]}`. Guard отклонил незапрошенные ON/OFF (`Power capabilities were not explicitly requested`); draft остался неизменным, никаких wrong capabilities не принято. В Лабораторном стенде первая попытка содержала неверный JSON object syntax; существующий semantic format-retry дал валидный `location`. Эти два retry уже предусмотрены прежним semantic backend, не добавлены этим изменением. В physical lane retries отсутствуют. Prompt, inference limits и retry policy semantic/legacy API не менялись; failed no-zone scenario целиком не перезапускался.
+
+Первый run: exit 1 после no-zone, 337.93 s; второй: exit 0, 366.87 s. Minimum MemAvailable 2,057,788 / 2,056,708 KiB. Оба private stored configuration остались равны исходному empty config, hardware requests 0, final Apply не выполнялся. Общий live gate **не PASS** из-за no-zone; модель не настраивалась для исправления этого результата.
+
+### Real browser microphone smoke — 2026-10-04
+
+В отдельном native `firefly-demo` с private store, штатным AdminSetup Zipformer и настоящим Chromium (без fake media/device/STT) выполнена одна запись на 6 секунд. Browser enumerated `reSpeaker XVF3800 4-Mic Array Analog Stereo`, системный default source — этот же физический вход. Запись сделана после отдельной отметки готовности. Raw WAV на диск не записывался.
+
+Local STT вернул «ха»; ожидаемая фраза «Добавь вентилятор в Цех» не получена. Результат появился в editable transcript. **Transcript не исправлялся и не отправлялся**: `/api/admin/transcribe` — 1 запрос, `/api/setup/message` — 0, Apply — 0, executions — 0; stored hash до/после одинаковый. Это подтверждает реальный capture → native STT → editable transcript и отсутствие auto Send, но **не** полный speech → semantic proposal PASS. Owner manual smoke с произнесённой фразой остаётся pending; без успешной фразы explicit Send не имитируется.
+
+Артефакты: `build/b3-live/explicit-real-voice-20261004.{json,log,png}`, `-run.log`; diagnostic script `build/b3-live/RealVoiceSmoke.cjs` локальный, не Git. После завершения private demo `/tmp/firefly-b2-manual` восстановлен с исходными аргументами, включая прежний voice/wake режим; эти настройки не менялись. PR остаётся Draft, без merge; B4 не начат.
 
 ## Changed files
 
@@ -183,6 +249,7 @@ URL: **http://localhost:8080/v2/#/setup** (после запуска binary с �
 - `src/admin/frontend/src/router/index.ts`
 - `src/admin/frontend/src/stores/manual.ts`
 - `src/admin/frontend/src/stores/setup.ts`
+- `src/admin/frontend/src/components/ConnectionWizard.vue`
 - `src/admin/frontend/src/styles/base.css`
 - `src/admin/frontend/src/views/DeviceDetailView.vue`
 - `src/admin/frontend/src/views/OverviewView.vue`

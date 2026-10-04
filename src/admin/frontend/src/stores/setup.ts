@@ -1,15 +1,15 @@
 import { computed, ref, shallowRef } from 'vue';
-import { adminRequest, issuesOf, type Issue, type CatalogReply } from '../api/admin.js';
+import { adminRequest, issuesOf, type Issue } from '../api/admin.js';
 import { readApi, freezeDeep } from '../api/client.js';
-import { setupAuth, setupRequest, type Session, type CopilotReply, type Proposal } from '../api/setup.js';
+import { setupAuth, setupRequest, type Session } from '../api/setup.js';
 import { clone, consumers } from '../adapters/editing.js';
-import { collectFacts, emptyFacts, missingFact, physicalInput, connectivityInput, verifyConnectivity, verifySemantic, supportsPowerContract, setupChanges } from '../adapters/setup.js';
+import { collectFacts, emptyFacts, missingFact, physicalInput, buildConnectivity, verifyConnectivity, targetConnectionIds, verifySemantic, supportsPowerContract, setupChanges } from '../adapters/setup.js';
 import type { ConfigurationDto } from '../types/wire.js';
 import { manual, type TaskKind } from './manual.js';
 import { system } from './system.js';
 
 const storageKey = 'firefly-v2-setup-owner';
-interface Pending { lane: 'semantic' | 'connectivity'; before: ConfigurationDto; after: ConfigurationDto; version: number; wire?: Proposal; facts?: string }
+interface Pending { lane: 'semantic' | 'connectivity'; before: ConfigurationDto; after: ConfigurationDto; version: number; source?: 'explicit'; facts?: string }
 export const session = shallowRef<Session | null>(null);
 export const setupBusy = ref(false), setupIssues = ref<Issue[]>([]), composer = ref(''), setupNotice = ref('');
 export const zoneContext = ref(''), deviceContext = ref(''), lane = ref<'semantic' | 'connectivity'>('semantic');
@@ -18,15 +18,15 @@ export const proposal = shallowRef<Pending | null>(null);
 export const facts = ref(emptyFacts()), sharedChoice = ref(''), probeResult = ref('');
 const accepted = shallowRef<ConfigurationDto | null>(null);
 const retryText = ref('');
+const connectivityContext = () => JSON.stringify({ target: deviceContext.value, facts: facts.value, shared: sharedChoice.value });
 export const owned = computed(() => !!setupAuth.token && !!session.value?.active);
 export const ready = computed(() => owned.value && !proposal.value && !session.value?.message_incomplete && session.value?.status === 'editing' && !setupBusy.value && JSON.stringify(session.value?.configuration) === JSON.stringify(accepted.value));
 export const proposalChanges = computed(() => proposal.value ? setupChanges(proposal.value.before, proposal.value.after) : []);
 export const selectedConsumers = computed(() => {
     const config = manual.draft.value;
     if (!config) return [];
-    const connections = new Set(config.bindings.filter(b => b.target_id === deviceContext.value).map(b => b.connection_id));
-    for (const o of config.observations ?? []) if (o.target_id === deviceContext.value) connections.add(o.connection_id);
-    return [...new Set([...connections].flatMap(id => id ? consumers(config, id) : []))];
+    const connections = targetConnectionIds(config, deviceContext.value);
+    return [...new Set(connections.flatMap(id => id ? consumers(config, id) : []))];
 });
 function persist() {
     if (!setupAuth.token) return;
@@ -82,7 +82,9 @@ export async function restoreSession() {
             proposal.value = saved.proposal?.version === value.version ? saved.proposal! :
                 JSON.stringify(value.configuration) !== JSON.stringify(accepted.value) ? { lane: 'semantic', before: accepted.value, after: value.configuration, version: value.version! } : null;
         }
-        if (proposal.value) setupNotice.value = 'Неподтверждённое предложение восстановлено. Проверьте и примите его заново.';
+        if (proposal.value?.lane === 'connectivity' && proposal.value.source !== 'explicit') {
+            proposal.value = null; setupNotice.value = 'Прежнее AI-предложение подключения устарело. Подготовьте предложение из явных фактов заново.';
+        } else if (proposal.value) setupNotice.value = 'Неподтверждённое предложение восстановлено. Проверьте и примите его заново.';
         persist();
     });
 }
@@ -120,7 +122,7 @@ export async function cancelSetup() {
 export function context(zone = '', device = '') { zoneContext.value = zone; deviceContext.value = device; }
 export function connectDevice(id: string) {
     deviceContext.value = id; facts.value = emptyFacts(); sharedChoice.value = ''; probeResult.value = '';
-    if (!manual.draft.value || !supportsPowerContract(manual.draft.value, id)) { lane.value = 'semantic'; setupNotice.value = 'Сначала укажите возможности устройства вручную. Этот AI-путь подключения требует объявленных ON/OFF и boolean Питания; другие HTTP contracts доступны в ручном wizard.'; return; }
+    if (!manual.draft.value || !supportsPowerContract(manual.draft.value, id)) { lane.value = 'connectivity'; setupNotice.value = 'Сначала укажите возможности устройства вручную. Этот путь подключения требует объявленных ON/OFF и boolean Питания; другие HTTP contracts доступны в ручном wizard.'; return; }
     lane.value = 'connectivity'; setupNotice.value = 'Укажите известный HTTP contract устройства. Неизвестные поля останутся пустыми.';
 }
 export async function sendMessage(retry = false) {
@@ -135,12 +137,14 @@ export async function sendMessage(retry = false) {
             lane.value = 'connectivity';
             facts.value = collectFacts(facts.value, text, missingFact(facts.value)?.key);
             const missing = missingFact(facts.value);
-            if (!deviceContext.value || missing) { setupNotice.value = !deviceContext.value ? 'Выберите устройство, которое подключаете.' : missing!.question; conversation.value.push({ role: 'Firefly', text: setupNotice.value }); composer.value = ''; return; }
-            if (selectedConsumers.value.length > 1 && !sharedChoice.value) throw Error('Выберите: изменить общее подключение или создать отдельное.');
-            const input = connectivityInput(accepted.value!, deviceContext.value, facts.value, sharedChoice.value);
-            const response = await adminRequest<CopilotReply>('/api/admin/copilot', { text: input, configuration: accepted.value });
-            const after = verifyConnectivity(accepted.value!, response.draft, deviceContext.value, facts.value, sharedChoice.value);
-            proposal.value = { lane: 'connectivity', before: accepted.value!, after, wire: response.draft, version: session.value!.version!, facts: JSON.stringify(facts.value) };
+            if (!deviceContext.value || missing) { setupNotice.value = !deviceContext.value ? 'Выберите устройство, которое подключаете.' : missing!.question; conversation.value.push({ role: 'Firefly', text: setupNotice.value }); composer.value = ''; persist(); return; }
+            const before = accepted.value!, version = session.value!.version!, fingerprint = connectivityContext();
+            if (JSON.stringify(session.value!.configuration) !== JSON.stringify(before)) throw Error('Принятый план изменился. Перечитайте серверный черновик.');
+            const after = buildConnectivity(before, deviceContext.value, facts.value, sharedChoice.value);
+            await adminRequest('/api/config/validate', { configuration: after });
+            await guardVersion(version);
+            if (fingerprint !== connectivityContext()) throw Error('Факты или устройство изменились. Подготовьте предложение заново.');
+            proposal.value = { lane: 'connectivity', source: 'explicit', before, after: freezeDeep(after), version, facts: fingerprint };
         } else {
             let input = text;
             if (!retry && deviceContext.value) { const device = accepted.value?.devices.find(d => d.id === deviceContext.value); if (!device) throw Error('Контекст устройства устарел.'); input = `Устройство: ${device.name} . ${input}`; }
@@ -157,19 +161,26 @@ export async function sendMessage(retry = false) {
             catch (error) { receive(await setupRequest('draft', { version: value.version, configuration: accepted.value })); throw error; }
             proposal.value = { lane: 'semantic', before: accepted.value!, after: value.configuration!, version: value.version! };
         }
-        setupNotice.value = 'AI подготовил предложение. Оно ещё не принято в план.'; composer.value = ''; persist();
+        setupNotice.value = lane.value === 'connectivity' ? 'Подключение собрано из явных фактов. Проверьте предложение: оно ещё не принято в план.' : 'AI подготовил предложение. Оно ещё не принято в план.'; composer.value = ''; persist();
     });
+}
+function verifyPendingConnectivity(pending: Pending) {
+    if (pending.source !== 'explicit' || pending.facts !== connectivityContext()
+        || JSON.stringify(pending.before) !== JSON.stringify(accepted.value)
+        || JSON.stringify(pending.before) !== JSON.stringify(session.value?.configuration)) throw Error('Факты или принятый план изменились; требуется новое предложение.');
+    verifyConnectivity(pending.before, pending.after, deviceContext.value, facts.value, sharedChoice.value);
 }
 async function acceptInternal() {
     const pending = proposal.value;
     if (!pending) throw Error('Нет предложения.');
     await guardVersion(pending.version);
     if (pending.lane === 'connectivity') {
-        if (pending.facts !== JSON.stringify(facts.value)) throw Error('Факты изменились; требуется новое предложение.');
-        verifyConnectivity(pending.before, pending.wire!, deviceContext.value, facts.value, sharedChoice.value);
-        const reply = await adminRequest<CatalogReply>('/api/admin/copilot/accept', { configuration: pending.before, proposal: pending.wire });
-        receive(await setupRequest('draft', { version: pending.version, configuration: reply.configuration }));
-        installPlan(reply.configuration);
+        verifyPendingConnectivity(pending);
+        await adminRequest('/api/config/validate', { configuration: pending.after });
+        await guardVersion(pending.version);
+        verifyPendingConnectivity(pending);
+        receive(await setupRequest('draft', { version: pending.version, configuration: pending.after }));
+        installPlan(session.value!.configuration!);
     } else { await adminRequest('/api/config/validate', { configuration: pending.after }); installPlan(pending.after); }
     proposal.value = null; probeResult.value = ''; persist();
     setupNotice.value = 'Принято в план. Система ещё не изменена. Подключение и оборудование командами не проверялись.';
@@ -187,12 +198,16 @@ export async function rejectProposal() {
 export async function editProposal(kind: TaskKind, id: string) {
     const pending = proposal.value; if (!pending) return;
     await rejectProposal(); if (proposal.value) return;
-    await manual.begin(kind, id);
-    if (manual.task.value) manual.task.value.buffer = clone(pending.after);
+    await manual.begin(kind, id, pending.after);
+}
+export async function manualConnectivity() {
+    if (proposal.value) { await editProposal('connection', deviceContext.value); return; }
+    await manual.begin('connection', deviceContext.value);
 }
 export async function probeProposal() {
     await setupRun(async () => {
-        const pending = proposal.value; if (!pending || pending.facts !== JSON.stringify(facts.value)) throw Error('Предложение устарело.');
+        const pending = proposal.value; if (!pending || pending.lane !== 'connectivity') throw Error('Предложение устарело.');
+        await guardVersion(pending.version); verifyPendingConnectivity(pending);
         const ids = new Set(pending.after.bindings.filter(b => b.target_id === deviceContext.value).map(b => b.connection_id));
         const connection = pending.after.connections?.find(c => ids.has(c.id));
         if (!connection) throw Error('Подключение отсутствует в предложении.');

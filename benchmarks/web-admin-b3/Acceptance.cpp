@@ -11,7 +11,7 @@ using namespace firefly::admin;
 volatile std::sig_atomic_t interrupted=0;
 void stop(int) { interrupted=1; }
 int main(int argc,char**argv) {
-    if(argc!=2)return 2;
+    if(argc!=2 && !(argc==4 && std::string(argv[2])=="--remaining"))return 2;
     std::signal(SIGTERM,stop);std::signal(SIGINT,stop);
     std::ofstream("/proc/self/oom_score_adj")<<1000;
     Json report={{"cases",Json::array()},{"calls",Json::array()},{"hardware_requests",0},{"real_voice","not_run"}};
@@ -69,31 +69,55 @@ int main(int argc,char**argv) {
             record["wall_ms"]=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-begin).count();
             report["cases"].push_back(record);save();std::cout<<"CASE "<<label<<" "<<record["classification"]<<std::endl;
         };
-        message("A","Создай Детскую, добавь туда Свет и Телевизор. Оба только включаются и выключаются.");
-        if(state.value("message_incomplete",false))throw std::runtime_error("A_incomplete_inspect_trace_before_further_runs");
-        const auto empty=Json::parse(baseline->canonicalJson());reset(empty);
-        // Test fixture creates only the existing Zone for scenario B. Device is real AI.
-        auto zoneRaw=expandDialogueOperations(R"({"ops":[["location","Цех упаковки"]]})");
-        auto workshop=Json::parse(decodeCopilotProposal(zoneRaw.dump(),baseline)).at("configuration");reset(workshop);
-        message("B","Зона: Цех упаковки . Добавь вентилятор, только включение и выключение.");
-        if(state.value("message_incomplete",false))throw std::runtime_error("B_incomplete_inspect_trace_before_further_runs");
-        auto devices=state.at("configuration").at("devices");
-        if(devices.empty())throw std::runtime_error("B_no_device_requires_owner_review");
-        const auto candidate=state.at("configuration");const auto target=devices[0].at("id").get<std::string>();
-        const Json facts={{"endpoint","http://127.0.0.1:8765"},{"on",{{"method","POST"},{"path","/relay/1"},{"body",{{"on",true}}}}},{"off",{{"method","POST"},{"path","/relay/1"},{"body",{{"on",false}}}}},{"observe","/relay/1"},{"field","on"},{"noObserve",false}};
-        const std::string physical="Настрой только HTTP подключение для Вентилятор ("+target+"). Создать отдельное подключение только для выбранного устройства.\nЯвные факты пользователя: "+facts.dump()+". Не меняй семантику. ON/OFF — существующие действия питания, Observe относится к существующему boolean свойству power. Никаких других сетевых фактов.";
-        result=call({{"method","copilot"},{"configuration",candidate},{"text",physical}});
-        report["cases"].push_back({{"case","C"},{"text",physical},{"result",result},{"classification",result.value("ok",false)?"proposal_requires_review":"validation_rejection"}});save();
-        if(!result.value("ok",false))throw std::runtime_error("C_failed_inspect_context_output_budget_before_changes");
-        reset(Json::parse(acceptCopilotProposal(candidate.dump(),result.at("draft").dump())).at("configuration"));
-        result=call({{"method","copilot"},{"configuration",candidate},{"text","Подключи насос к контроллеру. Как обычно."}});
-        report["cases"].push_back({{"case","D"},{"result",result},{"classification",result.value("ok",false)?"wrong_proposal":"clarification_or_rejection"}});save();
-        result=call({{"method","copilot"},{"configuration",state.at("configuration")},{"text","Переименуй Вентилятор в Вытяжку и одновременно измени HTTP подключение, адрес как обычно."}});
-        report["cases"].push_back({{"case","E-mixed-missing-facts"},{"result",result},{"classification",result.value("ok",false)?"wrong_proposal":"validation_rejection_or_clarification"}});save();
-        message("F","Переименуй Вентилятор в зоне упаковки в Вытяжку.");
-        reset(empty);message("no-zone","Добавь контроллер стенда без зоны.");
+        const auto empty=Json::parse(baseline->canonicalJson());
+        Json candidate;
+        // Explicit continuation runs only previously unexecuted cases. It never
+        // retries the failed request or changes the model/profile.
+        if(argc==4) {
+            std::ifstream previousFile(argv[3]);Json previous;previousFile>>previous;
+            for(const auto& record:previous.at("cases"))
+                if(record.at("case")=="B" && record.at("classification")=="semantic_success")
+                    candidate=record.at("state").at("configuration");
+            if(candidate.is_null())throw std::runtime_error("remaining_requires_successful_B_fixture");
+            candidate=Json::parse(firefly::config::ConfigLoader::fromJson(candidate.dump())->canonicalJson());
+            report["continued_from"]=argv[3];save();
+        } else {
+            message("A","Создай Детскую, добавь туда Свет и Телевизор. Оба только включаются и выключаются.");
+            if(state.value("message_incomplete",false))throw std::runtime_error("A_incomplete_inspect_trace_before_further_runs");
+            reset(empty);
+            // Fixture creates only the existing Zone. Device is real AI.
+            auto zoneRaw=expandDialogueOperations(R"({"ops":[["location","Цех упаковки"]]})");
+            auto workshop=Json::parse(decodeCopilotProposal(zoneRaw.dump(),baseline)).at("configuration");reset(workshop);
+            message("B","Зона: Цех упаковки . Добавь вентилятор, только включение и выключение.");
+            if(state.value("message_incomplete",false))throw std::runtime_error("B_incomplete_inspect_trace_before_further_runs");
+            candidate=state.at("configuration");
+            if(candidate.at("devices").empty())throw std::runtime_error("B_no_device_requires_owner_review");
+            message("F","Переименуй Вентилятор в зоне упаковки в Вытяжку.");
+            reset(empty);message("no-zone","Добавь контроллер стенда без зоны.");
+        }
+        const auto target=candidate.at("devices")[0].at("id").get<std::string>();
+        // Physical C uses the shared B2 path in browser/API tests, never the NPU.
+        report["connectivity"] = {{"mode","deterministic_explicit_facts"},{"npu_calls",0}};
         for(const auto* name:{"Цех","Склад","Лабораторный стенд"}) {reset(empty);message(name,std::string("Создай зону ")+name+".");}
+        const auto assist=[&](const std::string& label, const Json& request) {
+            const auto reply=call(request);
+            report["cases"].push_back({{"case",label},{"result",reply},
+                {"classification",reply.value("ok",false)?"validated_suggestion":"validation_rejection"}});
+            save();
+            if(!model.ready()) throw std::runtime_error(label+"_model_unavailable_no_retry");
+        };
+        assist("contextual-zone",{{"method","draft"},{"entity","location"},{"name","Цех"}});
+        assist("contextual-device",{{"method","draft"},{"entity","device"},{"name","Вентилятор"}});
+        assist("contextual-action-language",{{"method","language_profile"},{"configuration",candidate},
+            {"entity","action"},{"id",candidate.at("devices")[0].at("action_ids")[0]}});
+        assist("contextual-action-schema",{{"method","action_draft"},{"configuration",candidate},
+            {"target",target},{"name","Включить"}});
         report["cancel"]=setup.handle("cancel",{{"session_id",token}});report["stored_unchanged"]=store.current()->contentHash()==baseline->contentHash();save();
-        worker.stop();return 0;
+        bool passed=true;
+        for(const auto& record:report["cases"]) {
+            const auto classification=record.at("classification");
+            passed=passed&&(classification=="semantic_success"||classification=="validated_suggestion");
+        }
+        report["passed"]=passed;save();worker.stop();return passed?0:1;
     }catch(const std::exception& error){report["stopped"]=error.what();save();std::cerr<<error.what()<<'\n';return 1;}
 }

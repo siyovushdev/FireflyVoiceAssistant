@@ -1,4 +1,4 @@
-import type { ActionDto, ConfigurationDto, DeviceDto, FieldDto, Scalar, ConnectionDto, BindingDto } from '../types/wire.js';
+import type { ActionDto, ConfigurationDto, DeviceDto, FieldDto, Scalar, ConnectionDto, BindingDto, HttpDto } from '../types/wire.js';
 export type Mutable<T> = T extends object ? { -readonly [K in keyof T]: Mutable<T[K]> } : T;
 export type Draft = Mutable<ConfigurationDto>;
 export type Field = Mutable<FieldDto>;
@@ -38,6 +38,13 @@ export function powerOnly(config: Draft, device: Device) {
 export function consumers(config: ConfigurationDto, connectionId: string): string[] {
     const ids = new Set([...config.bindings.filter(b => b.connection_id === connectionId).map(b => b.target_id), ...(config.observations ?? []).filter(o => o.connection_id === connectionId).map(o => o.target_id)]);
     return [...ids].map(id => config.devices.find(d => d.id === id)?.name ?? id);
+}
+// The manual wizard and explicit-facts setup use the same construction defaults.
+export function newHttpConnection(config: ConfigurationDto): Mutable<ConnectionDto> {
+    return { id: allocate(config, 'connection_http'), name: '', type: 'http', enabled: true, timeout_ms: 2000, http: { base_url: '', base_path: '' } };
+}
+export function defaultHttpMapping(): Mutable<HttpDto> {
+    return { method: 'POST', path: '', body: {}, timeout_ms: 0, content_type: 'application/json', expected_status: 200 };
 }
 export function projectConnectivity(config: ConfigurationDto, connection: ConnectionDto | null, targetId: string,
     mappings: readonly BindingDto[], observation?: NonNullable<ConfigurationDto['observations']>[number]): Draft {
