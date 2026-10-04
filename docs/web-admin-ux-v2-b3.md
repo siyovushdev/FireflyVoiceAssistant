@@ -114,7 +114,37 @@ A: context 511 tokens, input 44, output 34/384, system prompt 2629 bytes. B: con
 
 Артефакты (локальные, не Git): `build/b3-live/run-20261003-1624.json`, `.log`, `-memory.jsonl`. В JSON есть полный explicit input и trace; private store `/tmp/firefly-b3-npu-Ot3URv`.
 
-**B3 live acceptance НЕ PASS.** Согласно owner constraint работа над inference/budget остановлена. Deadline, context, inventory и output budget не увеличены. Нужно отдельное решение владельца о дальнейшей диагностике/изменении Admin contract или профильных лимитов. До него оставшиеся live A–F и real voice не объявляются завершёнными. Draft PR фиксирует проверенную реализацию и этот blocker, а не готовность к merge.
+**B3 live acceptance НЕ PASS.** Согласно owner constraint работа над inference/budget остановлена. Deadline, context, inventory и output budget не увеличены. На момент прогона требовалось отдельное решение владельца о дальнейшей диагностике/изменении Admin contract или профильных лимитов. На момент этого прогона оставшиеся live A–F и real voice не объявлялись завершёнными; последующее owner decision и диагностика приведены ниже. Draft PR фиксирует проверенную реализацию и этот blocker, а не готовность к merge.
+
+### Owner decision и отдельная staged-диагностика — 2026-10-04
+
+[Owner review PR #2](https://github.com/siyovushdev/FireflyVoiceAssistant/pull/2) разрешает staged coordinator только после трёх валидных отдельных proposals внутри существующего deadline. Admin Qwen3-4B W8A8, CTX4096, request output budget 384, deadline 60 s и RKLLM profile не изменены. Повторов inference нет.
+
+Диагностика вызывает текущие `copilotPrompt`, `RuntimeModel::useAdminContext(prompt, 384)`, `inferAdmin` и `decodeCopilotProposal` напрямую, без frontend/HTTP transport и без встроенного format retry. Это проверка первого ответа реальной модели, **не staged browser/API acceptance**. System-prompt tokens ниже — измеренный RKLLM bootstrap prefill с chat template, не оценка tokenizer.
+
+Все запросы используют один private store `/tmp/firefly-b3-stages-wBJYiq` с сохранённой semantic configuration успешного live B (Вентилятор и существующие ON/OFF actions). C1 отклонён и не принят. Для независимых C2/C3 Connection задан отдельной ручной prerequisite fixture из explicit endpoint `http://127.0.0.1:8765`; raw C1 не исправлялся. Это не accepted chain. Fixture не сохраняется в store, Save/Apply не вызывается. Demo с `/tmp/firefly-b2-manual` штатно останавливается на время эксклюзивного NPU прогона и восстанавливается с прежними аргументами.
+
+| Запрос | System prompt bytes / tokens | Input bytes / tokens | Output tokens | Context bootstrap | Inference wall | Полный вызов | Validation |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| C1 — Connection only | 3596 / 838 | 255 / 71 | 124 / 384 | 11.744 s | 45.134 s | 56.885 s | FAIL: `Invalid copilot string`, пустой `summary` |
+| C2 — только ON/OFF | 3768 / 896 | 415 / 112 | 151 / 384 | 13.705 s | 52.318 s | 66.028 s | FAIL: JSON parse error; неверный `set_http_binding` вместо `set_connection_binding` |
+| C3 — Observe only | 3768 / 896 | 365 / 77 | 136 / 384 | 12.812 s | 44.420 s | 57.309 s | PASS: ровно одна `set_http_observe`, GET `/relay/1`, `on → power` |
+
+C1 raw содержит ровно одну `set_http_connection` с заданным endpoint, но envelope `"summary":""` не проходит текущий strict decoder. C2 raw содержит две попытки legacy `set_http_binding` с повреждённым object syntax (`"device","Цех упаковки",...`); полноценный JSON proposal не получен. Ни один ответ не исправлен и не повторён. C2 wall >60 s включает bootstrap; сам inference завершился за 52.318 s без deadline error. Vendor prefill/generation: C1 1.534/43.552 s; C2 2.462/49.817 s. C3 prefill/generation 1.936/42.450 s. Загрузка/проверка модели отдельно: C1 87.066 s, C2 78.971 s, C3 88.762 s. Все три inference завершились без timeout; 60 s deadline не увеличивался.
+
+Артефакты содержат точные inputs, system prompts, raw, metrics и validation errors; остаются локальными, не Git:
+
+- `build/b3-live/stages-20261004-063617.{json,log}` и `-memory.jsonl` — C1.
+- `build/b3-live/stages-rest-20261004-064206.{json,log}` и `-memory.jsonl` — C2.
+- `build/b3-live/stages-observe-20261004-064536.{json,log}` и `-memory.jsonl` — C3; полный валидный raw и decoder result сохранены.
+- `build/b3-live/StageDiagnostic-C1.cpp`, `StageDiagnostic.cpp`, `diagnostic-base.json` — private diagnostic sources/fixture, слинкованные с текущими build libraries; production sources не изменены.
+- `stages-rest-20261004-064058.json` — отказ harness до загрузки модели/AI: попытка initialize существующего private store. Исправлено только открытие store через `current()`; это не повтор AI-запроса.
+
+Во всех трёх прогонах `stored_unchanged=true`, hardware requests 0, inference retries 0. Production user-store не использовался и его существующие локальные изменения не затронуты. Минимальный MemAvailable: C1 2,054,528 KiB, C2 2,041,052 KiB, C3 2,068,268 KiB; memory admission не блокировал запросы. C3 является отдельным валидным diagnostic proposal, но не исправляет отказы C1/C2.
+
+**Implementation gate не пройден:** необходимы валидные proposals всех трёх stages, а не только отсутствие timeout. Coordinator, UX, inference limits, prompt и profile не изменяются. Staged C и последующие D/E/F/no-zone/Цех/Склад/Лабораторный стенд не запускаются. Real browser microphone smoke остаётся owner manual pending после text gate. PR остаётся Draft, B4 не начат.
+
+Для этого documentation-only изменения frontend tests, полный CTest и Chromium повторно не запускались: результаты 29/29, 72/72 и Chromium PASS выше относятся к baseline 2026-10-03, а не к новой staged реализации. Проверяется `git diff --check`.
 
 ### Real voice — отдельно
 
