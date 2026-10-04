@@ -346,12 +346,15 @@ std::string RuntimeWorker::handle(std::string_view bytes) {
                 return decoded;
             }));
         } else if (method == "language_profile") {
-            members(request, {"method", "configuration", "entity", "id"});
+            members(request, request.contains("initial_location")
+                ? std::set<std::string>{"method", "configuration", "entity", "id", "initial_location"}
+                : std::set<std::string>{"method", "configuration", "entity", "id"});
+            const bool initialLocation = request.value("initial_location", false);
             const auto catalog = config::ConfigLoader::fromJson(request.at("configuration").dump());
             const auto entity = request.at("entity").get<std::string>();
             const auto id = request.at("id").get<std::string>();
-            reply = Json::parse(generations_.structuredSuggestion(languageProfilePrompt(catalog, entity, id),
-                "Предложи языковой профиль.", 256, [&](std::string_view raw) { return decodeLanguageProfile(raw, catalog, entity, id); }));
+            reply = Json::parse(generations_.structuredSuggestion(languageProfilePrompt(catalog, entity, id, initialLocation),
+                "Предложи языковой профиль.", 256, [&](std::string_view raw) { return decodeLanguageProfile(raw, catalog, entity, id, initialLocation); }));
             reply["saved"] = false; reply["applied"] = false;
         } else if (method == "plan" || method == "action_draft" || method == "copilot") {
             if (method == "plan") members(request,{"method","text","configuration"});

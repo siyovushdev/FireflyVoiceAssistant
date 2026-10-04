@@ -104,6 +104,7 @@ async function screenshot(name) { const r = await send('Page.captureScreenshot',
     await ask('Создай Детскую, добавь туда Свет и Телевизор. Оба только включаются и выключаются.'); await proposal();
     let draft = (await api('/api/setup/status')).configuration;
     assert.equal(draft.rooms.length, 1); assert.equal(draft.devices.length, 2); assert.ok(draft.devices.every(d => d.action_ids.length === 2)); assert.equal(draft.bindings.length, 0);
+    assert.deepEqual(draft.rooms[0].speech, { mentions:["детская"], locations:["в детской"] });
     assert.equal((await api('/api/config')).hash, before.hash); assert.equal(hardware.length, 0);
     await send('Page.reload'); await until(async () => (await text()).includes('Неподтверждённое предложение восстановлено'), 'reload requires human review'); await proposal();
     await click('Отклонить'); await until(() => js('!document.querySelector(".proposal-card")'), 'reject'); assert.equal((await api('/api/setup/status')).configuration.devices.length, 0);
@@ -123,6 +124,10 @@ async function screenshot(name) { const r = await send('Page.captureScreenshot',
     assert.equal(await js('document.querySelector(".setup-screen textarea").value'),'Ручная правка transcript');
     console.log('B: non-home zones, explicit context and standalone device');
     for (const zone of ['Цех упаковки', 'Склад', 'Лабораторный стенд']) { await ask('Создай зону ' + zone); await proposal(); await accept(); }
+    for (const [name, location] of [['Цех упаковки','в цехе упаковки'],['Склад','на складе'],['Лабораторный стенд','на лабораторном стенде']]) {
+      const zone = (await api('/api/setup/status')).configuration.rooms.find(z=>z.name===name);
+      assert.deepEqual(zone.speech, {mentions:[name.toLowerCase()], locations:[location]});
+    }
     await select('Явный контекст зоны', 'Цех упаковки');
     await ask('Добавь вентилятор, только включение и выключение.'); await proposal(); assert.match(await text(), /Цех упаковки/); await accept();
     await select('Явный контекст зоны', 'Контекст не выбран');
@@ -187,6 +192,8 @@ async function screenshot(name) { const r = await send('Page.captureScreenshot',
     console.log('Contextual AI assist: real editable values, cancel checkpoint, device and action language');
     await route('zones'); await click('Создать зону'); await fill('Название зоны', 'Цех'); await click('✨ Заполнить с AI');
     await until(() => js('document.querySelector("dialog textarea[aria-describedby=zone-mentions-example]")?.value.includes("Цех")'), 'real speech values');
+    assert.equal(await js('document.querySelector("dialog textarea[aria-describedby=zone-mentions-example]").value'), 'Цех');
+    assert.equal(await js('document.querySelector("dialog textarea[aria-describedby=zone-locations-example]").value'), 'в цехе');
     await fill('Как назвать зону', 'цех\nучасток'); await click('Отказаться от AI-полей'); assert.equal(await js('document.querySelector("dialog textarea[aria-describedby=zone-mentions-example]").value'), '');
     await click('✨ Заполнить с AI'); await until(async () => (await text()).includes('✨ Предложено AI'), 'AI label'); await click('Принять AI-поля'); await click('Отмена');
     assert.equal((await api('/api/setup/status')).configuration.rooms.length, 4, 'cancel local task preserves accepted plan');

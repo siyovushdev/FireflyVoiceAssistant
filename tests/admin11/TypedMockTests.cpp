@@ -179,9 +179,9 @@ int main(int argc, char** argv) {
         rejects([&]{admin::decodeDraftGroup(R"({"description":"","type":"zone"})","location","identity");});
         rejects([&]{admin::decodeDraftGroup(R"({"template":"shell","capabilities":[]})","device","capabilities");});
         const auto language=Json::parse(admin::decodeDraftGroup(R"({"name":"детская комната","name_location":"в детской комнате","short":"детская","short_location":"в детской","synonym":"комната для детей","synonym_location":"в комнате для детей"})","location","language"));
-        check(language.at("mentions").size()==9 && language.at("locations").size()==3 &&
+        check(language.at("mentions").size()==3 && language.at("locations").size()==3 &&
               language.at("aliases")==Json({"детская","детская комната","комната для детей"}),
-              "One grammar draft supplies aliases, complete phrases and prepositional mentions");
+              "One grammar draft keeps names separate from complete location phrases");
         rejects([&]{admin::decodeDraftGroup(R"({"name":"детская","name_location":"детской","short":"детская","short_location":"в детской","synonym":"детская","synonym_location":"в детской"})","location","language");});
         rejects([&]{admin::decodeDraftGroup(R"({"description":"Описание","type":"room","aliases":["детская","детская"]})","location","identity");});
         auto precise=valid;precise["ratio"]=1;

@@ -27,14 +27,17 @@ public:
         if(prompt.find("Ровно поля template")!=std::string::npos)return R"({"template":"custom","capabilities":[]})";
         if(prompt.find("Верни шесть строк JSON")!=std::string::npos) {
             const auto name=request.value("name",std::string("цех"));
-            return Json{{"name",name},{"short",name},{"synonym",name},{"name_location","в "+name},{"short_location","в "+name},{"synonym_location","в "+name}}.dump();
+            const auto location=name=="Цех"?std::string("в цехе"):"в "+name;
+            return Json{{"name",name},{"short",name},{"synonym",name},{"name_location",location},{"short_location",location},{"synonym_location",location}}.dump();
         }
         if(prompt.find("Предложи только небольшой русский")!=std::string::npos) {
             const auto category=request.value("entity",std::string()); const auto id=request.value("id",std::string());
             if(category=="location") {
                 for(const auto& zone:request.at("configuration").at("rooms"))if(zone.at("id")==id) {
                     const auto name=zone.at("name").get<std::string>();
-                    return Json{{"aliases",Json::array({name})},{"mentions",Json::array({name})},{"locations",Json::array({"в "+name})}}.dump();
+                    const std::map<std::string,std::string> locations={{"Детская","в детской"},{"Цех упаковки","в цехе упаковки"},{"Склад","на складе"},{"Лабораторный стенд","на лабораторном стенде"}};
+                    const auto location=locations.count(name)?locations.at(name):"в "+name;
+                    return Json{{"aliases",Json::array({name})},{"mentions",Json::array({name})},{"locations",Json::array({location})}}.dump();
                 }
             }
             if(category=="action")return prompt.find("false")!=std::string::npos?R"({"aliases":["выключи","выключить"]})":R"({"aliases":["включи","включить"]})";

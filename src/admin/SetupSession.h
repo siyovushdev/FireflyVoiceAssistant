@@ -203,7 +203,8 @@ public:
                             try {
                                 data_["progress"]["phase"]="language_profile";persist();
                                 auto language=invoke({{"method","language_profile"},{"configuration",data_["configuration"]},
-                                    {"entity",std::string(category)=="rooms"?"location":std::string(category)=="devices"?"device":"action"},{"id",entity.at("id")}});
+                                    {"entity",std::string(category)=="rooms"?"location":std::string(category)=="devices"?"device":"action"},{"id",entity.at("id")},
+                                    {"initial_location",std::string(category)=="rooms"}});
 
                                 auto next=data_["configuration"];
                                 for(auto& target:next.at(category)) if(target.at("id")==entity.at("id")) {

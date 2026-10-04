@@ -11,8 +11,9 @@ using namespace firefly::admin;
 volatile std::sig_atomic_t interrupted=0;
 void stop(int) { interrupted=1; }
 int main(int argc,char**argv) {
+    const bool languageOnly=argc==3 && std::string(argv[2])=="--language-profiles";
     const bool noZoneOnly=argc==3 && std::string(argv[2])=="--no-zone";
-    if(argc!=2 && !noZoneOnly && !(argc==4 && std::string(argv[2])=="--remaining"))return 2;
+    if(argc!=2 && !noZoneOnly && !languageOnly && !(argc==4 && std::string(argv[2])=="--remaining"))return 2;
     std::signal(SIGTERM,stop);std::signal(SIGINT,stop);
     std::ofstream("/proc/self/oom_score_adj")<<1000;
     Json report={{"cases",Json::array()},{"calls",Json::array()},{"hardware_requests",0},{"real_voice","not_run"}};
@@ -78,7 +79,36 @@ int main(int argc,char**argv) {
         Json candidate;
         // Explicit continuation runs only previously unexecuted cases. It never
         // retries the failed request or changes the model/profile.
-        if(noZoneOnly) {
+        if(languageOnly) {
+            report["scope"]="location_language_profiles";
+            for(const auto* name:{"Цех","Кухня","Склад"}) {
+                const auto ops=expandDialogueOperations(Json{{"ops",Json::array({Json::array({"location",name})})}}.dump());
+                const auto config=Json::parse(decodeCopilotProposal(ops.dump(),baseline)).at("configuration");
+                const auto reply=call({{"method","language_profile"},{"configuration",config},{"entity","location"},
+                    {"id",config.at("rooms")[0].at("id")},{"initial_location",true}});
+                Json record={{"case",name},{"result",reply},{"index_commands",Json::array()},
+                    {"classification",reply.value("ok",false)?"validated_suggestion":"validation_rejection"}};
+                if(reply.value("ok",false)) {
+                    auto candidate=config;
+                    const auto& profile=reply.at("suggestion");
+                    candidate["rooms"][0]["speech"]={{"mentions",profile.at("mentions")},{"locations",profile.at("locations")}};
+                    candidate["rooms"][0]["metadata"]["aliases"]=profile.at("aliases");
+                    const auto device=expandDialogueOperations(Json{{"ops",Json::array({Json::array({"power_device",name,"Свет"})})}}.dump());
+                    candidate=Json::parse(decodeCopilotProposal(device.dump(),firefly::config::ConfigLoader::fromJson(candidate.dump()))).at("configuration");
+                    RuntimeGeneration generation(firefly::config::ConfigLoader::fromJson(candidate.dump()));
+                    // Fixed acceptance corpus, never a production morphology map.
+                    const auto phrase=std::string(name)=="Цех"?"в цехе":std::string(name)=="Кухня"?"на кухне":"на складе";
+                    for(const auto& text:{std::string("Включи свет ")+phrase,std::string("Выключи свет ")+phrase}) {
+                        const auto match=generation.languageIndex->match(text);
+                        const bool exact=match.kind==firefly::language::MatchKind::ExactUnique;
+                        record["index_commands"].push_back({{"text",text},{"exact",exact}});
+                        if(!exact)record["classification"]="index_coverage_failure";
+                    }
+                }
+                report["cases"].push_back(record);save();
+                if(!model.ready())throw std::runtime_error("language_model_unavailable_no_retry");
+            }
+        } else if(noZoneOnly) {
             report["scope"]="single_no_zone_retest";
             message("no-zone","Добавь контроллер стенда без зоны.");
         } else if(argc==4) {
@@ -103,7 +133,7 @@ int main(int argc,char**argv) {
             message("F","Переименуй Вентилятор в зоне упаковки в Вытяжку.");
             reset(empty);message("no-zone","Добавь контроллер стенда без зоны.");
         }
-        if(!noZoneOnly) {
+        if(!noZoneOnly && !languageOnly) {
             const auto target=candidate.at("devices")[0].at("id").get<std::string>();
             // Physical C uses the shared B2 path in browser/API tests, never the NPU.
             report["connectivity"] = {{"mode","deterministic_explicit_facts"},{"npu_calls",0}};

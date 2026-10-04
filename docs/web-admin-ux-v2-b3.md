@@ -1,6 +1,6 @@
 # Web Admin UX V2 B3 — AI-first setup
 
-Статус: **deterministic gate PASS; physical C PASS без NPU; semantic no-zone retest PASS; real voice smoke owner pending; B3 не принят владельцем**. B2 принят владельцем; PR #1 переведён в Ready и merged в master как `0c8436b7b5d7e52e5b06b3a3e9f7e9a32e0858df`, с head `ff23b562cb24f96657b6fbbe34d916d6d2bd9c21`. Локальный master обновлён, работа B3 выполняется в `feature/web-admin-ux-v2-b3`. Источник дизайна: [утверждённый design](web-admin-ux-v2-design.md).
+Статус: **deterministic gate PASS; physical C PASS без NPU; semantic no-zone retest PASS; Language Profile quality + live index gate PASS; real voice smoke owner pending; B3 не принят владельцем**. B2 принят владельцем; PR #1 переведён в Ready и merged в master как `0c8436b7b5d7e52e5b06b3a3e9f7e9a32e0858df`, с head `ff23b562cb24f96657b6fbbe34d916d6d2bd9c21`. Локальный master обновлён, работа B3 выполняется в `feature/web-admin-ux-v2-b3`. Источник дизайна: [утверждённый design](web-admin-ux-v2-design.md).
 
 ## Coordinator и proposal lifecycle
 
@@ -319,3 +319,36 @@ Regressions используют блокируемый model-entry seam: token 
 - `tests/admin12/AdminCopilotTests.cpp`
 
 `user-store/`, build/dist/node_modules/.test-build и private artifacts не входят в B3 commit.
+
+
+## Language Profile quality — owner acceptance fix
+
+По [owner review](https://github.com/siyovushdev/FireflyVoiceAssistant/pull/2#issuecomment-5978820214) исправлено общее разделение названий и местоположений. Admin language-profile prompt больше не требует 3–6 падежей и нескольких предлогов ради количества. `aliases` / `mentions` предлагают естественные названия; одного варианта достаточно. `locations` предлагают полные естественные фразы с привычным для места `в` / `во` / `на`. Contextual draft и suggestion prompts следуют тому же правилу, без словаря исключений для Цеха, Кухни или других названий.
+
+Grouped decoder теперь переносит в mentions только name/short/synonym. Он не копирует туда location phrases и не отрезает от них предлог. Оба language decoder принимают `во`; language-profile decoder дополнительно требует полный предложный оборот вместо bare noun. Детерминированная `locationGrammar` не менялась: только прежние безопасные регулярные прилагательные, без новой эвристики склонения существительных.
+
+Для первой language enrichment новой setup-зоны внутренний `initial_location` заменяет только временный singleton `в + name`. Этот placeholder исключён из данных prompt и не подмешивается к естественному AI locations. Публичный `/api/admin/language-profile` не принимает этот внутренний флаг. Для существующих зон contextual profile сохраняет ранее проверенные формы; seed name, canonical action words, conflict/safety validation и финальная ConfigLoader/RuntimeGeneration admission сохранены. Старые сохранённые profiles не переписываются автоматически: пользователь может отредактировать их перед review.
+
+Regressions: Цех / Кухня / Детская / Склад проходят representative ON/OFF и перестановки слов через `INDEX_EXACT` без runtime Qwen. Проверяются отсутствие stripped noun mentions, сохранение reviewed forms, `во дворе`, отклонение location без предлога и запрет внешнего initial flag. B3 Chromium проверяет natural locations в новом server draft и разделённые editable поля Contextual Assist с отказом от AI-полей. Accept/Apply, ownership/version/CAS, zero hardware до явного действия, STT и frozen inference settings не менялись.
+
+Проверки Language Profile fix (2026-10-04): frontend typecheck **PASS**, **34/34** frontend tests, production build/offline gate и CMake build **PASS**. Focused language/admin + B2/B3 Chromium/API: **14/14 PASS**, **125.04 s**. Логи: `build/b3-language-{typecheck,frontend-test,frontend-build,build,focused}.log`.
+
+Полный CTest для Language Profile fix: **72/72 PASS**, **271.13 s** (`build/b3-language-ctest.log`); `git diff --check` **PASS**. Реальный microphone smoke не перезапускался и остаётся **owner pending**; Voice/STT не менялись.
+
+Первый диагностический profile-only smoke (`build/b3-live/language-quality-20261004.*`) дал aliases/mentions `["цех"]`, `["кухня"]`, `["склад"]`, но locations `["в цехе"]`, `["в кухне"]`, `["в складе"]`. JSON validation прошла без retry (inference/API wall: 6.099/11.698 s, 6.697/13.095 s, 6.009/12.757 s); это **не считалось quality acceptance** для обычных команд «на кухне» / «на складе». Общее правило prompt дополнено выбором самого употребительного ответа на «где?»: нахождение внутри здания не повод заменять привычное «на» на «в». Использованы примеры других мест (остановка / кабинет / двор), без production mapping по названиям. Live harness теперь также проверяет ON/OFF corpus через LanguageIndex на фактических AI suggestions, без command inference, bindings или hardware.
+
+Второй диагностический run (`build/b3-live/language-quality-final-20261004.*`, имя артефакта не означает PASS) исправил Кухню / Склад на `["на кухне"]` / `["на складе"]`, но дал `["на цехе"]`. Новый index gate вернул **FAIL** для Цеха; ошибка не маскировалась postprocessing или retry. Односторонняя подсказка про «на» заменена сбалансированным правилом: отдельно выбирать привычный предлог каждого названия, с примерами офис / улица / переговорная / площадка / двор. В этом варианте названия четырёх acceptance-зон не включались в prompt или mapping.
+
+Третий run (`build/b3-live/language-quality-balanced-20261004.*`) снова дал «в цехе» / «в кухне» / «в складе» и **FAIL** index gate для Кухни / Склада. Поэтому location instruction привязана к реальному назначению поля — естественному уточнению команды «включи свет ...» — с двумя полными JSON-примерами (Офис / Кухня). Это few-shot guidance общей модели, без ветвления, словаря предлогов или postprocessing по имени зоны; Цех и Склад остаются вне примеров.
+
+### Final real Admin-Qwen language smoke
+
+**PASS**, `build/b3-live/language-quality-command-20261004.{json,log}`, memory trace `-memory.jsonl`, runner `-run.log`. Один запрос на каждую зону, `retry_count=0` у всех. Существующие Admin Qwen W8A8 / CTX4096 / RKLLM profile / budget 256 / deadline 60 s сохранены. Вся сессия с setup enter/cancel/restore: **162.47 s**. Private store `/tmp/firefly-b3-npu-Iec8Cw`; stored hash неизменён, hardware requests **0**, финального Apply нет.
+
+| Зона | aliases = mentions (точно) | locations (точно) | Prompt bytes / context tokens | Input bytes / tokens | Output tokens | Inference wall | API wall |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Цех | `["цех"]` | `["в цехе"]` | 2209 / 443 | 49 / 24 | 18 | 5.881 s | 11.592 s |
+| Кухня | `["кухня"]` | `["на кухне"]` | 2223 / 447 | 49 / 24 | 20 | 6.603 s | 13.397 s |
+| Склад | `["склад"]` | `["на складе"]` | 2221 / 443 | 49 / 24 | 18 | 5.970 s | 12.328 s |
+
+Во всех трёх ответах `conflicts: []`; raw JSON совпадает с указанными массивами без лишних aliases, bare oblique mentions или альтернативных предлогов. После authoritative decode фактические suggestions использованы для отдельного in-memory fixture с ON/OFF Света: «Включи свет» / «Выключи свет» + соответствующая обычная location phrase — **6/6 ExactUnique**, без runtime Qwen и без execution. Детская покрыта unit + B3 Chromium, отдельного live inference для неё не запускалось. AI suggestions остаются editable/reviewed; это smoke результата модели, не новая автоматическая проверка русской морфологии и не автоматическое исправление ответа.
