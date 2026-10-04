@@ -31,7 +31,7 @@ with tempfile.TemporaryDirectory(prefix='firefly-b3-api-') as temp:
         call('/api/setup/message', {**body,'version':-1},409)
         state = call('/api/setup/message', body)
         device = state['configuration']['devices'][0]
-        assert device['room_id'] is None and device['action_ids'] == [] and state['configuration']['rooms'] == []
+        assert device['room_id'] is None and device['action_ids'] == [] and device['state'] == [] and state['configuration']['rooms'] == [] and state['configuration']['actions'] == []
         assert call('/api/config')['hash'] == original['hash']
         call('/api/config', { 'configuration': state['configuration'], 'expected': {'hash':original['hash'],'revision':original['revision']} },405)
         call('/api/config/apply', {'session_id':token,'expected':{'hash':original['hash'],'revision':original['revision']}},409)

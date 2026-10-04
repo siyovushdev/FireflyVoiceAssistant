@@ -9,7 +9,9 @@ import time
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--prefix', required=True)
-parser.add_argument('--remaining', help='Prior report with successful B fixture; run only non-home and contextual cases')
+scope = parser.add_mutually_exclusive_group()
+scope.add_argument('--no-zone', action='store_true', help='One isolated no-zone semantic retest')
+scope.add_argument('--remaining', help='Prior report with successful B fixture; run only non-home and contextual cases')
 args = parser.parse_args()
 prefix = Path(args.prefix)
 prefix.parent.mkdir(parents=True, exist_ok=True)
@@ -32,6 +34,8 @@ if available() < 6 * 1024 * 1024:
 
 with open(str(prefix) + '.log', 'w') as log, open(str(prefix) + '-memory.jsonl', 'w', buffering=1) as memory:
     command = ['build/src/admin/admin_b3_acceptance', str(prefix) + '.json']
+    if args.no_zone:
+        command += ['--no-zone']
     if args.remaining:
         command += ['--remaining', args.remaining]
     process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT)

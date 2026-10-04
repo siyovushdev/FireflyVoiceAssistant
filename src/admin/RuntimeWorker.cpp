@@ -289,9 +289,9 @@ std::string RuntimeWorker::handle(std::string_view bytes) {
                     return decodeCopilotProposal(proposal.dump(),catalog);
                 }));
             } else reply = Json::parse(generations_.structuredSuggestion(prompt,input,384,[&](std::string_view raw) {
-                const auto value=expandDialogueOperations(raw);
+                auto value=expandDialogueOperations(raw);
                 if(!value.at("operations").is_array() || value.at("operations").size()>3)throw std::invalid_argument("At most three dialogue operations per step");
-                for(const auto& op:value.at("operations")) {
+                for(auto& op:value.at("operations")) {
                     const auto kind=op.at("op").get<std::string>();
                     const std::set<std::string> allowed={"rename_system","create_location","create_device","rename_location","rename_device","delete_device","add_brightness","set_field_bounds"};
                     if(!allowed.count(kind))throw std::invalid_argument("Unsupported dialogue operation");
@@ -308,7 +308,10 @@ std::string RuntimeWorker::handle(std::string_view bytes) {
                     if(kind=="create_device" && op.at("template")=="power_only") {
                         const bool explicitPower=(normalized.find("включ")!=std::string::npos &&
                             (normalized.find("выключ")!=std::string::npos || normalized.find("отключ")!=std::string::npos)) || normalized.find("on/off")!=std::string::npos;
-                        if(!explicitPower)throw std::invalid_argument("Power capabilities were not explicitly requested; use device without capabilities or ask a question");
+                        // Narrow model overreach without another inference. Keep
+                        // names/location intact and let the authoritative decoder
+                        // enforce protected entities and the empty custom template.
+                        if(!explicitPower)op["template"]="custom";
                     }
                     if(kind=="create_device" && op.at("template")!="power_only" && op.at("template")!="custom")throw std::invalid_argument("Dialogue creation supports explicit power-only capabilities");
                     if(kind=="add_brightness" && (normalized.find("ярк")==std::string::npos || std::find(words.begin(),words.end(),"без")!=words.end() || std::find(words.begin(),words.end(),"не")!=words.end()))

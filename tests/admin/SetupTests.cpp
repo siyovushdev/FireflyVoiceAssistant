@@ -127,8 +127,55 @@ int main(int argc,char**argv){int failures=0,checks=0;
  for(const auto& d:reply.at("configuration").at("devices"))check(d.at("action_ids").size()==2&&d.at("state").size()==1,"power only capability exact");
  const int previousCalls=model.inferences;
  auto duplicate=session.handle("message",message);check(duplicate.at("version")==reply.at("version")&&model.inferences==previousCalls,"idempotent transport retry");
- model.raw=R"({"ops":[["power_device","Детская","Вентилятор"]]})";
- check(!call({{"method","dialogue"},{"configuration",reply.at("configuration")},{"text","Добавь вентилятор, зона Детская"},{"focus",Json::array()}}).value("ok",false),"equipment name alone cannot invent ON/OFF capabilities");
+ // Unrequested power is narrowed, never repaired by another model call.
+ // Different names and both scopes exercise the general rule rather than a phrase exception.
+ for(const auto* name:{"Вентилятор","Контроллер стенда","Измерительный блок"})for(bool noZone:{false,true}) {
+  const Json location=noZone?Json(nullptr):Json("Детская");
+  const std::string text=std::string("Добавь ")+name+(noZone?" без зоны.":", зона Детская.");
+  const auto preview=[&](const char* operation,const std::string& input) {
+   model.raw=Json{{"ops",Json::array({Json::array({operation,location,name})})}}.dump();
+   const auto before=model.inferences;
+   auto result=call({{"method","dialogue"},{"configuration",reply.at("configuration")},{"text",input},{"focus",Json::array()}});
+   check(result.value("ok",false)&&model.inferences==before+1,"capability narrowing uses exactly one inference, no retry");
+   return result.at("suggestion").at("configuration");
+  };
+  const auto created=[&](const Json& config)->const Json& {
+   const auto& devices=config.at("devices");
+   const auto found=std::find_if(devices.begin(),devices.end(),[&](const Json& device){return device.at("name")==name;});
+   if(found==devices.end())throw std::runtime_error("proposed device missing");
+   return *found;
+  };
+  const auto narrowed=preview("power_device",text);
+  const auto& device=created(narrowed);
+  check(device.at("action_ids").empty()&&device.at("state").empty(),"unrequested power produces zero actions and state capabilities");
+  check(narrowed.at("actions")==reply.at("configuration").at("actions"),"narrowing adds no detached actions");
+  check(device.at("room_id")== (noZone?Json(nullptr):reply.at("configuration").at("rooms")[0].at("id")),"narrowing preserves explicit nullable or named zone");
+  check(narrowed==preview("device",text),"narrowed power proposal equals authoritative custom construction");
+  const auto power=preview("power_device",text+" Только включение и выключение.");
+  const auto& powered=created(power);
+  check(powered.at("action_ids").size()==2&&powered.at("state").size()==1,"explicit power still creates exactly ON and OFF");
+  std::set<bool> values;
+  for(const auto& action:power.at("actions"))if(std::find(powered.at("action_ids").begin(),powered.at("action_ids").end(),action.at("id"))!=powered.at("action_ids").end()) {
+   check(action.at("parameters").empty()&&action.at("assignments").size()==1&&action.at("assignments")[0].at("field")=="power","ON/OFF has only the power assignment");
+   values.insert(action.at("assignments")[0].at("value").get<bool>());
+  }
+  check(values==std::set<bool>{false,true},"explicit power has one ON and one OFF");
+  check(created(preview("device",text+" Только ON/OFF.")).at("action_ids").empty(),"custom proposal is never upgraded to power");
+ }
+ for(const auto* raw:{
+    R"({"ops":[["power_device",null,"Входная дверь"]]})",
+    R"({"ops":[["power_device","Детская","Дверь на входе"]]})",
+    R"({"ops":[["power_device","Несуществующая зона","Контроллер"]]})",
+    R"({"ops":[["power_device",null,"Контроллер","door"]]})",
+    R"({"ops":[["power_device",null,"Контроллер"],["set_http_binding","1.2.3.4"]]})"}) {
+  model.raw=raw;
+  const auto denied=call({{"method","dialogue"},{"configuration",reply.at("configuration")},{"text","Добавь устройство без зоны, без возможностей."},{"focus",Json::array()}});
+  check(!denied.value("ok",false) || (denied.at("suggestion").value("rejected",false)&&!denied.at("suggestion").contains("configuration")),"narrowing does not admit protected, unknown-zone, malformed or unsupported proposals");
+ }
+ model.raw=R"({"ops":[["power_device",null,"Контроллер"]]})";
+ const auto ungrounded=call({{"method","dialogue"},{"configuration",reply.at("configuration")},{"text","Добавь контроллер."},{"focus",Json::array()}});
+ check(ungrounded.value("ok",false)&&ungrounded.at("suggestion").at("status")=="ambiguous"&&!ungrounded.at("suggestion").contains("configuration"),"narrowing cannot invent no-zone scope");
+ check(store.current()->contentHash()==base->contentHash(),"narrowing never saves or applies");
  model.raw=R"({"ops":[["rename_device","Детская","Свет","Основной свет"],["power_device","Детская","Ночник"]]})";
  reply=session.handle("message",{{"session_id",owner},{"version",reply.at("version")},{"request_id","second"},{"text","Свет назови основным. Ещё добавь ночник только с включением и выключением."}});
  check(reply.at("configuration").at("devices").size()==3,"followup extends draft");

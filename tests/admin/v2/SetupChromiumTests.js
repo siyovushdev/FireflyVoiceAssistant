@@ -96,7 +96,8 @@ async function screenshot(name) { const r = await send('Page.captureScreenshot',
     await select('Явный контекст зоны', 'Цех упаковки');
     await ask('Добавь вентилятор, только включение и выключение.'); await proposal(); assert.match(await text(), /Цех упаковки/); await accept();
     await select('Явный контекст зоны', 'Контекст не выбран');
-    await ask('Добавь контроллер стенда без зоны.'); await proposal(); await accept();
+    await ask('Добавь контроллер стенда без зоны.'); await proposal();
+    assert.match(await text(), /Контроллер стенда · Без зоны\. Возможности: ещё не заданы/); await accept();
     draft = (await api('/api/setup/status')).configuration;
     const standalone = draft.devices.find(d => d.name === 'Контроллер стенда'); assert.equal(standalone.room_id, null); assert.equal(standalone.action_ids.length, 0); assert.equal(draft.rooms.length, 4);
     await click('Настроить подключение: Контроллер стенда'); await click('Настроить подключение вручную'); await until(() => js('!!document.querySelector("dialog .wizard")'), 'non-power B2 fallback'); await click('Отмена');

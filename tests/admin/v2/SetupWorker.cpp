@@ -57,7 +57,7 @@ public:
         }
         if(request.value("method",std::string())=="action_draft")return Json{{"description","Питание устройства"},{"aliases",Json::array({"включи"})},{"assignments",Json::array({{{"field","power"},{"value",true}}})}}.dump();
         if(prompt.find("Извлеки НОВОЕ имя")!=std::string::npos)return R"({"name":"Вытяжка"})";
-        if(text.find("без зоны")!=std::string::npos)return R"({"ops":[["device",null,"Контроллер стенда"]]})";
+        if(text.find("без зоны")!=std::string::npos)return R"({"ops":[["power_device",null,"Контроллер стенда"]]})";
         if(text.find("Детскую")!=std::string::npos)return R"({"ops":[["location","Детская"],["power_device","Детская","Свет"],["power_device","Детская","Телевизор"]]})";
         if(text.find("вентилятор")!=std::string::npos)return R"({"ops":[["power_device","Цех упаковки","Вентилятор"]]})";
         for(const auto& zone:{"Цех упаковки","Склад","Лабораторный стенд"})if(text.find(zone)!=std::string::npos)return Json{{"ops",Json::array({Json::array({"location",zone})})}}.dump();

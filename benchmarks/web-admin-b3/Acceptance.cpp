@@ -11,7 +11,8 @@ using namespace firefly::admin;
 volatile std::sig_atomic_t interrupted=0;
 void stop(int) { interrupted=1; }
 int main(int argc,char**argv) {
-    if(argc!=2 && !(argc==4 && std::string(argv[2])=="--remaining"))return 2;
+    const bool noZoneOnly=argc==3 && std::string(argv[2])=="--no-zone";
+    if(argc!=2 && !noZoneOnly && !(argc==4 && std::string(argv[2])=="--remaining"))return 2;
     std::signal(SIGTERM,stop);std::signal(SIGINT,stop);
     std::ofstream("/proc/self/oom_score_adj")<<1000;
     Json report={{"cases",Json::array()},{"calls",Json::array()},{"hardware_requests",0},{"real_voice","not_run"}};
@@ -58,7 +59,11 @@ int main(int argc,char**argv) {
                     for(const auto& d:config.at("devices")) {names.insert(d.at("name"));correct=correct&&d.at("action_ids").size()==2;}
                     correct=correct&&names==std::set<std::string>{"Свет","Телевизор"};
                 } else if(correct && label=="B") correct=config.at("devices").size()==1 && config.at("devices")[0].at("name")=="Вентилятор" && config.at("devices")[0].at("action_ids").size()==2;
-                else if(correct && label=="no-zone") correct=config.at("rooms").empty() && config.at("devices").size()==1 && config.at("devices")[0].at("room_id").is_null() && config.at("devices")[0].at("action_ids").empty();
+                else if(correct && label=="no-zone") {
+                    correct=config.at("rooms").empty() && config.at("devices").size()==1 &&
+                        config.at("devices")[0].at("room_id").is_null() && config.at("devices")[0].at("action_ids").empty() &&
+                        config.at("devices")[0].at("state").empty() && config.at("actions").empty();
+                }
                 else if(correct && label=="F") correct=config.at("devices")[0].at("id")==before.at("devices")[0].at("id") && config.at("devices")[0].at("name")=="Вытяжка" && config.at("actions")==before.at("actions") && config.at("bindings")==before.at("bindings");
                 else if(correct && (label=="Цех" || label=="Склад" || label=="Лабораторный стенд")) correct=config.at("rooms").size()==1 && config.at("rooms")[0].at("name")==label && config.at("devices").empty();
                 record["classification"]=state.at("status")!="editing"?"false_rejection":correct?"semantic_success":"wrong_proposal";record["state"]=state;
@@ -73,7 +78,10 @@ int main(int argc,char**argv) {
         Json candidate;
         // Explicit continuation runs only previously unexecuted cases. It never
         // retries the failed request or changes the model/profile.
-        if(argc==4) {
+        if(noZoneOnly) {
+            report["scope"]="single_no_zone_retest";
+            message("no-zone","Добавь контроллер стенда без зоны.");
+        } else if(argc==4) {
             std::ifstream previousFile(argv[3]);Json previous;previousFile>>previous;
             for(const auto& record:previous.at("cases"))
                 if(record.at("case")=="B" && record.at("classification")=="semantic_success")
@@ -95,28 +103,38 @@ int main(int argc,char**argv) {
             message("F","Переименуй Вентилятор в зоне упаковки в Вытяжку.");
             reset(empty);message("no-zone","Добавь контроллер стенда без зоны.");
         }
-        const auto target=candidate.at("devices")[0].at("id").get<std::string>();
-        // Physical C uses the shared B2 path in browser/API tests, never the NPU.
-        report["connectivity"] = {{"mode","deterministic_explicit_facts"},{"npu_calls",0}};
-        for(const auto* name:{"Цех","Склад","Лабораторный стенд"}) {reset(empty);message(name,std::string("Создай зону ")+name+".");}
-        const auto assist=[&](const std::string& label, const Json& request) {
-            const auto reply=call(request);
-            report["cases"].push_back({{"case",label},{"result",reply},
-                {"classification",reply.value("ok",false)?"validated_suggestion":"validation_rejection"}});
-            save();
-            if(!model.ready()) throw std::runtime_error(label+"_model_unavailable_no_retry");
-        };
-        assist("contextual-zone",{{"method","draft"},{"entity","location"},{"name","Цех"}});
-        assist("contextual-device",{{"method","draft"},{"entity","device"},{"name","Вентилятор"}});
-        assist("contextual-action-language",{{"method","language_profile"},{"configuration",candidate},
-            {"entity","action"},{"id",candidate.at("devices")[0].at("action_ids")[0]}});
-        assist("contextual-action-schema",{{"method","action_draft"},{"configuration",candidate},
-            {"target",target},{"name","Включить"}});
+        if(!noZoneOnly) {
+            const auto target=candidate.at("devices")[0].at("id").get<std::string>();
+            // Physical C uses the shared B2 path in browser/API tests, never the NPU.
+            report["connectivity"] = {{"mode","deterministic_explicit_facts"},{"npu_calls",0}};
+            for(const auto* name:{"Цех","Склад","Лабораторный стенд"}) {reset(empty);message(name,std::string("Создай зону ")+name+".");}
+            const auto assist=[&](const std::string& label, const Json& request) {
+                const auto reply=call(request);
+                report["cases"].push_back({{"case",label},{"result",reply},
+                    {"classification",reply.value("ok",false)?"validated_suggestion":"validation_rejection"}});
+                save();
+                if(!model.ready()) throw std::runtime_error(label+"_model_unavailable_no_retry");
+            };
+            assist("contextual-zone",{{"method","draft"},{"entity","location"},{"name","Цех"}});
+            assist("contextual-device",{{"method","draft"},{"entity","device"},{"name","Вентилятор"}});
+            assist("contextual-action-language",{{"method","language_profile"},{"configuration",candidate},
+                {"entity","action"},{"id",candidate.at("devices")[0].at("action_ids")[0]}});
+            assist("contextual-action-schema",{{"method","action_draft"},{"configuration",candidate},
+                {"target",target},{"name","Включить"}});
+        }
         report["cancel"]=setup.handle("cancel",{{"session_id",token}});report["stored_unchanged"]=store.current()->contentHash()==baseline->contentHash();save();
         bool passed=true;
         for(const auto& record:report["cases"]) {
             const auto classification=record.at("classification");
             passed=passed&&(classification=="semantic_success"||classification=="validated_suggestion");
+        }
+        if(noZoneOnly) {
+            int dialogueCalls=0;
+            for(const auto& entry:report["calls"])if(entry.at("method")=="dialogue") {
+                ++dialogueCalls;
+                passed=passed && entry.at("result").at("retry_count")==0 && entry.at("result").at("trace").size()==1;
+            }
+            passed=passed && dialogueCalls==1 && report.at("stored_unchanged").get<bool>();
         }
         report["passed"]=passed;save();worker.stop();return passed?0:1;
     }catch(const std::exception& error){report["stopped"]=error.what();save();std::cerr<<error.what()<<'\n';return 1;}

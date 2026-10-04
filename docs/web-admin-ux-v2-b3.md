@@ -1,6 +1,6 @@
 # Web Admin UX V2 B3 — AI-first setup
 
-Статус: **deterministic gate PASS; physical C PASS без NPU; semantic live gate BLOCKED на no-zone; B3 не принят владельцем**. B2 принят владельцем; PR #1 переведён в Ready и merged в master как `0c8436b7b5d7e52e5b06b3a3e9f7e9a32e0858df`, с head `ff23b562cb24f96657b6fbbe34d916d6d2bd9c21`. Локальный master обновлён, работа B3 выполняется в `feature/web-admin-ux-v2-b3`. Источник дизайна: [утверждённый design](web-admin-ux-v2-design.md).
+Статус: **deterministic gate PASS; physical C PASS без NPU; semantic no-zone retest PASS; real voice smoke owner pending; B3 не принят владельцем**. B2 принят владельцем; PR #1 переведён в Ready и merged в master как `0c8436b7b5d7e52e5b06b3a3e9f7e9a32e0858df`, с head `ff23b562cb24f96657b6fbbe34d916d6d2bd9c21`. Локальный master обновлён, работа B3 выполняется в `feature/web-admin-ux-v2-b3`. Источник дизайна: [утверждённый design](web-admin-ux-v2-design.md).
 
 ## Coordinator и proposal lifecycle
 
@@ -36,7 +36,7 @@ Action language использует `/api/admin/language-profile`; отдель
 | Изменение | Причина / контракт |
 | --- | --- |
 | Optional `atomic_message: true` в `/api/setup/message` | Короткая V2 просьба вместе с финальными ограничениями («Оба только…») должна проверяться одной единицей. Лимит 1800 UTF-8 bytes и максимум три операции сохраняются. Legacy clients без поля используют прежний sentence splitter. Это не разрешает HTTP в semantic lane. |
-| `create_device.location: null`; dialogue `power_device` с null; `device` с nullable location | Explicit «без зоны» создаёт nullable `room_id`, без fake Location. Без запрошенных возможностей — существующий `custom` с пустыми actions; power-only остаётся ровно ON/OFF и допускается только при явном запросе включения/выключения в Admin input. Одного названия оборудования недостаточно. RuntimeWorker допускает null при явном «без зоны» в Admin input. |
+| `create_device.location: null`; dialogue `power_device` с null; `device` с nullable location | Explicit «без зоны» создаёт nullable `room_id`, без fake Location. Без запрошенных возможностей — существующий `custom` с пустыми actions; незапрошенный `power_only` детерминированно сужается до `custom` перед authoritative decode без повторного inference; power-only остаётся ровно ON/OFF и допускается только при явном запросе включения/выключения в Admin input. Одного названия оборудования недостаточно. RuntimeWorker допускает null при явном «без зоны» в Admin input. |
 | `system_name` → `rename_system` | Только display name существующей Системы; stable ID и остальные поля сохраняются. Новый domain entity не вводится. |
 | Admin-only universal prompt / Location metadata type | «Система и оборудование», необязательные зоны вместо обязательного дома/комнаты. Production command prompt, LanguageIndex, SafetyGate, модель и бюджеты не меняются. |
 | Manual `/setup/draft` checkpoint cleanup | После явного возврата checkpoint удаляет focus на отсутствующие entities и закрывает прежнее unresolved clarification. `message_incomplete` по-прежнему блокирует ручной draft patch и Apply. |
@@ -187,7 +187,7 @@ Ready-to-review proposal ещё не меняет setup draft. Accept повто
 
 Logs: `build/b3-explicit-{typecheck,frontend-test,frontend-build,build,focused,ctest}.log`; screenshots/network report: `build/b3-acceptance/`. Первоначальный focused запуск пересёкся с линковкой и один B2 API fixture не дождался runtime; suite повторён после сборки и прошёл. Дополнительная browser regression выявила, что старый edit-proposal путь открывал wizard до замены buffer; передача initial candidate в `manual.begin` исправляет потерю endpoint и покрыта тестом.
 
-### Semantic и Contextual live NPU после deterministic gate
+### Semantic и Contextual live NPU после deterministic gate — до no-zone narrowing
 
 ```sh
 python3 benchmarks/web-admin-b3/Monitor.py --prefix build/b3-live/explicit-semantic-20261004-0735
@@ -216,7 +216,46 @@ Message wall включает context admission и штатное дополне
 
 No-zone дважды выдал `{"ops":[["power_device",null,"контроллер стенда"]]}`. Guard отклонил незапрошенные ON/OFF (`Power capabilities were not explicitly requested`); draft остался неизменным, никаких wrong capabilities не принято. В Лабораторном стенде первая попытка содержала неверный JSON object syntax; существующий semantic format-retry дал валидный `location`. Эти два retry уже предусмотрены прежним semantic backend, не добавлены этим изменением. В physical lane retries отсутствуют. Prompt, inference limits и retry policy semantic/legacy API не менялись; failed no-zone scenario целиком не перезапускался.
 
-Первый run: exit 1 после no-zone, 337.93 s; второй: exit 0, 366.87 s. Minimum MemAvailable 2,057,788 / 2,056,708 KiB. Оба private stored configuration остались равны исходному empty config, hardware requests 0, final Apply не выполнялся. Общий live gate **не PASS** из-за no-zone; модель не настраивалась для исправления этого результата.
+Первый run: exit 1 после no-zone, 337.93 s; второй: exit 0, 366.87 s. Minimum MemAvailable 2,057,788 / 2,056,708 KiB. Оба private stored configuration остались равны исходному empty config, hardware requests 0, final Apply не выполнялся. На этом checkpoint общий live gate был **не PASS** из-за no-zone; модель не настраивалась для исправления этого результата. Результат последующего owner-authorized narrowing и отдельного retest приведён ниже.
+
+### No-zone semantic narrowing — owner follow-up 2026-10-04
+
+По [owner decision](https://github.com/siyovushdev/FireflyVoiceAssistant/pull/2#issuecomment-5977968137) RuntimeWorker сужает только `create_device` с `template=power_only`, когда исходный Admin input не содержит явно запрошенного ON/OFF по прежней проверке. Меняется только template на существующий `custom`; имя, description и nullable location сохраняются. Затем выполняются прежние AdminCopilot decode и ConfigLoader/ConfigValidator. Устройство не получает actions или state fields. Обратного преобразования custom → power нет. Повторный inference для сужения не нужен, raw Qwen output остаётся в trace.
+
+Правило общее для zoned/no-zone устройств и любых имён. Regression matrix использует «Вентилятор», «Контроллер стенда», «Измерительный блок» в обеих scopes; сравнивает результат с обычным custom construction, проверяет ровно один inference и явный ON/OFF. Protected entrance door, неизвестная зона, неявный no-zone, лишние arguments, смешанные/unsupported operations и незапрошенная brightness остаются отклонёнными. Browser/API fixture намеренно выдаёт `power_device` для запроса без возможностей. До Accept card показывает «Без зоны. Возможности: ещё не заданы»; итоговый draft имеет null room и пустые actions/state, stored config не меняется.
+
+Для одного изолированного live retest добавлен `Monitor.py --no-zone`: один semantic message через настоящий SetupSession, прежние Qwen/CTX4096/budget 384/deadline 60 s, private temp store, cancel без final Apply. Harness проверяет нулевые capabilities, один dialogue call/trace и retry_count=0. Нормальное дополнение language profile учитывается отдельно; narrowing не вызывает его повторно. Voice/STT/VAD и inference configuration не изменены.
+
+Повторная проверка после fix:
+
+| Проверка | Результат |
+| --- | --- |
+| Frontend typecheck / unit/state/adapter | PASS / 32/32 PASS |
+| Production frontend build / offline assets / CMake build | PASS |
+| Focused B2+B3 Chromium/API + Setup/Copilot/GuardedCommand | 7/7 PASS, 72.66 s |
+| Full CTest | 72/72 PASS, 258.03 s |
+| Chromium | B2/B3 PASS; no-capability card до Accept; 0 hardware до explicit operational action; TCP probe 0 HTTP bytes |
+| `git diff --check` | PASS |
+
+Логи повторной проверки: `build/b3-no-zone-{build,focused,ctest}.log`, `build/b3-no-zone-frontend-{typecheck,test,build}.log`.
+
+Один real NPU retest выполнен командой:
+
+```sh
+python3 benchmarks/web-admin-b3/Monitor.py --no-zone \
+  --prefix build/b3-live/no-zone-narrowing-20261004
+```
+
+**PASS**: «Добавь контроллер стенда без зоны.» → raw `{"ops":[["power_device",null,"контроллер стенда"]]}` → validated `custom`, `room_id=null`, `action_ids=[]`, `state=[]`, общий actions list пуст. Ровно один dialogue inference, `retry_count=0`; новый inference для narrowing не выполняется. Полный message wall **26.050 s**, включая штатный language profile. Профиль не меняет capabilities и также прошёл без retry.
+
+| AI call | System prompt bytes / context tokens | Input bytes / tokens | Output tokens / budget | Inference wall | API wall |
+| --- | --- | --- | --- | --- | --- |
+| Semantic dialogue | 2629 / 511 | 63 / 23 | 18 / 384 | 5.358 s | 13.772 s |
+| Existing device language profile | 1437 / 291 | 49 / 24 | 33 / 256 | 7.884 s | 12.227 s |
+
+Context tokens взяты из штатных RKLLM metrics; prompt bytes — длина UTF-8 system instruction из trace, без chat template. Dialogue prefill/generation: 0.645 / 4.697 s; profile: 0.487 / 7.373 s. Model load/bootstrap и enter/restore lifecycle учитываются отдельно от request deadline. Raw, decoded/validation results, per-call metrics и memory trace сохранены в `build/b3-live/no-zone-narrowing-20261004.{json,log}`, `-memory.jsonl`, `-run.log`.
+
+Run exit 0, полный lifecycle 149.73 s, minimum MemAvailable 1,942,880 KiB. Private store `/tmp/firefly-b3-npu-WoxUqz`: `stored_unchanged=true`, hardware requests **0**, final Apply отсутствует. После cancel тестовый engine завершён, private demo восстановлен с исходными аргументами. A/B/F, non-home и contextual cases в этом fix не перезапускались; их предыдущие результаты приведены выше. No-zone semantic blocker закрыт этим retest; реальный голос остаётся отдельным owner pending gate.
 
 ### Real browser microphone smoke — 2026-10-04
 
