@@ -1,3 +1,4 @@
+import { foreground, type OperationKind } from './foreground.js';
 import { computed, ref, shallowRef } from 'vue';
 import { adminRequest, issuesOf, type Issue } from '../api/admin.js';
 import { readApi, freezeDeep } from '../api/client.js';
@@ -55,10 +56,10 @@ async function guardVersion(version = session.value?.version, allowTransition = 
     if (!allowTransition && transitioning.value) throw Error('Подготовка или восстановление AI ещё не завершены.');
     if (current.version !== version) { manual.review.value = null; throw Error('План изменён другой вкладкой. Ввод сохранён; перечитайте предложение и выполните новый review.'); }
 }
-export async function setupRun(operation: () => Promise<void>) {
+export async function setupRun(operation: () => Promise<void>, kind: OperationKind | null = 'ai') {
     if (setupBusy.value) return;
     setupBusy.value = true; setupIssues.value = [];
-    try { await operation(); }
+    try { if (kind) await foreground.run(kind, operation); else await operation(); }
     catch (error) { setupIssues.value = issuesOf(error); }
     finally { setupBusy.value = false; }
 }
@@ -69,7 +70,7 @@ export async function refreshSession() {
         catch (error) { const issues = issuesOf(error); if (!issues.some(e => e.message.includes('setup_busy'))) setupIssues.value = issues; }
     }
 }
-export async function restoreSession() {
+export async function restoreSession(foregroundRequest = false) {
     await setupRun(async () => {
         setupNotice.value = '';
         let saved: { token?: string; initialPlanPending?: boolean; accepted?: ConfigurationDto; proposal?: Pending; retryText?: string; version?: number; facts?: ReturnType<typeof emptyFacts>; device?: string; zone?: string; lane?: 'semantic' | 'connectivity'; shared?: string } = {};
@@ -109,7 +110,7 @@ export async function restoreSession() {
             proposal.value = null; setupNotice.value = 'Прежнее AI-предложение подключения устарело. Подготовьте предложение из явных фактов заново.';
         } else if (proposal.value) setupNotice.value = 'Неподтверждённое предложение восстановлено. Проверьте и примите его заново.';
         persist(); await finishInitialPlan();
-    });
+    }, foregroundRequest ? 'draft' : null);
 }
 async function finishInitialPlan() {
     if (!initialPlanPending.value || session.value?.status !== 'editing') return;
@@ -136,14 +137,14 @@ export async function startSetup(resume = false) {
         proposal.value = null; initialPlanPending.value = !resume && JSON.stringify(accepted.value) !== JSON.stringify(value.configuration);
         if (resume && value.configuration && JSON.stringify(value.configuration) !== JSON.stringify(accepted.value)) proposal.value = { lane: 'semantic', before: accepted.value, after: value.configuration, version: value.version! };
         accepted.value = proposal.value || initialPlanPending.value ? accepted.value : session.value!.configuration!; manual.candidate.value = accepted.value; persist(); setupNotice.value = ''; await finishInitialPlan();
-    });
+    }, 'setup');
 }
 export async function manualAfterQuestion() {
     await setupRun(async () => {
         await guardVersion();
         receive(await setupRequest('draft', { version: session.value?.version, configuration: accepted.value }));
         setupNotice.value = 'Уточнение закрыто. Продолжите через ручной редактор; принятый план сохранён.'; persist();
-    });
+    }, 'reject');
 }
 export async function cancelSetup() {
     await setupRun(async () => {
@@ -152,7 +153,7 @@ export async function cancelSetup() {
         setupAuth.token = ''; sessionStorage.removeItem(storageKey); proposal.value = null;
         manual.review.value = null; setupNotice.value = 'Настройка остановлена. Принятый локальный план сохранён; серверный черновик можно восстановить отдельно.';
         await system.refresh(true);
-    });
+    }, 'cancelSetup');
 }
 export function context(zone = '', device = '') { zoneContext.value = zone; deviceContext.value = device; }
 export function connectDevice(id: string) {
@@ -221,14 +222,14 @@ async function acceptInternal() {
     setupNotice.value = 'Принято в план. Система ещё не изменена. Подключение и оборудование командами не проверялись.';
     conversation.value.push({ role: 'Firefly', text: setupNotice.value });
 }
-export async function acceptProposal() { await setupRun(acceptInternal); }
+export async function acceptProposal() { await setupRun(acceptInternal, 'accept'); }
 export async function rejectProposal() {
     await setupRun(async () => {
         const pending = proposal.value; if (!pending) return;
         await guardVersion(pending.version);
         if (pending.lane === 'semantic') receive(await setupRequest('draft', { version: pending.version, configuration: pending.before }));
         proposal.value = null; probeResult.value = ''; persist(); setupNotice.value = 'Предложение отклонено. Предыдущий принятый план сохранён.';
-    });
+    }, 'reject');
 }
 export async function editProposal(kind: TaskKind, id: string) {
     const pending = proposal.value; if (!pending) return;
@@ -247,7 +248,7 @@ export async function probeProposal() {
         const connection = pending.after.connections?.find(c => ids.has(c.id));
         if (!connection) throw Error('Подключение отсутствует в предложении.');
         await adminRequest('/api/connections/probe', { connection }); probeResult.value = 'TCP доступен. Отправлено 0 HTTP bytes; API и оборудование командами ещё не проверялись.';
-    });
+    }, 'probe');
 }
 manual.connectSetup({ owns: () => owned.value, ready: () => ready.value,
     sync: async configuration => { await guardVersion(); receive(await setupRequest('draft', { version: session.value?.version, configuration })); installPlan(session.value!.configuration!); return session.value!.configuration!; },

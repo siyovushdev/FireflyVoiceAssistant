@@ -4,7 +4,7 @@ import { adminRequest } from '../api/admin.js';
 import { applyLanguage } from '../adapters/setup.js';
 import { clone } from '../adapters/editing.js';
 import { manual } from '../stores/manual.js';
-import { owned, transitioning, startSetup } from '../stores/setup.js';
+import { setupBusy, owned, transitioning, startSetup } from '../stores/setup.js';
 import type { WireObject } from '../types/wire.js';
 const props = defineProps<{ entity: WireObject; kind: 'location' | 'device' | 'action' }>();
 const checkpoint = ref<WireObject | null>(null), proposed = ref(false);
@@ -34,8 +34,8 @@ async function suggest(schema = false) {
         checkpoint.value = original;
         Object.assign(props.entity, schema ? { ...original, description: suggestion.description, parameters: suggestion.parameters, assignments: suggestion.assignments, speech_aliases: suggestion.speech_aliases } : applyLanguage(original, suggestion, props.kind));
         proposed.value = true;
-    });
+    }, 'ai');
 }
 function discard() { if (checkpoint.value) Object.assign(props.entity, clone(checkpoint.value)); checkpoint.value = null; proposed.value = false; }
 </script>
-<template><section class="form-section ai-assist"><p v-if="!owned">Для локального AI нужна явная сессия настройки. <button type="button" @click="startSetup()">Начать настройку</button>. Ручные поля работают без AI.</p><button type="button" :disabled="!owned || transitioning || manual.busy.value || proposed" @click="suggest()">✨ Заполнить с AI</button><button v-if="kind === 'action'" type="button" :disabled="!owned || transitioning || manual.busy.value || proposed" @click="suggest(true)">Предложить схему действия с AI</button><template v-if="proposed"><p class="notice">✨ Предложено AI — проверьте перед добавлением. Значения можно редактировать; возможности устройства сохранены.</p><button type="button" @click="proposed = false; checkpoint = null">Принять AI-поля</button><button type="button" @click="discard">Отказаться от AI-полей</button></template></section></template>
+<template><section class="form-section ai-assist"><p v-if="!owned">Для локального AI нужна явная сессия настройки. <button type="button" :disabled="setupBusy" @click="startSetup()">Начать настройку</button>. Ручные поля работают без AI.</p><button type="button" :disabled="!owned || transitioning || manual.busy.value || proposed" @click="suggest()">✨ Заполнить с AI</button><button v-if="kind === 'action'" type="button" :disabled="!owned || transitioning || manual.busy.value || proposed" @click="suggest(true)">Предложить схему действия с AI</button><template v-if="proposed"><p class="notice">✨ Предложено AI — проверьте перед добавлением. Значения можно редактировать; возможности устройства сохранены.</p><button type="button" @click="proposed = false; checkpoint = null">Принять AI-поля</button><button type="button" @click="discard">Отказаться от AI-полей</button></template></section></template>
