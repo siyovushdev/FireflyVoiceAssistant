@@ -9,6 +9,7 @@ fs.mkdirSync(path.join(temp, 'store'), { mode: 0o700 }); fs.mkdirSync(artifacts,
 const entryGate = path.join(temp, 'entry-gate'); fs.writeFileSync(entryGate, 'hold');
 const log = fs.openSync(path.join(artifacts, 'server.log'), 'w'), failFile = path.join(temp, 'fail-apply');
 let server, chrome, socket, output = '', nextId = 0, url, power = false;
+let holdPath = '', heldRequest = null;
 const pending = new Map(), requests = [], external = [], exceptions = [], hardware = [];
 let tcpConnections = 0, tcpBytes = 0, holdStt = false, pendingStt = null;
 const sttResult = Buffer.from(JSON.stringify({ok:true,text:'Добавь вентилятор в Цех'})).toString('base64');
@@ -24,6 +25,20 @@ async function click(label, scope = '') {
     const lookup = `const root = (${JSON.stringify(scope)} ? document.querySelector(${JSON.stringify(scope)}) : null) || document.querySelector('dialog[open]') || document.querySelector('main'); const node = [...root.querySelectorAll('button,a')].find(n => n.textContent.trim().replace(/\\s*↗$/, '') === ${JSON.stringify(label)} && n.getClientRects().length && !n.matches(':disabled'));`;
     await until(() => js(`(() => { ${lookup} return !!node; })()`), 'visible enabled control ' + label);
     await js(`(() => { ${lookup} node.scrollIntoView({block:'center'}); node.click(); })()`); await delay(80);
+}
+// Hold the real request unresolved until visible feedback is asserted through the DOM.
+async function slowAction(pathname, label, button, scope = '') {
+    holdPath = pathname; heldRequest = null;
+    await click(button, scope);
+    await until(() => heldRequest !== null, 'held foreground request ' + pathname);
+    assert.ok(await js(`(() => { const root = document.querySelector(${JSON.stringify(scope || 'dialog[open]')}) || document.querySelector('main'); const b = [...root.querySelectorAll('button')].find(n => n.textContent.trim() === ${JSON.stringify(button)}); return b && b.matches(':disabled'); })()`), 'controls disabled before response');
+    await until(() => js(`([...document.querySelectorAll('[data-testid="foreground-progress"]')].some(n => n.textContent.includes(${JSON.stringify(label)}) && n.getClientRects().length))`), 'visible foreground label while unresolved: ' + label);
+    assert.ok(await js(`([...document.querySelectorAll('[data-testid="foreground-progress"]')].some(n => { const r = n.getBoundingClientRect(); return n.textContent.includes(${JSON.stringify(label)}) && r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth; }))`), 'progress is inside viewport');
+    await screenshot('busy-' + pathname.split('/').at(-1));
+    await delay(350);
+    assert.ok(heldRequest, 'response is still held while progress is visible');
+    const requestId = heldRequest; holdPath = ''; heldRequest = null;
+    await send('Fetch.continueRequest', { requestId });
 }
 async function fill(label, value, scope = '') { await js(`(() => { const root = (${JSON.stringify(scope)} ? document.querySelector(${JSON.stringify(scope)}) : null) || document.querySelector('dialog[open]') || document.querySelector('main'); const label = [...root.querySelectorAll('label')].find(n => n.textContent.trim().startsWith(${JSON.stringify(label)}) && n.getClientRects().length); const control = label?.querySelector('input,textarea'); if (!control) throw Error('Field missing: ' + ${JSON.stringify(label)}); control.focus(); control.value = ${JSON.stringify(value)}; control.dispatchEvent(new Event('input', {bubbles:true})); control.dispatchEvent(new Event('change', {bubbles:true})); })()`); }
 async function insertRaw(text) {
@@ -58,7 +73,7 @@ async function screenshot(name) { const r = await send('Page.captureScreenshot',
     socket.onmessage = e => { const m = JSON.parse(e.data); if (m.id) { const p = pending.get(m.id); pending.delete(m.id); if (p) m.error ? p.reject(m.error) : p.resolve(m.result); }
         else if (m.method === 'Runtime.exceptionThrown') exceptions.push(m.params);
         else if (m.method === 'Page.javascriptDialogOpening') send('Page.handleJavaScriptDialog', { accept: true });
-        else if (m.method === 'Fetch.requestPaused') { const { request, requestId } = m.params; requests.push({ url: request.url, method: request.method, body: request.postData }); if (request.url.endsWith('/api/admin/transcribe')) { if (holdStt) pendingStt = requestId; else send('Fetch.fulfillRequest', {requestId,responseCode:200,responseHeaders:[{name:'Content-Type',value:'application/json'}],body:sttResult}); return; } const safe = request.url.startsWith(url + '/') || request.url.startsWith('blob:' + url); if (!safe) external.push(request); send(safe ? 'Fetch.continueRequest' : 'Fetch.failRequest', safe ? { requestId } : { requestId, errorReason: 'BlockedByClient' }); }
+        else if (m.method === 'Fetch.requestPaused') { const { request, requestId } = m.params; requests.push({ url: request.url, method: request.method, body: request.postData }); if (holdPath && request.url.endsWith(holdPath) && request.method !== 'GET') { heldRequest = requestId; return; } if (request.url.endsWith('/api/admin/transcribe')) { if (holdStt) pendingStt = requestId; else send('Fetch.fulfillRequest', {requestId,responseCode:200,responseHeaders:[{name:'Content-Type',value:'application/json'}],body:sttResult}); return; } const safe = request.url.startsWith(url + '/') || request.url.startsWith('blob:' + url); if (!safe) external.push(request); send(safe ? 'Fetch.continueRequest' : 'Fetch.failRequest', safe ? { requestId } : { requestId, errorReason: 'BlockedByClient' }); }
     };
     await send('Runtime.enable'); await send('Page.enable'); await send('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
     await send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
@@ -97,9 +112,35 @@ async function screenshot(name) { const r = await send('Page.captureScreenshot',
     assert.equal(requests.filter(r=>r.url.endsWith('/api/setup/apply')).length,0);
     fs.unlinkSync(entryGate);
     await until(() => js('!!document.querySelector(".setup-fields") && !document.querySelector(".setup-fields").disabled'), 'automatic entry completion');
-    async function ask(value) { await until(() => js('[...document.querySelectorAll("main label")].some(l => l.textContent.startsWith("Ваша просьба") && l.getClientRects().length)'), 'composer ready'); await fill('Ваша просьба', value); await click('Отправить'); await until(() => js('!document.querySelector("main .setup-screen [role=status]")?.textContent.includes("Локальный AI")'), 'AI done'); await delay(150); }
+    async function ask(value) { await until(() => js('[...document.querySelectorAll("main label")].some(l => l.textContent.startsWith("Ваша просьба") && l.getClientRects().length)'), 'composer ready'); await fill('Ваша просьба', value); await click('Отправить'); await until(() => js('document.querySelector(".setup-fields").getAttribute("aria-busy") === "false"'), 'AI done'); await delay(150); }
     async function proposal() { await until(() => js('!!document.querySelector(".proposal-card")'), 'proposal card'); }
     async function accept(physical = false) { await click(physical ? 'Принять подключение в план' : 'Принять в план'); await until(() => js('!document.querySelector(".proposal-card")'), 'proposal accepted'); }
+    console.log('B4 owner regression: compound power request, descriptive pronoun, no-zone; proposal never applies');
+    for (const phrase of [
+        'создай цех зону и добавь туда вентилятор где он может включаться и выключаться по питанию',
+        'В цехе есть вентилятор, его можно включать и выключать.',
+        'Добавь серверный ИБП без зоны.',
+    ]) {
+        await fill('Ваша просьба', phrase);
+        await slowAction('/api/setup/message', 'Готовим предложение…', 'Отправить');
+        await proposal();
+        await until(() => js('!document.querySelector("[data-testid=foreground-progress]")'), 'AI progress cleared');
+        const candidate = (await api('/api/setup/status')).configuration;
+        assert.equal(candidate.devices.length, 1);
+        if (phrase.includes('без зоны')) {
+            assert.equal(candidate.rooms.length, 0); assert.equal(candidate.devices[0].room_id, null);
+            assert.equal(candidate.devices[0].name, 'Серверный ИБП'); assert.equal(candidate.actions.length, 0);
+        } else {
+            assert.equal(candidate.rooms[0].name, 'Цех'); assert.equal(candidate.devices[0].name, 'Вентилятор');
+            assert.equal(candidate.devices[0].room_id, candidate.rooms[0].id);
+            assert.equal(candidate.devices[0].action_ids.length, 2);
+            assert.deepEqual(candidate.actions.map(a => a.assignments[0].value).sort(), [false, true]);
+        }
+        assert.equal((await api('/api/config')).hash, before.hash); assert.equal(hardware.length, 0);
+        assert.equal(requests.filter(r => r.url.endsWith('/api/setup/apply') || r.url.endsWith('/api/config/apply')).length, 0);
+        await click('Отклонить'); await until(() => js('!document.querySelector(".proposal-card")'), 'regression proposal rejected');
+        assert.equal((await api('/api/setup/status')).configuration.devices.length, 0);
+    }
     console.log('A: atomic semantic request, pending review, reload, checkpoint reject');
     await ask('Создай Детскую, добавь туда Свет и Телевизор. Оба только включаются и выключаются.'); await proposal();
     let draft = (await api('/api/setup/status')).configuration;
@@ -117,7 +158,7 @@ async function screenshot(name) { const r = await send('Page.captureScreenshot',
     await delay(300); await click('Остановить и распознать'); await until(() => js('[...document.querySelectorAll("main label")].find(l=>l.textContent.startsWith("Ваша просьба")).querySelector("textarea").value === "Добавь вентилятор в Цех"'), 'editable transcript');
     assert.equal(requests.filter(r=>r.url.endsWith('/api/setup/message')).length,messagesBeforeVoice);
     await fill('Ваша просьба','Ручная правка transcript');
-    holdStt = true; await click('Записать голос'); await until(async () => (await text()).includes('Запись ·'), 'second recording'); await delay(250); await click('Остановить и распознать'); await until(()=>pendingStt!==null,'pending transcription');
+    holdStt = true; await click('Записать голос'); await until(async () => (await text()).includes('Запись ·'), 'second recording'); await delay(250); await click('Остановить и распознать'); await until(()=>pendingStt!==null,'pending transcription'); await until(() => js('[...document.querySelectorAll("[data-testid=foreground-progress]")].some(n => n.textContent.includes("Распознаём речь локально…"))'), 'STT progress while unresolved');
     await route('zones'); assert.ok(await js('window.testTracks.every(t=>t.readyState === "ended")'));
     await send('Fetch.fulfillRequest',{requestId:pendingStt,responseCode:200,responseHeaders:[{name:'Content-Type',value:'application/json'}],body:sttResult}); pendingStt=null; holdStt=false;
     await route('setup'); await until(()=>js('!!document.querySelector(".setup-screen textarea")'),'composer returned');
@@ -217,7 +258,7 @@ async function screenshot(name) { const r = await send('Page.captureScreenshot',
     await click('Завершить настройку без Apply'); await until(async () => !(await api('/api/setup/status')).active,'cancel physical phase');
     await click('Начать настройку'); await until(() => js('!!document.querySelector(".context-chips")'), 'fresh semantic session');
     console.log('E: malformed response retains checkpoint and blocks Apply; recovery is explicit');
-    await route('setup'); await ask('сломанный запрос'); await until(async () => (await api('/api/setup/status')).message_incomplete, 'incomplete protocol');
+    await route('setup'); await fill('Ваша просьба', 'сломанный запрос'); await slowAction('/api/setup/message', 'Готовим предложение…', 'Отправить'); await until(async () => (await api('/api/setup/status')).message_incomplete, 'incomplete protocol'); await until(() => js('!document.querySelector("[data-testid=foreground-progress]")'), 'AI error clears progress'); assert.ok(await js('[...document.querySelectorAll("button")].some(b => b.textContent.includes("Повторить просьбу полностью") && !b.disabled)'));
     assert.equal((await api('/api/config')).configuration.devices.find(d => d.id === fan.id).name, 'Вентилятор');
     assert.equal(await js('[...document.querySelectorAll("main .manual-toolbar button")].some(b => !b.disabled)'), false);
     await click('Завершить настройку без Apply'); await until(async () => !(await api('/api/setup/status')).active, 'explicit cancel');

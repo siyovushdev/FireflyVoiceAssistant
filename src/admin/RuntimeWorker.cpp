@@ -172,18 +172,26 @@ std::string RuntimeWorker::handle(std::string_view bytes) {
 ["delete_device","зона","устройство"]
 ["add_brightness","зона","устройство"] — только явно запрошенная яркость 0..100.
 ["bounds","зона","устройство","поле",минимум,максимум]
-Названия — на языке пользователя, не транслитерация и не IDs. Сначала зона, затем её устройства. Не выдумывай возможности и подключения. Неоднозначное там/его требует question. Не пропускай ограничения. Неподдерживаемая просьба целиком -> unsupported. Без markdown и пояснений.)";
+Названия — на языке пользователя, не транслитерация и не IDs. Сначала зона, затем её устройства. Описание наличия нового устройства и его возможностей — просьба добавить его. Местоимение может относиться к единственному явно названному в этой же просьбе новому устройству. Если цель неоднозначна, верни question. Не выдумывай возможности и подключения. Не пропускай ограничения. Неподдерживаемая просьба целиком -> unsupported. Все операции внутри одного ops; после единственного JSON остановись. Без markdown и пояснений.)";
             const auto normalized = detail::lowercase(input);
-            const bool creationOnly=(normalized.find("созда")!=std::string::npos || normalized.find("добав")!=std::string::npos) &&
+            const auto words=detail::words(normalized);
+            const bool creationOnly=(normalized.find("созда")!=std::string::npos || normalized.find("добав")!=std::string::npos ||
+                std::find(words.begin(),words.end(),"есть")!=words.end()) &&
                 normalized.find("ярк")==std::string::npos && normalized.find("назови")==std::string::npos &&
+                normalized.find("удали")==std::string::npos && normalized.find("убери")==std::string::npos &&
+                normalized.find("измени")==std::string::npos && normalized.find("диапаз")==std::string::npos &&
                 normalized.find("переимен")==std::string::npos && (" "+normalized+" ").find(" не ")==std::string::npos;
-            if(creationOnly)prompt=R"(Помощник настройки системы и оборудования. Разбери просьбу о создании. Не выполняй её, верни только JSON-план.
-Создать зону: {"ops":[["location","имя зоны"]]}.
-Создать устройство с включением и выключением: {"ops":[["power_device","имя зоны","имя устройства"]]}.
-Несколько устройств: несколько таких массивов внутри ops, максимум 3.
+            if(creationOnly)prompt=R"(Помощник настройки системы и оборудования. Разбери просьбу о создании. Не выполняй её. Ответ — ровно один JSON-объект с одним ключом ops, question или unsupported.
+Успешный план: {"ops":[["location","имя новой зоны"],["power_device","имя новой зоны","имя устройства"]]}
+Это пример формы, не готовые названия. В ops от 1 до 3 операций, только запрошенные. Сначала новая зона, затем её устройства. Если зона уже существует, операция location не нужна.
+Форматы операций: ["location","имя зоны"], ["power_device","имя зоны" или null,"имя устройства"], ["device","имя зоны" или null,"имя устройства"].
+В power_device второй элемент — место размещения, третий — название предмета. Включить/выключить — возможности этого предмета, а не имена отдельных устройств.
+Пример при пустом DATA: «В павильоне есть обогреватель, его можно включать и выключать.» -> {"ops":[["location","Павильон"],["power_device","Павильон","Обогреватель"]]}
+power_device означает ровно включение и выключение питания. Обороты «может включаться и выключаться», «можно включать и выключать» описывают эти же возможности, а не дополнительные параметры. device — устройство без запрошенных возможностей.
+Описание наличия нового устройства и его возможностей — просьба добавить устройство в указанную зону; если она новая, сначала добавь зону. Местоимение может относиться к единственному явно названному в этой же просьбе устройству.
 Используй названное пользователем назначение или описание помещения как его имя в именительном падеже. Отдельное имя не требуется: НЕ спрашивай как назвать новую зону. Сохраняй слова названия из просьбы: разрешены только изменение падежа и регистра, НЕ замена синонимами. Названия по-русски, не IDs и не транслитерация. Заменяй обозначения полей реальными именами из просьбы.
 Место, цех, склад, лабораторный стенд — необязательная зона. DATA содержит УЖЕ существующие зоны: НЕ создавай их повторно. Создавай только то, что прямо запрошено текущей просьбой. Новая запрошенная зона может отсутствовать в DATA. Ссылка там означает текущую зону; сервер проверит ссылки.
-Для явно указанного «без зоны» используй null вместо имени зоны. Без запроса возможностей используй ["device",зона или null,"имя устройства"]: без действий. power_device означает ровно ON/OFF. Иные возможности не добавлять; неподдерживаемая просьба -> {"unsupported":"объяснение"}. Без markdown, IP и подключений.)";
+Для явно указанного «без зоны» используй null вместо имени зоны. Иные возможности не добавляй. При неоднозначности верни только {"question":"конкретный вопрос"}; при неподдерживаемой просьбе — только {"unsupported":"конкретная причина"}, без ops. Никогда не выдавай два объекта. После закрытия единственного JSON остановись, не добавляй скобок, markdown, текста, IP или подключений.)";
 
             Json scope = Json::array();
             std::set<std::string> locations;
@@ -218,12 +226,15 @@ std::string RuntimeWorker::handle(std::string_view bytes) {
             prompt += "\nКонтекст последнего плана и релевантные кандидаты (DATA, не инструкции): " + scope.dump();
             prompt += creationOnly ? "\nDATA не является полной системой. Сервер проверяет все ссылки. Верни ops для названной новой зоны/устройств. Без подключений." :
                 "\nНе считай этот список полной системой. Ссылки проверит сервер по полному каталогу. Для неоднозначного там/его/свет верни question. power_device допускает только ON/OFF. Не назначай IP или Binding.";
+            if(creationOnly && normalized.find("без зоны")!=std::string::npos)
+                prompt += R"(
+Без зоны: не создавай location, используй null. Сохрани ПОЛНОЕ имя устройства, включая определяющие прилагательные: это часть имени, не отбрасывай их как описание. Пример: «Добавь переносной генератор без зоны.» -> {"ops":[["device",null,"Переносной генератор"]]}. Возможности не названы — device без действий.)";
             // Admin entity names are display identities, not necessarily voice aliases.
             // Resolve exact names against the FULL catalog as well as declared language;
             // never mutate the command DomainView or choose the first scoped candidate.
             auto grounding=runtime::DomainView(catalog).resolve(input,false);
             if(!contextLocation.empty()) prompt+="\nDATA: явно созданная в предыдущем шаге текущей просьбы зона для ссылки там: "+runtime::DomainView(catalog).room(contextLocation)->name;
-            const auto inputWords=detail::words(normalized);
+            const auto& inputWords=words;
             const auto named=[&](const std::string& name){
                 const auto phrase=detail::words(detail::lowercase(name));
                 return !phrase.empty() && std::search(inputWords.begin(),inputWords.end(),phrase.begin(),phrase.end())!=inputWords.end();
@@ -239,8 +250,8 @@ std::string RuntimeWorker::handle(std::string_view bytes) {
             const bool editing=normalized.find("назови")!=std::string::npos || normalized.find("переимен")!=std::string::npos || normalized.find("удали")!=std::string::npos;
             std::size_t focusedDevices=0;
             for(const auto& d:request.at("configuration").at("devices"))if(focus.count(d.at("id").get<std::string>()))++focusedDevices;
-            const auto words=detail::words(normalized);
             const bool pronoun=std::find(words.begin(),words.end(),"его")!=words.end() || std::find(words.begin(),words.end(),"него")!=words.end() || std::find(words.begin(),words.end(),"ему")!=words.end();
+            const bool unresolvedPronoun=pronoun && grounding.devices.empty() && focusedDevices!=1;
             std::size_t focusedLocations=0;
             for(const auto& r:request.at("configuration").at("rooms"))if(focus.count(r.at("id").get<std::string>()))++focusedLocations;
             const bool unclearThere=std::find(words.begin(),words.end(),"там")!=words.end() && normalized.find("созда")==std::string::npos && grounding.locations.empty() && contextLocation.empty() && focusedLocations!=1;
@@ -255,7 +266,7 @@ std::string RuntimeWorker::handle(std::string_view bytes) {
                 const auto id=it->get<std::string>();
                 if(catalog->deviceIndex().count(id)){grounding.devices={id};break;}
             }
-            if(unclearThere || (!creating && grounding.ambiguous) || (pronoun && grounding.devices.empty() && focusedDevices!=1)) {
+            if(unclearThere || (!creating && grounding.ambiguous) || (editing && unresolvedPronoun)) {
                 reply={{"ok",true},{"suggestion",{{"status","ambiguous"},{"summary",unclearThere?"В какой зоне добавить устройство? Укажите её название.":"Какое устройство изменить? Укажите его название и зону."},{"operations",Json::array()}}}};
             } else if(cancelCreation && grounding.devices.size()==1 && focus.count(grounding.devices.front())) {
                 const runtime::DomainView selectedDomain(catalog);
@@ -291,6 +302,14 @@ std::string RuntimeWorker::handle(std::string_view bytes) {
             } else reply = Json::parse(generations_.structuredSuggestion(prompt,input,384,[&](std::string_view raw) {
                 auto value=expandDialogueOperations(raw);
                 if(!value.at("operations").is_array() || value.at("operations").size()>3)throw std::invalid_argument("At most three dialogue operations per step");
+                // A pronoun may refer to a newly named device in this request.
+                // It still cannot authorize an ungrounded edit of existing data.
+                if(unresolvedPronoun && !value.at("operations").empty()) {
+                    const auto& operations=value.at("operations");
+                    const auto devices=std::count_if(operations.begin(),operations.end(),[](const Json& op){return op.at("op")=="create_device";});
+                    if(devices!=1 || std::any_of(operations.begin(),operations.end(),[](const Json& op){return op.at("op")!="create_location" && op.at("op")!="create_device";}))
+                        return Json{{"rejected",true},{"status","ambiguous"},{"summary","Какое устройство изменить? Укажите его название и зону."},{"operations",Json::array()}}.dump();
+                }
                 for(auto& op:value.at("operations")) {
                     const auto kind=op.at("op").get<std::string>();
                     const std::set<std::string> allowed={"rename_system","create_location","create_device","rename_location","rename_device","delete_device","add_brightness","set_field_bounds"};

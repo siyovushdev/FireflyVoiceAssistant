@@ -1,6 +1,6 @@
 # Web Admin UX V2 — B4 default migration
 
-Дата: 2026-10-04. Ветка: `feature/web-admin-ux-v2-b4`. Owner acceptance B4 **pending**; автоматическая проверка не заменяет ручную приёмку. B3 завершён владельцем (manual acceptance и real browser voice/setup smoke PASS), PR #2 merged в `master`: `a1fd5be64261ceb14abfaab4b49f703e135c683e`.
+Исходный отчёт: 2026-10-04. Ветка: `feature/web-admin-ux-v2-b4`. B4 functional owner acceptance **PASS** по сообщению владельца после исправления AI Setup. Последний запрос владельца — foreground busy UX polish; его проверки приведены в дополнении от 2026-10-08 ниже. Исторические результаты далее сохранены с контекстом. B3 завершён владельцем (manual acceptance и real browser voice/setup smoke PASS), PR #2 merged в `master`: `a1fd5be64261ceb14abfaab4b49f703e135c683e`.
 
 ## Default UI и совместимость URL
 
@@ -159,3 +159,286 @@ Artifact и review store находятся в `/tmp` и могут исчезн
 ## Limitations and owner gate
 
 B4 owner acceptance remains pending. Default UI migration adds no cloud/auth/HTTPS/new executors, no schema migrations and no model/prompt/voice changes. B3 real voice owner PASS is retained; automated voice uses a browser capture/STT fixture and is labelled accordingly. `/v2/assets/*` is deliberately absent: old `/v2/` entry bookmarks load the same current root assets, and no stale second bundle is retained. Offline upgrades should replace the binary as a whole; open tabs should refresh for the matching bundle.
+
+## Owner blocking defect: compound semantic creation — 2026-10-08
+
+Owner acceptance remains **blocked pending recheck** of this fix. This section describes uncommitted corrections on top of `37c0253`; it does not replace historical B4 results above. Routing/delivery are unrelated: the owner rebuilt B4 and confirmed `/` and `/v2/` return 200 while `/admin.js` and `/admin.css` return 404.
+
+### Reproduction and exact rejection
+
+Original request:
+
+```text
+создай цех зону и добавь туда вентилятор где он может включаться и выключаться по питанию
+```
+
+A private diagnostic executable linked to the unchanged current Admin libraries called `RuntimeWorker::handle(dialogue)` with `config/empty-home.json`, empty focus, the real `RuntimeModel`, normal setup entry and the existing `structuredSuggestion` trace. No new production logging was introduced. Evidence directory: `/tmp/firefly-b4-dialogue-debug/`; `Before.cpp`, `before` and `before.json` preserve the reproducer and complete prompt/input/raw/metrics/error for both attempts. The owner's demo was stopped normally for exclusive NPU use; its arguments were retained for restart. Production references and `user-store` were not modified.
+
+Exact first raw output (the blank line is present):
+
+```text
+{"ops":[["location","цех"],["power_device","цех","вентилятор"]]}
+
+{"unsupported":"параметр 'where он может включаться и выключаться по питанию' не поддерживается"}
+```
+
+Exact retry raw output:
+
+```text
+{"ops":[["location","цех"],["power_device","цех","вентилятор"]]}}
+```
+
+First attempt: JSON parse error 101, line 3 column 1, unexpected `{`, expected end of input. Retry: JSON parse error 101, line 1 column 81, unexpected `}`, expected end of input. The decoder correctly refuses both complete strings. Neither attempt reaches operation expansion, semantic validation or proposal conversion.
+
+| Before fix | System tokens | Input tokens | Output tokens / budget | Prefill ms | Generation ms | Inference wall ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| First | 511 | 44 | 48 / 384 | 858.530 | 15021.60 | 15906 |
+| Retry | 605 | 44 | 22 / 384 | 878.443 | 6866.61 | 7765 |
+
+Both finish below the output limit; truncation is not the observed cause. `DialogueOperations.h` legally accepts one `ops` array containing `location(name)` followed by `power_device(location,name)`. It expands to `create_location` and `create_device(template=power_only)` and delegates references, protected entities and config validation to `decodeCopilotProposal`. The requested expected object is legal.
+
+The creation-specific prompt displaced the general prompt's explicit single-object contract with separate complete-object examples. The observed model treated the relative clause describing ON/OFF as an unsupported extra parameter and appended a second alternative. The old retry added a generic syntax instruction plus parser error; it generated an extra brace. This is an Admin generation-contract reliability defect, not a reason to accept partial JSON. B4 did not change these prompts or decoders relative to B3. Historical B3 checks used other wording, including a pre-existing selected zone; their PASS does not establish coverage of this wording. The evidence does not establish model nondeterminism or a KV reset bug. Sampling remains top_k=1; request output and KV are cleared through the existing synchronous path. The second object has different content, not a duplicate copy of the first object.
+
+A separate deterministic defect affected `В цехе есть вентилятор, его можно включать и выключать.`: an unresolved-pronoun guard returned “Какое устройство изменить?” before inference even on an empty system. An intermediate diagnostic that deferred this guard then exposed wrong arguments from the general prompt (`power_device("вентилятор","включить")`, similarly for выключить); reference validation rejected the nonexistent zone. `probe.json` preserves that intermediate failure, not a passing final gate.
+
+### Changes and retained boundaries
+
+- Creation prompt uses one combined envelope, explicit tuple arities, mutually exclusive `ops/question/unsupported`, and a stop-after-object instruction. ON/OFF descriptions are capabilities rather than additional arguments. A generic pavilion/heater example teaches location/device/capability roles; no owner-specific entity or phrase mapping was added.
+- Explicit no-zone requests receive a generic portable-generator example preserving qualifying words in the device name. An intermediate live run produced `ИБП` instead of `Серверный ИБП`; it was recorded as FAIL despite correct null scope and empty capabilities.
+- Descriptions using the word `есть` can use this same bounded creation contract; edit/rename/delete/range requests remain outside that shortcut. It selects a prompt, not an executable action or repaired proposal.
+- An unresolved pronoun can refer to exactly one newly proposed device in the same request. Existing-entity edits and multiple new devices remain ambiguous; all original authoritative validation still runs.
+- The one allowed retry retains the concrete rejection reason and explicitly prohibits second objects and extra closing braces. Runtime failures still do not get format retries.
+- A regression with trailing Russian prose revealed that nlohmann's parser `what()` can contain an incomplete UTF-8 excerpt. JSON parse failures now record safe error ID/byte offset and `rejection_stage=json_parse`. Raw response bytes remain unchanged. This fixes diagnostic serialization, not model output.
+
+The exact reference RKLLM 1.3.0 header exposes no ready-made JSON-schema/grammar constrained-decoding parameter. `rkllm_set_function_tools` configures prompt/tool descriptions, not a documented hard grammar guarantee. A new logits-based decoder was not introduced. Models, sampling, context limits, response budget 384, deadline, chat template, KV reset, production commands, SafetyGate and B4 delivery remain unchanged.
+
+`parseMessage`, `expandDialogueOperations` and `decodeCopilotProposal` are unchanged. No regex extraction, first-object selection, output repair, automatic Accept/Apply/probe/poll or equipment command was added. Server draft proposals still require human acceptance in Vue; publication still uses the existing explicit global review.
+
+### Regression and live procedure
+
+`AdminDialogueContract` exercises acceptance A–G: owner input, descriptive paraphrases with different entities, explicit no-zone, malformed syntax, extra brace, second object, trailing Russian prose, markdown, unknown operation/arity, unknown references and duplicate zones. Invalid attempts preserve an existing manual checkpoint, stored/active identity and empty execution history. It verifies invalid→valid and invalid→invalid retry behavior, plus retained ambiguity of ungrounded edits and multiple devices. Unknown references retain the existing clarification result, not an invented zone or a syntax retry. `AdminSetupV2Chromium` now also uses visible controls for the original phrase, natural paraphrase and no-zone, verifies proposal cards and rejects them without publication or hardware requests. Scripted model output in those tests is not evidence of live model quality.
+
+The separate `benchmarks/web-admin-b4/DialogueSmoke.py` launches the actual rebuilt B4 `firefly-demo`, real RKLLM and a new private store. It requests C, B and A three times through the real HTTP setup API, resetting and checking the entire draft/focus/unresolved-text checkpoint between requests. The model receives no transcript history; the normal per-request KV clear remains in effect. This is equivalent isolation without repeatedly loading the same model. It checks exact ON/OFF structure, nullable zone, unchanged stored/active identity and zero executions; it never calls Accept, Save, Apply, probe or hardware endpoints.
+
+Fresh commands and final results are recorded below after execution. Earlier failed diagnostic/test iterations remain in the evidence directory and are not labelled PASS.
+
+### Fresh live result (final source, 2026-10-08)
+
+**PASS: A 3/3, B and C.** This is a new real RKLLM run through the rebuilt B4 binary and C++ HTTP API, not the historical B3 acceptance or a scripted response. Final evidence: `/tmp/firefly-b4-dialogue-debug/live-verified.json`, `live-verified-run.log`; private store and server log: `/tmp/firefly-b4-dialogue-live-0j0g0fmf/`. The binary SHA-256 is `33870accc79117b3cea09266852761adf791e76600eb9e16cbdb1502fc2da751`.
+
+| Case | Semantic attempts | System tokens | Semantic inference wall ms | Complete setup message wall s | Result |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Original A1 | 1 | 853 | 8554 | 69.880 | Цех → Вентилятор → ON/OFF |
+| Original A2 | 1 | 853 | 8717 | 69.326 | Same correct proposal |
+| Original A3 | 1 | 853 | 8613 | 69.348 | Same correct proposal |
+| Natural B | 1 | 853 | 8681 | 68.107 | Equivalent semantic proposal |
+| No-zone C | 1 | 960 | 6697 | 33.544 | Серверный ИБП; null zone; no invented actions |
+
+All five semantic attempts finished below the unchanged output budget 384, with no retry. All language enrichment attempts also succeeded without warnings. The complete-message timing includes context changes and language enrichment, not only the semantic inference. The empty-context creation prompt is 4578 UTF-8 bytes; no-zone has an additional bounded instruction. The existing system-token ceiling for this budget remains 1664 within CTX4096; neither context nor sampling was increased.
+
+Every case verified unchanged stored hash and exact active identity/configuration, empty execution history, no connections/bindings/observations. The runner's only POST paths were setup start, heartbeat, draft, message and cancel. It never published config or sent equipment requests. Cases reset the private draft and explicitly check empty focus/unresolved text; they are not chained requests relying on a previously created zone. The test server was stopped normally at completion.
+
+Intermediate reports remain FAIL: `live.json` passed the original phrase 3/3 but rejected B; `live-final.json` passed B and original 3/3 but shortened the no-zone device name. Neither is substituted for the final complete PASS. The source corrections for B and C use unrelated generic examples, not mappings for Цех/Вентилятор/ИБП.
+
+Commands executed in this work (existing dependencies, no download):
+
+```sh
+cd /home/firefly/FireflyVoiceAssistantLinux/src/admin/frontend
+npm run typecheck
+npm test
+npm run build
+cd /home/firefly/FireflyVoiceAssistantLinux
+cmake -S . -B build -DRKLLM_ROOT=/home/firefly/demo_Linux_aarch64
+cmake --build build -j4
+ctest --test-dir build -R '^(AdminDialogueContract|AdminSuggestionRetry|DialogueSetup|AdminCopilot|AdminSetupV2Api|AdminGuardedCommand|AdminSetupV2Chromium)$' --output-on-failure
+ctest --test-dir build -R '^AdminDialogueContract$' --output-on-failure
+python3 -B benchmarks/web-admin-b4/DialogueSmoke.py \
+  --binary /home/firefly/FireflyVoiceAssistantLinux/build/firefly-demo \
+  --root /home/firefly/FireflyVoiceAssistantLinux \
+  --output /tmp/firefly-b4-dialogue-debug/live-verified.json
+PYTHONDONTWRITEBYTECODE=1 ctest --test-dir build --output-on-failure
+git diff --check
+```
+
+The live runner refuses to overwrite evidence; choose a new output filename when repeating. Stop the existing demo normally before running it: the runner requires exclusive RKLLM ownership. Existing CMake cache retains the installed RKLLM/STT/wake paths and Admin/voice build flags. Builds were repeated after each final C++ change; `build-release.log` is the final successful rebuild. No NPU owner ran concurrently with CTest.
+
+### Fresh automated results and remaining owner gate
+
+| Check run now | Result |
+| --- | --- |
+| Frontend typecheck | PASS |
+| Frontend tests | 35/35 PASS, zero skipped |
+| Production frontend build / offline asset gate | PASS, 4 declared local assets |
+| Current B4 CMake build | PASS (`build-release.log`) |
+| New `AdminDialogueContract` | PASS, also included in full CTest |
+| Full CTest on final code | **69/69 PASS**, 234.51 s |
+| Actual `AdminV2Chromium` | PASS, 63.90 s |
+| Actual `AdminManualChromium` | PASS, 33.27 s |
+| Actual `AdminSetupV2Chromium`, including new A/B/C | PASS, 39.29 s |
+| `AdminSetupV2Api` / `AdminV2Migration` | PASS, 2.35 / 3.57 s |
+| Real RKLLM, rebuilt B4 binary | **A 3/3, B, C PASS**, all semantic attempts without retry |
+| `git diff --check` | PASS |
+
+Evidence logs are in `/tmp/firefly-b4-dialogue-debug/`: `typecheck.log`, `frontend-tests.log`, `frontend-build.log`, `configure.log`, `build-release.log`, `contract-final.log`, `ctest-final.log`, `live-verified.json`, `live-verified-run.log`. Final browser artifacts are under `build/v2-acceptance/`, `build/b2-acceptance/`, `build/b3-acceptance/`. The first focused run had a test expectation that incorrectly classified unknown-reference clarification as a syntax failure; the test was corrected to retain the existing safe clarification semantics. Final full CTest includes all relevant API/unit suites and all three real Chromium suites; it is not a core-only result. No historical result above is presented as a newly executed test.
+
+Changed/new repository files for this correction:
+
+- `src/admin/RuntimeWorker.cpp`: bounded Admin creation prompt and same-request pronoun handling.
+- `src/admin/RuntimeGeneration.cpp`: explicit single-object retry and safe parse-error diagnostics.
+- `src/admin/CMakeLists.txt`: register `AdminDialogueContract`.
+- `tests/admin/DialogueContractTests.cpp`: new strictness, semantic, retry and no-mutation regressions.
+- `tests/admin/v2/SetupWorker.cpp`: scripted fixture replies for owner A/B/C, no production phrase mapping.
+- `tests/admin/v2/SetupChromiumTests.js`: rendered proposal/reject/no-publication checks for A/B/C.
+- `benchmarks/web-admin-b4/DialogueSmoke.py`: explicit exclusive real-model HTTP smoke on a fresh store.
+- `docs/web-admin-ux-v2-b4.md`: this diagnosis and evidence.
+
+Owner recheck: open `http://localhost:8080/#/setup`, start a new setup session and repeat the original request. Check that one proposal contains Цех, Вентилятор and two power actions; inspect/edit before Accept. Acceptance into the plan must not publish or execute. Then repeat the natural wording and explicit no-zone request in clean drafts. Final Apply remains a separate reviewed operation and was not performed by the live smoke. Automated success does not replace B4 owner acceptance.
+
+Limitations: this verifies the stated cases and strict failure paths, not every Russian wording. A complete setup request still takes roughly 68–70 s for the zone/power-device cases because it also generates language profiles; no latency tuning was attempted. No new microphone/STT or always-on voice acceptance was performed. No cloud, model/context-window changes, transport changes, routing changes, user-store cleanup, commit, merge or push are part of this correction. Existing local `user-store` changes remain untouched.
+
+The owner's demo was restored with its original arguments and `/tmp/firefly-b4-manual`, using the rebuilt binary (PID 974850 at verification). Fresh read-only checks: `/api/status` reported `runtime_ready=true`; `/` and `/v2/` returned 200, `/admin.js` and `/admin.css` returned 404. Owner URL: `http://localhost:8080/#/setup`. No setup message, Accept or Apply was sent to that owner store during restoration.
+
+## 2026-10-08 — foreground busy UX после functional owner acceptance
+
+Владелец сообщил, что B4 functional acceptance пройдена после AI Setup fix.
+Последний UX defect: disabled-кнопки без достаточно заметного объяснения ожидания,
+особенно при 8–20+ секундах Admin inference. Это дополнение описывает новый frontend
+polish; результаты более ранних разделов не являются повторными проверками этой правки.
+
+### Правило и механизм
+
+User-initiated async workflow регистрирует foreground operation; periodic reads этого
+не делают. `stores/foreground.ts` хранит независимые operation ID, type, человеческую
+подпись и delayed-visible state. Pending устанавливается синхронно; existing workflow
+locks немедленно блокируют повторное действие. Индикатор появляется через 250 ms.
+Таймер управляет только видимостью: он не запускает запросы, не снимает locks и не
+влияет на правильность операций. Быстрый ответ отменяет таймер без вспышки loader.
+
+`foreground.run()` гарантирует cleanup через `finally`. В компонентах с существующей
+обработкой результата используется тот же `begin()/stage()/finish()` с `finally`.
+Независимые tickets сохраняют остальные операции при завершении одной; поздний
+stage/finish завершённого ticket не восстанавливает его и не очищает чужой.
+Существующие `manual.busy`/`setupBusy` и локальные guards сохранены, без переписывания
+state management или transport queue. Повтор Confirm во время busy становится no-op.
+Никаких automatic retries mutation.
+
+`ForegroundStatus.vue` — один компонент и один CSS pattern: spinner + текст,
+`role=status`, polite live region, reduced-motion. Он виден в фиксированной полосе
+без overlay; внутри native modal используется тот же компонент в sticky region,
+поскольку фон native dialog недоступен. `aria-busy` отмечает изменяемые области,
+а live region Review находится за их пределами. Навигация остаётся доступной с
+прежними consistency guards. Серверные entering/restoring transitions используют
+тот же компонент даже после завершения стартового HTTP-запроса; heartbeat не становится
+foreground operation.
+
+### Покрытые операции
+
+| Workflow | Feedback |
+| --- | --- |
+| AI Start/resume, entering, cancel/restoration | Подготовка локального AI / завершение настройки / восстановление ассистента |
+| AI prompt, явный retry, contextual language/action assist | Готовим предложение… |
+| Accept/reject/edit proposal, ручное закрытие уточнения, явное reread draft | Добавляем в план / отклоняем / перечитываем черновик / подготавливаем редактор |
+| Voice permission, закрытие записи и WAV preparation, local STT, WAV upload | Ожидаем доступ к микрофону / распознаём речь локально; отмена/unmount убирают feedback, late result по-прежнему игнорируется |
+| Manual create/update/delete через TaskBuffer, candidate validation и global Review | Подготавливаем редактор / проверяем изменения |
+| CAS Save → Apply → active verification → refresh | Сохраняем конфигурацию → применяем конфигурацию → проверяем активную версию → обновляем данные |
+| Owned Setup Apply | Сохраняем и применяем конфигурацию…; API атомарен для frontend, внутренние этапы не имитируются; затем active verification |
+| Manual и setup connection probe | Проверяем подключение…; explicit-only, прежние 0 HTTP bytes |
+| Guarded device command, explicit poll, Playground preview/execute | Отправляем команду / читаем состояние / проверяем команду; post-action refresh остаётся внутри busy lifetime |
+| Revisions opening/reload, restore candidate, import file/validation/migration, export stored, reconcile, reset base | Подписи соответствующих операций; Apply по-прежнему отдельный Review |
+| Явное «Обновить данные» | Обновляем данные… |
+
+Исключены: periodic Overview/States refresh, `/setup/status`/heartbeat, начальное
+read-only восстановление session ownership; они не регистрируются в foreground counter.
+Периодическое обновление больше не меняет подпись кнопки на «Обновление…».
+Синхронный ввод TaskBuffer, фильтры/выбор контекста, локальный Accept AI-полей,
+отмена локального редактора и экспорт уже имеющегося candidate не требуют loader.
+Запись голоса сохраняет собственный таймер записи; spinner относится к ожиданию
+permission/processing, а не заменяет индикатор записи.
+
+API paths/methods/bodies, CAS, backend validation, SafetyGate, guarded command,
+HardwareExecutor, AI permissions, B4 routing, model/prompt в этом polish не менялись.
+Ранее принятые изменения AI inference остаются отдельными существующими изменениями
+working tree. `user-store` не изменялся этой задачей; его tracking здесь не исправляется.
+
+### Проверки именно этой правки
+
+Новый `foreground.test.mjs`: slow AI wrapper/duplicate guard/success/error; fast request
+без позднего loader; concurrent tickets; sequential stage identity; slow/failing
+background refresh без foreground; реальный manual store Review/Save/Apply/verify
+с удерживаемыми promises, double Confirm и failure cleanup. Существующие 35 frontend
+regressions сохранены (всего 40 tests).
+
+Chromium fixtures удерживают реальные запросы production bundle через CDP Fetch,
+проверяют disabled control и видимый текст до `Fetch.continueRequest`, включая
+положение индикатора внутри viewport, и сохраняют screenshots `busy-*.png`.
+`AdminSetupV2Chromium`: три AI wording, malformed output cleanup/retry usable,
+local-STT delayed fixture. `AdminManualChromium`: slow probe, Save, Apply error,
+guarded ON/OFF и state read. Hardware counts/strict plan isolation прежние.
+Это реальные Chromium processes + embedded Vite dist + C++ HttpServer, но AI/STT
+worker responses тестовые. Новый real microphone/RKLLM smoke этим UX polish не заявляется.
+
+Команды запущены заново для финальных frontend sources, а не перенесены из B3/B4 истории:
+
+| Команда | Результат |
+| --- | --- |
+| `npm --prefix src/admin/frontend run typecheck` | PASS |
+| `npm --prefix src/admin/frontend test` | **40/40 PASS** |
+| `npm --prefix src/admin/frontend run build` | PASS; offline gate: 4 declared local files, hashed JS/CSS, no external HTML/CSS resources |
+| `cmake --build build -j2` | PASS, включая embedded Admin и `firefly-demo` |
+| `ctest --test-dir build --output-on-failure` — первый полный прогон | **68/69**, 246.66 s; `AdminSetupV2Api` получил `409 setup_busy` на Resume после асинхронного Cancel |
+| `ctest --test-dir build -R '^AdminSetupV2Api$' --output-on-failure --repeat until-fail:3` | **3/3 PASS**, 6.92 s, без изменения исходников или fixture |
+| `ctest --test-dir build --output-on-failure` — повторный полный прогон | **69/69 PASS**, 245.53 s; Chromium root **62.31 s**, manual **45.26 s**, setup **42.30 s**, API **2.35 s** |
+| `git diff --check` | PASS |
+
+В первом полном прогоне реальные Chromium: `AdminV2Chromium` **62.30 s PASS**,
+`AdminManualChromium` **45.25 s PASS**, `AdminSetupV2Chromium` **42.30 s PASS**.
+Предварительный targeted Chromium run также прошёл 3/3; окончательные результаты
+после последних ARIA/cleanup правок выше. Артефакты:
+`build/b2-acceptance/busy-{probe,config,apply,command,poll}.png`,
+`build/b3-acceptance/busy-message.png`, стандартные viewport screenshots и results JSON.
+
+Обнаруженная отдельная нестабильность API fixture: `SetupSession::persist()` публикует
+`published_` перед завершением записи draft; `restore()` вызывается под mutex.
+Lock-free status может уже показать `cancelled_draft_saved`, пока Resume с `try_lock`
+ещё получает `setup_busy`. Воспроизведённый ответ соответствует этому существующему
+окну; frontend bundle данный Python API test вообще не загружает. Backend и fixture
+не менялись; этот timing issue не скрывается повторным PASS и остаётся known limitation
+вне busy UX scope. Production automatic retry не добавлен.
+
+Полные свежие логи: `/tmp/firefly-b4-busy-typecheck.log`,
+`/tmp/firefly-b4-busy-frontend.log`, `/tmp/firefly-b4-busy-offline.log`,
+`/tmp/firefly-b4-busy-build-final.log`, `/tmp/firefly-b4-busy-ctest.log`,
+`/tmp/firefly-b4-busy-api-repeat.log`, `/tmp/firefly-b4-busy-ctest-repeat.log`.
+
+### Изменённые файлы этого polish
+
+Новые:
+- `src/admin/frontend/src/stores/foreground.ts`
+- `src/admin/frontend/src/components/ForegroundStatus.vue`
+- `src/admin/frontend/tests/foreground.test.mjs`
+
+Изменены:
+- `src/admin/frontend/src/App.vue`, `styles/base.css`, `stores/manual.ts`, `stores/setup.ts`
+- `components/AdminVoice.vue`, `ConnectionWizard.vue`, `ContextualAssist.vue`, `DeviceControls.vue`, `TaskPanel.vue`
+- `views/AdvancedView.vue`, `PlaygroundView.vue`, `SetupView.vue`
+- `views/ConnectionsView.vue`, `DeviceDetailView.vue`, `DevicesView.vue`, `OverviewView.vue`, `ZonesView.vue` — disable async editor entry controls
+- `tests/admin/v2/ManualChromiumTests.js`, `tests/admin/v2/SetupChromiumTests.js`
+- `docs/web-admin-ux-v2-b4.md`
+
+### Owner polish check
+
+После запуска пересобранного `build/firefly-demo` открыть `http://localhost:8080/#/setup`.
+Действующий demo этой задачей не перезапускается: embedded assets обновятся при
+перезапуске процесса, одной перезагрузки вкладки старого процесса недостаточно.
+Начать настройку и отправить нормальную просьбу: сразу disabled, затем
+«Готовим предложение…», после ответа доступны review/actions. Повторить с отказом
+AI и убедиться, что сообщение ошибки остаётся, а busy исчезает. Через manual wizard
+проверить explicit probe; через global Review проверить подписи Save/Apply/verify;
+через Device Detail — command/read. Оставить Overview открытым на несколько циклов
+refresh: глобального loader быть не должно. Навигация, mobile и modal Review должны
+оставаться удобными. Functional owner PASS выше не считается отдельной ручной
+приёмкой нового polish.
+
+Ветка остаётся `feature/web-admin-ux-v2-b4`; commit/push/merge не выполняются.
+
+Финальный Git status: HEAD `37c0253`, ветка `feature/web-admin-ux-v2-b4`; 27 modified и 6 untracked entries, включая ранее существовавшие AI fix и локальный user-store. Полный вывод сохранён в `/tmp/firefly-b4-busy-git-status.txt`. `git diff --check` после обновления отчёта: PASS. Commit/push/merge не выполнялись.

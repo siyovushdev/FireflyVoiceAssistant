@@ -1,3 +1,4 @@
+import { foreground, type OperationKind, type Stage } from './foreground.js';
 import { computed, ref, shallowRef, watch } from 'vue';
 import { adminRequest, AdminError, identity, issuesOf, type AdminReply, type CatalogReply, type Issue, type SetupStatus } from '../api/admin.js';
 import { readApi, freezeDeep } from '../api/client.js';
@@ -41,10 +42,10 @@ export function createManualStore(api = adminRequest, read = readApi, refresh = 
         await checkSetup();
         if (!base.value) { base.value = await read('/api/config'); candidate.value = base.value.configuration; }
     }
-    async function run(operation: () => Promise<void>) {
+    async function run(operation: (stage: Stage) => Promise<void>, kind: OperationKind = 'validate') {
         if (busy.value) return;
         busy.value = true; issues.value = [];
-        try { await operation(); }
+        try { await foreground.run(kind, operation); }
         catch (error) { issues.value = issuesOf(error); }
         finally { busy.value = false; }
     }
@@ -68,7 +69,7 @@ export function createManualStore(api = adminRequest, read = readApi, refresh = 
             }
             if (kind === 'device') { const device = buffer.devices.find(d => d.id === id); if (device) device.metadata ??= {}; }
             task.value = { kind, id, buffer, isNew, version: version.value };
-        });
+        }, 'edit');
     }
     function cancel() { if (busy.value) return; task.value = null; issues.value = []; showReview.value = false; }
     async function stage() {
@@ -117,27 +118,33 @@ export function createManualStore(api = adminRequest, read = readApi, refresh = 
     }
     const equalIdentity = (a: Identity | null, b: Identity | null) => a?.hash === b?.hash && a?.revision === b?.revision;
     async function confirm() {
+        if (busy.value) return;
         if (!canConfirm.value) { issues.value = [{ code: 'review_required', path: '', message: 'Требуется новый review перед применением.' }]; return; }
         const reviewed = review.value!;
-        await run(async () => {
+        await run(async stage => {
             let saved: CatalogDto | null = null;
             try {
                 await checkSetup();
                 const stored = await read('/api/config'), active = (await read('/api/config/active')).active;
                 if (!equalIdentity(stored, reviewed.stored) || !equalIdentity(active, reviewed.active) || active?.generation_id !== reviewed.active?.generation_id || version.value !== reviewed.version || task.value) throw Error('Основа или план изменились после review. Требуется новая проверка.');
                 if (setup.value?.active) {
+                    stage('setupApply');
                     await bridge!.apply();
                     saved = await read('/api/config');
                     base.value = saved; candidate.value = saved.configuration;
                 } else {
-                saved = await api<CatalogReply>('/api/config', { configuration: reviewed.candidate, expected: identity(reviewed.stored) }, 'PUT');
-                base.value = saved; candidate.value = saved.configuration;
-                await api('/api/config/apply', { expected: identity(saved) });
+                    stage('save');
+                    saved = await api<CatalogReply>('/api/config', { configuration: reviewed.candidate, expected: identity(reviewed.stored) }, 'PUT');
+                    base.value = saved; candidate.value = saved.configuration;
+                    stage('apply');
+                    await api('/api/config/apply', { expected: identity(saved) });
                 }
+                stage('verify');
                 const activated = (await read('/api/config/active')).active;
                 if (!equalIdentity(activated, saved)) throw Error('Активная версия не совпала с сохранённой.');
                 outcome.value = 'Изменения применены. Активная версия проверена.';
             } catch (error) {
+                stage('verify');
                 outcome.value = saved ? 'Версия сохранена, но не активирована' : 'Применение не подтверждено';
                 // A lost response is not a reason to repeat Save, Apply or execution.
                 try {
@@ -148,10 +155,10 @@ export function createManualStore(api = adminRequest, read = readApi, refresh = 
                     if (!equalIdentity(active, stored)) outcome.value += '. Сохранённая и активная версии различаются.';
                 } catch { outcome.value += '. Проверить состояние не удалось; повторите только чтение статуса.'; }
                 throw error;
-            } finally { review.value = null; version.value++; await refresh(); }
+            } finally { review.value = null; version.value++; stage('refresh'); await refresh(); }
         });
     }
-    async function reset() { await run(async () => { await checkSetup(); base.value = await read('/api/config'); candidate.value = base.value.configuration; task.value = null; review.value = null; version.value++; importBuffer.value = ''; outcome.value = ''; }); }
+    async function reset() { await run(async () => { await checkSetup(); base.value = await read('/api/config'); candidate.value = base.value.configuration; task.value = null; review.value = null; version.value++; importBuffer.value = ''; outcome.value = ''; }, 'refresh'); }
     const changes = computed(() => review.value ? readableDiff(review.value.stored.configuration, review.value.candidate) : []);
     const activeChanges = computed(() => review.value?.active ? readableDiff(review.value.active.configuration, review.value.candidate) : []);
     return { base, candidate, task, review, version, busy, voiceBusy, importBuffer, advanced, showReview, issues, outcome, setup, draft, dirty, canConfirm, changes, activeChanges,
