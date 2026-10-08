@@ -69,6 +69,10 @@ public:
         }
         if(request.value("method",std::string())=="action_draft")return Json{{"description","Питание устройства"},{"aliases",Json::array({"включи"})},{"assignments",Json::array({{{"field","power"},{"value",true}}})}}.dump();
         if(prompt.find("Извлеки НОВОЕ имя")!=std::string::npos)return R"({"name":"Вытяжка"})";
+        if(text=="создай цех зону и добавь туда вентилятор где он может включаться и выключаться по питанию" ||
+           text=="В цехе есть вентилятор, его можно включать и выключать.")
+            return R"({"ops":[["location","Цех"],["power_device","Цех","Вентилятор"]]})";
+        if(text=="Добавь серверный ИБП без зоны.")return R"({"ops":[["device",null,"Серверный ИБП"]]})";
         if(text.find("без зоны")!=std::string::npos)return R"({"ops":[["power_device",null,"Контроллер стенда"]]})";
         if(text.find("Детскую")!=std::string::npos)return R"({"ops":[["location","Детская"],["power_device","Детская","Свет"],["power_device","Детская","Телевизор"]]})";
         if(text.find("вентилятор")!=std::string::npos)return R"({"ops":[["power_device","Цех упаковки","Вентилятор"]]})";

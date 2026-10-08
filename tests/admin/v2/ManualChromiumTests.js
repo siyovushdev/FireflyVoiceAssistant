@@ -8,6 +8,7 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'firefly-b2-browser-'));
 fs.mkdirSync(path.join(temp, 'store'), { mode: 0o700 }); fs.mkdirSync(artifacts, { recursive: true });
 const log = fs.openSync(path.join(artifacts, 'server.log'), 'w'), failFile = path.join(temp, 'fail-apply');
 let server, chrome, socket, output = '', nextId = 0, url, power = false;
+let holdPath = '', heldRequest = null;
 const pending = new Map(), requests = [], external = [], exceptions = [], hardware = [];
 let tcpConnections = 0;
 const mock = http.createServer((req, res) => { let body = ''; req.on('data', b => body += b); req.on('end', () => { hardware.push({ method: req.method, url: req.url, body }); if (req.method === 'POST') power = JSON.parse(body).on; const response = JSON.stringify({ on: power }); res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(response) }); res.end(response); }); });
@@ -23,6 +24,20 @@ async function click(label, scope = '') {
     await until(() => js(`(() => { ${lookup} return !!node; })()`), 'visible enabled control ' + label);
     await js(`(() => { ${lookup} node.scrollIntoView({block:'center'}); node.click(); })()`); await delay(80);
 }
+// Hold the real request unresolved until visible feedback is asserted through the DOM.
+async function slowAction(pathname, label, button, scope = '') {
+    holdPath = pathname; heldRequest = null;
+    await click(button, scope);
+    await until(() => heldRequest !== null, 'held foreground request ' + pathname);
+    assert.ok(await js(`(() => { const root = document.querySelector(${JSON.stringify(scope || 'dialog[open]')}) || document.querySelector('main'); const b = [...root.querySelectorAll('button')].find(n => n.textContent.trim() === ${JSON.stringify(button)}); return b && b.matches(':disabled'); })()`), 'controls disabled before response');
+    await until(() => js(`([...document.querySelectorAll('[data-testid="foreground-progress"]')].some(n => n.textContent.includes(${JSON.stringify(label)}) && n.getClientRects().length))`), 'visible foreground label while unresolved: ' + label);
+    assert.ok(await js(`([...document.querySelectorAll('[data-testid="foreground-progress"]')].some(n => { const r = n.getBoundingClientRect(); return n.textContent.includes(${JSON.stringify(label)}) && r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth; }))`), 'progress is inside viewport');
+    await screenshot('busy-' + pathname.split('/').at(-1));
+    await delay(350);
+    assert.ok(heldRequest, 'response is still held while progress is visible');
+    const requestId = heldRequest; holdPath = ''; heldRequest = null;
+    await send('Fetch.continueRequest', { requestId });
+}
 async function fill(label, value, scope = '') { await js(`(() => { const root = (${JSON.stringify(scope)} ? document.querySelector(${JSON.stringify(scope)}) : null) || document.querySelector('dialog[open]') || document.querySelector('main'); const label = [...root.querySelectorAll('label')].find(n => n.textContent.trim().startsWith(${JSON.stringify(label)}) && n.getClientRects().length); const control = label?.querySelector('input,textarea'); if (!control) throw Error('Field missing: ' + ${JSON.stringify(label)}); control.focus(); control.value = ${JSON.stringify(value)}; control.dispatchEvent(new Event('input', {bubbles:true})); control.dispatchEvent(new Event('change', {bubbles:true})); })()`); }
 async function insertRaw(text) {
     const before = await js('document.activeElement.value');
@@ -35,7 +50,7 @@ async function route(name) { await js(`document.querySelector('nav a[href$="#/${
 async function ready() { await until(() => js('!document.querySelector("dialog[open] fieldset:disabled")'), 'idle task'); }
 async function stage() { await click('Добавить в план'); await until(() => js('!document.querySelector("dialog[open]")'), 'task staged'); }
 async function review() { await click('Сохранить и применить', 'main .manual-toolbar'); await until(() => js('[...document.querySelectorAll("dialog[open] button")].some(b => b.textContent.trim() === "Подтвердить применение" && !b.disabled)'), 'review ready'); }
-async function apply() { await click('Подтвердить применение'); await until(async () => (await text()).includes('Изменения применены. Активная версия проверена.'), 'applied'); await until(() => js('[...document.querySelectorAll("dialog[open] button")].some(b => b.textContent.trim() === "Назад к плану" && !b.disabled)'), 'post-Apply refresh'); await click('Назад к плану'); }
+async function apply() { await slowAction('/api/config', 'Сохраняем конфигурацию…', 'Подтвердить применение'); await until(async () => (await text()).includes('Изменения применены. Активная версия проверена.'), 'applied'); await until(() => js('[...document.querySelectorAll("dialog[open] button")].some(b => b.textContent.trim() === "Назад к плану" && !b.disabled)'), 'post-Apply refresh'); await click('Назад к плану'); }
 async function planDevice(name, button) { await js(`(() => { const row = [...document.querySelectorAll('main .panel .inline-actions')].find(n => n.querySelector('strong')?.textContent === ${JSON.stringify(name)}); const b = [...row.querySelectorAll('button')].find(n => n.textContent === ${JSON.stringify(button)}); b.click(); })()`); await until(() => js('!!document.querySelector("dialog[open]")'), 'device task'); }
 async function api(endpoint) { const r = await fetch(url + endpoint); assert.equal(r.status, 200); return r.json(); }
 async function screenshot(name) { const r = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true }); fs.writeFileSync(path.join(artifacts, name + '.png'), Buffer.from(r.data, 'base64')); }
@@ -56,7 +71,7 @@ async function screenshot(name) { const r = await send('Page.captureScreenshot',
     socket.onmessage = e => { const m = JSON.parse(e.data); if (m.id) { const p = pending.get(m.id); pending.delete(m.id); if (p) m.error ? p.reject(m.error) : p.resolve(m.result); }
         else if (m.method === 'Runtime.exceptionThrown') exceptions.push(m.params);
         else if (m.method === 'Page.javascriptDialogOpening') send('Page.handleJavaScriptDialog', { accept: true });
-        else if (m.method === 'Fetch.requestPaused') { const { request, requestId } = m.params; requests.push({ url: request.url, method: request.method, body: request.postData }); const safe = request.url.startsWith(url + '/') || request.url.startsWith('blob:' + url); if (!safe) external.push(request); send(safe ? 'Fetch.continueRequest' : 'Fetch.failRequest', safe ? { requestId } : { requestId, errorReason: 'BlockedByClient' }); }
+        else if (m.method === 'Fetch.requestPaused') { const { request, requestId } = m.params; requests.push({ url: request.url, method: request.method, body: request.postData }); if (holdPath && request.url.endsWith(holdPath) && request.method !== 'GET') { heldRequest = requestId; return; } const safe = request.url.startsWith(url + '/') || request.url.startsWith('blob:' + url); if (!safe) external.push(request); send(safe ? 'Fetch.continueRequest' : 'Fetch.failRequest', safe ? { requestId } : { requestId, errorReason: 'BlockedByClient' }); }
     };
     await send('Runtime.enable'); await send('Page.enable'); await send('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
     await send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
@@ -102,7 +117,7 @@ async function screenshot(name) { const r = await send('Page.captureScreenshot',
     await planDevice('Вентилятор', 'Настроить подключение'); await click('HTTP / REST →'); await fill('Название подключения', 'Контроллер цеха'); assert.match(await text(), /http:\/\/192\.168\.68\.120:8765/); assert.match(await text(), /порт 80/); await click('Далее');
     await until(() => js('document.activeElement?.getAttribute("data-path") === "/connection/http/base_url"'), 'inline error focus');
     for (const [width, height] of [[390, 844], [800, 600], [1280, 800]]) { await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false }); await delay(80); assert.equal(await js('document.querySelector("dialog").scrollWidth <= document.querySelector("dialog").clientWidth + 1'), true, 'task horizontal overflow'); await screenshot('wizard-error-' + width); }
-    await fill('Endpoint', endpoint); await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 }); await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 }); await delay(100); assert.match(await text(), /ШАГ 2 ИЗ 5/, 'Enter cannot bypass wizard review'); await click('Проверить доступность'); await until(async () => (await text()).includes('TCP-соединение установлено'), 'probe'); assert.equal(hardware.length, 0); assert.ok(tcpConnections >= 1);
+    await fill('Endpoint', endpoint); await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 }); await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 }); await delay(100); assert.match(await text(), /ШАГ 2 ИЗ 5/, 'Enter cannot bypass wizard review'); await slowAction('/api/connections/probe', 'Проверяем подключение…', 'Проверить доступность'); await until(async () => (await text()).includes('TCP-соединение установлено'), 'probe'); assert.equal(hardware.length, 0); assert.ok(tcpConnections >= 1);
     await fill('Endpoint', endpoint + '/'); assert.match(await text(), /Результат проверки устарел/); await fill('Endpoint', endpoint);
     await click('Далее'); await check('Включить'); await check('Выключить');
     const firstMapping = '.mapping-editor:nth-of-type(1)';
@@ -135,10 +150,10 @@ async function screenshot(name) { const r = await send('Page.captureScreenshot',
     console.log('F/M: guarded ON/OFF exactly one POST, independent GET confirms');
     await route('devices'); await until(() => js('[...document.querySelectorAll(".device-card h2")].some(n => n.textContent.includes("Вентилятор цеха"))'), 'active device card'); await click('Вентилятор цеха');
     for (const [label, on] of [['Включить', true], ['Выключить', false]]) {
-        const count = hardware.length; await click(label, '.operational');
+        const count = hardware.length; await slowAction('/api/devices/command', 'Отправляем команду…', label, '.operational');
         await until(() => js('!!document.querySelector("[data-knowledge=predicted]")'), 'Predicted');
         assert.equal(hardware.length, count + 1); assert.equal(hardware.at(-1).method, 'POST'); assert.equal(JSON.parse(hardware.at(-1).body).on, on);
-        await click('Прочитать состояние', '.operational'); await until(() => js('!!document.querySelector("[data-knowledge=confirmed]")'), 'Confirmed');
+        await slowAction('/api/devices/poll', 'Читаем состояние…', 'Прочитать состояние', '.operational'); await until(() => js('!!document.querySelector("[data-knowledge=confirmed]")'), 'Confirmed');
         assert.equal(hardware.length, count + 2); assert.equal(hardware.at(-1).method, 'GET');
     }
     await screenshot('device-operational');
@@ -185,8 +200,8 @@ async function screenshot(name) { const r = await send('Page.captureScreenshot',
     await route('overview'); await click('Изменить название системы'); await fill('Название системы', 'Сохранённый новый стенд'); await stage(); await review();
     const writesBefore = requests.filter(r => r.method === 'PUT' || r.url.endsWith('/api/config/apply')).length;
     const activeBefore = (await api('/api/config/active')).active.hash;
-    fs.writeFileSync(failFile, 'fail only Apply'); await click('Подтвердить применение'); await until(async () => (await text()).includes('Версия сохранена, но не активирована'), 'saved not active');
-    await delay(1000); assert.equal(requests.filter(r => r.method === 'PUT' || r.url.endsWith('/api/config/apply')).length, writesBefore + 2);
+    fs.writeFileSync(failFile, 'fail only Apply'); await slowAction('/api/config/apply', 'Применяем конфигурацию…', 'Подтвердить применение'); await until(async () => (await text()).includes('Версия сохранена, но не активирована'), 'saved not active');
+    await delay(1000); assert.equal(await js('!!document.querySelector("[data-testid=foreground-progress]")'), false, 'failed Apply clears progress'); assert.equal(requests.filter(r => r.method === 'PUT' || r.url.endsWith('/api/config/apply')).length, writesBefore + 2);
     assert.equal((await api('/api/config/active')).active.hash, activeBefore); assert.notEqual((await api('/api/config')).hash, activeBefore);
     await screenshot('saved-not-active'); assert.equal(hardware.length, 5); assert.deepEqual(external, []); assert.deepEqual(exceptions, []);
     fs.writeFileSync(path.join(artifacts, 'acceptance.json'), JSON.stringify({ passed: true, requests, hardware, tcpConnections, url }, null, 2));

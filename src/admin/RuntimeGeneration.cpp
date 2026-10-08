@@ -20,6 +20,7 @@ std::optional<Json> suggestionAttempts(ContextModel& model, const std::string& p
             const auto& reason = trace.back().at("error").get_ref<const std::string&>();
             if (!reason.empty() && reason.size() <= 240) retryHint = "\nПредыдущий ответ отклонён (" + reason + "). Повтори ПОЛНЫЙ корректный JSON строго по указанной схеме. Проверь ключи, кавычки, запятые и скобки. Без markdown и пояснений.";
         }
+        retryHint += " Ответ должен содержать ровно один JSON-объект. Не добавляй второй объект или лишние закрывающие скобки. Заверши ответ сразу после закрытия единственного объекта.";
         const auto instructions = prompt + (attempt == 1 ? "" : retryHint);
         Json entry{{"attempt",attempt},{"group",group},{"prompt",instructions},{"input",input},
             {"raw",""},{"metrics",nullptr},{"stage","context_admission"}};
@@ -39,6 +40,14 @@ std::optional<Json> suggestionAttempts(ContextModel& model, const std::string& p
         try {
             auto decoded = Json::parse(decode(raw));
             entry["decoded"] = decoded; trace.push_back(std::move(entry)); return decoded;
+        } catch (const Json::parse_error& error) {
+            // what() may quote an incomplete UTF-8 fragment of rejected prose.
+            // Keep the raw response untouched; serialize only safe parser metadata.
+            entry["error"] = "Invalid JSON: parse error " + std::to_string(error.id) +
+                " at byte " + std::to_string(error.byte) + "; expected exactly one complete JSON object";
+            entry["error_code"] = "invalid_ai_response";
+            entry["rejection_stage"] = "json_parse";
+            trace.push_back(std::move(entry));
         } catch (const std::exception& error) {
             entry["error"] = error.what(); entry["error_code"] = "invalid_ai_response";
             trace.push_back(std::move(entry));

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import ForegroundStatus from './components/ForegroundStatus.vue';
+import { foreground } from './stores/foreground.js';
 import * as setup from './stores/setup.js';
 import { onMounted, onUnmounted } from 'vue';
 import { issueMessage } from './adapters/manualValidation.js';
@@ -10,6 +12,7 @@ import { system } from './stores/system.js';
 import { useRefresh } from './composables/useRefresh.js';
 import { formatTime } from './adapters/catalog.js';
 
+const refreshNow = () => foreground.run('refresh', () => system.refresh());
 const route = useRoute();
 const { configuration, stored, active, errors, loading, updatedAt, pending, stateMismatch, health } = system;
 useRefresh();
@@ -40,7 +43,7 @@ const focusMain = () => document.getElementById('main-content')?.focus();
             </header>
             <main id="main-content" tabindex="-1">
                 <div class="page-heading"><div><p class="eyebrow">FIREFLY WORKSPACE</p><h1>{{ route.meta.title }}</h1></div>
-                    <button class="refresh" :disabled="loading" @click="system.refresh()">{{ loading ? 'Обновление…' : 'Обновить данные' }} <span aria-hidden="true">↻</span></button>
+                    <button class="refresh" :disabled="loading" @click="refreshNow">Обновить данные <span aria-hidden="true">↻</span></button>
                 </div>
                 <div v-if="Object.keys(errors).length" class="notice warning" role="alert">
                     <strong>Не все данные удалось обновить</strong><p>Последние доступные сведения могут быть устаревшими.</p>
@@ -56,5 +59,6 @@ const focusMain = () => document.getElementById('main-content')?.focus();
             </main>
         </div>
     </div>
+    <ForegroundStatus v-if="!manual.task.value && !manual.showReview.value" class="foreground-floating" />
     <TaskPanel v-if="manual.task.value || manual.showReview.value" />
 </template>
