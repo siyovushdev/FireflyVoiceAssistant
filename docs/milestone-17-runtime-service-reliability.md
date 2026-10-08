@@ -16,7 +16,11 @@ Resume baseline: Milestone 16 (`d6356b0`). This milestone productizes Firefly as
 | Graceful reject of new work while stopping | **Firefly** |
 | Custom restart loop / multi-service orchestration | **Neither (not in M17)** |
 
-Unit template: `packaging/firefly-voice-assistant.service`  
+Unit template: `packaging/firefly-voice-assistant.service` (M18.1 now enables the
+complete voice/STT/VAD/Amina stack). See [production startup and completed M18.1
+owner acceptance (PASS)](m18-production-startup.md), including real reboot/autostart
+and the XVF3800 USB firmware prerequisite: 2.0.10 or newer required for the validated
+appliance (2.0.10 tested; 2.0.6 rejected). M18.2 remains deferred.
 **Do not** enable/install automatically from build or tests.
 
 ### Watchdog decision
@@ -58,7 +62,10 @@ LLM/STT failure alone → **degraded**, not failed.
 
 ### Subsystems
 
-`configuration`, `runtime`, `admin`, `stt`, `llm`, `hardware_execution`
+`configuration`, `runtime`, `admin`, `stt`, `llm`, `hardware_execution`, `wake`
+(and `acknowledgement` when playback is exercised). Missing microphone/wake
+leaves Admin available with degraded health; automatic microphone recovery is
+deferred to M18.2.
 
 Exposed on `GET /api/status` as:
 
@@ -127,9 +134,12 @@ systemd restarts the process. In-memory Predicted/Confirmed device knowledge is
 ```bash
 sudo install -d -m 700 -o firefly -g firefly /var/lib/firefly/store
 sudo install -m 644 packaging/firefly-voice-assistant.service /etc/systemd/system/
-# Edit ExecStart / LD_LIBRARY_PATH / model paths for the image
+# Build with ADMIN/ASSISTANT/VOICE ON and provision the offline dependencies.
+# Follow docs/m18-production-startup.md; critical arguments are regression-tested.
 sudo systemctl daemon-reload
-sudo systemctl enable --now firefly-voice-assistant
+sudo systemctl start firefly-voice-assistant
+# Enable boot startup only after the service-start acceptance passes:
+# sudo systemctl enable firefly-voice-assistant
 systemctl status firefly-voice-assistant
 journalctl -u firefly-voice-assistant -f
 ```

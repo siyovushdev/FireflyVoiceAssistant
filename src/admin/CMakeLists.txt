@@ -320,3 +320,19 @@ if(BUILD_TESTING)
     add_test(NAME AdminV2Migration COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tests/admin/v2/MigrationTests.py"
         "$<TARGET_FILE:firefly-admin>" "$<TARGET_FILE:admin_fake_worker>" "${PROJECT_SOURCE_DIR}")
 endif()
+
+# Exercise the real appliance entrypoint without linking the vendor runtime.
+# Missing speech paths stop before ALSA/KWS/STT model creation.
+if(BUILD_TESTING AND FIREFLY_BUILD_ASSISTANT AND FIREFLY_BUILD_VOICE)
+    add_executable(production_startup_fixture DemoMain.cpp
+        "${PROJECT_SOURCE_DIR}/tests/FakeRkllmRuntime.cpp"
+        "${PROJECT_SOURCE_DIR}/src/RkllmEngine.cpp")
+    target_include_directories(production_startup_fixture PRIVATE "${RKLLM_INCLUDE_DIR}" "${PROJECT_SOURCE_DIR}/tests")
+    target_compile_definitions(production_startup_fixture PRIVATE FIREFLY_WITH_VOICE)
+    target_compile_options(production_startup_fixture PRIVATE -Wall -Wextra -Wpedantic)
+    target_link_libraries(production_startup_fixture PRIVATE firefly_admin_transport firefly_speech)
+    add_test(NAME ProductionStartup COMMAND "${Python3_EXECUTABLE}"
+        "${PROJECT_SOURCE_DIR}/tests/admin/ProductionStartupTests.py"
+        "$<TARGET_FILE:production_startup_fixture>" "${PROJECT_SOURCE_DIR}")
+    set_tests_properties(ProductionStartup PROPERTIES TIMEOUT 90)
+endif()
