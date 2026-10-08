@@ -1,22 +1,12 @@
-# Firefly Voice Assistant — production systemd unit (M17)
-#
-# Install manually (do not enable from build/tests):
-#   sudo install -d -m 700 -o firefly -g firefly /var/lib/firefly/store
-#   sudo install -m 644 packaging/firefly-voice-assistant.service /etc/systemd/system/
-#   sudo systemctl daemon-reload
-#   sudo systemctl enable --now firefly-voice-assistant
-#
-# Logs: journalctl -u firefly-voice-assistant -f
-# Stop:  sudo systemctl stop firefly-voice-assistant
-# Undo:  sudo systemctl disable --now firefly-voice-assistant
-#
-# Adjust ExecStart paths, User, and library location for the board image.
-# RKLLM / librkllmrt.so must be discoverable via Environment=LD_LIBRARY_PATH
-# (never rely on interactive .bashrc).
+# Firefly single-process appliance — M18.1 production startup.
+# Manual install/update/acceptance: docs/m18-production-startup.md
+# Keep critical arguments aligned with scripts/firefly-dialogue.sh.
+# ProductionStartupContract tests both lists; no shell launcher/restart loop here.
+# Board paths intentionally remain fixed; packaging relocation is a later item.
 
 [Unit]
 Description=Firefly Voice Assistant
-Documentation=file:///home/firefly/FireflyVoiceAssistantLinux/docs/milestone-17-runtime-service-reliability.md
+Documentation=file:///home/firefly/FireflyVoiceAssistantLinux/docs/m18-production-startup.md
 After=network-online.target sound.target
 Wants=network-online.target
 # Avoid rapid crash loops from bad config / missing model
@@ -32,10 +22,19 @@ WorkingDirectory=/home/firefly/FireflyVoiceAssistantLinux
 Environment=LD_LIBRARY_PATH=/home/firefly/demo_Linux_aarch64/lib
 ExecStart=/home/firefly/FireflyVoiceAssistantLinux/build/firefly-demo \
   --store /var/lib/firefly/store \
-  --init-config /home/firefly/FireflyVoiceAssistantLinux/config/current-m4.json \
+  --init-config /home/firefly/FireflyVoiceAssistantLinux/config/empty-home.json \
   --model /home/firefly/demo_Linux_aarch64/Qwen3-4B_W8A8_RK3588_3core.rkllm \
   --admin-bind 127.0.0.1 \
-  --admin-port 8080
+  --admin-port 8080 \
+  --voice \
+  --stt-model-dir /home/firefly/FireflyVoiceAssistantLinux/build/stt/model \
+  --vad-model /home/firefly/FireflyVoiceAssistantLinux/build/stt/vad-ab/silero_vad.onnx \
+  --audio-device plughw:CARD=Array,DEV=0 \
+  --wake-enabled true \
+  --wake-python /home/firefly/FireflyVoiceAssistantLinux/build/wake-venv/bin/python \
+  --wake-model /home/firefly/FireflyVoiceAssistantLinux/assets/wake/amina-v3.tflite \
+  --wake-cutoff 0.99 --wake-window 7 \
+  --playback-device plughw:CARD=rockchipes8388,DEV=0
 # Process supervision — Firefly does not restart itself
 Restart=on-failure
 RestartSec=5

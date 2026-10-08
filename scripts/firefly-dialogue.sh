@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # One appliance process. Model switching is owned by SetupSession/RuntimeModel.
+# Production argument parity is enforced by ProductionStartupContract.
+# See packaging/firefly-voice-assistant.service and docs/m18-production-startup.md.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 if [[ $# -ne 1 && $# -ne 2 ]] || [[ $# -eq 2 && "$2" != --new ]]; then
     echo "Usage: $0 STORE [--new]" >&2
-    echo '--new initializes an absent configuration with an empty home; existing stores are preserved.' >&2
+    echo '--new initializes an absent configuration with an empty system; existing stores are preserved.' >&2
     exit 2
 fi
 STORE="$1"
@@ -12,7 +14,7 @@ INIT=()
 if [[ $# -eq 2 ]]; then
     INIT=(--init-config "$ROOT/config/empty-home.json")
 elif [[ ! -f "$STORE/configuration.json" ]]; then
-    echo 'No confirmed configuration in STORE. Use --new only to create a new home.' >&2
+    echo 'No confirmed configuration in STORE. Use --new only to create a new system.' >&2
     exit 2
 fi
 python3 - <<'PY'
@@ -35,4 +37,6 @@ exec "$ROOT/build/firefly-demo" --store "$STORE" "${INIT[@]}" \
     --admin-bind 127.0.0.1 --admin-port "${FIREFLY_ADMIN_PORT:-8080}" \
     --stt-model-dir "$STT" --voice --vad-model "$VAD" \
     --audio-device 'plughw:CARD=Array,DEV=0' --wake-enabled true \
-    --wake-python "$WAKE_PYTHON" --wake-model "$ROOT/assets/wake/amina-v3.tflite"
+    --wake-python "$WAKE_PYTHON" --wake-model "$ROOT/assets/wake/amina-v3.tflite" \
+    --wake-cutoff 0.99 --wake-window 7 \
+    --playback-device 'plughw:CARD=rockchipes8388,DEV=0'
