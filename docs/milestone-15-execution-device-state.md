@@ -109,24 +109,17 @@ Playground virtual simulation remains available for Admin `/api/test-command` an
 Apply state preview. Production DeviceStateStore is what `/api/devices/state`
 exposes.
 
-### Simulated observation
+### Internal simulated observation (HTTP surface removed in M18.3)
 
 `RuntimeGenerations::observe(StateObservation)` and worker method
-`observe_state` / HTTP `POST /api/devices/observe` apply Confirmed values without
-any LLM or transport-specific telemetry stack. Future HTTP polling / MQTT /
-GPIO readback feed the same `StateObservation` shape.
-
-#### Admin / local guard for `/api/devices/observe`
-
-No new authentication system in M15. The endpoint is a POST mutation and is
-protected by the existing Admin HTTP guard (same as `/api/test-command`,
-config Apply, etc.):
-
-1. Default Admin bind is loopback (`127.0.0.1`); LAN bind is explicit.
-2. Mutations require `X-Firefly-Admin: 1`.
-3. Cross-origin / cross-site mutations are rejected.
-
-Covered by `tests/admin/HttpTests.py` alongside the other mutation-guard cases.
+`observe_state` remain trusted internal/test seams for supplying Confirmed
+observations. M15 originally exposed `POST /api/devices/observe` behind the Admin
+mutation guard. [M18.3 removes that public route](m18-production-api-hardening.md):
+it returns 404 even with valid Admin headers. A caller-supplied value is not
+independent physical evidence, and a local/same-origin guard cannot make it such.
+Production HTTP clients use `POST /api/devices/poll`, which obtains values through
+the active configured device GET mapping. The underlying `StateObservation` and
+DeviceStateStore validation remain available for real polling and isolated tests.
 
 ## Stale
 

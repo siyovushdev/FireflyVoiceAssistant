@@ -54,7 +54,11 @@ Backend source, schema v2, ConfigStore и runtime architecture не меняли
 | `/api/setup/status`, `/api/setup/start`, `/api/setup/resume`, `/api/setup/heartbeat`, `/api/setup/message`, `/api/setup/draft`, `/api/setup/apply`, `/api/setup/cancel` | owned setup lifecycle, entering/reload, version/CAS, heartbeat/disconnect/cancel/restore |
 | `/api/connections/probe` | Vue manual wizard, TCP-only probe; 0 HTTP bytes |
 | `/api/connections/test` | совместимая диагностика и `ConnectivityHttp`; удаление старого frontend не удаляет endpoint |
-| `/api/devices/command`, `/api/devices/poll`, `/api/devices/observe`, `/api/test-command` | guarded actions, explicit readback, Playground и backend evidence/security tests |
+| `/api/devices/command`, `/api/devices/poll`, `/api/test-command` | guarded actions, explicit readback, Playground и backend evidence/security tests |
+
+`POST /api/devices/observe` удалён в [M18.3](m18-production-api-hardening.md),
+возвращает 404. Chromium evidence fixture теперь получает Confirmed через реальные
+HTTP GET к локальному mock device; production UI не использовал удалённый route.
 
 SafetyGate, LanguageIndex semantics, production/Admin Qwen profile/model, CTX/budget/deadline, ownership/CAS и STT/VAD/voice код не менялись. B3 power-only HTTP construction остаётся детерминированным из explicit facts через общие B2 semantics; unsupported cases используют ручной wizard. Accept != Apply, никакого hidden hardware из AI/review или first page load.
 
