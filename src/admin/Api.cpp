@@ -308,7 +308,7 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
             {"/api/config/export", "GET"}, {"/api/config/import", "POST"}, {"/api/config/revision", "POST"},
             {"/api/config/restore-candidate", "POST"}, {"/api/dashboard", "GET"}, {"/api/devices/state", "GET"},
             {"/api/connections/test", "POST"}, {"/api/connections/probe", "POST"}, {"/api/devices/command", "POST"}, {"/api/devices/poll", "POST"},
-            {"/api/devices/observe", "POST"}, {"/api/executions", "GET"}, {"/api/status", "GET"}, {"/api/config", "GET PUT"},
+            {"/api/executions", "GET"}, {"/api/status", "GET"}, {"/api/config", "GET PUT"},
             {"/api/config/active", "GET"}, {"/api/config/validate", "POST"}, {"/api/config/apply", "POST"},
             {"/api/config/revisions", "GET"}, {"/api/config/restore", "POST"}, {"/api/config/reconcile", "POST"}, {"/api/test-command", "POST"}};
         const auto route = routes.find(std::string(path));
@@ -451,12 +451,6 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
         } else if (path == "/api/devices/poll") {
             members(request, {"target_id", "expected_hash"});
             reply = impl_->invoke({{"method","poll_state"},{"target_id",request.at("target_id")},{"expected_hash",request.at("expected_hash")}});
-            if (!reply.value("ok", false)) status = 422;
-        } else if (path == "/api/devices/observe") {
-            members(request, {"target_id", "properties"});
-            Json payload{{"method","observe_state"},{"target_id",request.at("target_id")},{"properties",request.at("properties")}};
-            if (request.contains("timestamp_ms")) payload["timestamp_ms"] = request.at("timestamp_ms");
-            reply = impl_->invoke(payload);
             if (!reply.value("ok", false)) status = 422;
         } else if (path == "/api/status") {
             reply = {{"ok", true}, {"runtime_busy", impl_->busy.load()}};

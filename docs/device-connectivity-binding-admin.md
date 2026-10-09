@@ -127,8 +127,9 @@ All new HTTP Admin endpoints retain the same-origin mutation guard and
 - `POST /api/devices/poll`: `{target_id, expected_hash}`; active mapping only,
   serialized with command execution and generation publication.
 
-The existing `/api/devices/observe` remains the explicitly simulated/external
-observation API; the new poll path does not accept caller-provided state values.
+`POST /api/devices/observe` was removed in
+[M18.3](m18-production-api-hardening.md) and returns 404. The production poll path
+does not accept caller-provided state values; it reads the configured HTTP device.
 
 ## Observe and errors
 

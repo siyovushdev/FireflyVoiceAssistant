@@ -22,6 +22,7 @@ class Equipment(socketserver.ThreadingTCPServer):
         self.connections = 0
         self.requests = []
         self.power = False
+        self.mode = ''
         super().__init__(('127.0.0.1', 0), Handler)
 
 class Handler(socketserver.BaseRequestHandler):
@@ -40,9 +41,14 @@ class Handler(socketserver.BaseRequestHandler):
         self.server.requests.append((method, body.decode()))
         if method == 'POST': self.server.power = json.loads(body)['on']
         response = json.dumps({'on': self.server.power}).encode()
-        self.request.sendall(b'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ' + str(len(response)).encode() + b'\r\nConnection: close\r\n\r\n' + response)
+        status = b'200 OK'
+        if method == 'GET':
+            if self.server.mode == 'http_error': status = b'500 Failure'
+            if self.server.mode == 'malformed': response = b'{'
+            if self.server.mode == 'wrong_type': response = b'{"on":"true"}'
+        self.request.sendall(b'HTTP/1.1 ' + status + b'\r\nContent-Type: application/json\r\nContent-Length: ' + str(len(response)).encode() + b'\r\nConnection: close\r\n\r\n' + response)
 
-class ManualApiTests(unittest.TestCase):
+class ManualApiFixture(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory(prefix='firefly-b2-api-')
         self.equipment = Equipment()
@@ -80,6 +86,7 @@ class ManualApiTests(unittest.TestCase):
         payload.update(updates)
         return self.api('/api/devices/command', payload)
 
+class ManualApiTests(ManualApiFixture):
     def test_scoped_probe_and_full_validation(self):
         before = {p: self.api(p)[1] for p in ['/api/config', '/api/config/active', '/api/devices/state', '/api/executions']}
         bad = copy.deepcopy(self.connection); bad['id'] = 'connection_unfinished'; bad['http']['base_url'] = ''

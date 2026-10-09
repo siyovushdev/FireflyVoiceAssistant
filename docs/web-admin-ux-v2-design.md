@@ -453,7 +453,7 @@ Release устанавливается как согласованный наб�
 | `POST /api/connections/test` | Legacy как есть; **новый scoped endpoint** | Существующий full-config probe не решает независимый test invalid draft; см. 9.2 |
 | `GET /api/devices/state`, `/api/executions` | Adapter | Physical evidence, history, active identity; playground отдельным блоком; чтение не вызывает hardware |
 | `POST /api/devices/poll` | Как есть | `{target_id,expected_hash}` из отображённого active snapshot; один явный GET, конфликт требует обновления view |
-| `POST /api/devices/observe` | Как есть, Advanced only | Simulated/external supplied properties; не использовать вместо реального readback и не называть «Проверить устройство» |
+| `POST /api/devices/observe` | Удалён в [M18.3](m18-production-api-hardening.md), 404 | Public simulated observation запрещён; Confirmed: `POST /api/devices/poll` → configured device GET |
 | `POST /api/test-command` | Как есть для Playground | Preview/Mock/явный Production; для target-pinned buttons нужен узкий guarded API, см. 9.3 |
 | `GET /api/config/export`, `/revisions`; `POST /api/config/import`, `/revision`, `/restore-candidate`, `/migrate` | Как есть + adapter | Import/restore в candidate, обязательный review; ничего не применяется при выборе файла/версии |
 | `POST /api/config/restore`, `/reconcile` | Advanced recovery | Сохранять различие stored и active; не вызывать автоматически ради закрытия баннера |

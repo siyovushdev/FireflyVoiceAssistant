@@ -109,11 +109,11 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(self.request('/api/test-command','POST',b'{}',{'Content-Type':'application/json'})[0],403)
         self.assertEqual(self.request('/api/test-command','POST',b'{}',{'Content-Type':'application/json','X-Firefly-Admin':'1','Origin':'http://foreign.invalid'})[0],403)
         self.assertEqual(self.request('/api/test-command','POST',b'{}',{'Content-Type':'text/plain','X-Firefly-Admin':'1'})[0],415)
-        # /api/devices/observe creates Confirmed production state — same Admin mutation guard.
-        self.assertEqual(self.request('/api/devices/observe','POST',b'{}',{'Content-Type':'application/json'})[0],403)
-        self.assertEqual(self.request('/api/devices/observe','POST',
-            b'{"target_id":"device_kitchen_light","properties":{"brightness":40}}',
-            {'Content-Type':'application/json','X-Firefly-Admin':'1','Origin':'http://foreign.invalid'})[0],403)
+        # Simulated state injection is absent even with valid Admin headers.
+        status, body, _ = self.request('/api/devices/observe', 'POST',
+            b'{"target_id":"device_kitchen_light","properties":{"brightness":40}}')
+        self.assertEqual(status, 404)
+        self.assertEqual(json.loads(body)['errors'][0]['code'], 'not_found')
         for body in [b'{',b'[]',b'{}',b'{"text":12}',b'{"text":"a","text":"b"}',b'{"text":"x"} garbage']:
             self.assertEqual(self.request('/api/test-command','POST',body)[0],400)
         with socket.create_connection(('127.0.0.1',self.port),timeout=5) as sock:

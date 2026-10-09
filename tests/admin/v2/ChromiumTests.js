@@ -20,7 +20,7 @@ let hardwareRequests = 0;
 const mock = http.createServer((req, res) => {
     hardwareRequests++;
     req.resume();
-    req.on('end', () => { const body = '{"on":true}'; res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': body.length }); res.end(body); });
+    req.on('end', () => { const body = JSON.stringify({ on: req.url !== '/relay/2' }); res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': body.length }); res.end(body); });
 });
 async function until(check, label, timeout = 20000) {
     const deadline = Date.now() + timeout;
@@ -54,7 +54,7 @@ async function route(name) {
         target_id: device.id, action_id: 'action_' + action, connection_id: 'connection_mock', executor: 'http',
         http: { method: 'POST', path: '/relay/1', body: { on: action === 'on' }, expected_status: 200 }
     })));
-    config.observations = [{ target_id: 'device_fan', connection_id: 'connection_mock', executor: 'http', http: { method: 'GET', path: '/relay/1', expected_status: 200 }, fields: { on: 'power' } }];
+    config.observations = ['device_fan', 'device_pump'].map((target_id, index) => ({ target_id, connection_id: 'connection_mock', executor: 'http', http: { method: 'GET', path: '/relay/' + (index + 1), expected_status: 200 }, fields: { on: 'power' } }));
     const fixture = path.join(temp, 'fixture.json');
     fs.writeFileSync(fixture, JSON.stringify(config));
     server = spawn(app, ['--store', path.join(temp, 'store'), '--init-config', fixture, '--runtime-worker', worker, '--admin-port', '0'], { stdio: ['ignore', 'pipe', log], env: { ...process.env, PATH: '/nonexistent' } });
@@ -70,7 +70,8 @@ async function route(name) {
     };
     await until(async () => (await api('/api/status')).runtime_ready, 'runtime initialized');
     const active = (await api('/api/config/active')).active;
-    await api('/api/devices/observe', { target_id: 'device_pump', properties: { power: false } });
+    // Confirmed fixture evidence must come from independent device HTTP GETs.
+    await api('/api/devices/poll', { target_id: 'device_pump', expected_hash: active.hash });
     const evidenceStarted = Date.now();
     await api('/api/devices/poll', { target_id: 'device_fan', expected_hash: active.hash });
     const predicted = await api('/api/test-command', { text: 'Включи сигнальную лампу на складе', execute: true, production: true });
@@ -83,7 +84,7 @@ async function route(name) {
     const saved = await api('/api/config', { configuration: candidate, expected: { revision: stored.revision, hash: stored.hash } }, 'PUT');
     assert.equal((await api('/api/config/active')).active.hash, active.hash);
     const beforeHardware = hardwareRequests;
-    assert.equal(beforeHardware, 2);
+    assert.equal(beforeHardware, 3);
     const beforeState = await api('/api/devices/state');
     const beforeHistory = await api('/api/executions');
 
