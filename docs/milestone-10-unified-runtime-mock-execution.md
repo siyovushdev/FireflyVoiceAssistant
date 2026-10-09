@@ -167,7 +167,7 @@ build/milestone-10/resume-20260920/clean-full/firefly-demo \
   --store "$HOME/.local/share/firefly-demo-m10" \
   --init-config config/current-m4.json \
   --model /home/firefly/demo_Linux_aarch64/Qwen3-4B_W8A8_RK3588_3core.rkllm \
-  --admin-bind 0.0.0.0 --admin-port 18080
+  --admin-bind 127.0.0.1 --admin-port 18080
 ```
 
 With voice (stop the preceding instance first):
@@ -177,15 +177,15 @@ build/milestone-10/resume-20260920/clean-full/firefly-demo \
   --store "$HOME/.local/share/firefly-demo-m10" \
   --init-config config/current-m4.json \
   --model /home/firefly/demo_Linux_aarch64/Qwen3-4B_W8A8_RK3588_3core.rkllm \
-  --admin-bind 0.0.0.0 --admin-port 18080 \
+  --admin-bind 127.0.0.1 --admin-port 18080 \
   --voice --audio-device plughw:CARD=H340,DEV=0 \
   --stt-model-dir "$PWD/build/stt/model" \
   --vad-model "$PWD/build/stt/vad-ab/silero_vad.onnx"
 ```
 
-Web Admin: <http://192.168.68.111:18080/> on this Firefly, or
-<http://127.0.0.1:18080/> locally. LAN binding is explicit; the inherited development
-server has no authentication/TLS. `--init-config` initializes only an absent store;
+Web Admin: <http://127.0.0.1:18080/> locally, or through an SSH/Tailscale TCP
+tunnel. These launch examples use the current [M18.4 loopback-only policy](m18-admin-network-security.md);
+the historical LAN verification below predates that policy. No authentication/TLS is added. `--init-config` initializes only an absent store;
 subsequent starts load its saved configuration. Stop with Ctrl+C / SIGINT.
 
 ## Verification evidence

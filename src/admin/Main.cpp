@@ -1,4 +1,5 @@
 #include "HttpServer.h"
+#include "firefly/admin/NetworkPolicy.h"
 #include "Ipc.h"
 #include "firefly/config/ConfigLoader.h"
 #include <charconv>
@@ -24,7 +25,7 @@ int main(int argc, char** argv) {
                 std::cout << "firefly-admin --store DIR [--init-config FILE] [--model RKLLM_FILE]\n"
                              "  [--admin-bind 127.0.0.1] [--admin-port 8080] [--runtime-worker PATH]\n"
                              "DIR must exist and be private/user-owned (chmod 700). No model: editor only.\n"
-                             "Explicit 0.0.0.0 binding is for trusted development LAN only; no auth/TLS.\n";
+                             "V1 Admin is loopback-only (127.0.0.1); remote access requires an SSH/Tailscale TCP tunnel.\n";
                 return 0;
             }
             if (++i == argc) throw std::invalid_argument("Missing option value");
@@ -41,6 +42,7 @@ int main(int argc, char** argv) {
                 port = static_cast<unsigned short>(number);
             } else throw std::invalid_argument("Unknown option: " + flag);
         }
+        firefly::admin::validateAdminBind(bind);
         if (storePath.empty()) throw std::invalid_argument("--store is required");
         firefly::config::ConfigStore store(storePath);
         if (!initial.empty() && !std::filesystem::exists(std::filesystem::symlink_status(std::filesystem::path(storePath) / "configuration.json")))
