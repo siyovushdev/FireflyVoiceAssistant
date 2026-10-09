@@ -1,5 +1,9 @@
 # M18.1 — Production startup
 
+Follow-up: [M18.2 voice recovery](m18-voice-recovery.md) documents internal retry
+and its completed owner acceptance (PASS). The M18.1 evidence below remains the accepted
+historical baseline, including the XVF3800 firmware prerequisite.
+
 Дата: 2026-10-08. Baseline: `a4310f4` (`master`, PR #5), B1–B4 owner accepted.
 Ветка: `hardening/production-startup`. **M18.1 owner acceptance COMPLETE / PASS**.
 Ниже записаны подтверждённые владельцем production результаты, включая реальный

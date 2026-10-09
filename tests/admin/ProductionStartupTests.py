@@ -90,7 +90,8 @@ with tempfile.TemporaryDirectory(prefix='firefly-production-startup-') as direct
             assert 'SHUTDOWN requested' in output and 'SHUTDOWN complete' in output, output
             if not fail_model:
                 assert 'stub destroyed' in output, 'RKLLM RAII destruction was not reached'
-            assert output.count('STARTUP voice unavailable') == 1, 'unexpected voice retry loop'
+            assert 'VOICE_RECOVERY failure reason=Missing speech model file:' in output, output
+            assert 'VOICE_RECOVERY scheduled delay_ms=1000' in output, output
             return catalog
         finally:
             if process.poll() is None:

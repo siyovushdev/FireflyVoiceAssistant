@@ -81,7 +81,7 @@ endif()
 
 # Voice framing and orchestration tests do not depend on ALSA, STT models or NPU.
 find_package(Threads REQUIRED)
-add_library(firefly_voice_core src/VoiceSegmenter.cpp src/VoiceProcessor.cpp src/VoiceLoop.cpp src/PcmAudio.cpp src/WakeVoiceLoop.cpp src/AminaWakeDetector.cpp)
+add_library(firefly_voice_core src/VoiceSegmenter.cpp src/VoiceProcessor.cpp src/VoiceLoop.cpp src/PcmAudio.cpp src/WakeVoiceLoop.cpp src/AminaWakeDetector.cpp src/VoiceRecovery.cpp)
 target_link_libraries(firefly_voice_core PUBLIC firefly_core Threads::Threads)
 target_compile_options(firefly_voice_core PRIVATE -Wall -Wextra -Wpedantic)
 if(BUILD_TESTING)
