@@ -70,11 +70,12 @@ install -d -m 700 /home/firefly/.local/share/firefly-admin
   --admin-bind 127.0.0.1 --admin-port 8080
 ```
 
-Open `http://127.0.0.1:8080/` on Firefly. To access it from a trusted development LAN, explicitly
-replace the bind argument with `--admin-bind 0.0.0.0`. `hostname -I` gives the board addresses.
-The verified LAN address in this session was `192.168.68.111`; the corresponding browser URL at
-port 8080 is `http://192.168.68.111:8080/`. LAN smoke used the board's LAN address from the board,
-not a separately available laptop. IPv4 bind addresses are supported, not hostnames or IPv6.
+Open `http://127.0.0.1:8080/` on Firefly. Current V1 builds accept only
+`--admin-bind 127.0.0.1`. Remote owners use an SSH/Tailscale TCP tunnel, for example
+`ssh -N -L 18080:127.0.0.1:8080 firefly@BOARD`, then `http://localhost:18080/`.
+See [M18.4 network policy](m18-admin-network-security.md).
+The historical LAN smoke used `192.168.68.111` from the board itself, not a separate
+laptop; that old direct-LAN listener mode is no longer supported.
 
 `--init-config` only seeds a missing committed store; it never replaces an existing file or repairs
 an invalid/pending store. The source `config/current-m4.json` is read-only input to initialization.
@@ -349,10 +350,10 @@ manifest and per-run results. They are intentionally not tracked model/log/build
 
 ## Security and limitations
 
-This is an unauthenticated development tool for loopback or an explicitly trusted LAN. It has no
+Current V1 Admin is unauthenticated and loopback-only; direct LAN binding is rejected. It has no
 accounts, TLS or internet exposure configuration. Same-origin checks/custom headers are browser
 request safeguards, not authentication. Anyone able to reach the service with a direct HTTP client
-can administer it. Binding is explicit and defaults to 127.0.0.1.
+can administer it. The only accepted bind address is 127.0.0.1.
 
 HTTP is deliberately bounded: fixed HTTP/1.1 Content-Length bodies, 512-KiB envelope limit,
 16-KiB header limit, 10-second request read deadline, 16 simultaneous connections, no chunked

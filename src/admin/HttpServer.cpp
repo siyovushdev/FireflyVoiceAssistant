@@ -1,4 +1,5 @@
 #include "HttpServer.h"
+#include "firefly/admin/NetworkPolicy.h"
 #include "AdminV2Assets.h"
 #include "Json.h"
 #include <arpa/inet.h>
@@ -86,6 +87,10 @@ HttpReply request(int socket, Api& api, const std::map<std::string, HttpReply>& 
         if (!headers.emplace(name, value).second) throw HttpError(400, "Duplicate HTTP header.");
     }
     if (!headers.count("host") || headers["host"].empty()) throw HttpError(400, "Host header required.");
+    AdminAuthority authority;
+    try { authority = parseAdminAuthority(headers["host"]); }
+    catch (const std::invalid_argument&) { throw HttpError(400, "Malformed Host authority."); }
+    if (!authority.allowed()) throw HttpError(403, "Host is not allowed.");
     if (headers.count("transfer-encoding") || headers.count("expect")) throw HttpError(400, "Only fixed-length request bodies are supported.");
     std::size_t length = 0;
     if (headers.count("content-length")) {
@@ -98,7 +103,7 @@ HttpReply request(int socket, Api& api, const std::map<std::string, HttpReply>& 
     const bool mutation = method != "GET" && method != "HEAD";
     if (mutation) {
         if (headers["x-firefly-admin"] != "1") throw HttpError(403, "X-Firefly-Admin: 1 is required.");
-        if (headers.count("origin") && headers["origin"] != "http://" + headers["host"])
+        if (headers.count("origin") && !isSameAdminOrigin(headers["origin"], authority))
             throw HttpError(403, "Cross-origin mutation rejected.");
         if (headers.count("sec-fetch-site") && headers["sec-fetch-site"] == "cross-site")
             throw HttpError(403, "Cross-site mutation rejected.");
@@ -130,6 +135,7 @@ struct HttpServer::Impl {
     ~Impl() { for (auto& client : clients) if (client.thread.joinable()) client.thread.join(); }
 };
 HttpServer::HttpServer(Api& api, const std::string& bindAddress, unsigned short port) : impl_(std::make_unique<Impl>(api)) {
+    validateAdminBind(bindAddress);
     // One verified production bundle; URLs never become filesystem paths.
     addV2Assets(impl_->assets);
     // Previous V2 bookmarks use the same entry and root assets, not a second UI.

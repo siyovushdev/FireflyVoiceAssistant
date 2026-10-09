@@ -1,4 +1,5 @@
 #include "HttpServer.h"
+#include "firefly/admin/NetworkPolicy.h"
 #include "RuntimeModel.h"
 #include "firefly/admin/AdminTranscriber.h"
 #include "firefly/config/ConfigLoader.h"
@@ -47,6 +48,7 @@ int main(int argc, char** argv) {
                     "  [--wake-cutoff 0.99] [--wake-window 7] [--command-start-timeout-ms 5000] [--playback-device DEVICE]\n"
                     "  [--command-listen-timeout-ms MS] (deprecated total listening cap)\n"
                     "One process appliance runtime supervised by systemd in production.\n"
+                    "V1 Admin is loopback-only (127.0.0.1); remote access requires an SSH/Tailscale TCP tunnel.\n"
                     "DIR must be private/user-owned. HTTP status remains available when LLM/STT fail.\n";
                 return 0;
             }
@@ -93,6 +95,7 @@ int main(int argc, char** argv) {
                 port = static_cast<unsigned short>(number);
             } else throw std::invalid_argument("Unknown option: " + flag);
         }
+        firefly::admin::validateAdminBind(bind);
 #ifdef FIREFLY_WITH_VOICE
         if (stt.empty()) {
             const auto bundled = executableDir / "stt/model";
