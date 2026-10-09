@@ -322,6 +322,14 @@ if(BUILD_TESTING)
 endif()
 
 # Exercise the real appliance entrypoint without linking the vendor runtime.
+if(BUILD_TESTING)
+    add_executable(voice_recovery_tests "${PROJECT_SOURCE_DIR}/tests/admin/VoiceRecoveryTests.cpp")
+    target_link_libraries(voice_recovery_tests PRIVATE firefly_admin_core)
+    target_include_directories(voice_recovery_tests SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
+    target_compile_options(voice_recovery_tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME VoiceRecovery COMMAND voice_recovery_tests "${PROJECT_SOURCE_DIR}")
+    set_tests_properties(VoiceRecovery PROPERTIES TIMEOUT 15)
+endif()
 # Missing speech paths stop before ALSA/KWS/STT model creation.
 if(BUILD_TESTING AND FIREFLY_BUILD_ASSISTANT AND FIREFLY_BUILD_VOICE)
     add_executable(production_startup_fixture DemoMain.cpp
@@ -335,4 +343,16 @@ if(BUILD_TESTING AND FIREFLY_BUILD_ASSISTANT AND FIREFLY_BUILD_VOICE)
         "${PROJECT_SOURCE_DIR}/tests/admin/ProductionStartupTests.py"
         "$<TARGET_FILE:production_startup_fixture>" "${PROJECT_SOURCE_DIR}")
     set_tests_properties(ProductionStartup PROPERTIES TIMEOUT 90)
+    add_executable(voice_recovery_fixture DemoMain.cpp
+        "${PROJECT_SOURCE_DIR}/tests/admin/FakeVoiceDevices.cpp"
+        "${PROJECT_SOURCE_DIR}/tests/FakeRkllmRuntime.cpp"
+        "${PROJECT_SOURCE_DIR}/src/RkllmEngine.cpp")
+    target_include_directories(voice_recovery_fixture PRIVATE "${RKLLM_INCLUDE_DIR}" "${PROJECT_SOURCE_DIR}/tests")
+    target_compile_definitions(voice_recovery_fixture PRIVATE FIREFLY_WITH_VOICE)
+    target_compile_options(voice_recovery_fixture PRIVATE -Wall -Wextra -Wpedantic)
+    target_link_libraries(voice_recovery_fixture PRIVATE firefly_admin_transport)
+    add_test(NAME VoiceRecoveryIntegration COMMAND "${Python3_EXECUTABLE}"
+        "${PROJECT_SOURCE_DIR}/tests/admin/VoiceRecoveryIntegrationTests.py"
+        "$<TARGET_FILE:voice_recovery_fixture>" "${PROJECT_SOURCE_DIR}")
+    set_tests_properties(VoiceRecoveryIntegration PROPERTIES TIMEOUT 40)
 endif()

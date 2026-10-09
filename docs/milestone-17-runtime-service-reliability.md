@@ -20,7 +20,8 @@ Unit template: `packaging/firefly-voice-assistant.service` (M18.1 now enables th
 complete voice/STT/VAD/Amina stack). See [production startup and completed M18.1
 owner acceptance (PASS)](m18-production-startup.md), including real reboot/autostart
 and the XVF3800 USB firmware prerequisite: 2.0.10 or newer required for the validated
-appliance (2.0.10 tested; 2.0.6 rejected). M18.2 remains deferred.
+appliance (2.0.10 tested; 2.0.6 rejected). The separate
+[M18.2 recovery milestone](m18-voice-recovery.md) has completed owner acceptance (PASS).
 **Do not** enable/install automatically from build or tests.
 
 ### Watchdog decision
@@ -65,7 +66,7 @@ LLM/STT failure alone → **degraded**, not failed.
 `configuration`, `runtime`, `admin`, `stt`, `llm`, `hardware_execution`, `wake`
 (and `acknowledgement` when playback is exercised). Missing microphone/wake
 leaves Admin available with degraded health; automatic microphone recovery is
-deferred to M18.2.
+described in [M18.2 voice recovery](m18-voice-recovery.md) (owner acceptance COMPLETE / PASS).
 
 Exposed on `GET /api/status` as:
 
