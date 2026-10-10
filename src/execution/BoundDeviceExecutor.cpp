@@ -28,8 +28,8 @@ std::map<std::string, std::string> physicalMappings(config::Catalog catalog) {
     return result;
 }
 }
-BoundDeviceExecutor::BoundDeviceExecutor(config::Catalog catalog, SteadyClockMs clock)
-    : catalog_(catalog), playground_(catalog), production_(catalog, std::move(clock)), resolver_(catalog) {
+BoundDeviceExecutor::BoundDeviceExecutor(config::Catalog catalog, SteadyClockMs steadyClock, WallClockMs wallClock)
+    : catalog_(catalog), playground_(catalog), production_(catalog, std::move(steadyClock), std::move(wallClock)), resolver_(catalog) {
     registry_.registerExecutor(config::ExecutorKind::Http, std::make_shared<HttpHardwareExecutor>(catalog));
 }
 
@@ -60,12 +60,13 @@ void BoundDeviceExecutor::observe(const StateObservation& observation) {
 HardwareResult BoundDeviceExecutor::poll(const std::string& targetId) {
     for (const auto& binding : catalog_->configuration().observations) {
         if (binding.targetId != targetId) continue;
+        const auto order = production_.steadyNowMs();
         const auto observation = registry_.observe(binding);
         const auto now = production_.nowMs();
         if (observation.result.reachability == ReachabilityEvidence::Reachable) production_.markReachable(targetId, now);
         else if (observation.result.reachability == ReachabilityEvidence::Unreachable) production_.markUnreachable(targetId, now);
         if (!observation.result.success) return observation.result;
-        try { production_.applyObservation({targetId, observation.properties, now}); }
+        try { production_.applyObservation({targetId, observation.properties, now, order}); }
         catch (const config::ConfigError&) { return {false, "invalid_observation", {}, observation.result.reachability}; }
         return observation.result;
     }

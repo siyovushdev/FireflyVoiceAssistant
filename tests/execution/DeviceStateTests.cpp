@@ -181,14 +181,14 @@ int main(int argc, char** argv) {
                 {{"brightness", actions::IntegerArgument(std::int64_t{40})}}}, execution::ExecutionIntent::Production);
             clockMs += 1000;
             executor.observe(execution::StateObservation{
-                "device_kitchen_light", {{"brightness", actions::Scalar(std::int64_t{40})}}, clockMs});
+                "device_kitchen_light", {{"brightness", actions::Scalar(std::int64_t{40})}}, clockMs, clockMs});
             auto knowledge = executor.production().device("device_kitchen_light");
             check(knowledge->properties.at("brightness").knowledge == execution::StateKnowledge::Confirmed, "Confirmed match");
             check(knowledge->properties.at("brightness").value == actions::Scalar(std::int64_t{40}), "Confirmed value");
 
             clockMs += 1000;
             executor.observe(execution::StateObservation{
-                "device_kitchen_light", {{"brightness", actions::Scalar(std::int64_t{0})}}, clockMs});
+                "device_kitchen_light", {{"brightness", actions::Scalar(std::int64_t{0})}}, clockMs, clockMs});
             knowledge = executor.production().device("device_kitchen_light");
             check(knowledge->properties.at("brightness").knowledge == execution::StateKnowledge::Confirmed, "conflict Confirmed");
             check(knowledge->properties.at("brightness").value == actions::Scalar(std::int64_t{0}), "observation wins OFF");
@@ -198,10 +198,12 @@ int main(int argc, char** argv) {
         {
             auto value = baseV2(root);
             execution::DeviceStateStore store(config::ConfigLoader::fromJson(value.dump()), clock);
+            clockMs = 2000;
             store.applyPrediction("device_kitchen_light", {{"brightness", actions::Scalar(std::int64_t{40})}}, 2000);
             try {
+                clockMs += 1000;
                 store.applyObservation(execution::StateObservation{
-                    "device_kitchen_light", {{"brightness", actions::Scalar(std::int64_t{10})}}, 1000});
+                    "device_kitchen_light", {{"brightness", actions::Scalar(std::int64_t{10})}}, 1000, 1000});
                 check(false, "older observation after prediction must reject");
             } catch (const config::ConfigError& error) {
                 check(error.code == "stale_observation", "stale after prediction code");
@@ -211,11 +213,13 @@ int main(int argc, char** argv) {
             check(store.device("device_kitchen_light")->properties.at("brightness").value ==
                 actions::Scalar(std::int64_t{40}), "prediction value unchanged by stale observation");
 
+            clockMs += 1000;
             store.applyObservation(execution::StateObservation{
-                "device_kitchen_light", {{"brightness", actions::Scalar(std::int64_t{40})}}, 3000});
+                "device_kitchen_light", {{"brightness", actions::Scalar(std::int64_t{40})}}, 3000, 3000});
             try {
+                clockMs += 1000;
                 store.applyObservation(execution::StateObservation{
-                    "device_kitchen_light", {{"brightness", actions::Scalar(std::int64_t{0})}}, 2500});
+                    "device_kitchen_light", {{"brightness", actions::Scalar(std::int64_t{0})}}, 2500, 2500});
                 check(false, "older observation after confirmed must reject");
             } catch (const config::ConfigError& error) {
                 check(error.code == "stale_observation", "stale after confirmed code");
@@ -225,8 +229,9 @@ int main(int argc, char** argv) {
             check(store.device("device_kitchen_light")->properties.at("brightness").value ==
                 actions::Scalar(std::int64_t{40}), "confirmed value unchanged by stale observation");
 
+            clockMs += 1000;
             store.applyObservation(execution::StateObservation{
-                "device_kitchen_light", {{"brightness", actions::Scalar(std::int64_t{70})}}, 4000});
+                "device_kitchen_light", {{"brightness", actions::Scalar(std::int64_t{70})}}, 4000, 4000});
             const auto newer = store.device("device_kitchen_light")->properties.at("brightness");
             check(newer.knowledge == execution::StateKnowledge::Confirmed, "newer observation Confirmed");
             check(newer.value == actions::Scalar(std::int64_t{70}), "newer observation value");
@@ -239,14 +244,14 @@ int main(int argc, char** argv) {
             execution::DeviceStateStore store(config::ConfigLoader::fromJson(value.dump()), clock);
             try {
                 store.applyObservation(execution::StateObservation{
-                    "device_kitchen_light", {{"brightness", actions::Scalar(std::string("bright"))}}, clockMs});
+                    "device_kitchen_light", {{"brightness", actions::Scalar(std::string("bright"))}}, clockMs, clockMs});
                 check(false, "string brightness must reject");
             } catch (const config::ConfigError& error) {
                 check(error.code == "unsafe_constraint", "brightness type code");
             }
             try {
                 store.applyObservation(execution::StateObservation{
-                    "device_kitchen_light", {{"brightness", actions::Scalar(std::int64_t{150})}}, clockMs});
+                    "device_kitchen_light", {{"brightness", actions::Scalar(std::int64_t{150})}}, clockMs, clockMs});
                 check(false, "out-of-domain brightness must reject");
             } catch (const config::ConfigError& error) {
                 check(error.code == "unsafe_constraint", "brightness domain code");
@@ -256,14 +261,14 @@ int main(int argc, char** argv) {
 
             try {
                 store.applyObservation(execution::StateObservation{
-                    "device_entrance_door", {{"position", actions::Scalar(std::string("AJAR"))}}, clockMs});
+                    "device_entrance_door", {{"position", actions::Scalar(std::string("AJAR"))}}, clockMs, clockMs});
                 check(false, "invalid door position must reject");
             } catch (const config::ConfigError& error) {
                 check(error.code == "unsafe_constraint", "door position code");
             }
             try {
                 store.applyObservation(execution::StateObservation{
-                    "device_entrance_door", {{"position", actions::Scalar(std::int64_t{1})}}, clockMs});
+                    "device_entrance_door", {{"position", actions::Scalar(std::int64_t{1})}}, clockMs, clockMs});
                 check(false, "integer door position must reject");
             } catch (const config::ConfigError& error) {
                 check(error.code == "unsafe_constraint", "door type code");
@@ -272,7 +277,7 @@ int main(int argc, char** argv) {
             store.applyPrediction("device_kitchen_light", {{"brightness", actions::Scalar(std::int64_t{40})}}, clockMs);
             clockMs += 1;
             store.applyObservation(execution::StateObservation{
-                "device_kitchen_light", {{"brightness", actions::Scalar(std::int64_t{0})}}, clockMs});
+                "device_kitchen_light", {{"brightness", actions::Scalar(std::int64_t{0})}}, clockMs, clockMs});
             check(store.device("device_kitchen_light")->properties.at("brightness").value ==
                 actions::Scalar(std::int64_t{0}), "observation may contradict prediction");
         }
@@ -339,7 +344,7 @@ int main(int argc, char** argv) {
             execute({"power_off", "lamp_a", {}}, execution::ExecutionIntent::Production);
             check(unchanged(property("level"), predictedLevel), "production OFF never imports Playground 55, absent optional argument leaves field intact");
             check(property("power").value == actions::Scalar(false), "production OFF updates its literal assignment");
-            executor.observe({"lamp_a", {{"level", actions::Scalar(std::int64_t{70})}}, ++clockMs});
+            executor.observe({"lamp_a", {{"level", actions::Scalar(std::int64_t{70})}}, ++clockMs, clockMs});
             const auto confirmedLevel = property("level");
             execute({"power_on", "lamp_a", {}}, execution::ExecutionIntent::Production);
             check(confirmedLevel.knowledge == execution::StateKnowledge::Confirmed && unchanged(property("level"), confirmedLevel), "unrelated production command preserves Confirmed value and both timestamps");
@@ -358,10 +363,75 @@ int main(int argc, char** argv) {
             check(execution::isStale(property, clockMs + execution::kDefaultStateTtlMs + 1), "beyond TTL stale");
             clockMs += 500;
             store.applyObservation(execution::StateObservation{
-                "device_kitchen_light", {{"brightness", actions::Scalar(std::int64_t{40})}}, clockMs});
+                "device_kitchen_light", {{"brightness", actions::Scalar(std::int64_t{40})}}, clockMs, clockMs});
             property = store.device("device_kitchen_light")->properties.at("brightness");
             check(!execution::isStale(property, clockMs + 10), "fresh confirmed not stale");
             check(execution::isStale(property, clockMs + execution::kDefaultStateTtlMs + 1), "confirmed beyond TTL stale");
+        }
+
+        // --- M18.5: Unix display timestamps; only monotonic time controls TTL/order ---
+        {
+            const auto catalog = config::ConfigLoader::fromJson(baseV2(root).dump());
+            std::int64_t steady = 0, wall = 1'700'000'000'000;
+            auto monotonic = [&] { return steady; };
+            auto epoch = [&] { return wall; };
+            const auto steadyBefore = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count();
+            execution::DeviceStateStore defaults(catalog);
+            const auto defaultTick = defaults.steadyNowMs();
+            const auto steadyAfter = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count();
+            check(defaultTick >= steadyBefore && defaultTick <= steadyAfter, "default age clock is actually steady_clock, not system_clock");
+            execution::DeviceStateStore store(catalog, monotonic, epoch);
+            const auto property = [&] { return store.device("device_kitchen_light")->properties.at("brightness"); };
+            store.applyPrediction("device_kitchen_light", {{"brightness", actions::Scalar(std::int64_t{40})}}, store.nowMs());
+            check(property().updatedAtMs == wall, "prediction preserves Unix display time");
+            check(!execution::isStale(property(), store.steadyNowMs()), "steady zero is a valid fresh stamp");
+            for (const auto shift : {172'800'000LL, -345'600'000LL}) {
+                wall += shift;
+                check(!execution::isStale(property(), store.steadyNowMs()), "wall jumps cannot age prediction");
+            }
+            steady = execution::kDefaultStateTtlMs;
+            check(!execution::isStale(property(), steady), "prediction at TTL boundary remains fresh");
+            ++steady;
+            check(execution::isStale(property(), steady), "only monotonic >TTL makes prediction stale");
+            store.applyObservation({"device_kitchen_light", {{"brightness", actions::Scalar(std::int64_t{0})}}, 0, {}});
+            check(property().observedAtMs == wall && property().updatedAtMs == wall, "confirmation preserves adjusted Unix event time");
+            check(property().value == actions::Scalar(std::int64_t{0}), "new contradictory observation overrides prediction despite backward wall jump");
+            for (const auto shift : {604'800'000LL, -1'209'600'000LL}) {
+                wall += shift;
+                check(!execution::isStale(property(), store.steadyNowMs()), "wall jumps cannot age confirmation");
+            }
+            steady += execution::kDefaultStateTtlMs;
+            check(!execution::isStale(property(), steady), "confirmation at TTL boundary remains fresh");
+            ++steady;
+            check(execution::isStale(property(), steady), "monotonic >TTL makes confirmation stale");
+            execution::DeviceStateStore next(catalog, monotonic, epoch);
+            next.reconcile(store);
+            check(execution::isStale(next.device("device_kitchen_light")->properties.at("brightness"), steady), "Apply preserves age rather than refreshing evidence");
+            const auto oldOrder = steady++;
+            store.applyPrediction("device_kitchen_light", {{"brightness", actions::Scalar(std::int64_t{20})}}, wall);
+            const auto before = property();
+            try {
+                store.applyObservation({"device_kitchen_light", {{"brightness", actions::Scalar(std::int64_t{99})}}, wall + 604'800'000, oldOrder});
+                check(false, "future wall time cannot authorize out-of-order local observation");
+            } catch (const config::ConfigError& error) { check(error.code == "stale_observation", "steady out-of-order rejection"); }
+            check(property().value == before.value && property().freshnessSteadyMs == before.freshnessSteadyMs, "rejection preserves value and age");
+            try {
+                store.applyObservation({"device_kitchen_light", {{"brightness", actions::Scalar(std::int64_t{99})}}, wall, {}});
+                check(false, "source/event time alone cannot prove local order");
+            } catch (const config::ConfigError& error) { check(error.code == "invalid_observation", "event-only observation fails closed"); }
+            ++steady;
+            store.applyObservation({"device_kitchen_light", {{"brightness", actions::Scalar(std::int64_t{10})}}, --wall, steady});
+            check(property().value == actions::Scalar(std::int64_t{10}), "new steady observation wins despite older wall time");
+            store.markUnreachable("device_kitchen_light", wall);
+            check(store.device("device_kitchen_light")->lastFailureAtMs == wall, "connectivity timestamps remain Unix display values");
+            check(property().knowledge == execution::StateKnowledge::Confirmed, "connectivity failure cannot fabricate/remove confirmation");
+            execution::DeviceStateStore cold(catalog, monotonic, epoch);
+            check(cold.device("device_kitchen_light")->properties.at("brightness").knowledge == execution::StateKnowledge::Unknown, "restart remains Unknown");
+            execution::BoundDeviceExecutor executor(catalog, monotonic, epoch);
+            const auto result = executor.execute({"action_set_brightness", "device_kitchen_light", {{"brightness", actions::Scalar(std::int64_t{40})}}}, execution::ExecutionIntent::Playground);
+            check(result.timestampMs == wall, "execution timestamp remains Unix, not steady");
         }
 
         // --- Generation reconcile ---
@@ -383,7 +453,8 @@ int main(int argc, char** argv) {
             // observation is not older than the Predicted stamp from execute().
             generations.observe(execution::StateObservation{
                 "device_kitchen_light", {{"brightness", actions::Scalar(std::int64_t{40})}},
-                generations.current()->executor->production().nowMs()});
+                generations.current()->executor->production().nowMs(),
+                generations.current()->executor->production().steadyNowMs()});
             auto next = bathroom(value); next["revision"] = 2;
             // bathroom() helper is v1-oriented; complete v2 required device fields.
             for (auto& device : next["devices"]) {
