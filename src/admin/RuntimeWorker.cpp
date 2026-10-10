@@ -481,7 +481,7 @@ power_device означает ровно включение и выключен�
         std::cerr << "Admin runtime: " << error.what() << '\n';
         const std::string reason=error.what();
         const std::set<std::string> publicReasons={"setup_required","setup_in_progress","restart_required",
-            "admin_model_unavailable_or_wrong_size","admin_model_verification_failed","admin_model_sha256_mismatch",
+            "admin_model_not_configured","admin_model_unavailable_or_wrong_size","admin_model_verification_failed","admin_model_sha256_mismatch",
             "admin_memory_reserve_unavailable","memory_status_unavailable"};
         reply = failure(publicReasons.count(reason)?reason:"runtime_rejected", "", "Runtime context or request rejected. The previous generation was not replaced.");
     }
@@ -561,5 +561,10 @@ std::string RuntimeWorker::observe() const {
       reply["voice"] = voiceState_; reply["microphone"] = microphone_;
       reply["last_command"] = lastCommand_.empty() ? Json(nullptr) : Json::parse(lastCommand_); }
     return reply.dump(-1, ' ', false, Json::error_handler_t::replace);
+}
+std::string buildIdentityJson() {
+    return std::string("{\"head\":\"") + BuildHead + "\",\"source_sha256\":\"" + BuildSource
+        + "\",\"built_utc\":\"" + BuildTime + "\",\"dirty\":" + (BuildDirty ? "true" : "false")
+        + ",\"admin_assets_sha256\":\"" + BuildAssets + "\"}\n";
 }
 }

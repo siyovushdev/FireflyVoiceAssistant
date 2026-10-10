@@ -13,7 +13,9 @@ volatile std::sig_atomic_t cancelled=0;
 void cancel(int){cancelled=1;}
 void require(bool good,const std::string& why){if(!good)throw std::runtime_error(why);}
 class CountingModel final:public admin::ContextModel {
-    admin::RuntimeModel model_{"/home/firefly/demo_Linux_aarch64/Qwen3-4B_W8A8_RK3588_3core.rkllm"};
+    admin::RuntimeModel model_{
+        "/home/firefly/demo_Linux_aarch64/Qwen3-4B_W8A8_RK3588_3core.rkllm",
+        "/home/firefly/demo_Linux_aarch64/Qwen3-4B_W8A8_CTX4096_RK3588_3core.rkllm"};
 public:
     int runtimeCalls=0,adminCalls=0;
     llm::CommandProtocol commandProtocol()const override{return model_.commandProtocol();}

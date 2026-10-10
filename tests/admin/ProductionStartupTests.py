@@ -26,7 +26,8 @@ with tempfile.TemporaryDirectory(prefix='firefly-production-startup-') as direct
     def launch(store, seed, fail_model=False):
         store.mkdir(mode=0o700, exist_ok=True)
         options = {**base, '--store': str(store), '--init-config': str(seed),
-                   '--admin-port': '0', '--model': 'fake-runtime-no-npu'}
+                   '--admin-port': '0', '--model': 'fake-runtime-no-npu',
+                   '--admin-model': str(temp / 'absent-admin-model.rkllm')}
         # All speech inputs deliberately absent: fail before any real models/devices.
         for flag in ['--stt-model-dir', '--vad-model', '--wake-python', '--wake-model']:
             options[flag] = str(temp / ('absent-' + flag[2:]))
@@ -90,6 +91,7 @@ with tempfile.TemporaryDirectory(prefix='firefly-production-startup-') as direct
             assert 'SHUTDOWN requested' in output and 'SHUTDOWN complete' in output, output
             if not fail_model:
                 assert 'stub destroyed' in output, 'RKLLM RAII destruction was not reached'
+            assert 'STARTUP admin model unavailable: admin_model_unavailable_or_wrong_size' in output, output
             assert 'VOICE_RECOVERY failure reason=Missing speech model file:' in output, output
             assert 'VOICE_RECOVERY scheduled delay_ms=1000' in output, output
             return catalog

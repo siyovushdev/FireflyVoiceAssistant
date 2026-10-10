@@ -26,6 +26,17 @@ void secure(int descriptor, bool directory) {
         status.st_uid != ::geteuid() || (status.st_mode & 0022) != 0)
         throw ConfigError("unsafe_store", "", "Store must be owned by this user, without group/other write access or linked special files");
 }
+uid_t secureForInspect(int descriptor, bool directory) {
+    struct stat status{};
+    if (::fstat(descriptor, &status) != 0) detail::ioError("stat store");
+    if ((directory ? !S_ISDIR(status.st_mode) : (!S_ISREG(status.st_mode) || status.st_nlink != 1)) ||
+        (status.st_mode & 0022) != 0)
+        throw ConfigError("unsafe_store", "", "Store must be a private regular file or directory, without group/other write access or linked special files");
+    if (status.st_uid == ::geteuid()) return status.st_uid;
+    // Root may read a non-root private store during owner cutover. It must not write.
+    if (::geteuid() == 0 && status.st_uid != 0) return status.st_uid;
+    throw ConfigError("unsafe_store", "", "Store must be owned by this user, without group/other write access or linked special files");
+}
 struct LockedStore {
     FileDescriptor directory, lock;
     explicit LockedStore(const std::string& path) : directory(detail::openDirectory(path)) {
@@ -57,6 +68,31 @@ Catalog readCatalog(int directory, const std::string& name) {
     if (catalog->canonicalJson() != bytes) throw ConfigError("store_corrupt", "", "Stored document is not canonical; import through save instead of editing the store");
     return catalog;
 }
+}
+std::string inspectStore(const std::string& path) {
+    auto directory = detail::openDirectory(path);
+    const auto owner = secureForInspect(directory.get(), true);
+    if (exists(directory.get(), PendingFile))
+        throw ConfigError("recovery_required", "", "Interrupted transaction; run explicit reconcile before mutations");
+    if (!exists(directory.get(), CurrentFile))
+        throw ConfigError("missing_configuration", "", "configuration.json is missing");
+    detail::FileDescriptor file(::openat(directory.get(), CurrentFile, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC));
+    if (file.get() < 0) detail::ioError("open committed store entry");
+    if (secureForInspect(file.get(), false) != owner)
+        throw ConfigError("unsafe_store", "", "Configuration must have the same owner as its store directory");
+    const auto bytes = detail::readDescriptor(file.get());
+    const auto catalog = ConfigLoader::fromJson(bytes);
+    if (catalog->canonicalJson() != bytes)
+        throw ConfigError("store_corrupt", "", "Stored document is not canonical; import through save instead of editing the store");
+    detail::Json out{{"schema_version", catalog->configuration().schemaVersion},
+        {"revision", catalog->configuration().revision},
+        {"content_sha256", catalog->contentHash()},
+        {"canonical", true},
+        {"recovery_required", false},
+        {"production_activated", false}};
+    return out.dump() + "\n";
+}
+namespace {
 std::string randomName() {
     unsigned char bytes[16];
     std::size_t offset = 0;

@@ -1,5 +1,6 @@
 #include "HttpServer.h"
 #include "firefly/admin/NetworkPolicy.h"
+#include "firefly/admin/RuntimeWorker.h"
 #include "RuntimeModel.h"
 #include "firefly/admin/AdminTranscriber.h"
 #include "firefly/config/ConfigLoader.h"
@@ -26,8 +27,12 @@ void stop(int) { stopping = 1; }
 }
 
 int main(int argc, char** argv) {
+    if (argc == 2 && std::string(argv[1]) == "--build-identity") {
+        std::cout << firefly::admin::buildIdentityJson();
+        return 0;
+    }
     try {
-        std::string storePath, initial, bind = "127.0.0.1", modelPath, stt, vad;
+        std::string storePath, initial, bind = "127.0.0.1", modelPath, adminModel, stt, vad;
         std::string device = "plughw:CARD=Array,DEV=0";
         firefly::voice::WakeConfig wakeConfig;
         std::string wakePython = "python3", playbackDevice = "plughw:CARD=rockchipes8388,DEV=0";
@@ -40,7 +45,7 @@ int main(int argc, char** argv) {
         for (int i = 1; i < argc; ++i) {
             const std::string flag(argv[i]);
             if (flag == "--help") {
-                std::cout << "firefly-demo --store DIR --model FILE [--init-config FILE]\n"
+                std::cout << "firefly-demo --store DIR --model FILE [--admin-model FILE] [--init-config FILE]\n"
                     "  [--admin-bind 127.0.0.1] [--admin-port 8080]\n"
                     "  [--stt-model-dir DIR]\n"
                     "  [--voice --vad-model FILE --audio-device plughw:CARD=Array,DEV=0]\n"
@@ -59,6 +64,10 @@ int main(int argc, char** argv) {
             else if (flag == "--init-config") initial = value;
             else if (flag == "--admin-bind") bind = value;
             else if (flag == "--model") modelPath = value;
+            else if (flag == "--admin-model") {
+                if (value.empty()) throw std::invalid_argument("Invalid admin model path");
+                adminModel = value;
+            }
             else if (flag == "--stt-model-dir") stt = value;
             else if (flag == "--vad-model") vad = value;
             else if (flag == "--audio-device") device = value;
@@ -96,6 +105,14 @@ int main(int argc, char** argv) {
             } else throw std::invalid_argument("Unknown option: " + flag);
         }
         firefly::admin::validateAdminBind(bind);
+        // A bad Admin model must not load, and must not take down the listener.
+        // enterSetup repeats the size check and requires the SHA256 before inference.
+        if (!adminModel.empty()) {
+            try { firefly::admin::RuntimeModel::checkAdminModelFile(adminModel); }
+            catch (const std::exception& error) {
+                std::cerr << "STARTUP admin model unavailable: " << error.what() << '\n';
+            }
+        }
 #ifdef FIREFLY_WITH_VOICE
         if (stt.empty()) {
             const auto bundled = executableDir / "stt/model";
@@ -116,7 +133,7 @@ int main(int argc, char** argv) {
                 std::filesystem::path(storePath) / "configuration.json")))
             store.initialize(firefly::config::ConfigLoader::fromFile(initial));
         // RuntimeModel defers RKLLM load until Apply/useContext — after Admin listens below.
-        firefly::admin::RuntimeModel model(modelPath);
+        firefly::admin::RuntimeModel model(modelPath, adminModel);
         firefly::admin::RuntimeWorker runtime(model);
         firefly::admin::LocalRuntimeClient client(runtime);
         firefly::admin::Api api(store, client, nullptr);

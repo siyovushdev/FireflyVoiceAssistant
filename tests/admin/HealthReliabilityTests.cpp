@@ -312,10 +312,15 @@ int main(int argc, char** argv) {
             std::string text((std::istreambuf_iterator<char>(unit)), std::istreambuf_iterator<char>());
             for (const char* needle : {
                      "Restart=on-failure", "TimeoutStopSec=", "User=firefly",
-                     "StandardOutput=journal", "WorkingDirectory=", "LD_LIBRARY_PATH=",
-                     "StartLimitBurst=", "Type=simple"})
+                     "StandardOutput=journal", "WorkingDirectory=",
+                     "StartLimitBurst=", "Type=simple", "NoNewPrivileges=true",
+                     "ProtectSystem=strict", "ProtectHome=read-only",
+                     "ReadWritePaths=/var/lib/firefly/store", "--admin-bind 127.0.0.1",
+                     "--admin-model "})
                 check(text.find(needle) != std::string::npos, needle);
             check(text.find("Restart=always") == std::string::npos, "no Restart=always");
+            check(text.find("LD_LIBRARY_PATH") == std::string::npos, "no LD_LIBRARY_PATH");
+            check(text.find("/home/firefly") == std::string::npos, "no developer home path");
         }
 
         std::cout << "PASS " << checks << " M17 health / LKG / shutdown checks\n";

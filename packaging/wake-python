@@ -1,0 +1,16 @@
+#!/bin/sh
+# Relocatable Amina wake interpreter for one release tree.
+# Uses Ubuntu 22.04 /usr/bin/python3 and the site-packages next to this script.
+# Shebangs are not copied from a developer virtualenv.
+set -eu
+HERE=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+ROOT=$(CDPATH= cd -- "$HERE/.." && pwd)
+if [ ! -x /usr/bin/python3 ]; then
+    echo "firefly wake python: /usr/bin/python3 is missing" >&2
+    exit 127
+fi
+export PYTHONNOUSERSITE=1
+export PYTHONDONTWRITEBYTECODE=1
+unset PYTHONHOME
+export PYTHONPATH="$ROOT/lib/python3.10/site-packages"
+exec /usr/bin/python3 "$@"

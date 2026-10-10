@@ -1,6 +1,9 @@
 #include "firefly/config/ConfigLoader.h"
 #include "firefly/config/ConfigStore.h"
 #include "JsonInternal.h"
+#ifdef FIREFLY_CONFIG_BUILD_IDENTITY
+#include "AdminBuild.h"
+#endif
 #include <charconv>
 #include <iostream>
 #include <map>
@@ -11,6 +14,7 @@ using namespace firefly::config;
 void usage() {
     std::cout << "Offline only; production configuration is not activated.\n"
         "firefly-config validate|inspect --file PATH\n"
+        "firefly-config audit --store DIR\n"
         "firefly-config init --store EXISTING_PRIVATE_DIR --file PATH\n"
         "firefly-config save --store DIR --file PATH --expected-revision N --expected-hash SHA256\n"
         "firefly-config restore --store DIR --revision N --expected-revision N --expected-hash SHA256\n"
@@ -27,11 +31,19 @@ std::int64_t revision(const std::string& text) {
 int main(int argc, char** argv) {
     using namespace firefly::config;
     try {
+#ifdef FIREFLY_CONFIG_BUILD_IDENTITY
+        if (argc == 2 && std::string(argv[1]) == "--build-identity") {
+            std::cout << detail::Json{{"head", firefly::admin::BuildHead},
+                {"source_sha256", firefly::admin::BuildSource}, {"built_utc", firefly::admin::BuildTime},
+                {"dirty", firefly::admin::BuildDirty}, {"admin_assets_sha256", firefly::admin::BuildAssets}}.dump() << '\n';
+            return 0;
+        }
+#endif
         if (argc == 2 && std::string(argv[1]) == "--help") { usage(); return 0; }
         if (argc < 2) throw ConfigError("cli_usage", "", "A command is required; see --help");
         const std::string command(argv[1]);
         const std::map<std::string, std::set<std::string>> options{
-            {"validate", {"--file"}}, {"inspect", {"--file"}}, {"init", {"--store", "--file"}},
+            {"validate", {"--file"}}, {"inspect", {"--file"}}, {"audit", {"--store"}}, {"init", {"--store", "--file"}},
             {"save", {"--store", "--file", "--expected-revision", "--expected-hash"}},
             {"restore", {"--store", "--revision", "--expected-revision", "--expected-hash"}},
             {"current", {"--store"}}, {"revisions", {"--store"}}, {"reconcile", {"--store"}}};
@@ -44,6 +56,10 @@ int main(int argc, char** argv) {
         }
         if (values.size() != options.at(command).size()) throw ConfigError("cli_usage", "", "Missing required options");
         Catalog result;
+        if (command == "audit") {
+            std::cout << inspectStore(values.at("--store"));
+            return 0;
+        }
         if (command == "validate" || command == "inspect") result = ConfigLoader::fromFile(values.at("--file"));
         else {
             ConfigStore store(values.at("--store"));

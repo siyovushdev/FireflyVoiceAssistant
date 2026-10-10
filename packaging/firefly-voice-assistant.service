@@ -1,12 +1,11 @@
-# Firefly single-process appliance — M18.1 production startup.
-# Manual install/update/acceptance: docs/m18-production-startup.md
-# Keep critical arguments aligned with scripts/firefly-dialogue.sh.
-# ProductionStartupContract tests both lists; no shell launcher/restart loop here.
-# Board paths intentionally remain fixed; packaging relocation is a later item.
+# Firefly single-process appliance — M18.6 relocatable production unit.
+# Not installed by the staging tool. Owner activation: docs/m18-owner-acceptance-runbook.md
+# Argument contract is shared with scripts/firefly-dialogue.sh via FIREFLY_PREFIX.
+# Libraries resolve from the binary RUNPATH ($ORIGIN/../lib).
 
 [Unit]
 Description=Firefly Voice Assistant
-Documentation=file:///home/firefly/FireflyVoiceAssistantLinux/docs/m18-production-startup.md
+Documentation=file:///opt/firefly/voice-assistant/current/share/firefly/doc/m18-relocatable-production-packaging.md
 After=network-online.target sound.target
 Wants=network-online.target
 # Avoid rapid crash loops from bad config / missing model
@@ -17,35 +16,31 @@ StartLimitBurst=5
 Type=simple
 User=firefly
 Group=firefly
-WorkingDirectory=/home/firefly/FireflyVoiceAssistantLinux
-# Private store directory (mode 0700, owned by User)
-Environment=LD_LIBRARY_PATH=/home/firefly/demo_Linux_aarch64/lib
-ExecStart=/home/firefly/FireflyVoiceAssistantLinux/build/firefly-demo \
+WorkingDirectory=/opt/firefly/voice-assistant/current
+ExecStart=/opt/firefly/voice-assistant/current/bin/firefly-demo \
   --store /var/lib/firefly/store \
-  --init-config /home/firefly/FireflyVoiceAssistantLinux/config/empty-home.json \
-  --model /home/firefly/demo_Linux_aarch64/Qwen3-4B_W8A8_RK3588_3core.rkllm \
+  --init-config /opt/firefly/voice-assistant/current/share/firefly/config/empty-home.json \
+  --model /opt/firefly/voice-assistant/models/runtime/Qwen3-4B_W8A8_RK3588_3core.rkllm \
+  --admin-model /opt/firefly/voice-assistant/models/admin/Qwen3-4B_W8A8_CTX4096_RK3588_3core.rkllm \
   --admin-bind 127.0.0.1 \
   --admin-port 8080 \
   --voice \
-  --stt-model-dir /home/firefly/FireflyVoiceAssistantLinux/build/stt/model \
-  --vad-model /home/firefly/FireflyVoiceAssistantLinux/build/stt/vad-ab/silero_vad.onnx \
+  --stt-model-dir /opt/firefly/voice-assistant/models/stt \
+  --vad-model /opt/firefly/voice-assistant/models/vad/silero_vad.onnx \
   --audio-device plughw:CARD=Array,DEV=0 \
   --wake-enabled true \
-  --wake-python /home/firefly/FireflyVoiceAssistantLinux/build/wake-venv/bin/python \
-  --wake-model /home/firefly/FireflyVoiceAssistantLinux/assets/wake/amina-v3.tflite \
+  --wake-python /opt/firefly/voice-assistant/current/share/firefly/wake/python/bin/python \
+  --wake-model /opt/firefly/voice-assistant/current/share/firefly/wake/amina-v3.tflite \
   --wake-cutoff 0.99 --wake-window 7 \
   --playback-device plughw:CARD=rockchipes8388,DEV=0
-# Process supervision — Firefly does not restart itself
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=45
 KillMode=mixed
 KillSignal=SIGTERM
-# Capture application logs in journald
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=firefly-voice-assistant
-# Hardening (board-appropriate; tighten further in product images)
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
