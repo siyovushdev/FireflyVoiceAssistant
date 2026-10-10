@@ -2,12 +2,16 @@
 
 Owner acceptance is **not ready**. Two blockers remain:
 
-- The worktree is dirty, so `--production` refuses to label HEAD as the
-  release identity. A commit is a separate approval. This runbook does not
-  commit.
+- The implementation source is committed at review commit
+  `3b96eea1264795c411798eba32d51fed555e0102`; this runbook has a documentation
+  follow-up. Owner review must select the accepted commit. A clean configure
+  and rebuild of both `firefly-demo` and `firefly-config` from that accepted
+  commit is still REQUIRED. The existing binary was built before the review
+  commit and reports the earlier base with `dirty=true`; it has no
+  committed-production provenance. Committing source does not update a binary.
 - The first complete stage, including the wake packages and application,
   needs about 9.3 GiB free. The documented stage-then-install procedure needs
-  room for two copies when both prefixes use the same filesystem. Recheck
+  room for every retained copy on the selected filesystem (see section 3). Recheck
   available space; the takeover measurement is recorded in the engineering report.
   Do not delete the SDK, the live checkout, or
   `/var/lib/firefly/store` to make room.
@@ -22,8 +26,38 @@ Do not delete `/opt/firefly/voice-assistant`.
 ## 1. Fixture staging verification
 
 Use Bash with `set -euo pipefail` and `umask 077` for the commands in this
-runbook. Replace `RELEASE_ID` and `SAVED_UNIT` with the recorded values.
-Run each privileged command individually and stop at any failure.
+runbook. Initialize `RELEASE_ID` once from the stage output in section 2;
+use the variable thereafter. Record the unit backup path as `SAVED_UNIT`
+after section 5 prints it. Run each privileged command individually and stop
+at any failure.
+
+Select an owner-approved, already mounted filesystem with sufficient space
+before any fixture or production staging. The example below uses external
+storage; replace `STORAGE_MOUNT` with the approved mount point. The owner must
+prepare `STAGING_ROOT` as a real, writable directory owned by the staging
+user without group/other write access. Review and isolated installation
+prefixes must be new or have only previously verified matching artifacts.
+Do not use `/tmp` for model staging unless its capacity has been approved.
+
+```sh
+set -euo pipefail
+umask 077
+STORAGE_MOUNT='/mnt/OWNER_APPROVED_STORAGE'
+STAGING_ROOT="$STORAGE_MOUNT/firefly-m186-owner-review"
+FIXTURE_PREFIX="$STAGING_ROOT/fixture"
+FIXTURE_INPUTS="$STAGING_ROOT/fixture-inputs"
+REVIEW_PREFIX="$STAGING_ROOT/review"
+ISOLATED_PREFIX="$STAGING_ROOT/install-check"
+PRODUCTION_PREFIX='/opt/firefly/voice-assistant'
+mountpoint -q "$STORAGE_MOUNT"
+test -d "$STAGING_ROOT"
+df -B1 "$STAGING_ROOT"
+findmnt --target "$STAGING_ROOT" --output SOURCE,TARGET,FSTYPE,OPTIONS
+```
+
+Stop if the mount is absent or its identity/capacity differs from the approved
+filesystem. The fixture inputs below are prepared test stand-ins, not copies
+of production models.
 
 This is what automated tests already do. It uses small stand-in models and the
 real libraries, Amina model, and wake packages. It does not claim a
@@ -31,35 +65,39 @@ committed-production identity.
 
 ```sh
 python3 scripts/stage-release.py stage \
-  --destination /tmp/firefly-m186-fixture \
+  --destination "$FIXTURE_PREFIX" \
   --build-dir build \
   --source-root . \
-  --runtime-prefix /tmp/firefly-m186-fixture \
+  --runtime-prefix "$FIXTURE_PREFIX" \
   --rkllm-library /home/firefly/demo_Linux_aarch64/lib/librkllmrt.so \
   --sherpa-library /home/firefly/FireflyVoiceAssistantLinux/build/stt/sherpa-onnx-v1.13.7-linux-aarch64-shared-cpu/lib/libsherpa-onnx-c-api.so \
   --onnx-library /home/firefly/FireflyVoiceAssistantLinux/build/stt/sherpa-onnx-v1.13.7-linux-aarch64-shared-cpu/lib/libonnxruntime.so \
-  --runtime-model /tmp/firefly-m186-fixture-inputs/runtime.rkllm \
-  --admin-model /tmp/firefly-m186-fixture-inputs/admin.rkllm \
-  --stt-dir /tmp/firefly-m186-fixture-inputs/stt \
-  --vad-model /tmp/firefly-m186-fixture-inputs/vad.onnx \
+  --runtime-model "$FIXTURE_INPUTS/runtime.rkllm" \
+  --admin-model "$FIXTURE_INPUTS/admin.rkllm" \
+  --stt-dir "$FIXTURE_INPUTS/stt" \
+  --vad-model "$FIXTURE_INPUTS/vad.onnx" \
   --wake-site-packages /home/firefly/FireflyVoiceAssistantLinux/build/wake-venv/lib/python3.10/site-packages
 ```
 
-Confirm `manifest.json` has `"identity": "dirty-worktree"` while this tree is
-dirty, and `"production_identity_checked": false`. Confirm `current` was not
-created.
+For a fixture staged from clean committed source, confirm `manifest.json`
+has `"identity": "committed-fixture"` and
+`"production_identity_checked": false`. If the source is dirty it must say
+`"dirty-worktree"`. Neither fixture identity is a production release.
+Confirm `current` was not created.
 
 ## 2. Committed-source production staging
 
-Run this only after a clean `git status --porcelain`, a rebuild of
-`firefly-demo` from that same commit, and enough free space for section 3.
+Run this only after owner review accepts a specific commit, a clean
+`git status --porcelain`, clean configure/build of both shipped binaries from
+that same accepted commit, and enough free space for section 3. Do not reuse
+the pre-commit build or infer its provenance from the now-committed source.
 `--production` refuses a dirty tree and a binary whose embedded head or source
 hash does not match the worktree. Do not stage the real models until that
 space exists. The command is:
 
 ```sh
 python3 scripts/stage-release.py stage \
-  --destination /tmp/firefly-m186-review \
+  --destination "$REVIEW_PREFIX" \
   --build-dir build \
   --source-root . \
   --runtime-prefix /opt/firefly/voice-assistant \
@@ -74,12 +112,15 @@ python3 scripts/stage-release.py stage \
   --production
 ```
 
-The command prints a release id. Then:
+The command prints a release id. Set it once to that exact recorded value,
+then verify:
 
 ```sh
+RELEASE_ID='RELEASE_ID_FROM_STAGE_OUTPUT'
+export RELEASE_ID
 python3 scripts/stage-release.py verify \
-  --destination /tmp/firefly-m186-review \
-  --release-id RELEASE_ID
+  --destination "$REVIEW_PREFIX" \
+  --release-id "$RELEASE_ID"
 ```
 
 Require `"identity": "committed-production"` and
@@ -88,7 +129,10 @@ Require `"identity": "committed-production"` and
 ## 3. Disk-space prerequisites
 
 ```sh
-df -B1 /tmp
+df -B1 "$STAGING_ROOT"
+if test -d "$PRODUCTION_PREFIX"; then
+    df -B1 "$PRODUCTION_PREFIX"
+fi
 ```
 
 The two RKLLM models are 9,688,240,448 bytes. Speech models add 71,190,073
@@ -97,11 +141,15 @@ copies the wake tree. The first stage therefore needs about 9.3 GiB free.
 A later release reuses shared models whose SHA256 already matches and does not
 copy them again. That savings does not apply to the first copy.
 
-Sections 4 and 5 make another complete copy into an installation prefix. If
-review and installation share a filesystem, budget about 18.6 GiB for both
-bundles, plus additional operating headroom. Freeing only enough
+Sections 4 and 5 each make another complete copy into an installation prefix.
+If review and production installation share a filesystem, budget about
+18.6 GiB for those two bundles, plus additional operating headroom. If the
+real-model isolated installation from section 4 is also retained there during
+cutover, budget about 27.9 GiB for all three bundles plus headroom; prefer
+at least 35 GiB free for that sequence. Freeing only enough
 space for staging does not make the first installation possible. Prefer
-owner-provided external storage with at least 25 GiB free. The current
+owner-provided external storage with at least 25 GiB free for two bundles,
+or 35 GiB for the three-copy sequence. The current
 installer creates its incoming model copies inside the destination prefix
 and publishes them with a same-filesystem rename. Mounting only an empty
 `models/` directory on another filesystem does not solve the first install:
@@ -112,7 +160,31 @@ filesystem, with a separately approved persistent mount or bind mount at
 prepopulation of verified external models followed by model reuse; that
 procedure has not been performed or accepted here. Model symlinks are refused. Existing
 SDK models must not be hardlinked, moved, or removed. No storage or mount
-changes are authorized by this review.
+changes are performed by this documentation task.
+
+Before external-storage cutover, the owner must separately approve and verify:
+
+- Persistent mount-at-boot configuration using a stable filesystem identity
+  (for example, UUID), including any bind mount of the entire prefix at
+  `/opt/firefly/voice-assistant`. The runtime, models, releases, and rollback
+  data must remain available after reboot; a manually mounted disk is insufficient.
+- Systemd mount dependencies and ordering that require the external filesystem
+  and any bind mount before Firefly starts. This requires an owner-approved
+  `RequiresMountsFor=/opt/firefly/voice-assistant` dependency, or equivalent
+  explicit `Requires=`/`After=` mount dependencies, with verified failure
+  behavior when storage is unavailable. The packaged service is unchanged by
+  this documentation correction; configuring these dependencies is a separate
+  owner-authorized operation and a prerequisite, not an optional later step.
+- Root ownership and safe permissions of the mounted production prefix and
+  its parents, and confirmation that installation scratch space and shared
+  model publication are on the same filesystem.
+
+Do not begin section 5 until those requirements are satisfied. If the
+production prefix does not yet exist, inspect the approved backing filesystem
+with `df` first; repeat the production-prefix capacity check after the owner
+prepares its mount. The cutover commands below assume the recommended
+whole-prefix external mount. Do not accidentally install into an unmounted
+directory on the root disk.
 
 Stop if free space is short. Do not remove production data or the SDK.
 
@@ -123,12 +195,12 @@ temporary prefix. This checks the non-destructive installer without `/opt`.
 
 ```sh
 python3 scripts/stage-release.py install-release \
-  --source /tmp/firefly-m186-review \
-  --destination /tmp/firefly-m186-install \
-  --release-id RELEASE_ID
+  --source "$REVIEW_PREFIX" \
+  --destination "$ISOLATED_PREFIX" \
+  --release-id "$RELEASE_ID"
 python3 scripts/stage-release.py verify \
-  --destination /tmp/firefly-m186-install \
-  --release-id RELEASE_ID
+  --destination "$ISOLATED_PREFIX" \
+  --release-id "$RELEASE_ID"
 ```
 
 Repeat the install of the same id and confirm it fails without changing the
@@ -141,28 +213,58 @@ unchanged.
 
 Do not start this section while section 2 or 3 is blocked.
 
-Capture the store and the process first. These commands only read.
+Capture the store and the process first. These commands only read production
+paths and write a new private evidence directory. After `initialize()` at
+revision 1, `backups/` or either Last Known Good entry may legitimately be
+absent. Record exact presence, entry types, directory contents (including
+empty directories), and file bytes. An absent entry stays absent; these checks
+never create a missing production entry. Keep the evidence private because
+it contains configuration bytes; do not commit it.
 
 ```sh
-RELEASE_ID='RELEASE_ID'
-REVIEW_RELEASE="/tmp/firefly-m186-review/releases/$RELEASE_ID"
+REVIEW_RELEASE="$REVIEW_PREFIX/releases/$RELEASE_ID"
+INSTALLED_RELEASE="$PRODUCTION_PREFIX/releases/$RELEASE_ID"
 RELEASE_TOOL="$REVIEW_RELEASE/share/firefly/deployment/scripts/stage-release.py"
 CONFIG_TOOL="$REVIEW_RELEASE/bin/firefly-config"
+ACCEPTANCE_EVIDENCE=$(mktemp -d "${TMPDIR:-/tmp}/firefly-m186-acceptance.XXXXXX")
+export ACCEPTANCE_EVIDENCE
+"$CONFIG_TOOL" audit --store /var/lib/firefly/store | tee "$ACCEPTANCE_EVIDENCE/audit-before.json"
 python3 - << 'PY'
-import hashlib, json, pathlib, shutil
+import base64, hashlib, json, os, pathlib, stat
 store = pathlib.Path("/var/lib/firefly/store")
-body = (store / "configuration.json").read_bytes()
-pathlib.Path("/tmp/firefly-config-before.json").write_bytes(body)
+evidence = pathlib.Path(os.environ["ACCEPTANCE_EVIDENCE"])
+def read_entry(path):
+    try:
+        mode = path.lstat().st_mode
+    except FileNotFoundError:
+        return {"present": False}
+    if stat.S_ISREG(mode):
+        return {"present": True, "type": "file",
+                "content_base64": base64.b64encode(path.read_bytes()).decode("ascii")}
+    if stat.S_ISDIR(mode):
+        return {"present": True, "type": "directory",
+                "entries": {child.name: read_entry(child)
+                            for child in sorted(path.iterdir())}}
+    raise SystemExit(f"unsafe store entry (symlink or special file): {path}")
+
+names = ("configuration.json", "backups", "last_known_good.json",
+         "last_known_good_snapshot.json")
+snapshot = {name: read_entry(store / name) for name in names}
+if snapshot["configuration.json"].get("type") != "file":
+    raise SystemExit("configuration.json must be present and regular")
+for name, expected_type in (("backups", "directory"), ("last_known_good.json", "file"),
+                            ("last_known_good_snapshot.json", "file")):
+    if snapshot[name]["present"] and snapshot[name]["type"] != expected_type:
+        raise SystemExit(f"unexpected store entry type: {name}")
+(evidence / "store-before.json").write_text(json.dumps(snapshot, sort_keys=True) + "\n")
+body = base64.b64decode(snapshot["configuration.json"]["content_base64"])
 document = json.loads(body)
 print("file_sha256", hashlib.sha256(body).hexdigest())
 print("schema_version", document.get("schema_version"))
 print("revision", document.get("revision"))
 print("retired_ids", document.get("retired_ids"))
+print("entry_presence", {name: entry["present"] for name, entry in snapshot.items()})
 PY
-"$CONFIG_TOOL" audit --store /var/lib/firefly/store | tee /tmp/firefly-audit-before.json
-cp -a /var/lib/firefly/store/backups /tmp/firefly-store-backups-before
-cp -a /var/lib/firefly/store/last_known_good.json /tmp/firefly-lkg-before.json
-cp -a /var/lib/firefly/store/last_known_good_snapshot.json /tmp/firefly-lkg-snapshot-before.json
 systemctl show firefly-voice-assistant.service -p MainPID -p ActiveState -p FragmentPath
 PID=$(systemctl show -p MainPID --value firefly-voice-assistant.service)
 sudo readlink -f /proc/$PID/exe
@@ -207,36 +309,54 @@ that variable so it may update `/opt`, and `firefly-config audit` allows root
 to read the private firefly-owned store without writing it.
 
 ```sh
-sudo install -d -o root -g root -m 755 /opt/firefly /opt/firefly/voice-assistant
+mountpoint -q "$PRODUCTION_PREFIX"
+sudo install -d -o root -g root -m 755 /opt/firefly "$PRODUCTION_PREFIX"
 sudo install -d -o root -g root -m 755 /opt/firefly/voice-assistant/releases /opt/firefly/voice-assistant/models
 sudo install -d -o root -g root -m 755 /opt/firefly/voice-assistant/systemd-backup
 ```
 
 Stop if those fail. The prefix and its parents must be root-owned before any
-privileged installation. Also make the approved review bundle root-owned,
-so the service user cannot replace code while root verifies it:
+privileged installation. Also make the approved review bundle and its staging
+parent root-owned before invoking its code as root. Ancestors above
+`STAGING_ROOT` up to the approved mount must already be root-owned without
+group/other write access; otherwise
+the service user could rename a root-owned bundle through a writable parent.
+Inspect those ancestors and stop if that contract is not met:
 
 ```sh
-sudo chown -R root:root /tmp/firefly-m186-review
-sudo chmod -R go-w /tmp/firefly-m186-review
-sudo chmod 755 /tmp/firefly-m186-review
+namei -l "$REVIEW_PREFIX"
+sudo chown root:root "$STAGING_ROOT"
+sudo chmod 755 "$STAGING_ROOT"
+sudo chown -R root:root "$REVIEW_PREFIX"
+sudo chmod -R go-w "$REVIEW_PREFIX"
+sudo chmod 755 "$REVIEW_PREFIX"
 sudo FIREFLY_OWNER_ACCEPTED=1 python3 "$RELEASE_TOOL" install-release \
-  --source /tmp/firefly-m186-review \
+  --source "$REVIEW_PREFIX" \
   --destination /opt/firefly/voice-assistant \
-  --release-id RELEASE_ID
+  --release-id "$RELEASE_ID"
 ```
 
 Stop if that fails. Then make the new release and the shared models root-owned
 and not writable by `firefly` before activation:
 
 ```sh
-sudo chown -R root:root /opt/firefly/voice-assistant/releases/RELEASE_ID /opt/firefly/voice-assistant/models
-sudo find /opt/firefly/voice-assistant/releases/RELEASE_ID /opt/firefly/voice-assistant/models -type d -exec chmod 755 {} +
-sudo find /opt/firefly/voice-assistant/releases/RELEASE_ID /opt/firefly/voice-assistant/models -type f -exec chmod 644 {} +
-sudo find /opt/firefly/voice-assistant/releases/RELEASE_ID -type f \( -name firefly-demo -o -name firefly-config -o -name python -o -name '*.so*' \) -exec chmod 755 {} +
+sudo chown -R root:root "$INSTALLED_RELEASE" /opt/firefly/voice-assistant/models
+sudo find "$INSTALLED_RELEASE" /opt/firefly/voice-assistant/models -type d -exec chmod 755 {} +
+sudo find "$INSTALLED_RELEASE" /opt/firefly/voice-assistant/models -type f -exec chmod 644 {} +
+sudo find "$INSTALLED_RELEASE" -type f \( -name firefly-demo -o -name firefly-config -o -name python -o -name '*.so*' \) -exec chmod 755 {} +
 ```
 
-Stop if that fails. Back up the checkout unit before replacing it:
+Stop if that fails. Capture the approved binary digest from the verified,
+root-owned review bundle before activation. The post-start check compares
+both the installed binary and `/proc/PID/exe` to this digest, not to a digest
+obtained from the running process itself.
+
+```sh
+APPROVED_BINARY_SHA256=$(sha256sum "$REVIEW_RELEASE/bin/firefly-demo")
+APPROVED_BINARY_SHA256=${APPROVED_BINARY_SHA256%% *}
+```
+
+Back up the checkout unit before replacing it:
 
 ```sh
 sudo FIREFLY_OWNER_ACCEPTED=1 python3 "$RELEASE_TOOL" install-unit \
@@ -245,13 +365,18 @@ sudo FIREFLY_OWNER_ACCEPTED=1 python3 "$RELEASE_TOOL" install-unit \
   --backup-dir /opt/firefly/voice-assistant/systemd-backup
 ```
 
-The printed backup path is the previous checkout unit. Keep it. Stop if this
-fails; the previous unit is then still installed. Do not restart.
+The printed backup path is the previous checkout unit. Keep it and set
+`SAVED_UNIT` to that full path for section 7. Stop if this fails; the previous
+unit is then still installed. Do not restart.
+
+```sh
+SAVED_UNIT='FULL_BACKUP_PATH_FROM_INSTALL_UNIT_OUTPUT'
+```
 
 ```sh
 sudo FIREFLY_OWNER_ACCEPTED=1 python3 "$RELEASE_TOOL" activate \
   --destination /opt/firefly/voice-assistant \
-  --release-id RELEASE_ID \
+  --release-id "$RELEASE_ID" \
   --store /var/lib/firefly/store
 ```
 
@@ -272,13 +397,46 @@ other than `/opt/firefly/voice-assistant` is refused at this destination.
 
 ## 6. Post-start checks
 
-The health gate does not identify the process. Compare identity first.
+The health gate does not identify the process. Automatically assert identity
+first, using the release ID from section 2 and the approved review binary
+digest captured before restart. Any mismatch fails acceptance before health
+or voice smoke. Run this only for the new release; checkout rollback uses the
+captured checkout identity instead.
 
 ```sh
 PID=$(systemctl show -p MainPID --value firefly-voice-assistant.service)
-sudo readlink -f /proc/$PID/exe
-sudo sha256sum "$(sudo readlink -f /proc/$PID/exe)"
-readlink -f /opt/firefly/voice-assistant/current
+sudo python3 - "$PRODUCTION_PREFIX" "$RELEASE_ID" "$APPROVED_BINARY_SHA256" "$PID" << 'PY'
+import hashlib, os, pathlib, subprocess, sys
+prefix = pathlib.Path(sys.argv[1])
+release_id, approved_sha256, pid_text = sys.argv[2:]
+pid = int(pid_text)
+if pid <= 0:
+    raise SystemExit("service has no running main PID")
+current = prefix / "current"
+expected_release = (prefix / "releases" / release_id).resolve(strict=True)
+if os.readlink(current) != f"releases/{release_id}" or current.resolve(strict=True) != expected_release:
+    raise SystemExit("current does not match the approved release ID")
+approved_binary = (expected_release / "bin/firefly-demo").resolve(strict=True)
+if (current / "bin/firefly-demo").resolve(strict=True) != approved_binary:
+    raise SystemExit("installed current binary differs from the approved release")
+proc_exe = pathlib.Path(f"/proc/{pid}/exe")
+if pathlib.Path(os.readlink(proc_exe)).resolve(strict=True) != approved_binary:
+    raise SystemExit("running executable differs from approved current/bin/firefly-demo")
+def sha256(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+if sha256(approved_binary) != approved_sha256 or sha256(proc_exe) != approved_sha256:
+    raise SystemExit("installed or running executable SHA256 differs from approved binary")
+observed_pid = subprocess.check_output(
+    ["systemctl", "show", "-p", "MainPID", "--value", "firefly-voice-assistant.service"],
+    text=True).strip()
+if observed_pid != pid_text or current.resolve(strict=True) != expected_release:
+    raise SystemExit("service PID or current release changed during identity checks")
+print("PASS approved release, running executable, and SHA256", release_id, pid)
+PY
 sudo grep -E 'librkllmrt|libsherpa|libonnxruntime' /proc/$PID/maps
 curl -fsS http://127.0.0.1:8080/api/status | tee /tmp/firefly-status-after.json >/dev/null
 python3 /opt/firefly/voice-assistant/current/share/firefly/deployment/scripts/stage-release.py health-gate \
@@ -295,27 +453,44 @@ unsupported command, with no device action.
 
 ```sh
 python3 - << 'PY'
-import hashlib, json, pathlib, filecmp, sys
+import base64, hashlib, json, os, pathlib, stat
 store = pathlib.Path("/var/lib/firefly/store")
-body = (store / "configuration.json").read_bytes()
-before = pathlib.Path("/tmp/firefly-config-before.json").read_bytes()
-if body != before:
-    sys.exit("configuration.json bytes changed")
+evidence = pathlib.Path(os.environ["ACCEPTANCE_EVIDENCE"])
+def read_entry(path):
+    try:
+        mode = path.lstat().st_mode
+    except FileNotFoundError:
+        return {"present": False}
+    if stat.S_ISREG(mode):
+        return {"present": True, "type": "file",
+                "content_base64": base64.b64encode(path.read_bytes()).decode("ascii")}
+    if stat.S_ISDIR(mode):
+        return {"present": True, "type": "directory",
+                "entries": {child.name: read_entry(child)
+                            for child in sorted(path.iterdir())}}
+    raise SystemExit(f"unsafe store entry (symlink or special file): {path}")
+
+before = json.loads((evidence / "store-before.json").read_text())
+after = {name: read_entry(store / name) for name in before}
+if after != before:
+    changed = [name for name in before if after[name] != before[name]]
+    raise SystemExit(f"store entry presence or content changed: {changed}")
+body = base64.b64decode(after["configuration.json"]["content_base64"])
 document = json.loads(body)
-audit_before = json.loads(pathlib.Path("/tmp/firefly-audit-before.json").read_text())
+audit_before = json.loads((evidence / "audit-before.json").read_text())
 print("file_sha256", hashlib.sha256(body).hexdigest())
 print("revision", document.get("revision"))
 print("retired_ids", document.get("retired_ids"))
 print("content_sha256", audit_before.get("content_sha256"))
+print("PASS exact store entry presence and bytes unchanged")
 PY
-/opt/firefly/voice-assistant/current/bin/firefly-config audit --store /var/lib/firefly/store | cmp - /tmp/firefly-audit-before.json
-cmp /var/lib/firefly/store/last_known_good.json /tmp/firefly-lkg-before.json
-cmp /var/lib/firefly/store/last_known_good_snapshot.json /tmp/firefly-lkg-snapshot-before.json
-diff -rq /var/lib/firefly/store/backups /tmp/firefly-store-backups-before
+/opt/firefly/voice-assistant/current/bin/firefly-config audit --store /var/lib/firefly/store | cmp - "$ACCEPTANCE_EVIDENCE/audit-before.json"
 ```
 
 Any difference in the configuration bytes, revision, content hash,
-`retired_ids`, backups, or Last Known Good files stops acceptance.
+`retired_ids`, entry presence (including previously absent backups/LKG),
+backup directory contents, or Last Known Good bytes stops acceptance. The
+comparison only reads production paths and never initializes missing entries.
 
 ## 7. First-cutover rollback
 
@@ -333,7 +508,7 @@ Only after the audit exits 0:
 
 ```sh
 sudo FIREFLY_OWNER_ACCEPTED=1 python3 "$RELEASE_TOOL" restore-unit \
-  --backup /opt/firefly/voice-assistant/systemd-backup/SAVED_UNIT \
+  --backup "$SAVED_UNIT" \
   --destination /etc/systemd/system/firefly-voice-assistant.service
 ```
 
@@ -345,8 +520,10 @@ sudo systemctl restart firefly-voice-assistant.service
 ```
 
 This puts the checkout unit back and leaves `/opt/firefly/voice-assistant` on
-disk. It does not rewrite the ConfigStore. Repeat the PID, health, and store
-diff checks.
+disk. It does not rewrite the ConfigStore. Repeat the PID, executable/hash,
+health, and exact store presence/content checks against the captured checkout
+baseline. Do not apply the new-release identity assertion to the restored
+checkout executable.
 
 ## 8. Later release-to-release rollback
 
