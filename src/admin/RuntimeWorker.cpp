@@ -546,7 +546,7 @@ std::string RuntimeWorker::observe() const {
         const auto& catalog = active->domain.snapshot();
         reply["active"] = {{"configuration",Json::parse(catalog->canonicalJson())},{"revision",catalog->configuration().revision},
             {"hash",catalog->contentHash()},{"context",active->prompt},{"context_strategy",active->targetContexts.empty()?"full_catalog":"explicit_target_action_scopes"},{"context_scope_count",active->targetContexts.size()},{"generation_id",active->id}};
-        const auto now = active->executor->production().nowMs();
+        const auto now = active->executor->production().steadyNowMs();
         for (const auto& device : active->executor->production().devices())
             reply["devices"].push_back(deviceKnowledgeJson(device, now));
         for (const auto& device : active->executor->states())

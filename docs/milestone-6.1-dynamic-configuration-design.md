@@ -409,6 +409,10 @@ These are future runtime rules. Milestone 4 does not read this proposed store an
 
 ### Atomic saves and backups
 
+Current implementation note: [M18.5](m18-config-state-time-hardening.md) supersedes
+the original retention proposal below: newest 64 historical backups, pre-transaction
+pruning, and a dedicated durable LKG snapshot. The original design text is historical.
+
 Use a single configuration-service writer, optimistic concurrency (`expected_revision` plus hash), and an advisory lock for any offline writer. Runtime has read-only store access. Proposed deployed location is `/var/lib/firefly/config/`; development tools require an explicit private scratch directory. Creating accounts/directories or installing a service is outside 6.1 and 6.2.
 
 Save transaction:

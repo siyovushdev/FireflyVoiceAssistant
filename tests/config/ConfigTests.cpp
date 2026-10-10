@@ -4,6 +4,7 @@
 #include "JsonInternal.h"
 #include "Platform.h"
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -253,7 +254,7 @@ void storeTests(Checks& test, const std::string& root) {
     test.check(store.revisions().size() == 5, "successful history retained");
     auto latest = sixth;
     for (int i = 0; i < 7; ++i) latest = store.save(latest, expected(latest));
-    test.check(store.revisions().size() == 12 && store.revisions().front().revision == 1, "history is retained beyond ten revisions without unsafe pruning");
+    test.check(store.revisions().size() == 12 && store.revisions().front().revision == 1, "history below the 64-backup cap remains retained");
     {
         Scratch temp; ConfigStore compensation(temp.path);
         auto beforeValue = fourth->configuration();
@@ -349,6 +350,154 @@ void storeTests(Checks& test, const std::string& root) {
         test.rejects("store_corrupt", [&] { (void)ConfigStore(temp.path).reconcile(); });
     }
 }
+void retentionTests(Checks& test, const std::string& root) {
+    const auto base = ConfigLoader::fromFile(root + "/config/empty-home.json");
+    const auto cap = kMaxHistoricalBackups;
+    const auto writeSecure = [](const std::string& path, const std::string& bytes) {
+        write(path, bytes);
+        if (::chmod(path.c_str(), 0600) != 0) throw std::runtime_error("fixture chmod failed");
+    };
+    const auto name = [](const Catalog& c) {
+        return std::to_string(c->configuration().revision) + "-" + c->contentHash() + ".json";
+    };
+    // Simulate a validated pre-retention store, including >cap history, without
+    // making production policy configurable or disabling it in the implementation.
+    const auto legacy = [&](const Scratch& temp, std::size_t count) {
+        if (::mkdir((temp.path + "/backups").c_str(), 0700) != 0) throw std::runtime_error("fixture mkdir failed");
+        Catalog current;
+        for (std::size_t i = 1; i <= count + 1; ++i) {
+            auto value = base->configuration(); value.revision = i;
+            current = ConfigValidator::validate(value);
+            if (i <= count) {
+                const auto path = temp.path + "/backups/" + name(current);
+                writeSecure(path, current->canonicalJson());
+                // Reverse mtime ordering: pruning must still use revision.
+                std::filesystem::last_write_time(path, std::filesystem::file_time_type::clock::now() + std::chrono::hours(count - i));
+            } else writeSecure(temp.path + "/configuration.json", current->canonicalJson());
+        }
+        return current;
+    };
+    const auto bounded = [&](ConfigStore& store, std::int64_t current) {
+        const auto entries = store.revisions();
+        test.check(entries.size() == cap, "exactly the newest 64 historical revisions retained");
+        for (std::size_t i = 0; i < cap; ++i)
+            test.check(entries[i].revision == current - static_cast<std::int64_t>(cap) + static_cast<std::int64_t>(i), "revision order/boundary independent of mtime");
+        test.check(store.current()->configuration().revision == current, "current is outside history cap");
+    };
+    {
+        Scratch temp; ConfigStore store(temp.path);
+        auto value = base->configuration(); value.retiredIds = {"room_old"};
+        auto current = store.initialize(ConfigValidator::validate(value));
+        for (std::size_t i = 0; i < cap + 5; ++i) {
+            current = store.save(current, expected(current));
+            test.check(store.revisions().size() <= cap, "every successful save bounded");
+        }
+        bounded(store, cap + 6);
+        test.rejects("unknown_revision", [&] { store.restore(1, expected(current)); });
+        test.rejects("unknown_revision", [&] { store.restoreCandidate(1, expected(current)); });
+        const auto retained = store.revisions().front().revision;
+        test.check(store.restoreCandidate(retained, expected(current))->configuration().revision == current->configuration().revision + 1, "retained restore candidate uses new revision");
+        current = store.restore(retained, expected(current));
+        bounded(store, cap + 7);
+        test.check(current->configuration().retiredIds == std::vector<std::string>{"room_old"}, "retention/restore cannot erase retired IDs");
+    }
+    {
+        Scratch temp; auto current = legacy(temp, cap + 7); ConfigStore store(temp.path);
+        current = store.save(current, expected(current));
+        bounded(store, cap + 9);
+        test.check(!std::filesystem::exists(temp.path + "/.pending.json"), "legacy overflow save completed transaction normally");
+    }
+    {
+        Scratch temp; ConfigStore store(temp.path);
+        auto value = ConfigLoader::fromFile(root + "/config/current-m4.json")->configuration();
+        Room extra; extra.id = "room_setup_before"; extra.name = "Office";
+        extra.mentions = {"офис"}; extra.locations = {"в офисе"}; value.rooms.push_back(extra);
+        auto current = store.initialize(ConfigValidator::validate(value));
+        for (std::size_t i = 0; i < cap; ++i) current = store.save(current, expected(current));
+        const auto before = current;
+        value = current->configuration(); value.rooms.back().id = "room_setup_failed";
+        current = store.save(ConfigValidator::validate(value), expected(current));
+        const auto compensated = store.compensateSave(expected(current), expected(before));
+        bounded(store, cap + 3);
+        test.check(compensated->roomIndex().count("room_setup_before") && !compensated->roomIndex().count("room_setup_failed"), "immediate predecessor survives retention and reactivates only its own IDs");
+        test.check(compensated->configuration().retiredIds == std::vector<std::string>{"room_setup_failed"}, "failed setup-created IDs remain retired at cap");
+    }
+    for (const auto step : {StoreStep::PruneUnlink, StoreStep::PruneDirectorySync}) {
+        Scratch temp; const auto current = legacy(temp, cap); bool injected = false;
+        ConfigStore store(temp.path, [&](StoreStep at) {
+            if (at == step) { injected = true; throw ConfigError("injected_io", "", "prune fault"); }
+        });
+        test.rejects("injected_io", [&] { store.save(current, expected(current)); });
+        test.check(injected && store.current()->canonicalJson() == current->canonicalJson(), "prune fault preserves exact current bytes/hash/revision");
+        test.check(!std::filesystem::exists(temp.path + "/.pending.json"), "prune fault never starts pending transaction");
+        test.check(!std::filesystem::exists(temp.path + "/backups/" + name(current)), "prune fault does not publish predecessor/new revision");
+        ConfigStore retry(temp.path); auto next = retry.save(current, expected(current));
+        bounded(retry, next->configuration().revision);
+    }
+    for (const auto step : {StoreStep::PruneUnlink, StoreStep::PruneDirectorySync, StoreStep::Write, StoreStep::DirectorySync}) {
+        Scratch temp; const auto current = legacy(temp, cap);
+        const auto child = ::fork();
+        if (child < 0) throw std::runtime_error("fork failed");
+        if (child == 0) {
+            ConfigStore crash(temp.path, [&](StoreStep at) { if (at == step) ::_exit(9); });
+            (void)crash.save(current, expected(current)); ::_exit(10);
+        }
+        int status = 0; ::waitpid(child, &status, 0);
+        test.check(WIFEXITED(status) && WEXITSTATUS(status) == 9, "crash boundary reached under retention pressure");
+        ConfigStore recovery(temp.path);
+        const auto recovered = recovery.reconcile();
+        const auto revision = current->configuration().revision + (step == StoreStep::DirectorySync ? 1 : 0);
+        test.check(recovered->configuration().revision == revision, "reconcile preserves old/new transaction rules at cap");
+        const auto next = recovery.save(recovered, expected(recovered));
+        bounded(recovery, next->configuration().revision);
+    }
+    for (int snapshotMode : {0, 1, 2}) {
+        Scratch temp; auto current = legacy(temp, cap);
+        ConfigStore store(temp.path);
+        const auto lkg = store.revision(1);
+        writeSecure(temp.path + "/last_known_good.json", Json{{"revision", 1}, {"hash", lkg->contentHash()}}.dump());
+        if (snapshotMode == 1) writeSecure(temp.path + "/last_known_good_snapshot.json", current->canonicalJson()); // valid but wrong identity
+        if (snapshotMode == 2) writeSecure(temp.path + "/last_known_good_snapshot.json", "{}"); // invalid snapshot, valid backup
+        test.check((*store.lastKnownGood())->contentHash() == lkg->contentHash(), "legacy LKG backup-only fallback exists");
+        current = store.save(current, expected(current));
+        bounded(store, cap + 2);
+        test.rejects("unknown_revision", [&] { store.revision(1); });
+        test.check((*store.lastKnownGood())->contentHash() == lkg->contentHash(), "legacy LKG recoverable after ordinary backup pruned");
+        test.check(detail::readFile(temp.path + "/last_known_good_snapshot.json") == lkg->canonicalJson(), "dedicated snapshot migrated exactly");
+        writeSecure(temp.path + "/configuration.json", "{}");
+        test.check((*store.lastKnownGood())->contentHash() == lkg->contentHash(), "LKG recovery survives corrupt current after pruning");
+    }
+    // A failed LKG publication must not destroy its ordinary backup or start save.
+    {
+        Scratch temp; const auto current = legacy(temp, cap); ConfigStore store(temp.path);
+        const auto lkg = store.revision(1);
+        writeSecure(temp.path + "/last_known_good.json", Json{{"revision", 1}, {"hash", lkg->contentHash()}}.dump());
+        ConfigStore failing(temp.path, [](StoreStep step) {
+            if (step == StoreStep::BackupDirectorySync) throw ConfigError("injected_io", "", "LKG sync fault");
+        });
+        test.rejects("injected_io", [&] { failing.save(current, expected(current)); });
+        test.check(store.revision(1)->contentHash() == lkg->contentHash() && store.current()->contentHash() == current->contentHash(), "migration durability failure precedes any prune/config mutation");
+        test.check(!std::filesystem::exists(temp.path + "/.pending.json"), "LKG fault does not start transaction");
+        const auto next = store.save(current, expected(current));
+        bounded(store, next->configuration().revision);
+        test.check((*store.lastKnownGood())->contentHash() == lkg->contentHash(), "retry durably retains an already-published matching LKG snapshot");
+    }
+    for (const auto kind : {"unexpected", "symlink", "directory", "writable", "malformed"}) {
+        Scratch temp; const auto current = legacy(temp, cap); ConfigStore store(temp.path);
+        const auto oldest = store.revision(1);
+        const auto oldPath = temp.path + "/backups/" + name(oldest);
+        const auto invalid = temp.path + "/backups/unexpected.json";
+        if (std::string(kind) == "symlink") ::symlink(oldPath.c_str(), invalid.c_str());
+        else if (std::string(kind) == "directory") std::filesystem::create_directory(invalid);
+        else if (std::string(kind) == "writable") ::chmod(oldPath.c_str(), 0666);
+        else writeSecure(invalid, std::string(kind) == "malformed" ? "{}" : oldest->canonicalJson());
+        test.rejects("", [&] { store.save(current, expected(current)); });
+        test.check(std::filesystem::exists(oldPath), "invalid entry detected before oldest validated backup can be deleted");
+        test.check(store.current()->canonicalJson() == current->canonicalJson() && !std::filesystem::exists(temp.path + "/.pending.json"), "unsafe history fails closed before config mutation");
+        if (std::string(kind) != "writable") test.check(std::filesystem::symlink_status(invalid).type() != std::filesystem::file_type::not_found, "untrusted entry never blindly unlinked");
+    }
+}
+
 }
 int main(int argc, char** argv) {
     Checks test;
@@ -358,6 +507,7 @@ int main(int argc, char** argv) {
         if (suite == "Validation") validation(test, argv[2]);
         else if (suite == "Snapshot") snapshot(test, argv[2]);
         else if (suite == "Store") storeTests(test, argv[2]);
+        else if (suite == "Retention") retentionTests(test, argv[2]);
         else throw std::runtime_error("Unknown suite");
         std::cout << suite << ": " << test.total << " checks passed\n"; return 0;
     } catch (const std::exception& error) {

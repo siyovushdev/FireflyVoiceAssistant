@@ -168,11 +168,14 @@ Catalog nextRevision(const Catalog& candidate, const Catalog& previous,
     } else value.revision = 1;
     return ConfigValidator::validate(std::move(value));
 }
+std::vector<StoredRevision> listBackups(int directory);
+void reserveBackupSlot(int directory, int backupDirectory, const Catalog& previous, const StoreFault& fault);
 Catalog commit(int directory, const Catalog& candidate, const Catalog& previous, const StoreFault& fault,
                const std::set<std::string>& reactivated = {}) {
     const auto next = nextRevision(candidate, previous, reactivated);
     if (previous) {
         auto backupDirectory = backups(directory);
+        reserveBackupSlot(directory, backupDirectory.get(), previous, fault);
         const auto name = backupName(previous);
         if (exists(backupDirectory.get(), name)) {
             if (readCatalog(backupDirectory.get(), name)->contentHash() != previous->contentHash())
@@ -230,6 +233,78 @@ std::vector<StoredRevision> listBackups(int directory) {
     for (const auto& [revision, entry] : result) { (void)revision; values.push_back(entry); }
     return values;
 }
+ExpectedRevision readLastKnownGoodMarker(int directory) {
+    FileDescriptor file(::openat(directory, LastKnownGoodFile, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC));
+    if (file.get() < 0) detail::ioError("open last known good marker");
+    secure(file.get(), false);
+    const auto marker = detail::parseDocument(detail::readDescriptor(file.get()));
+    if (!marker.is_object() || !marker.contains("revision") || !marker.contains("hash") ||
+        !marker["revision"].is_number_integer() || !marker["hash"].is_string())
+        throw ConfigError("store_corrupt", "", "Malformed last_known_good marker");
+    return {marker["revision"].get<std::int64_t>(), marker["hash"].get<std::string>()};
+}
+
+void reserveBackupSlot(int directory, int backupDirectory, const Catalog& previous, const StoreFault& fault) {
+    // Validate the entire history before any unlink. listBackups orders by revision,
+    // never mtime, and rejects untrusted identities, symlinks and conflicting files.
+    const auto entries = listBackups(directory);
+    bool predecessorPresent = false;
+    for (const auto& entry : entries) {
+        if (entry.revision > previous->configuration().revision ||
+            (entry.revision == previous->configuration().revision && entry.hash != previous->contentHash()))
+            throw ConfigError("store_corrupt", "", "Backup revision is not a committed predecessor");
+        if (entry.revision == previous->configuration().revision) predecessorPresent = true;
+    }
+    const auto required = entries.size() + (predecessorPresent ? 0 : 1);
+    if (required <= kMaxHistoricalBackups) return;
+    const auto removeCount = required - kMaxHistoricalBackups;
+
+    // An older store may have only a marker + ordinary backup. Publish and fsync
+    // the existing dedicated snapshot BEFORE deleting that sole recoverable LKG.
+    if (exists(directory, LastKnownGoodFile)) {
+        const auto marker = readLastKnownGoodMarker(directory);
+        for (std::size_t i = 0; i < removeCount; ++i) {
+            const auto& entry = entries[i];
+            if (entry.revision != marker.revision || entry.hash != marker.hash) continue;
+            bool retained = false;
+            if (exists(directory, LastKnownGoodSnapshot)) {
+                try {
+                    const auto snapshot = readCatalog(directory, LastKnownGoodSnapshot);
+                    retained = snapshot->configuration().revision == marker.revision && snapshot->contentHash() == marker.hash;
+                } catch (const ConfigError& error) {
+                    // Malformed/stale JSON can be replaced from the verified backup;
+                    // unsafe objects or read failures must not be silently replaced.
+                    if (error.code == "unsafe_store" || error.code == "io_error") throw;
+                }
+            }
+            if (retained) {
+                // A previous attempt may have published the snapshot but failed
+                // its directory fsync. Re-establish durability before unlinking.
+                FileDescriptor snapshot(::openat(directory, LastKnownGoodSnapshot, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC));
+                if (snapshot.get() < 0) detail::ioError("open retained LKG snapshot");
+                secure(snapshot.get(), false);
+                sync(snapshot.get());
+                sync(directory);
+            } else {
+                const auto snapshot = readCatalog(backupDirectory,
+                    std::to_string(entry.revision) + "-" + entry.hash + ".json");
+                bool published = false;
+                publish(directory, LastKnownGoodSnapshot, snapshot->canonicalJson(), fault, true, published);
+            }
+        }
+    }
+    for (std::size_t i = 0; i < removeCount; ++i) {
+        const auto& entry = entries[i];
+        const auto name = std::to_string(entry.revision) + "-" + entry.hash + ".json";
+        notify(fault, StoreStep::PruneUnlink);
+        if (::unlinkat(backupDirectory, name.c_str(), 0) != 0) detail::ioError("prune historical backup");
+    }
+    notify(fault, StoreStep::PruneDirectorySync);
+    sync(backupDirectory);
+    // No pending transaction/current-file write has started yet. Any exception
+    // above leaves current unchanged, though some oldest history may be removed.
+}
+
 }
 ConfigStore::ConfigStore(std::string directory, StoreFault fault) : directory_(std::move(directory)), fault_(std::move(fault)) {}
 Catalog ConfigStore::current() const {
@@ -341,15 +416,9 @@ std::optional<Catalog> ConfigStore::lastKnownGood() const {
     LockedStore store(directory_);
     noPending(store.directory.get());
     if (!exists(store.directory.get(), LastKnownGoodFile)) return std::nullopt;
-    FileDescriptor file(::openat(store.directory.get(), LastKnownGoodFile, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC));
-    if (file.get() < 0) detail::ioError("open last known good marker");
-    secure(file.get(), false);
-    const auto marker = detail::parseDocument(detail::readDescriptor(file.get()));
-    if (!marker.is_object() || !marker.contains("revision") || !marker.contains("hash") ||
-        !marker["revision"].is_number_integer() || !marker["hash"].is_string())
-        throw ConfigError("store_corrupt", "", "Malformed last_known_good marker");
-    const auto revision = marker["revision"].get<std::int64_t>();
-    const auto hash = marker["hash"].get<std::string>();
+    const auto marker = readLastKnownGoodMarker(store.directory.get());
+    const auto revision = marker.revision;
+    const auto& hash = marker.hash;
     if (exists(store.directory.get(), CurrentFile)) {
         try {
             const auto current = readCatalog(store.directory.get(), CurrentFile);

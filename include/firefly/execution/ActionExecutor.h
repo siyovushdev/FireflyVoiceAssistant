@@ -63,7 +63,7 @@ private:
 //   Production → BindingResolver → HardwareExecutor → DeviceStateStore Predicted/connectivity
 class BoundDeviceExecutor final : public DeviceStateExecutor {
 public:
-    explicit BoundDeviceExecutor(config::Catalog catalog, SteadyClockMs clock = {});
+    explicit BoundDeviceExecutor(config::Catalog catalog, SteadyClockMs steadyClock = {}, WallClockMs wallClock = {});
     ExecutionResult execute(const actions::GenericAction& action) override;
     ExecutionResult execute(const actions::GenericAction& action, ExecutionIntent intent);
     ExecutionResult preview(const actions::GenericAction& action) const override;

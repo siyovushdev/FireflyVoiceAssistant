@@ -8,7 +8,7 @@ independent axes that must never be collapsed into one enum:
 | **Execution** | `Accepted` \| `Failed` | Did the physical command dispatch succeed? |
 | **State knowledge** | `Unknown` \| `Predicted` \| `Confirmed` | How do we know a property value? |
 | **Connectivity** | `Unknown` \| `Reachable` \| `Unreachable` | Last transport reachability |
-| **Stale** | derived | `knowledge` + timestamp + TTL — not a fourth knowledge enum |
+| **Stale** | derived | `knowledge` + process-local steady age + TTL — not a fourth knowledge enum |
 
 ## Core principle
 
@@ -75,7 +75,10 @@ Observation power = OFF
 
 Authoritative **production** physical knowledge. Not owned by `HardwareExecutor`.
 
-Per property: `value?`, `knowledge`, `updatedAtMs`, `observedAtMs`.
+Per property: `value?`, `knowledge`, `updatedAtMs`, `observedAtMs`. As of
+[M18.5](m18-config-state-time-hardening.md), public timestamps remain Unix/wall
+time for display; separate non-serialized steady stamps control the unchanged
+60-second TTL and local ordering. Wall-clock jumps do not change freshness.
 
 Cold start / process restart → all `Unknown` (M15 has no durable telemetry).
 Config-generation Apply may retain in-process Predicted/Confirmed values that
@@ -83,9 +86,12 @@ remain schema-compatible. Restart ≠ generation change.
 
 #### Out-of-order observations
 
-Property-level fail-closed ordering: an observation whose `timestampMs` is
-strictly older than `max(updatedAtMs, observedAtMs)` of existing non-Unknown
-knowledge is rejected with `stale_observation`. No event sourcing.
+Property-level fail-closed ordering now compares `orderSteadyMs` in the local
+steady-clock domain. Older local observations are rejected with `stale_observation`;
+a newer contradictory readback may replace prediction/confirmation. `timestampMs`
+remains event/display time and is never used for TTL/order. Explicit timestamped
+internal observations must supply a local steady order stamp; event time alone
+is rejected. Synchronous local observations may omit both stamps. No event sourcing.
 
 #### Built-in observation validation
 

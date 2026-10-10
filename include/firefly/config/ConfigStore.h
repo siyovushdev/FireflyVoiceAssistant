@@ -1,13 +1,17 @@
 #pragma once
 #include "firefly/config/Configuration.h"
+#include <cstddef>
 #include <functional>
 #include <optional>
 
 namespace firefly::config {
+// Current configuration and dedicated Last Known Good are outside this historical cap.
+inline constexpr std::size_t kMaxHistoricalBackups = 64;
+
 struct ExpectedRevision { std::int64_t revision; std::string hash; };
 struct StoredRevision { std::int64_t revision; std::string hash; std::int64_t timestampMs = 0; };
 // Fault seams run only when a caller explicitly injects a hook (unit tests).
-enum class StoreStep { BackupWrite, BackupSync, BackupPublish, BackupDirectorySync,
+enum class StoreStep { PruneUnlink, PruneDirectorySync, BackupWrite, BackupSync, BackupPublish, BackupDirectorySync,
                        Write, FileSync, Rename, DirectorySync };
 using StoreFault = std::function<void(StoreStep)>;
 class ConfigStore final {

@@ -359,7 +359,6 @@ void RuntimeGenerations::observe(execution::StateObservation observation) {
     Busy busy(busy_);
     const auto active = current();
     if (!active) throw std::runtime_error("No active runtime");
-    if (observation.timestampMs <= 0) observation.timestampMs = active->executor->production().nowMs();
     active->executor->observe(observation);
 }
 execution::HardwareResult RuntimeGenerations::poll(const std::string& targetId, const std::string& expectedHash) {

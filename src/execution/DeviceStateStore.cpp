@@ -4,16 +4,20 @@
 
 namespace firefly::execution {
 namespace {
-SteadyClockMs defaultClock() {
+SteadyClockMs defaultSteadyClock() {
     return [] {
         return std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count();
+            std::chrono::steady_clock::now().time_since_epoch()).count();
     };
 }
 }
 
-DeviceStateStore::DeviceStateStore(config::Catalog catalog, SteadyClockMs clock)
-    : domain_(std::move(catalog)), clock_(clock ? std::move(clock) : defaultClock()) {
+DeviceStateStore::DeviceStateStore(config::Catalog catalog, SteadyClockMs steadyClock, WallClockMs wallClock)
+    : domain_(std::move(catalog)), steadyClock_(steadyClock ? std::move(steadyClock) : defaultSteadyClock()),
+      wallClock_(wallClock ? std::move(wallClock) : [] {
+          return std::chrono::duration_cast<std::chrono::milliseconds>(
+              std::chrono::system_clock::now().time_since_epoch()).count();
+      }) {
     for (const auto& device : domain_.snapshot()->configuration().devices) {
         if (!device.enabled) continue;
         initializeUnknown(device);
@@ -34,7 +38,8 @@ void DeviceStateStore::initializeUnknown(const config::Device& device) {
     devices_.emplace(device.id, std::move(entry));
 }
 
-std::int64_t DeviceStateStore::nowMs() const { return clock_(); }
+std::int64_t DeviceStateStore::nowMs() const { return wallClock_(); }
+std::int64_t DeviceStateStore::steadyNowMs() const { return steadyClock_(); }
 
 std::string DeviceStateStore::knowledgeName(StateKnowledge value) {
     switch (value) {
@@ -52,13 +57,6 @@ std::string DeviceStateStore::connectivityName(Connectivity value) {
         case Connectivity::Unreachable: return "unreachable";
     }
     return "unknown";
-}
-
-std::int64_t DeviceStateStore::relevantStamp(const PropertyKnowledge& property) {
-    if (property.knowledge == StateKnowledge::Unknown) return 0;
-    // Predicted uses updatedAtMs; Confirmed uses observedAtMs. Take the max so a
-    // later prediction after an older confirmation still blocks stale telemetry.
-    return std::max(property.updatedAtMs, property.observedAtMs);
 }
 
 void DeviceStateStore::validateObservationValue(const config::Device& device, const std::string& key,
@@ -120,11 +118,14 @@ void DeviceStateStore::applyPrediction(const std::string& targetId,
     std::lock_guard<std::mutex> lock(mutex_);
     auto found = devices_.find(targetId);
     if (found == devices_.end()) return;
+    const auto steady = steadyNowMs();
     for (const auto& [key, value] : expected) {
         auto& property = found->second.properties[key];
         property.value = value;
         property.knowledge = StateKnowledge::Predicted;
         property.updatedAtMs = atMs;
+        property.freshnessSteadyMs = steady;
+        property.orderSteadyMs = steady;
     }
 }
 
@@ -138,6 +139,12 @@ void DeviceStateStore::applyObservation(const StateObservation& observation) {
     if (!device)
         throw config::ConfigError("unknown_target", "/observation/target_id", "Observation target missing from domain");
 
+    const auto arrival = steadyNowMs();
+    const auto order = observation.orderSteadyMs.value_or(arrival);
+    if ((observation.timestampMs != 0 && !observation.orderSteadyMs) || order > arrival)
+        throw config::ConfigError("invalid_observation", "/observation",
+            "Explicit event time requires a non-future process-local steady order stamp");
+    const auto eventTime = observation.timestampMs == 0 ? nowMs() : observation.timestampMs;
     // Validate schema + ordering for every property before mutating any of them.
     for (const auto& [key, value] : observation.properties) {
         if (!found->second.properties.count(key))
@@ -145,21 +152,22 @@ void DeviceStateStore::applyObservation(const StateObservation& observation) {
                 "Observation property is not declared for the device");
         validateObservationValue(*device, key, value);
         const auto& property = found->second.properties.at(key);
-        const auto stamp = relevantStamp(property);
-        if (property.knowledge != StateKnowledge::Unknown && observation.timestampMs < stamp)
+        if (property.orderSteadyMs && order < *property.orderSteadyMs)
             throw config::ConfigError("stale_observation", "/observation/properties/" + key,
-                "Observation timestamp is older than existing property knowledge");
+                "Observation steady order is older than existing property knowledge");
     }
 
     for (const auto& [key, value] : observation.properties) {
         auto& property = found->second.properties.at(key);
         property.value = value;
         property.knowledge = StateKnowledge::Confirmed;
-        property.updatedAtMs = observation.timestampMs;
-        property.observedAtMs = observation.timestampMs;
+        property.updatedAtMs = eventTime;
+        property.observedAtMs = eventTime;
+        property.freshnessSteadyMs = arrival;
+        property.orderSteadyMs = order;
     }
     found->second.connectivity = Connectivity::Reachable;
-    found->second.lastSuccessAtMs = observation.timestampMs;
+    found->second.lastSuccessAtMs = eventTime;
 }
 
 void DeviceStateStore::markReachable(const std::string& targetId, std::int64_t atMs) {
