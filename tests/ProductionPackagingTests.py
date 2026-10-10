@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from packaging import firefly_release as release  # noqa: E402
@@ -114,6 +115,17 @@ def snapshot(path):
     }
 
 
+def matching_clean_build_identity(source):
+    """Test input for isolating provenance failures from an older local build."""
+    return {
+        **release.build_identity(Path(ARGS["build"]) / "firefly-demo"),
+        "head": source["commit"],
+        "dirty": False,
+        "source_sha256": release.source_tree_fingerprint(Path(ARGS["source"])),
+        "admin_assets_sha256": release.admin_assets_fingerprint(Path(ARGS["build"])),
+    }
+
+
 class ProductionPackaging(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -141,8 +153,10 @@ class ProductionPackaging(unittest.TestCase):
         self.assertEqual(self.manifest["architecture"], "aarch64")
         self.assertEqual(self.manifest["source_commit"], subprocess.check_output(
             ["git", "-C", ARGS["source"], "rev-parse", "HEAD"], text=True).strip())
-        self.assertTrue(self.manifest["source"]["dirty"])
-        self.assertEqual(self.manifest["source"]["identity"], "dirty-worktree")
+        source = release.source_identity(Path(ARGS["source"]))
+        self.assertEqual(self.manifest["source"]["dirty"], source["dirty"])
+        self.assertEqual(self.manifest["source"]["identity"],
+                         "dirty-worktree" if source["dirty"] else "committed-fixture")
         self.assertFalse(self.manifest["production_identity_checked"])
         self.assertEqual(self.manifest["config_schema"]["readable"], [1, 2])
         self.assertFalse(self.manifest["systemd"]["installed"])
@@ -161,6 +175,24 @@ class ProductionPackaging(unittest.TestCase):
             PRODUCTION_SHA256["lib/librkllmrt.so"])
         self.assertNotIn("configuration.json", [item["path"] for item in self.manifest["artifacts"]])
         verify_tree(self.prefix, self.release_id, check_python=False)
+
+    def test_clean_and_dirty_fixture_identities(self):
+        source = release.source_identity(Path(ARGS["source"]))
+        for dirty in (False, True):
+            with self.subTest(dirty=dirty):
+                identity = {**source, "dirty": dirty,
+                            "identity": "dirty-worktree" if dirty else "committed"}
+                release_id = "m18.6-dirty-fixture" if dirty else "m18.6-clean-fixture"
+                with patch.object(release, "source_identity", return_value=identity):
+                    manifest = stage_release(request(self.root, release_id))
+                self.assertEqual(manifest["source_commit"], source["commit"])
+                self.assertEqual(manifest["source"]["dirty"], dirty)
+                self.assertEqual(manifest["source"]["identity"],
+                                 "dirty-worktree" if dirty else "committed-fixture")
+                self.assertFalse(manifest["production_identity_checked"])
+                if dirty:
+                    self.assertFalse(manifest["build"]["matches_worktree"])
+                verify_tree(self.prefix, release_id, check_python=False)
 
     def test_runtime_paths_do_not_use_the_checkout(self):
         source = str(Path(ARGS["source"]).resolve())
@@ -540,31 +572,22 @@ class ProductionPackaging(unittest.TestCase):
         self.assertEqual((store / "configuration.json").read_text(), canonical_text())
 
     def test_production_staging_rejects_a_dirty_worktree(self):
-        with self.assertRaises(ReleaseError) as caught:
-            stage_release(request(self.root, "m18.6-dirty-production", production=True))
+        source = release.source_identity(Path(ARGS["source"]))
+        dirty_source = {**source, "dirty": True, "identity": "dirty-worktree"}
+        with patch.object(release, "source_identity", return_value=dirty_source), \
+                patch.object(release, "build_identity") as build_probe:
+            with self.assertRaises(ReleaseError) as caught:
+                stage_release(request(self.root, "m18.6-dirty-production", production=True))
+            build_probe.assert_not_called()
         self.assertIn("uncommitted", str(caught.exception))
         self.assertFalse((self.prefix / "releases" / "m18.6-dirty-production").exists())
-        real = release.source_identity
 
-        def clean(root):
-            found = real(root)
-            found["dirty"] = False
-            found["identity"] = "committed"
-            return found
-
-        release.source_identity = clean
-        real_build = release.build_identity
-        def clean_build(binary):
-            found = real_build(binary)
-            found["dirty"] = False
-            return found
-        release.build_identity = clean_build
-        try:
+        clean_source = {**source, "dirty": False, "identity": "committed"}
+        clean_build = matching_clean_build_identity(source)
+        with patch.object(release, "source_identity", return_value=clean_source), \
+                patch.object(release, "build_identity", return_value=clean_build):
             with self.assertRaises(ReleaseError) as caught:
                 stage_release(request(self.root, "m18.6-bad-hash", production=True))
-        finally:
-            release.source_identity = real
-            release.build_identity = real_build
         self.assertIn("sha256", str(caught.exception))
         self.assertFalse((self.prefix / "releases" / "m18.6-bad-hash").exists())
 
@@ -646,28 +669,24 @@ class ProductionPackaging(unittest.TestCase):
         self.assertTrue(assess_post_start(ready, "http://127.0.0.1:8080/api/status"))
 
     def test_stale_binary_is_not_committed_production(self):
-        self.assertFalse(self.manifest["build"]["matches_worktree"])
         self.assertFalse(self.manifest["production_identity_checked"])
         binary = Path(ARGS["build"]) / "firefly-demo"
         identity = release.build_identity(binary)
-        self.assertEqual(identity["head"], self.manifest["source_commit"])
-        real_build = release.build_identity
-        real_source = release.source_identity
+        source = release.source_identity(Path(ARGS["source"]))
+        matching = matching_clean_build_identity(source)
+        self.assertEqual(identity["head"], self.manifest["build"]["head"])
+        expected_match = (not source["dirty"] and identity["dirty"] is False and
+                          identity["head"] == matching["head"] and
+                          identity["source_sha256"] == matching["source_sha256"] and
+                          identity["admin_assets_sha256"] == matching["admin_assets_sha256"])
+        self.assertEqual(self.manifest["build"]["matches_worktree"], expected_match)
 
-        def stale(_binary):
-            found = dict(real_build(binary))
-            found["head"] = "0" * 40
-            return found
-
-        release.build_identity = stale
-        release.source_identity = lambda _root: {
-            "commit": self.manifest["source_commit"], "dirty": False, "identity": "committed"}
-        try:
+        stale_build = {**matching, "head": "0" * 40}
+        clean_source = {**source, "dirty": False, "identity": "committed"}
+        with patch.object(release, "build_identity", return_value=stale_build), \
+                patch.object(release, "source_identity", return_value=clean_source):
             with self.assertRaises(ReleaseError) as caught:
                 stage_release(request(self.root, "m18.6-stale", production=True))
-        finally:
-            release.build_identity = real_build
-            release.source_identity = real_source
         self.assertIn("fresh firefly-demo", str(caught.exception))
         self.assertFalse((self.prefix / "releases" / "m18.6-stale").exists())
 
