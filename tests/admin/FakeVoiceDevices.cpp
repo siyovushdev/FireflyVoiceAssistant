@@ -56,7 +56,7 @@ int AlsaAudioSource::read(float* samples, int count) {
     std::fill_n(samples, count, 0);
     return count;
 }
-struct AminaWakeDetector::Impl {};
+struct AminaWakeDetector::Impl { bool detected = false; };
 AminaWakeDetector::AminaWakeDetector(const WakeConfig&, const std::string&, const std::string&)
     : impl_(std::make_unique<Impl>()) {
     if (captureOwners) throw std::logic_error("Wake initialization while capture is already running");
@@ -64,13 +64,22 @@ AminaWakeDetector::AminaWakeDetector(const WakeConfig&, const std::string&, cons
     std::cerr << "FIXTURE wake created\n";
 }
 AminaWakeDetector::~AminaWakeDetector() { std::cerr << "FIXTURE wake destroyed\n"; }
-bool AminaWakeDetector::accept(const float*, int) { return false; }
+bool AminaWakeDetector::accept(const float*, int) {
+    if (mode().rfind("ack-", 0) == 0 && !impl_->detected) {
+        impl_->detected = true;
+        return true;
+    }
+    return false;
+}
 void AminaWakeDetector::reset() {}
 struct AlsaWakeAcknowledgement::Impl {};
-AlsaWakeAcknowledgement::AlsaWakeAcknowledgement(std::string) : impl_(std::make_unique<Impl>()) {}
+AlsaWakeAcknowledgement::AlsaWakeAcknowledgement(std::string, WakeAcknowledgementConfig config)
+    : impl_(std::make_unique<Impl>()) { config.validate(); }
 AlsaWakeAcknowledgement::~AlsaWakeAcknowledgement() = default;
-void AlsaWakeAcknowledgement::start() {}
+void AlsaWakeAcknowledgement::start() { std::cerr << "FIXTURE beep started\n"; }
 void AlsaWakeAcknowledgement::cancel() noexcept {}
-AcknowledgementStatus AlsaWakeAcknowledgement::poll() { return AcknowledgementStatus::Complete; }
-std::string AlsaWakeAcknowledgement::error() const { return {}; }
+AcknowledgementStatus AlsaWakeAcknowledgement::poll() {
+    return mode() == "ack-failure" ? AcknowledgementStatus::Failed : AcknowledgementStatus::Complete;
+}
+std::string AlsaWakeAcknowledgement::error() const { return "fixture playback failure"; }
 }

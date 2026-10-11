@@ -1,15 +1,11 @@
 #include "firefly/voice/WakeAcknowledgement.h"
 #include <alsa/asoundlib.h>
-#include <algorithm>
-#include <array>
 #include <chrono>
-#include <cmath>
-#include <cstdint>
 namespace firefly::voice {
 struct AlsaWakeAcknowledgement::Impl {
     std::string device, failure;
     snd_pcm_t* pcm = nullptr;
-    std::array<int16_t, 1600> samples{}; // 100 ms, 16 kHz, mono.
+    std::vector<int16_t> samples;
     size_t written = 0;
     bool started = false;
     std::chrono::steady_clock::time_point deadline;
@@ -19,12 +15,10 @@ struct AlsaWakeAcknowledgement::Impl {
     void fail(const std::string& message) { failure = message; close(); }
     ~Impl() { close(); }
 };
-AlsaWakeAcknowledgement::AlsaWakeAcknowledgement(std::string device) : impl_(std::make_unique<Impl>()) {
+AlsaWakeAcknowledgement::AlsaWakeAcknowledgement(std::string device, WakeAcknowledgementConfig config)
+    : impl_(std::make_unique<Impl>()) {
     impl_->device = std::move(device);
-    for (size_t i = 0; i < impl_->samples.size(); ++i) {
-        const double fade = std::min({1.0, double(i) / 160, double(impl_->samples.size() - 1 - i) / 160});
-        impl_->samples[i] = static_cast<int16_t>(32767 * .12 * fade * std::sin(2 * 3.141592653589793 * 880 * i / 16000));
-    }
+    impl_->samples = makeWakeAcknowledgementPcm(config);
 }
 AlsaWakeAcknowledgement::~AlsaWakeAcknowledgement() = default;
 void AlsaWakeAcknowledgement::cancel() noexcept { impl_->close(); }
@@ -32,6 +26,7 @@ std::string AlsaWakeAcknowledgement::error() const { return impl_->failure; }
 void AlsaWakeAcknowledgement::start() {
     auto& p = *impl_;
     p.close(); p.failure.clear(); p.written = 0; p.started = false;
+    if (p.samples.empty()) return;
     p.deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
     int rc = snd_pcm_open(&p.pcm, p.device.c_str(), SND_PCM_STREAM_PLAYBACK, SND_PCM_NONBLOCK);
     if (rc >= 0) rc = snd_pcm_set_params(p.pcm, SND_PCM_FORMAT_S16_LE,

@@ -27,10 +27,12 @@ struct Detector : SpeechDetector {
 };
 struct Ack : WakeAcknowledgement {
     int starts = 0, polls = 0, cancels = 0;
-    bool fail = false;
+    bool fail = false, absent = false, stalled = false;
     void start() override { ++starts; }
     AcknowledgementStatus poll() override {
-        if (++polls < 4) return AcknowledgementStatus::Playing;
+        ++polls;
+        if (absent) return AcknowledgementStatus::Failed;
+        if (stalled || polls < 13) return AcknowledgementStatus::Playing; // 416 ms at 32 ms/frame.
         return fail ? AcknowledgementStatus::Failed : AcknowledgementStatus::Complete;
     }
     void cancel() noexcept override { ++cancels; }
@@ -43,9 +45,12 @@ void scenario(const std::string& mode) {
     Wake wake; Detector detector; Ack ack; Source source;
     detector.delayed = mode == "confirmation-delay";
     ack.fail = mode == "beep-failure";
-    VoiceSegmenter segmenter(detector, {0,0,1000});
+    ack.absent = mode == "beep-absent";
+    ack.stalled = mode == "beep-stalled";
+    const bool enabled = mode != "beep-disabled";
+    VoiceSegmenter segmenter(detector, {300,300,1000});
     WakeConfig config;
-    Clock::time_point time{}, armed{}, captured{};
+    Clock::time_point time{}, armed{}, captured{}, beepStarted{}, beepEnded{};
     std::string phase;
     std::vector<std::string> states;
     int reads = 0, waits = 0;
@@ -56,6 +61,7 @@ void scenario(const std::string& mode) {
         time += std::chrono::milliseconds(32);
         if (++reads > 100000) throw std::runtime_error("Loop failed to finish");
         if ((mode == "stop-beep" && phase == "BEEP_START") ||
+            (mode == "stop-drain" && phase == "BEEP_END") ||
             (mode == "stop-wait" && phase == "LISTENING_COMMAND") ||
             (mode == "stop-capture" && phase == "CAPTURING_COMMAND")) stop = true;
         if (waits >= 2 && reads > 500) stop = true;
@@ -77,15 +83,27 @@ void scenario(const std::string& mode) {
         [&](const std::string& state) {
             phase = state; states.push_back(state);
             if (state == "WAITING_WAKE") ++waits;
+            if (state == "BEEP_START") beepStarted = time;
+            if (state == "BEEP_END" || state == "ACKNOWLEDGEMENT_FAILED") beepEnded = time;
             if (state == "LISTENING_COMMAND") {
                 armed = time;
-                require(ack.polls == 4 && detector.samples == 0, "VAD armed before beep completion/drain");
-                require(time >= Clock::time_point{} + std::chrono::milliseconds(400), "Drain missing");
+                require(detector.samples == 0, "VAD/pre-roll not cleared before admission");
+                if (enabled) {
+                    require(ack.polls == (ack.absent ? 1 : ack.stalled ? 32 : 13), "Wrong playback duration/deadline");
+                    require(time - beepEnded >= config.acknowledgementDrain, "Echo drain missing");
+                    if (!ack.absent && !ack.stalled)
+                        require(beepEnded - beepStarted == std::chrono::milliseconds(416), "Longer beep not exercised");
+                } else require(ack.starts == 0 && ack.polls == 0, "Disabled beep used playback");
             }
             if (state == "CAPTURING_COMMAND") captured = time;
-            if (state == "COMMAND_START_TIMEOUT") require(time - armed >= std::chrono::seconds(5), "Early start timeout");
-        }, [&] { return stop; }, [&] { return time; }, &ack);
-    require(ack.starts == 1 && ack.cancels > 0 && states.back() == "stopped", "Acknowledgement cleanup failed");
+            if (state == "COMMAND_START_TIMEOUT") {
+                require(time - armed >= config.commandStartTimeout, "Early start timeout");
+                require(time - armed <= config.commandStartTimeout +
+                    std::chrono::milliseconds(segmenter.startConfirmationMs() + 32), "Late start timeout");
+            }
+        }, [&] { return stop; }, [&] { return time; }, enabled ? &ack : nullptr);
+    require(ack.starts == (enabled ? 1 : 0) && (!enabled || ack.cancels > 0) && states.back() == "stopped", "Acknowledgement cleanup failed");
+    if (!enabled) require(std::find(states.begin(), states.end(), "BEEP_START") == states.end(), "Disabled beep logged playback");
     if (mode.rfind("stop-",0)==0 || mode == "timeout" || mode == "long") require(processed == 0, "Rejected/stopped speech processed");
     else {
         require(processed == 1 && emitted == 1 && waits == 2, "Late speech cut off or repeated session admitted");
@@ -93,9 +111,11 @@ void scenario(const std::string& mode) {
     }
     if (mode == "long") require(std::find(states.begin(),states.end(),"COMMAND_MAX_DURATION")!=states.end(),"Unbounded speech");
     if (mode == "timeout") require(std::find(states.begin(),states.end(),"COMMAND_START_TIMEOUT")!=states.end(),"No-speech timeout missing");
-    if (mode == "beep-failure") require(std::find(states.begin(),states.end(),"ACKNOWLEDGEMENT_FAILED")!=states.end(),"Playback failure not observable");
+    if (ack.fail || ack.absent || ack.stalled)
+        require(std::find(states.begin(),states.end(),"ACKNOWLEDGEMENT_FAILED")!=states.end(),"Playback failure not observable");
 }
 int main() { try {
-    for (const auto* mode : {"success","confirmation-delay","unsupported","timeout","long","beep-failure","stop-beep","stop-wait","stop-capture"}) scenario(mode);
-    std::cout << "Wake beep, split timeout, late start, duration bounds and shutdown passed\n";
+    for (const auto* mode : {"success","confirmation-delay","unsupported","timeout","long","beep-failure",
+        "beep-absent","beep-stalled","beep-disabled","stop-beep","stop-drain","stop-wait","stop-capture"}) scenario(mode);
+    std::cout << "13 wake UX cases passed: 416 ms beep, echo/pre-roll isolation, timeout, disabled/failure and shutdown\n";
 } catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; } }
