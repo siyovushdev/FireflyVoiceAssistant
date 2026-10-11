@@ -23,8 +23,8 @@ async function suggest(schema = false) {
             }
             const result = await adminRequest<{ suggestion: WireObject }>('/api/admin/action-draft', { configuration, target: task.id, name: props.entity.name });
             suggestion = result.suggestion;
-        } else if (props.kind === 'action') {
-            const result = await adminRequest<{ suggestion: WireObject }>('/api/admin/language-profile', { configuration: task.buffer, entity: 'action', id: props.entity.id });
+        } else if (props.kind === 'action' || props.kind === 'device') {
+            const result = await adminRequest<{ suggestion: WireObject }>('/api/admin/language-profile', { configuration: task.buffer, entity: props.kind, id: props.entity.id });
             suggestion = result.suggestion;
         } else {
             const result = await adminRequest<{ suggestion: WireObject }>('/api/admin/draft', { entity: props.kind, name: props.entity.name });

@@ -10,9 +10,9 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'firefly-m19-'));
 fs.mkdirSync(artifacts, { recursive: true });
 fs.rmSync(path.join(artifacts, 'results.json'), {force:true});
 const log = fs.openSync(path.join(artifacts, 'server.log'), 'w');
-let server, chrome, socket, url, proof, output = '', nextId = 0, voiceId = 0;
+let server, chrome, socket, url, proof, output = '', nextId = 0, voiceId = 0, pageClosing = false;
 let power = false, fault = '', tcpConnections = 0, tcpBytes = 0;
-const pending = new Map(), requests = [], hardware = [], exceptions = [], external = [], results = [], diagnosticBusyReads = [];
+const pending = new Map(), requests = [], hardware = [], exceptions = [], external = [], results = [], diagnosticBusyReads = [], cancelledDiagnosticReads = [];
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const mock = http.createServer((req, res) => {
     let body = ''; req.on('data', bytes => body += bytes);
@@ -63,18 +63,20 @@ async function screenshot(name) {
 }
 async function navigate(fragment) { await js(`location.hash = ${JSON.stringify('#/' + fragment)}`); await delay(100); }
 async function refresh() { await click('Обновить данные ↻', 'main .page-heading'); await until(() => js('!document.querySelector("button.refresh").disabled'), 'refresh done'); }
-async function start(store, control) {
+async function start(store, control, fixtureEnv = {}) {
     output = '';
-    server = spawn(app, ['--store', store, '--init-config', path.join(root, 'config/empty-home.json'), '--runtime-worker', worker, '--admin-port', '0'], { stdio:['ignore','pipe',log], env:{...process.env, FIREFLY_M19_VOICE_CONTROL:control} });
+    server = spawn(app, ['--store', store, '--init-config', path.join(root, 'config/empty-home.json'), '--runtime-worker', worker, '--admin-port', '0'], { stdio:['ignore','pipe',log], env:{...process.env, FIREFLY_M19_VOICE_CONTROL:control, ...fixtureEnv} });
     server.stdout.on('data', bytes => output += bytes);
     await until(() => output.includes('ADMIN_LISTEN'), 'C++ listener'); url = output.match(/ADMIN_LISTEN (http:\/\/\S+)/)[1];
     await until(async () => (await api('/api/status')).runtime_ready, 'runtime READY');
 }
 async function stop() {
+    pageClosing = true;
     if (socket?.readyState === 1) { await send('Page.navigate', {url:'about:blank'}); await delay(60); }
     const child = server; server = null; child.kill('SIGTERM');
     await Promise.race([new Promise(resolve => child.once('exit', resolve)), delay(10000).then(() => { if (child.exitCode === null) throw Error('shutdown timeout'); })]);
     assert.equal(child.exitCode, 0);
+    pageClosing = false;
 }
 async function voice(control, transcript, wake = true) {
     const id = ++voiceId;
@@ -89,11 +91,39 @@ async function voice(control, transcript, wake = true) {
 async function ask(phrase) { await fill('Ваша просьба', phrase); await click('Отправить'); await until(() => js('document.querySelector(".setup-fields").getAttribute("aria-busy") === "false"'), 'setup message done'); }
 async function proposal() { await until(() => js('!!document.querySelector(".proposal-card")'), 'proposal visible'); }
 async function accepted() { await click('Принять в план'); await until(() => js('!document.querySelector(".proposal-card")'), 'accepted into plan'); }
+async function rejectedOwnerProfile() {
+    const store = path.join(temp, 'rejected-owner-profile'), control = path.join(temp, 'rejected-voice');
+    fs.mkdirSync(store, {mode:0o700});
+    const io = hardware.length;
+    await start(store, control, {FIREFLY_M19_BAD_DEVICE_PROFILE:'1'});
+    await send('Page.navigate', {url:url + '/#/setup'});
+    await until(() => js('[...document.querySelectorAll("main button")].some(n => n.textContent === "Начать настройку" && !n.disabled)'), 'negative empty Setup');
+    const original = await api('/api/config');
+    await click('Начать настройку');
+    await until(() => js('!!document.querySelector(".setup-fields") && !document.querySelector(".setup-fields").disabled'), 'negative setup active');
+    await ask('Создай зону Кабинет и лампу в кабинете, которую можно включать и выключать'); await proposal();
+    const state = await api('/api/setup/status');
+    assert.deepEqual(state.configuration.devices[0].spoken_aliases, ['лампа']);
+    const warning = await js('[...document.querySelectorAll("[role=alert]")].map(n => n.innerText).join(" ")');
+    assert.match(warning, /языковых предложений отклонена/);
+    assert.match(warning, /Проверьте речевые формы/);
+    assert.match(await text(), /Речевые формы: лампа/);
+    assert.equal((await api('/api/config')).hash, original.hash);
+    assert.equal(hardware.length, io);
+    await screenshot('owner-profile-rejected-warning');
+    await click('Отклонить');
+    await click('Завершить настройку без Apply');
+    await until(async () => !(await api('/api/setup/status')).active, 'negative setup cancelled');
+    assert.equal((await api('/api/config')).hash, original.hash);
+    assert.equal(hardware.length, io);
+    results.push({name:'rejected-owner-profile',aliases:state.configuration.devices[0].spoken_aliases,warning,applied:false,posts:0,gets:0});
+    await stop();
+}
 async function scenario(noZone) {
     const name = noZone ? 'no-zone-mobile' : 'cabinet-desktop';
     const store = path.join(temp, name), control = path.join(temp, name + '-voice'); fs.mkdirSync(store, { mode:0o700 });
     const voiceEvidence = [], knowledge = [];
-    const recordVoice = result => voiceEvidence.push({id:result.id,processed:result.processed,emitted:result.emitted,states:result.states,last_voice:result.runtime.last_voice});
+    const recordVoice = result => voiceEvidence.push({id:result.id,processed:result.processed,emitted:result.emitted,states:result.states,last_voice:result.runtime.last_voice,executions:result.runtime.executions});
     power = false; fault = ''; const firstHardware = hardware.length, firstRequests = requests.length;
     await start(store, control);
     await send('Emulation.setDeviceMetricsOverride', { width:noZone ? 390 : 1280, height:noZone ? 844 : 800, deviceScaleFactor:1, mobile:false });
@@ -118,6 +148,7 @@ async function scenario(noZone) {
     assert.equal(semantic.devices[0].state[0].type, 'boolean');
     assert.equal(semantic.rooms.length, noZone ? 0 : 1); assert.equal(semantic.devices[0].room_id, noZone ? null : semantic.rooms[0].id);
     assert.ok(semantic.devices[0].spoken_aliases.includes('лампу'));
+    assert.match(await text(), /Речевые формы: лампа, лампу/);
     if (!noZone) assert.deepEqual(semantic.rooms[0].speech.locations, ['в кабинете']);
     await screenshot(name + '-02-proposal'); await accepted();
     assert.equal((await api('/api/config')).hash, original.hash); assert.equal(hardware.length, firstHardware);
@@ -146,7 +177,7 @@ async function scenario(noZone) {
     await screenshot(name + '-05-observe'); await click('Далее'); await click('Сохранить и применить');
     await until(() => js('[...document.querySelectorAll("dialog button")].some(n => n.textContent === "Подтвердить применение" && !n.disabled)'), 'one final review');
     const reviewText = await js('document.querySelector("dialog").innerText');
-    for (const pattern of [/Лампа/, /POST http:\/\/127\.0\.0\.1:/, /on = Да/, /on = Нет/, /GET http:\/\/127\.0\.0\.1:/, /on → Питание/]) assert.match(reviewText, pattern);
+    for (const pattern of [/Лампа/, /Обращения: лампа; лампу/, /POST http:\/\/127\.0\.0\.1:/, /on = Да/, /on = Нет/, /GET http:\/\/127\.0\.0\.1:/, /on → Питание/]) assert.match(reviewText, pattern);
     assert.equal((await api('/api/config')).hash, original.hash); assert.equal(hardware.length, firstHardware);
     await screenshot(name + '-06-final-review');
     await js('document.querySelector("dialog").scrollTop = document.querySelector("dialog").scrollHeight');
@@ -252,14 +283,26 @@ async function scenario(noZone) {
         else if(message.method==='Page.javascriptDialogOpening')send('Page.handleJavaScriptDialog',{accept:true});
         else if(message.method==='Fetch.requestPaused') {
             const {request,requestId}=message.params;requests.push({url:request.url,method:request.method});
+            const closingAtPause = pageClosing;
             const safe=request.url.startsWith(url + '/');if(!safe)external.push(request.url);
-            send(safe?'Fetch.continueRequest':'Fetch.failRequest',safe?{requestId}:{requestId,errorReason:'BlockedByClient'}).catch(error=>exceptions.push(String(error)));
+            send(safe?'Fetch.continueRequest':'Fetch.failRequest',safe?{requestId}:{requestId,errorReason:'BlockedByClient'}).catch(error=>{
+                const record = {request:request.url,method:request.method,protocolError:error};
+                // Explicit about:blank shutdown can cancel an already paused
+                // diagnostic GET before CDP acknowledges continueRequest.
+                // Record that exact lifecycle cancellation; never retry it or
+                // exempt a mutation, external request or application exception.
+                if (safe && request.method === 'GET' && (pageClosing || closingAtPause) &&
+                    request.url.startsWith(url + '/api/') &&
+                    [-32000,-32602].includes(error.code) && error.message === 'Invalid InterceptionId.')
+                    cancelledDiagnosticReads.push(record);
+                else exceptions.push(record);
+            });
         }
     };
     await send('Runtime.enable'); await send('Page.enable'); await send('Fetch.enable',{patterns:[{urlPattern:'*'}]});
-    await scenario(false); await scenario(true);
+    await rejectedOwnerProfile(); await scenario(false); await scenario(true);
     assert.deepEqual(external,[]); assert.deepEqual(exceptions,[]);
-    proof = {passed:true,model:'scripted; no real Qwen/NPU',voice:'synthetic PCM/KWS/VAD/STT; real runWakeVoiceLoop/processVoice',appSha256:crypto.createHash('sha256').update(fs.readFileSync(app)).digest('hex'),workerSha256:crypto.createHash('sha256').update(fs.readFileSync(worker)).digest('hex'),tcpConnections,external,exceptions,diagnosticBusyReads,results};
+    proof = {passed:true,model:'scripted; no real Qwen/NPU',voice:'synthetic PCM/KWS/VAD/STT; real runWakeVoiceLoop/processVoice',appSha256:crypto.createHash('sha256').update(fs.readFileSync(app)).digest('hex'),workerSha256:crypto.createHash('sha256').update(fs.readFileSync(worker)).digest('hex'),tcpConnections,external,exceptions,diagnosticBusyReads,cancelledDiagnosticReads,results};
 })().catch(async error => {
     console.error(error); if(socket?.readyState===1){try{await screenshot('failure');fs.writeFileSync(path.join(artifacts,'failure.txt'),await text());}catch{}}
     process.exitCode=1;

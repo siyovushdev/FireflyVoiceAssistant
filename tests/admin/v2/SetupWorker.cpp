@@ -44,8 +44,27 @@ public:
                 }
             }
             if(category=="action")return prompt.find("false")!=std::string::npos?R"({"aliases":["выключи","выключить"]})":R"({"aliases":["включи","включить"]})";
-            if(category=="device")for(const auto& device:request.at("configuration").at("devices"))
-                if(device.at("id")==id && device.at("name")=="Лампа")return R"({"aliases":["лампа","лампу"]})";
+            if(category=="device") {
+                // Scripted proposal examples, NOT proof of genuine Qwen quality.
+                // Check the production prompt contract before replaying a profile.
+                if(prompt.find("винительном падеже")==std::string::npos ||
+                   prompt.find("action_ids")!=std::string::npos)
+                    throw std::runtime_error("device grammar prompt contract missing");
+                // Replay the actual rejected owner aliases to exercise the
+                // visible setup warning, not only successful model fixtures.
+                if(std::getenv("FIREFLY_M19_BAD_DEVICE_PROFILE"))
+                    return R"({"aliases":["лампа","лампа_включенная","лампа_включит","лампа_выключенная","лампа_выключит"]})";
+                const std::map<std::string,Json> profiles={
+                    {"Лампа",Json::array({"лампа","лампу"})},
+                    {"Розетка",Json::array({"розетка","розетку"})},
+                    {"Вентилятор",Json::array({"вентилятор"})},
+                    {"Сетевая розетка 2",Json::array({"сетевая розетка 2","сетевую розетку 2"})}};
+                for(const auto& device:request.at("configuration").at("devices"))
+                    if(device.at("id")==id) {
+                        const auto name=device.at("name").get<std::string>();
+                        return Json{{"aliases",profiles.count(name)?profiles.at(name):Json::array({name})}}.dump();
+                    }
+            }
             return Json{{"aliases",Json::array({"оборудование "+id})}}.dump();
         }
         if(request.value("method",std::string())=="copilot") {

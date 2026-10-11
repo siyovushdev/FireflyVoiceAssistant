@@ -1,0 +1,125 @@
+{
+    "actions": [
+        {
+            "assignments": [
+                {
+                    "field": "power",
+                    "value": true
+                }
+            ],
+            "description": "Питание → Включено.",
+            "enabled": true,
+            "id": "action_lampa_vklyuchit",
+            "name": "Включить",
+            "operation": "mock.assign.v1",
+            "origin": "local_ai",
+            "parameters": [],
+            "speech_aliases": [
+                "включи",
+                "включите",
+                "включить"
+            ]
+        },
+        {
+            "assignments": [
+                {
+                    "field": "power",
+                    "value": false
+                }
+            ],
+            "description": "Питание → Выключено.",
+            "enabled": true,
+            "id": "action_lampa_vyklyuchit",
+            "name": "Выключить",
+            "operation": "mock.assign.v1",
+            "origin": "local_ai",
+            "parameters": [],
+            "speech_aliases": [
+                "выключи",
+                "выключите",
+                "выключить"
+            ]
+        }
+    ],
+    "bindings": [],
+    "compatibility": null,
+    "connections": [],
+    "devices": [
+        {
+            "action_ids": [
+                "action_lampa_vklyuchit",
+                "action_lampa_vyklyuchit"
+            ],
+            "enabled": true,
+            "id": "device_lampa",
+            "kind": "generic",
+            "metadata": {
+                "aliases": [
+                    "лампа"
+                ],
+                "confirmed": true,
+                "description": "Лампа",
+                "origin": "local_ai",
+                "type": "power_only"
+            },
+            "name": "Лампа",
+            "room_id": "location_kabinet",
+            "spoken_aliases": [
+                "лампа",
+                "лампа_включенная",
+                "лампа_включит",
+                "лампа_выключенная",
+                "лампа_выключит"
+            ],
+            "state": [
+                {
+                    "description": "Питание виртуального устройства.",
+                    "id": "power",
+                    "initial": false,
+                    "name": "Питание",
+                    "required": true,
+                    "type": "boolean",
+                    "unit": ""
+                }
+            ]
+        }
+    ],
+    "observations": [],
+    "retired_ids": [],
+    "revision": 2,
+    "rooms": [
+        {
+            "id": "location_kabinet",
+            "metadata": {
+                "aliases": [
+                    "кабинет"
+                ],
+                "confirmed": true,
+                "container": false,
+                "description": "Кабинет",
+                "origin": "local_ai",
+                "parent_id": null,
+                "type": "location"
+            },
+            "name": "Кабинет",
+            "speech": {
+                "locations": [
+                    "в кабинете"
+                ],
+                "mentions": [
+                    "кабинет"
+                ]
+            }
+        }
+    ],
+    "safety": {
+        "restrictions": []
+    },
+    "schema_version": 2,
+    "system": {
+        "id": "system_home",
+        "interpretation_profile": "legacy_m4_v1",
+        "locale": "ru-RU",
+        "name": "Firefly V1 Prototype"
+    }
+}

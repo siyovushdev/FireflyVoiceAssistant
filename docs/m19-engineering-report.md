@@ -1,5 +1,23 @@
 # M19 engineering review
 
+Current follow-up: [Issue #16 correction and owner acceptance](m19-russian-device-profile.md).
+The owner live check of the initial M19 candidate failed on missing `лампу`;
+live M19 acceptance remains open. The initial results below are scripted
+engineering evidence, not genuine Qwen proposal acceptance. The follow-up
+changes the Admin device language prompt/validation and Vue review visibility,
+adds the actual owner alias regression and an invalid-profile browser case.
+
+Follow-up final verification: **83/83 serial CTest** (489.89 s), **41/41 frontend
+tests**, typecheck and production build/offline asset check passed. All existing
+Chromium suites passed. M19 adds the rejected owner profile (zero Apply/HTTP)
+and retains desktop/mobile **4 POST / 14 explicit GET**, with execution history
+attributing the successful fixture POSTs to `source=voice`. See
+[fresh review proof](evidence/m19/alias-review-proof.json) and
+[visible rejected-profile warning](evidence/m19/owner-profile-rejected-warning.png).
+Self-review checked the minimal product diff, strict grounding/ambiguity tests,
+`git diff --check`, test-only worker linkage and absence of production writes.
+Status: **READY_FOR_CHIEF_ENGINEER_REVIEW**; genuine live acceptance is pending.
+
 Issue: [#14](https://github.com/siyovushdev/FireflyVoiceAssistant/issues/14).
 Base: актуальный на начало работы `origin/master`,
 `5fed4230a3cd04d522e5f0ba482609cc7bb9599f` (post PR #13).
@@ -16,7 +34,7 @@ Base: актуальный на начало работы `origin/master`,
 | Презентация и воспроизводимость с пустого store | Не хватало короткого private launcher/runbook и точного CLI request log | `m19-private-demo.py`, optional JSONL в существующем mock, `M19PrivateDemoHarness` |
 | Настоящие Qwen/NPU/STT, микрофон, физическая лампа, production cutover | Отдельные owner gates; не выполнялись при занятом production runtime | Точная процедура в [runbook](m19-demo.md); не заявлены PASS |
 
-Изменения ограничены CMake-регистрацией test targets, test-only B3 model/voice
+Первоначальный commit `904ced8`: изменения ограничены CMake-регистрацией test targets, test-only B3 model/voice
 fixtures, сквозным Chromium-тестом, private launcher, HTTP mock logging и
 документацией/evidence. ConfigStore, схема, Vue product code, parser, SafetyGate,
 Qwen prompts/settings, production runtime и voice implementation не изменены.
@@ -68,7 +86,7 @@ retry **только** документированного busy diagnostic GET.
 
 ## Self-review и границы результата
 
-Проверены diff, отсутствие product/schema/prompt изменений, `git diff --check`,
+Для первоначального commit проверены diff, отсутствие product/schema/prompt изменений, `git diff --check`,
 fixture-only compilation, отсутствие model libraries у test worker, private
 0700 stores, exact request counts, сохранение данных при ошибках, zero-I/O
 recovery и отсутствие автоматического Apply/polling/retry. Не добавлялись новые
@@ -83,7 +101,7 @@ IPC Admin показывает упрощённый health/status (может о
 appliance lifecycle/status отдельно покрывают существующие startup/recovery suites.
 Новые screenshots не объявлены live-NPU доказательством.
 
-Production PID **44482**, current release **wake-beep-dc7b142e-20261011**, active
+При первоначальной инженерной проверке production PID **44482**, current release **wake-beep-dc7b142e-20261011**, active
 revision **1**, hash `36e6c9c3ffe311a2d0b84de69ce48cc0d84051ce1a424b37397de925c06af0be`
 и SHA256 всех четырёх store files совпали до/после. Production service не
 останавливался; store, installed releases/models, symlinks, unit и rollback
