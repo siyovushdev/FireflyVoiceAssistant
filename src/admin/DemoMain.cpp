@@ -13,6 +13,7 @@
 #include "firefly/llm/StructuredOutput.h"
 #endif
 #include "firefly/voice/WakeDetector.h"
+#include "firefly/voice/WakeAcknowledgement.h"
 #include "firefly/voice/VoiceRecovery.h"
 #include <charconv>
 #include <csignal>
@@ -35,6 +36,7 @@ int main(int argc, char** argv) {
         std::string storePath, initial, bind = "127.0.0.1", modelPath, adminModel, stt, vad;
         std::string device = "plughw:CARD=Array,DEV=0";
         firefly::voice::WakeConfig wakeConfig;
+        firefly::voice::WakeAcknowledgementConfig acknowledgementConfig;
         std::string wakePython = "python3", playbackDevice = "plughw:CARD=rockchipes8388,DEV=0";
         const auto executableDir = std::filesystem::canonical("/proc/self/exe").parent_path();
         auto wakeData = executableDir / "share/firefly/wake";
@@ -51,6 +53,7 @@ int main(int argc, char** argv) {
                     "  [--voice --vad-model FILE --audio-device plughw:CARD=Array,DEV=0]\n"
                     "  [--wake-enabled true|false] [--wake-model FILE] [--wake-python EXECUTABLE]\n"
                     "  [--wake-cutoff 0.99] [--wake-window 7] [--command-start-timeout-ms 5000] [--playback-device DEVICE]\n"
+                    "  [--wake-beep-enabled true|false] [--wake-beep-volume-percent 1..30] (defaults: true, 30)\n"
                     "  [--command-listen-timeout-ms MS] (deprecated total listening cap)\n"
                     "One process appliance runtime supervised by systemd in production.\n"
                     "V1 Admin is loopback-only (127.0.0.1); remote access requires an SSH/Tailscale TCP tunnel.\n"
@@ -77,6 +80,18 @@ int main(int argc, char** argv) {
             }
             else if (flag == "--wake-model") wakeConfig.modelPath = value;
             else if (flag == "--playback-device") playbackDevice = value;
+            else if (flag == "--wake-beep-enabled") {
+                if (value != "true" && value != "false") throw std::invalid_argument("Invalid wake-beep-enabled boolean");
+                acknowledgementConfig.enabled = value == "true";
+            }
+            else if (flag == "--wake-beep-volume-percent") {
+                int number;
+                const auto parsed = std::from_chars(value.data(), value.data() + value.size(), number);
+                if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size())
+                    throw std::invalid_argument("Invalid wake beep volume percent");
+                acknowledgementConfig.volumePercent = number;
+                acknowledgementConfig.validate();
+            }
             else if (flag == "--wake-python") wakePython = value;
             else if (flag == "--wake-cutoff") {
                 if (value != "0.99") throw std::invalid_argument("V1 wake cutoff is frozen at 0.99");
@@ -104,6 +119,7 @@ int main(int argc, char** argv) {
                 port = static_cast<unsigned short>(number);
             } else throw std::invalid_argument("Unknown option: " + flag);
         }
+        acknowledgementConfig.validate();
         firefly::admin::validateAdminBind(bind);
         // A bad Admin model must not load, and must not take down the listener.
         // enterSetup repeats the size check and requires the SHA256 before inference.
@@ -201,7 +217,9 @@ int main(int argc, char** argv) {
                     // so loading a worker afterwards could overrun its short buffer.
                     // One capture owner for wake AND command audio, ASR channel 1.
                     firefly::voice::AlsaAudioSource capture(device, 2, 1);
-                    firefly::voice::AlsaWakeAcknowledgement acknowledgement(playbackDevice);
+                    firefly::voice::AlsaWakeAcknowledgement acknowledgement(playbackDevice, acknowledgementConfig);
+                    std::cerr << "VOICE_ACK enabled=" << (acknowledgementConfig.enabled ? "true" : "false")
+                        << " volume_percent=" << acknowledgementConfig.volumePercent << '\n';
                     const auto process = [&](const firefly::voice::Utterance& u) { return runtime.processVoice(*recognizer, u); };
                     const auto emit = [](const firefly::voice::VoiceResult& result) {
                             std::cerr << "VOICE text=" << result.recognition.text << " route=" << result.route
@@ -238,7 +256,8 @@ int main(int argc, char** argv) {
                     };
                     if (wakeConfig.enabled)
                         firefly::voice::runWakeVoiceLoop(capture, *wake, segmenter, wakeConfig,
-                            process, emit, state, interrupted, std::chrono::steady_clock::now, &acknowledgement);
+                            process, emit, state, interrupted, std::chrono::steady_clock::now,
+                            acknowledgementConfig.enabled ? &acknowledgement : nullptr);
                     else {
                         std::cerr << "VOICE wake gating explicitly disabled by configuration\n";
                         firefly::voice::runVoiceLoop(capture, segmenter, process, emit, state, interrupted);

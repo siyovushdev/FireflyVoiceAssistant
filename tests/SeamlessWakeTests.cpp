@@ -36,7 +36,7 @@ struct Wake : WakeDetector {
 struct Ack : WakeAcknowledgement {
     int starts = 0, polls = 0, cancels = 0;
     void start() override { ++starts; }
-    AcknowledgementStatus poll() override { return ++polls == 4 ? AcknowledgementStatus::Complete : AcknowledgementStatus::Playing; }
+    AcknowledgementStatus poll() override { return ++polls == 13 ? AcknowledgementStatus::Complete : AcknowledgementStatus::Playing; }
     void cancel() noexcept override { ++cancels; }
 };
 struct Source : AudioSource {

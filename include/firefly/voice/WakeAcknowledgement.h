@@ -1,7 +1,17 @@
 #pragma once
+#include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 namespace firefly::voice {
+// Startup-only settings, independent of ConfigStore and wake admission.
+struct WakeAcknowledgementConfig {
+    bool enabled = true;
+    int volumePercent = 30; // PCM peak amplitude, not an ALSA mixer setting.
+    void validate() const;
+};
+// Fixed 400 ms / 880 Hz / 16 kHz mono tone with 10 ms fades at both ends.
+std::vector<int16_t> makeWakeAcknowledgementPcm(const WakeAcknowledgementConfig& config);
 enum class AcknowledgementStatus { Playing, Complete, Failed };
 // Nonblocking, owned by the capture loop. No worker or subprocess. Failure is
 // diagnostic only: admission still requires wake and a healthy capture/VAD/STT.
@@ -15,7 +25,7 @@ public:
 };
 class AlsaWakeAcknowledgement final : public WakeAcknowledgement {
 public:
-    explicit AlsaWakeAcknowledgement(std::string device);
+    explicit AlsaWakeAcknowledgement(std::string device, WakeAcknowledgementConfig config = {});
     ~AlsaWakeAcknowledgement() override;
     void start() override;
     AcknowledgementStatus poll() override;
