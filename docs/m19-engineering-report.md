@@ -1,6 +1,12 @@
 # M19 engineering review
 
-Current follow-up: [Issue #16 correction and owner acceptance](m19-russian-device-profile.md).
+Current blocking follow-up: [Issue #17 grounding remediation](m19-grounding-safety.md).
+The isolated live run found unintended execution across an unknown requested
+room. Production was restored; live acceptance remains failed/pending. The
+offline authorization fix requires independent review and a new owner-authorized
+hardware gate. Earlier test outcomes below are historical.
+
+Prior follow-up: [Issue #16 correction and owner acceptance](m19-russian-device-profile.md).
 The owner live check of the initial M19 candidate failed on missing `лампу`;
 live M19 acceptance remains open. The initial results below are scripted
 engineering evidence, not genuine Qwen proposal acceptance. The follow-up

@@ -1,9 +1,15 @@
 # M19: AI Setup → HTTP → voice → Confirmed
 
-Owner live acceptance found missing `лампу` ([#16](https://github.com/siyovushdev/FireflyVoiceAssistant/issues/16)).
-See the [correction, evidence limits and remaining owner gate](m19-russian-device-profile.md).
-The revised genuine Qwen proposal and real `source=voice` POST are still awaiting
-separate live acceptance; a scripted demonstration does not close that gate.
+Latest isolated live acceptance **failed** on [Issue #17](https://github.com/siyovushdev/FireflyVoiceAssistant/issues/17):
+an unknown-room text request caused a mock POST through LLM fallback. Genuine
+Qwen forms and Test Apply passed, but physical voice ON/OFF was not confirmed.
+See [grounding remediation and production exposure](m19-grounding-safety.md).
+The installed production release has not received this fix. Further live testing
+requires independent review and fresh owner authorization for the new clean candidate.
+
+The earlier missing `лампу` gate ([#16](https://github.com/siyovushdev/FireflyVoiceAssistant/issues/16))
+is documented in [the Russian profile report](m19-russian-device-profile.md).
+Neither AI/Test Apply successes nor a scripted voice demonstration close live acceptance.
 
 Этот сценарий использует существующие AI Setup, Connection/Binding/Observation,
 CAS Apply, языковой индекс, SafetyGate и DeviceStateStore. Он не устанавливает

@@ -12,6 +12,7 @@
 #include <cerrno>
 #include <cstdlib>
 #include <set>
+#include <utility>
 
 namespace firefly {
 namespace {
@@ -63,6 +64,10 @@ LightState requestedLightState(std::string_view original, const std::vector<std:
         if (onWord(word)) { state.require(1, 100); on = true; }
         if (word == "максимум") { state.require(100, 100); amount = true; }
         if (word == "наполовину") { state.require(50, 50); amount = true; }
+    }
+    if (on && std::find(words.begin(), words.end(), "полностью") != words.end()) {
+        state.require(100, 100);
+        amount = true;
     }
     const auto reject = [] { return LightState{1, 0}; };
     // words() splits decimal punctuation. Never reinterpret a fractional state
@@ -122,6 +127,117 @@ LightState requestedLightState(std::string_view original, const std::vector<std:
     if (on && !amount) state.require(100, 100);
     return state;
 }
+
+using Span = std::pair<std::size_t, std::size_t>;
+
+// Authorization accounts for the ORIGINAL request, not just entities the model
+// happened to select. Unknown words can carry a location/other constraint; they
+// must not disappear when an index miss falls back to inference. Arguments are
+// covered only after the existing original-value checks below have admitted them.
+bool requestCovered(std::string_view original, const runtime::ActionDescription& description,
+                    const runtime::Grounding& grounding, const std::vector<Span>& arguments = {},
+                    const std::vector<Span>& numericArguments = {}) {
+    const auto& target = *description.target;
+    if (grounding.ambiguous ||
+        (!grounding.devices.empty() && (grounding.devices.size() != 1 || grounding.devices.front() != target.id)) ||
+        (!grounding.locations.empty() && (!target.roomId || grounding.locations.size() != 1 ||
+                                         grounding.locations.front() != *target.roomId))) return false;
+
+    const auto text = detail::lowercase(original);
+    const auto words = detail::words(original);
+    std::vector<Span> spans;
+    std::vector<bool> covered(words.size(), false);
+    std::size_t offset = 0;
+    for (const auto& word : words) {
+        const auto begin = text.find(word, offset), end = begin + word.size();
+        spans.emplace_back(begin, end);
+        offset = end;
+    }
+    const auto cover = [&](std::size_t begin, std::size_t end) {
+        for (std::size_t i = 0; i < spans.size(); ++i)
+            if (spans[i].first >= begin && spans[i].second <= end) covered[i] = true;
+    };
+    for (const auto& mention : grounding.mentions)
+        if ((mention.category == "device" && mention.entityId == target.id) ||
+            (mention.category == "location" && target.roomId && mention.entityId == *target.roomId))
+            cover(mention.begin, mention.end);
+    for (const auto& span : arguments) cover(span.first, span.second);
+    const auto phrase = [&](std::string_view alias) {
+        const auto atom = detail::words(alias);
+        if (atom.empty()) return;
+        for (std::size_t i = 0; i + atom.size() <= words.size(); ++i)
+            if (std::equal(atom.begin(), atom.end(), words.begin() + i))
+                std::fill(covered.begin() + i, covered.begin() + i + atom.size(), true);
+    };
+    for (const auto& alias : description.definition->aliases) phrase(alias);
+    phrase("будь добр");
+    phrase("будьте добры");
+    const auto operation = description.definition->operation;
+    if (operation == config::Operation::SetBrightness) {
+        // Established built-in light syntax. Values are independently checked by
+        // requestedLightState; these words do not authorize a model-chosen value.
+        for (std::size_t i = 0; i < words.size(); ++i)
+            if (lightWord(words[i]) || onWord(words[i]) || offWord(words[i]) || percentWord(words[i]) ||
+                words[i] == "поставь" || words[i] == "установи" || words[i] == "сделай" ||
+                words[i] == "примерно" || words[i] == "максимум" || words[i] == "наполовину" ||
+                language::integerAt(words, i)) covered[i] = true;
+        if (std::any_of(words.begin(), words.end(), [](const auto& word) { return onWord(word) || offWord(word); }))
+            for (std::size_t i = 0; i < words.size(); ++i)
+                if (words[i] == "полностью") covered[i] = true;
+    } else if (operation == config::Operation::OpenEntranceDoor) {
+        phrase("на входе");
+        for (std::size_t i = 0; i < words.size(); ++i)
+            if (words[i] == "открой" || words[i] == "откройте" || words[i] == "открыть" ||
+                words[i] == "открывай" || words[i] == "открывайте" ||
+                words[i].rfind("двер", 0) == 0 || words[i].rfind("входн", 0) == 0) covered[i] = true;
+    }
+    for (const auto& parameter : description.definition->parameters)
+        if (parameter.unit == "percent")
+            for (std::size_t i = 0; i < words.size(); ++i)
+                if (percentWord(words[i])) covered[i] = true;
+    const auto quoted = [&](const Span& span) {
+        return span.first > 0 && span.second < original.size() &&
+            (original[span.first - 1] == '"' || original[span.first - 1] == '\'') &&
+            original[span.second] == original[span.first - 1];
+    };
+    for (std::size_t i = 0; i < words.size(); ++i) {
+        if (words[i] != "в" && words[i] != "во" && words[i] != "на") continue;
+        const auto insideArgument = std::any_of(arguments.begin(), arguments.end(), [&](const auto& span) {
+            return quoted(span) && spans[i].first >= span.first && spans[i].second <= span.second;
+        });
+        if (insideArgument) continue; // Only an explicit quoted literal is opaque.
+        if (i + 1 == words.size()) return false;
+        const auto next = spans[i + 1];
+        const auto entityObject = std::any_of(grounding.mentions.begin(), grounding.mentions.end(), [&](const auto& mention) {
+            if (next.first < mention.begin || next.second > mention.end) return false;
+            if (mention.category == "location") return target.roomId && mention.entityId == *target.roomId;
+            // "на телевизоре" is a device object. A whole device/action alias
+            // containing "... в <unknown place>" is NOT location authorization.
+            return words[i] == "на" && mention.category == "device" && mention.entityId == target.id &&
+                mention.begin >= spans[i].second;
+        });
+        const auto numericObject = std::any_of(numericArguments.begin(), numericArguments.end(), [&](const auto& span) {
+            return next.first >= span.first && next.second <= span.second;
+        });
+        const auto quotedObject = std::any_of(arguments.begin(), arguments.end(), [&](const auto& span) {
+            return quoted(span) && next.first >= span.first && next.second <= span.second;
+        });
+        const bool argumentObject = words[i] == "на" && (numericObject || quotedObject);
+        const bool lightValue = words[i] == "на" && operation == config::Operation::SetBrightness &&
+            (language::integerAt(words, i + 1) || words[i + 1] == "максимум" || words[i + 1] == "наполовину");
+        const bool entrance = operation == config::Operation::OpenEntranceDoor && words[i] == "на" && words[i + 1] == "входе";
+        if (!entityObject && !argumentObject && !lightValue && !entrance) return false;
+    }
+    for (std::size_t i = 0; i < words.size(); ++i) if (!covered[i]) {
+        if (words[i] == "пожалуйста") continue;
+        // A preposition alone is not evidence of a valid location. It needs a
+        // covered entity/argument immediately after it (e.g. на телевизоре/40).
+        if ((words[i] == "в" || words[i] == "во" || words[i] == "на") &&
+            i + 1 < words.size() && covered[i + 1]) continue;
+        return false;
+    }
+    return true;
+}
 }
 actions::CandidateResult SafetyGate::apply(std::string_view original, const actions::CandidateResult& candidate,
                                            const runtime::DomainView& domain) {
@@ -142,6 +258,7 @@ actions::CandidateResult SafetyGate::apply(std::string_view original, const acti
     // Contradictory ORIGINAL requirements reject every candidate, including a
     // guessed OFF value. This shared boundary never chooses an interpretation.
     if (state.impossible()) return actions::Unsupported{};
+    const auto grounding = domain.resolve(original, true);
     if (description->definition->operation == config::Operation::OpenEntranceDoor) {
         const auto text = detail::lowercase(original);
         const bool openIntent = std::any_of(words.begin(), words.end(), [](const auto& word) {
@@ -155,9 +272,8 @@ actions::CandidateResult SafetyGate::apply(std::string_view original, const acti
         // Require all three explicit cues in the original input. Never repair STT.
         if (!openIntent || !entranceReference ||
             text.find("двер") == std::string::npos) return actions::Unsupported{};
-        return candidate;
+        return requestCovered(original, *description, grounding) ? candidate : actions::CandidateResult{actions::Unsupported{}};
     }
-    const auto grounding = domain.resolve(original, true);
     if (grounding.ambiguous) return actions::Unsupported{};
     if (description->definition->operation == config::Operation::AssignState) {
         static const std::set<std::string> nonCommands{"как","почему","зачем","если","когда","потом","через","сначала","отмени","запрети","нельзя","запрещено","расскажи","скажи"};
@@ -165,8 +281,9 @@ actions::CandidateResult SafetyGate::apply(std::string_view original, const acti
         if (grounding.devices.size() != 1 || grounding.devices.front() != action->targetId()) return actions::Unsupported{};
         const auto intents = domain.requestedActions(original, *description->target);
         if (intents.size() != 1 || intents.front() != action->actionId()) return actions::Unsupported{};
-        struct Numeric { std::string text; std::size_t begin, end; bool consumed = false; };
+        struct Numeric { std::string text; std::size_t begin, end; bool consumed = false, numericArgument = false; };
         std::vector<Numeric> numbers;
+        std::vector<Span> argumentSpans, numericArgumentSpans;
         const std::string source(original);
         static const std::regex numeric("[-+]?[0-9]+([.,][0-9]+)?([eE][-+]?[0-9]+)?");
         for (auto i=std::sregex_iterator(source.begin(),source.end(),numeric);i!=std::sregex_iterator();++i) {
@@ -204,7 +321,10 @@ actions::CandidateResult SafetyGate::apply(std::string_view original, const acti
             if (literal.empty()) return source.find("\"\"") != std::string::npos || source.find("''") != std::string::npos;
             const auto wordByte=[](unsigned char c){return c>=128||(c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_';};
             for (auto pos=source.find(literal);pos!=std::string::npos;pos=source.find(literal,pos+1))
-                if ((pos==0||!wordByte(source[pos-1]))&&(pos+literal.size()==source.size()||!wordByte(source[pos+literal.size()]))) return true;
+                if ((pos==0||!wordByte(source[pos-1]))&&(pos+literal.size()==source.size()||!wordByte(source[pos+literal.size()]))) {
+                    argumentSpans.emplace_back(pos, pos + literal.size());
+                    return true;
+                }
             return false;
         };
         for (const auto& [key, argument] : action->arguments()) {
@@ -234,7 +354,7 @@ actions::CandidateResult SafetyGate::apply(std::string_view original, const acti
                             errno=0;char* end=nullptr;const auto parsed=std::strtod(number.text.c_str(),&end);
                             matches=errno!=ERANGE&&std::isfinite(parsed)&&end==number.text.c_str()+number.text.size()&&parsed==value;
                         }
-                        if(matches){number.consumed=true;++found;}
+                        if(matches){number.consumed=true;number.numericArgument=true;++found;}
                     }
                     return found==1;
                 }
@@ -242,7 +362,14 @@ actions::CandidateResult SafetyGate::apply(std::string_view original, const acti
             if (!present) return actions::Unsupported{};
         }
         if(std::any_of(numbers.begin(),numbers.end(),[](const auto& n){return !n.consumed;})) return actions::Unsupported{};
-        return candidate;
+        const bool percent = std::any_of(description->definition->parameters.begin(), description->definition->parameters.end(),
+            [](const auto& parameter) { return parameter.unit == "percent"; });
+        for (const auto& number : numbers) {
+            const auto end = percent && number.end < source.size() && source[number.end] == '%' ? number.end + 1 : number.end;
+            argumentSpans.emplace_back(number.begin, end);
+            if (number.numericArgument) numericArgumentSpans.emplace_back(number.begin, end);
+        }
+        return requestCovered(original, *description, grounding, argumentSpans, numericArgumentSpans) ? candidate : actions::CandidateResult{actions::Unsupported{}};
     }
     if (!description->brightness) return actions::Unsupported{};
     // Relative/unspecified brightness is unresolved, even if scoped inference
@@ -258,6 +385,6 @@ actions::CandidateResult SafetyGate::apply(std::string_view original, const acti
     // Conservative stem detection also covers inflections and mixed case.
     if (brightness == 0 && detail::lowercase(original).find("включ") != std::string::npos)
         return actions::Unsupported{};
-    return candidate;
+    return requestCovered(original, *description, grounding) ? candidate : actions::CandidateResult{actions::Unsupported{}};
 }
 }

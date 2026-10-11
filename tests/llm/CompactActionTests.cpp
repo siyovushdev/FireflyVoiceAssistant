@@ -81,6 +81,26 @@ int main(int argc,char** argv){try{
     const auto structured=R"({"targetId":"device_sample","actionId":"action_label","arguments":{"label":"hello"}})";
     check(locked.decode(structured).status==llm::DecodeStatus::Action,"Structured schema compatibility lost");
     check(!locked.decode(R"({"targetId":"device_entrance_door","actionId":"action_open_entrance","arguments":{}})").valid(),"Structured identity override accepted");
+    {
+        Model extractionModel;
+        admin::RuntimeGenerations extraction(extractionModel); extraction.apply(extended.snapshot());
+        extractionModel.raw = structured;
+        auto label = extraction.process("Назови образец hello").command;
+        check(label.path == CommandPath::LlmFallback && std::holds_alternative<actions::GenericAction>(label.action),
+              "Valid string extraction must retain LLM fallback");
+        label = extraction.process("Назови образец hello в подвале", execution::ExecutionIntent::Production).command;
+        check(label.safetyRejected && std::holds_alternative<actions::Unsupported>(label.action),
+              "Scalar fallback cannot discard an unknown location");
+        extractionModel.raw = R"({"targetId":"device_sample","actionId":"action_label","arguments":{"label":"в цехе"}})";
+        const auto spatial = extraction.process("Назови образец в цехе", execution::ExecutionIntent::Production);
+        check(spatial.command.safetyRejected && !spatial.execution, "Model cannot recast unquoted location as scalar data");
+        extractionModel.raw = R"({"targetId":"device_sample","actionId":"action_label","arguments":{"label":"цехе"}})";
+        const auto scalarPlace = extraction.process("Назови образец на цехе", execution::ExecutionIntent::Production);
+        check(scalarPlace.command.safetyRejected && !scalarPlace.execution, "Preposition outside string cannot disappear into scalar extraction");
+        extractionModel.raw = R"({"targetId":"device_sample","actionId":"action_label","arguments":{"label":"в цехе"}})";
+        label = extraction.process("Назови образец \"в цехе\"").command;
+        check(std::holds_alternative<actions::GenericAction>(label.action), "Explicit quoted label remains scalar data");
+    }
     model.raw="{}";
     (void)runtime.structuredSuggestion("Admin draft context","Название",256,[](std::string_view raw){return std::string(raw);});
     check(model.prompt==llm::compactRules(),"Admin context not restored");

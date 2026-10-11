@@ -80,7 +80,9 @@ int main(int argc, char** argv) {
             const auto evidence = domain.resolve(text);
             check(evidence.locations == std::vector<std::string>{"room_living"}, "Typo entity resolution");
             check(std::any_of(evidence.mentions.begin(),evidence.mentions.end(),[](const auto& m){return m.distance==1;}), "Auditable typo evidence");
-            check(std::holds_alternative<actions::GenericAction>(SafetyGate::apply(text,oldLight,domain)), "Gate uses server evidence");
+            const bool exactOperation = std::string(text).find("включии") == std::string::npos;
+            check(std::holds_alternative<actions::GenericAction>(SafetyGate::apply(text,oldLight,domain)) == exactOperation,
+                  "Entity typo remains grounded; unreviewed intent/unit typo cannot be ignored");
         }
         check(std::holds_alternative<actions::Unsupported>(SafetyGate::apply("В гостиной и спальне включи свет на 55 процентов",oldLight,domain)), "Multiple locations fail closed");
         auto contradiction = actions::GenericAction("action_set_brightness","device_kitchen_light",{{"brightness",actions::IntegerArgument(std::int64_t{0})}});
