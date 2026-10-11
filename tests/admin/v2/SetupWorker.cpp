@@ -4,6 +4,9 @@
 #include <poll.h>
 #include <iostream>
 #include <thread>
+#ifdef FIREFLY_M19_TEST_DRIVER
+#include "M19VoiceFixture.h"
+#endif
 using admin_test::Json;
 class Model final : public admin_test::Model {
 public:
@@ -35,12 +38,14 @@ public:
             if(category=="location") {
                 for(const auto& zone:request.at("configuration").at("rooms"))if(zone.at("id")==id) {
                     const auto name=zone.at("name").get<std::string>();
-                    const std::map<std::string,std::string> locations={{"Детская","в детской"},{"Цех упаковки","в цехе упаковки"},{"Склад","на складе"},{"Лабораторный стенд","на лабораторном стенде"}};
+                    const std::map<std::string,std::string> locations={{"Кабинет","в кабинете"},{"Детская","в детской"},{"Цех упаковки","в цехе упаковки"},{"Склад","на складе"},{"Лабораторный стенд","на лабораторном стенде"}};
                     const auto location=locations.count(name)?locations.at(name):"в "+name;
                     return Json{{"aliases",Json::array({name})},{"mentions",Json::array({name})},{"locations",Json::array({location})}}.dump();
                 }
             }
             if(category=="action")return prompt.find("false")!=std::string::npos?R"({"aliases":["выключи","выключить"]})":R"({"aliases":["включи","включить"]})";
+            if(category=="device")for(const auto& device:request.at("configuration").at("devices"))
+                if(device.at("id")==id && device.at("name")=="Лампа")return R"({"aliases":["лампа","лампу"]})";
             return Json{{"aliases",Json::array({"оборудование "+id})}}.dump();
         }
         if(request.value("method",std::string())=="copilot") {
@@ -69,6 +74,10 @@ public:
         }
         if(request.value("method",std::string())=="action_draft")return Json{{"description","Питание устройства"},{"aliases",Json::array({"включи"})},{"assignments",Json::array({{{"field","power"},{"value",true}}})}}.dump();
         if(prompt.find("Извлеки НОВОЕ имя")!=std::string::npos)return R"({"name":"Вытяжка"})";
+        if(text=="Создай зону Кабинет и лампу в кабинете, которую можно включать и выключать")
+            return R"({"ops":[["location","Кабинет"],["power_device","Кабинет","Лампа"]]})";
+        if(text=="Добавь лампу без зоны, которую можно включать и выключать")
+            return R"({"ops":[["power_device",null,"Лампа"]]})";
         if(text=="создай цех зону и добавь туда вентилятор где он может включаться и выключаться по питанию" ||
            text=="В цехе есть вентилятор, его можно включать и выключать.")
             return R"({"ops":[["location","Цех"],["power_device","Цех","Вентилятор"]]})";
@@ -82,8 +91,19 @@ public:
 };
 int main() {
     Model model;firefly::admin::RuntimeWorker worker(model);
+#ifdef FIREFLY_M19_TEST_DRIVER
+    m19_test::VoiceDriver voice(worker);
+#endif
     try { while(true) {
-        pollfd descriptor{3,POLLIN,0};if(::poll(&descriptor,1,-1)<=0 || descriptor.revents&(POLLHUP|POLLERR))break;
+        pollfd descriptor{3,POLLIN,0};
+#ifdef FIREFLY_M19_TEST_DRIVER
+        voice.poll();
+        const auto ready=::poll(&descriptor,1,50);
+        if(ready==0)continue;
+#else
+        const auto ready=::poll(&descriptor,1,-1);
+#endif
+        if(ready<0 || descriptor.revents&(POLLHUP|POLLERR))break;
         const auto bytes=firefly::admin::receiveMessage(3,5);model.request=Json::parse(bytes);
         const auto reply=worker.handle(bytes);
         if(!Json::parse(reply).value("ok",false))std::cerr<<reply<<'\n';

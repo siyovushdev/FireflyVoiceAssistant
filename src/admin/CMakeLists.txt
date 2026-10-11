@@ -324,11 +324,23 @@ if(BUILD_TESTING)
     target_link_libraries(admin_setup_v2_worker PRIVATE firefly_admin_transport)
     target_include_directories(admin_setup_v2_worker PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${PROJECT_SOURCE_DIR}/tests/admin")
     target_include_directories(admin_setup_v2_worker SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
+    add_executable(m19_test_worker "${PROJECT_SOURCE_DIR}/tests/admin/v2/SetupWorker.cpp")
+    target_compile_definitions(m19_test_worker PRIVATE FIREFLY_M19_TEST_DRIVER)
+    target_link_libraries(m19_test_worker PRIVATE firefly_admin_transport)
+    target_include_directories(m19_test_worker PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${PROJECT_SOURCE_DIR}/tests/admin")
+    target_include_directories(m19_test_worker SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
+    add_test(NAME M19PrivateDemoHarness COMMAND "${Python3_EXECUTABLE}"
+        "${PROJECT_SOURCE_DIR}/tests/admin/v2/M19HarnessTests.py" "${PROJECT_SOURCE_DIR}" "${PROJECT_BINARY_DIR}")
+    set_tests_properties(M19PrivateDemoHarness PROPERTIES TIMEOUT 40)
     if(FIREFLY_ADMIN_DIST_DIR AND FIREFLY_NODE_EXECUTABLE AND FIREFLY_LANGUAGE_CHROMIUM AND NOT "$ENV{DISPLAY}" STREQUAL "")
         add_test(NAME AdminSetupV2Chromium COMMAND "${FIREFLY_NODE_EXECUTABLE}"
             "${PROJECT_SOURCE_DIR}/tests/admin/v2/SetupChromiumTests.js" "$<TARGET_FILE:firefly-admin>"
             "$<TARGET_FILE:admin_setup_v2_worker>" "${PROJECT_SOURCE_DIR}" "${FIREFLY_LANGUAGE_CHROMIUM}" "${PROJECT_BINARY_DIR}/b3-acceptance")
         set_tests_properties(AdminSetupV2Chromium PROPERTIES TIMEOUT 180)
+        add_test(NAME M19DemoVerticalSlice COMMAND "${FIREFLY_NODE_EXECUTABLE}"
+            "${PROJECT_SOURCE_DIR}/tests/admin/v2/M19ChromiumTests.js" "$<TARGET_FILE:firefly-admin>"
+            "$<TARGET_FILE:m19_test_worker>" "${PROJECT_SOURCE_DIR}" "${FIREFLY_LANGUAGE_CHROMIUM}" "${PROJECT_BINARY_DIR}/m19-acceptance")
+        set_tests_properties(M19DemoVerticalSlice PROPERTIES TIMEOUT 180)
     endif()
 endif()
 
