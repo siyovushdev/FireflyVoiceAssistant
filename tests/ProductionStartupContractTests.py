@@ -15,20 +15,20 @@ import sys
 import tempfile
 import unittest
 
-BOARD = '/home/firefly/FireflyVoiceAssistantLinux'
-MODEL_ROOT = '/home/firefly/demo_Linux_aarch64'
+PREFIX = '/opt/firefly/voice-assistant'
 REQUIRED = {
     '--store': '/var/lib/firefly/store',
-    '--init-config': BOARD + '/config/empty-home.json',
-    '--model': MODEL_ROOT + '/Qwen3-4B_W8A8_RK3588_3core.rkllm',
+    '--init-config': PREFIX + '/current/share/firefly/config/empty-home.json',
+    '--model': PREFIX + '/models/runtime/Qwen3-4B_W8A8_RK3588_3core.rkllm',
+    '--admin-model': PREFIX + '/models/admin/Qwen3-4B_W8A8_CTX4096_RK3588_3core.rkllm',
     '--admin-bind': '127.0.0.1', '--admin-port': '8080',
     '--voice': True,
-    '--stt-model-dir': BOARD + '/build/stt/model',
-    '--vad-model': BOARD + '/build/stt/vad-ab/silero_vad.onnx',
+    '--stt-model-dir': PREFIX + '/models/stt',
+    '--vad-model': PREFIX + '/models/vad/silero_vad.onnx',
     '--audio-device': 'plughw:CARD=Array,DEV=0',
     '--wake-enabled': 'true',
-    '--wake-python': BOARD + '/build/wake-venv/bin/python',
-    '--wake-model': BOARD + '/assets/wake/amina-v3.tflite',
+    '--wake-python': PREFIX + '/current/share/firefly/wake/python/bin/python',
+    '--wake-model': PREFIX + '/current/share/firefly/wake/amina-v3.tflite',
     '--wake-cutoff': '0.99', '--wake-window': '7',
     '--playback-device': 'plughw:CARD=rockchipes8388,DEV=0',
 }
@@ -57,34 +57,39 @@ def assert_contract(options):
 
 class ProductionContract(unittest.TestCase):
     def test_unit_arguments_and_supervision(self):
+        text = (ROOT / 'packaging/firefly-voice-assistant.service').read_text()
+        self.assertNotIn('/home/firefly', text)
+        self.assertNotIn('LD_LIBRARY_PATH', text)
+        self.assertNotIn('demo_Linux_aarch64', text)
         unit = unit_at(ROOT)
         service = unit['Service']
         command = shlex.split(service['ExecStart'])
-        self.assertEqual(command[0], BOARD + '/build/firefly-demo')
+        self.assertEqual(command[0], PREFIX + '/current/bin/firefly-demo')
         assert_contract(arguments(command[1:]))
         for key, value in {
             'Type': 'simple', 'User': 'firefly', 'Group': 'firefly',
-            'WorkingDirectory': BOARD, 'Restart': 'on-failure', 'RestartSec': '5',
+            'WorkingDirectory': PREFIX + '/current', 'Restart': 'on-failure', 'RestartSec': '5',
             'TimeoutStopSec': '45', 'KillSignal': 'SIGTERM', 'KillMode': 'mixed',
             'NoNewPrivileges': 'true', 'PrivateTmp': 'true', 'ProtectSystem': 'strict',
             'ProtectHome': 'read-only', 'ReadWritePaths': '/var/lib/firefly/store',
             'StandardOutput': 'journal', 'StandardError': 'journal',
+            'SyslogIdentifier': 'firefly-voice-assistant',
         }.items():
             self.assertEqual(service[key], value, key)
-        self.assertEqual(shlex.split(service['Environment']), ['LD_LIBRARY_PATH=' + MODEL_ROOT + '/lib'])
+        self.assertNotIn('Environment', service)
         self.assertEqual(unit['Install']['WantedBy'], 'multi-user.target')
         self.assertEqual(unit['Unit']['StartLimitIntervalSec'], '120')
         self.assertEqual(unit['Unit']['StartLimitBurst'], '5')
         self.assertNotIn('ExecStartPre', service)
         self.assertNotIn('ExecStop', service)
-        # --voice used to be absent. Every mandatory flag is a failing mutation.
         for flag in REQUIRED:
             missing = dict(REQUIRED)
             del missing[flag]
             with self.assertRaises(AssertionError, msg=flag):
                 assert_contract(missing)
         for flag, value in [('--admin-bind', '0.0.0.0'), ('--wake-enabled', 'false'),
-                            ('--init-config', BOARD + '/config/current-m4.json')]:
+                            ('--init-config', PREFIX + '/config/current-m4.json'),
+                            ('--admin-model', '/home/firefly/demo_Linux_aarch64/Qwen3-4B_W8A8_CTX4096_RK3588_3core.rkllm')]:
             wrong = {**REQUIRED, flag: value}
             with self.assertRaises(AssertionError):
                 assert_contract(wrong)
@@ -92,25 +97,37 @@ class ProductionContract(unittest.TestCase):
     def test_helper_default_argv_matches_direct_unit(self):
         with tempfile.TemporaryDirectory(prefix='firefly-startup-contract-') as directory:
             root = Path(directory)
-            for name in ['scripts', 'build/stt/model', 'build/stt/vad-ab', 'build/wake-venv/bin', 'bin', 'store']:
-                (root / name).mkdir(parents=True, exist_ok=True)
-            helper = root / 'scripts/firefly-dialogue.sh'
+            prefix = root / 'prefix'
+            for name in [
+                'current/bin', 'current/share/firefly/config', 'current/share/firefly/wake/python/bin',
+                'models/runtime', 'models/admin', 'models/stt', 'models/vad',
+            ]:
+                (prefix / name).mkdir(parents=True, exist_ok=True)
+            (root / 'bin').mkdir()
+            (root / 'store').mkdir()
+            (prefix / 'current/share/firefly/config/empty-home.json').write_text('{"schema_version":2}\n')
+            (prefix / 'models/runtime/Qwen3-4B_W8A8_RK3588_3core.rkllm').write_text('runtime')
+            (prefix / 'models/admin/Qwen3-4B_W8A8_CTX4096_RK3588_3core.rkllm').write_text('admin')
+            (prefix / 'models/vad/silero_vad.onnx').write_text('vad')
+            (prefix / 'current/share/firefly/wake/amina-v3.tflite').write_text('amina')
+            helper = root / 'firefly-dialogue.sh'
             shutil.copyfile(ROOT / 'scripts/firefly-dialogue.sh', helper)
-            (root / 'build/stt/vad-ab/silero_vad.onnx').touch()
             for name, content in {
-                # Only replaces helper's read-only /proc competing-runtime guard.
                 'bin/python3': '#!/bin/sh\nexit 0\n',
-                'build/wake-venv/bin/python': '#!/bin/sh\nexit 0\n',
-                'build/firefly-demo': '#!' + sys.executable + '\nimport json, sys\nprint(json.dumps(sys.argv[1:]))\n',
+                'prefix/current/share/firefly/wake/python/bin/python': '#!/bin/sh\nexit 0\n',
+                'prefix/current/bin/firefly-demo': '#!' + sys.executable + '\nimport json, sys\nprint(json.dumps(sys.argv[1:]))\n',
             }.items():
                 path = root / name
                 path.write_text(content)
                 path.chmod(0o700)
-            env = {k: v for k, v in os.environ.items() if not k.startswith('FIREFLY_')}
+            env = {key: value for key, value in os.environ.items() if not key.startswith('FIREFLY_')}
             env['PATH'] = str(root / 'bin') + os.pathsep + env['PATH']
+            env['FIREFLY_PREFIX'] = str(prefix)
+
             def run(*extra):
                 return subprocess.run(['bash', str(helper), str(root / 'store'), *extra],
                                       env=env, text=True, capture_output=True, timeout=10)
+
             absent = run()
             self.assertEqual(absent.returncode, 2, absent.stderr)
             for existing in [False, True]:
@@ -118,9 +135,12 @@ class ProductionContract(unittest.TestCase):
                     (root / 'store/configuration.json').write_text('existing sentinel')
                 result = run('--new')
                 self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn('/home/firefly', result.stdout)
+                self.assertNotIn('demo_Linux_aarch64', result.stdout)
                 options = arguments(json.loads(result.stdout))
-                options = {k: v.replace(str(root), BOARD) if isinstance(v, str) else v for k, v in options.items()}
-                options['--store'] = REQUIRED['--store']  # helper deliberately accepts caller's private store
+                options = {key: value.replace(str(prefix), PREFIX) if isinstance(value, str) else value
+                           for key, value in options.items()}
+                options['--store'] = REQUIRED['--store']
                 assert_contract(options)
             result = run()
             self.assertEqual(result.returncode, 0, result.stderr)

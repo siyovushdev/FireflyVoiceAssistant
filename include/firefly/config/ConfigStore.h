@@ -14,6 +14,11 @@ struct StoredRevision { std::int64_t revision; std::string hash; std::int64_t ti
 enum class StoreStep { PruneUnlink, PruneDirectorySync, BackupWrite, BackupSync, BackupPublish, BackupDirectorySync,
                        Write, FileSync, Rename, DirectorySync };
 using StoreFault = std::function<void(StoreStep)>;
+// Read-only store check. Does not create a lock, reconcile, or write.
+// Enforces directory/file ownership, canonical bytes, schema validation,
+// and refuses an interrupted transaction marker.
+std::string inspectStore(const std::string& directory);
+
 class ConfigStore final {
 public:
     explicit ConfigStore(std::string directory, StoreFault fault = {});

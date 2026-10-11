@@ -40,7 +40,8 @@ struct Source : AudioSource {
 };
 void scenario(const std::string& outcome) {
     Source source; Wake wake; Detector detector; VoiceSegmenter segmenter(detector, {0,0,15000});
-    bool stopped = false, processing = false, checking = false;
+    std::atomic<bool> stopped{false};
+    bool processing = false, checking = false;
     int admissions = 0, emitted = 0, waits = 0, acks = 0;
     std::atomic<int> calls{0};
     std::vector<std::string> states;
@@ -63,6 +64,9 @@ void scenario(const std::string& outcome) {
             require(!u.audio.empty() && u.audio.front() == 0.25f, "Wake/pre-wake audio reached STT");
             VoiceResult result;
             if (outcome == "invalid") result.error = "Unknown/empty command";
+            // Hold the result until capture observes shutdown. A fast worker
+            // may otherwise finish before the next read requests stop.
+            if (outcome == "shutdown") while (!stopped.load()) std::this_thread::yield();
             return result;
         }, [&](const VoiceResult&) { ++emitted; },
         [&](const std::string& state) {
@@ -72,7 +76,7 @@ void scenario(const std::string& outcome) {
             if (state == "LISTENING_COMMAND") ++admissions;
             if (state == "WAITING_WAKE") { ++waits; processing = false; }
             if (state == "PROCESSING") processing = true;
-        }, [&] { return stopped; }, [&] { return now; });
+        }, [&] { return stopped.load(); }, [&] { return now; });
     require(states.back() == "stopped", "Shutdown missing");
     require(admissions == (outcome == "no-wake" ? 0 : 1), "Wake did not admit exactly one session");
     if (outcome == "no-wake" || outcome == "timeout") {

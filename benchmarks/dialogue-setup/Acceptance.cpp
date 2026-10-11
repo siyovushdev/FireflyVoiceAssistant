@@ -26,7 +26,8 @@ int main(int argc,char**argv){
   firefly::config::ConfigStore store(dir);
   auto base=store.initialize(firefly::config::ConfigLoader::fromFile(argc==3?argv[2]:"config/empty-home.json"));
   AdminTranscriber stt(std::make_unique<firefly::voice::SherpaRecognizer>("build/stt/model",firefly::voice::RecognitionProfile::AdminSetup));
-  RuntimeModel model("/home/firefly/demo_Linux_aarch64/Qwen3-4B_W8A8_RK3588_3core.rkllm");
+  RuntimeModel model("/home/firefly/demo_Linux_aarch64/Qwen3-4B_W8A8_RK3588_3core.rkllm",
+    "/home/firefly/demo_Linux_aarch64/Qwen3-4B_W8A8_CTX4096_RK3588_3core.rkllm");
   RuntimeWorker worker(model);
   const auto call=[&](const Json&request){
    if(cancelled)throw std::runtime_error("acceptance_cancelled_before_call");

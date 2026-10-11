@@ -4,6 +4,7 @@
 #include <chrono>
 #include "firefly/voice/VoiceProcessor.h"
 namespace firefly::admin {
+std::string buildIdentityJson();
 class RuntimeWorker final {
 public:
     explicit RuntimeWorker(ContextModel& model) : model_(model), generations_(model) {}

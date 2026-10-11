@@ -1,18 +1,29 @@
 #!/usr/bin/env bash
-# One appliance process. Model switching is owned by SetupSession/RuntimeModel.
-# Production argument parity is enforced by ProductionStartupContract.
-# See packaging/firefly-voice-assistant.service and docs/m18-production-startup.md.
+# One appliance process for the relocatable prefix.
+# Production supervision is the systemd unit, which execs firefly-demo directly.
+# Argument parity is enforced by ProductionStartupContract.
+# See packaging/firefly-voice-assistant.service and docs/m18-relocatable-production-packaging.md.
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 if [[ $# -ne 1 && $# -ne 2 ]] || [[ $# -eq 2 && "$2" != --new ]]; then
     echo "Usage: $0 STORE [--new]" >&2
     echo '--new initializes an absent configuration with an empty system; existing stores are preserved.' >&2
     exit 2
 fi
+PREFIX="${FIREFLY_PREFIX:-/opt/firefly/voice-assistant}"
+RELEASE="$PREFIX/current"
 STORE="$1"
+MODEL="$PREFIX/models/runtime/Qwen3-4B_W8A8_RK3588_3core.rkllm"
+ADMIN_MODEL="$PREFIX/models/admin/Qwen3-4B_W8A8_CTX4096_RK3588_3core.rkllm"
+STT="$PREFIX/models/stt"
+VAD="$PREFIX/models/vad/silero_vad.onnx"
+WAKE_PYTHON="$RELEASE/share/firefly/wake/python/bin/python"
+WAKE_MODEL="$RELEASE/share/firefly/wake/amina-v3.tflite"
+INIT_CONFIG="$RELEASE/share/firefly/config/empty-home.json"
+BIN="$RELEASE/bin/firefly-demo"
 INIT=()
 if [[ $# -eq 2 ]]; then
-    INIT=(--init-config "$ROOT/config/empty-home.json")
+    [[ -f "$INIT_CONFIG" ]] || { echo "Missing empty init config: $INIT_CONFIG" >&2; exit 1; }
+    INIT=(--init-config "$INIT_CONFIG")
 elif [[ ! -f "$STORE/configuration.json" ]]; then
     echo 'No confirmed configuration in STORE. Use --new only to create a new system.' >&2
     exit 2
@@ -28,15 +39,16 @@ for entry in Path('/proc').iterdir():
     except (PermissionError, FileNotFoundError, ProcessLookupError):
         pass
 PY
-STT="${FIREFLY_STT_MODEL_DIR:-$ROOT/build/stt/model}"
-VAD="${FIREFLY_VAD_MODEL:-$ROOT/build/stt/vad-ab/silero_vad.onnx}"
-WAKE_PYTHON="${FIREFLY_WAKE_PYTHON:-$ROOT/build/wake-venv/bin/python}"
-[[ -d "$STT" && -f "$VAD" && -x "$WAKE_PYTHON" ]] || { echo 'Local STT/VAD/wake dependencies are missing; see docs/dialogue-setup.md.' >&2; exit 1; }
-exec "$ROOT/build/firefly-demo" --store "$STORE" "${INIT[@]}" \
-    --model /home/firefly/demo_Linux_aarch64/Qwen3-4B_W8A8_RK3588_3core.rkllm \
+[[ -x "$BIN" && -f "$MODEL" && -f "$ADMIN_MODEL" && -d "$STT" && -f "$VAD" && -x "$WAKE_PYTHON" && -f "$WAKE_MODEL" ]] || {
+    echo "Relocatable runtime dependencies are missing under $PREFIX. See docs/m18-relocatable-production-packaging.md." >&2
+    exit 1
+}
+exec "$BIN" --store "$STORE" "${INIT[@]}" \
+    --model "$MODEL" \
+    --admin-model "$ADMIN_MODEL" \
     --admin-bind 127.0.0.1 --admin-port "${FIREFLY_ADMIN_PORT:-8080}" \
     --stt-model-dir "$STT" --voice --vad-model "$VAD" \
     --audio-device 'plughw:CARD=Array,DEV=0' --wake-enabled true \
-    --wake-python "$WAKE_PYTHON" --wake-model "$ROOT/assets/wake/amina-v3.tflite" \
+    --wake-python "$WAKE_PYTHON" --wake-model "$WAKE_MODEL" \
     --wake-cutoff 0.99 --wake-window 7 \
     --playback-device 'plughw:CARD=rockchipes8388,DEV=0'

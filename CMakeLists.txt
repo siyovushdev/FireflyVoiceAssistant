@@ -3,6 +3,8 @@ project(FireflyVoiceAssistantLinux VERSION 0.1.0 LANGUAGES CXX)
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
     message(FATAL_ERROR "FireflyVoiceAssistantLinux requires Linux/aarch64")
 endif()
+# Keep developer checkout paths out of __FILE__ strings in the production binary.
+add_compile_options("-ffile-prefix-map=${CMAKE_SOURCE_DIR}=.")
 
 option(FIREFLY_BUILD_ADMIN "Build local configuration admin and owned text runtime" ON)
 include(CTest)
@@ -181,8 +183,50 @@ file(MAKE_DIRECTORY "${PROJECT_BINARY_DIR}/share/firefly/wake")
 foreach(asset assets/wake/amina-v3.tflite assets/wake/manifest.json runtime/wake/amina_worker.py runtime/wake/requirements.txt)
     get_filename_component(name "${asset}" NAME)
     configure_file("${asset}" "${PROJECT_BINARY_DIR}/share/firefly/wake/${name}" COPYONLY)
-    install(FILES "${PROJECT_SOURCE_DIR}/${asset}" DESTINATION "${CMAKE_INSTALL_DATADIR}/firefly/wake")
+    install(FILES "${PROJECT_SOURCE_DIR}/${asset}" DESTINATION "${CMAKE_INSTALL_DATADIR}/firefly/wake" COMPONENT firefly-runtime)
 endforeach()
+install(PROGRAMS packaging/wake-python
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/firefly/wake/python/bin"
+    RENAME python
+    COMPONENT firefly-runtime)
+install(FILES config/empty-home.json
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/firefly/config"
+    COMPONENT firefly-runtime)
+if(TARGET firefly-demo)
+    install(TARGETS firefly-demo RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}" COMPONENT firefly-runtime)
+    if(NOT TARGET firefly-config)
+        message(FATAL_ERROR "Relocatable deployment requires FIREFLY_BUILD_CONFIG_TOOLS=ON")
+    endif()
+    target_compile_definitions(firefly-config PRIVATE FIREFLY_CONFIG_BUILD_IDENTITY)
+    target_include_directories(firefly-config PRIVATE "${PROJECT_BINARY_DIR}/src/admin")
+    install(TARGETS firefly-config RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}" COMPONENT firefly-runtime)
+    install(PROGRAMS scripts/stage-release.py
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/firefly/deployment/scripts" COMPONENT firefly-runtime)
+    install(FILES packaging/__init__.py packaging/firefly_release.py
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/firefly/deployment/packaging" COMPONENT firefly-runtime)
+endif()
+if(BUILD_TESTING AND FIREFLY_BUILD_VOICE AND FIREFLY_BUILD_ASSISTANT AND TARGET firefly-demo)
+    set(FIREFLY_PACKAGING_WAKE_SITE "")
+    if(FIREFLY_WAKE_PYTHON)
+        get_filename_component(FIREFLY_WAKE_BIN_DIR "${FIREFLY_WAKE_PYTHON}" DIRECTORY)
+        get_filename_component(FIREFLY_WAKE_VENV_DIR "${FIREFLY_WAKE_BIN_DIR}" DIRECTORY)
+        set(FIREFLY_PACKAGING_WAKE_SITE "${FIREFLY_WAKE_VENV_DIR}/lib/python3.10/site-packages")
+    endif()
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    if(NOT TARGET firefly-config)
+        message(FATAL_ERROR "Production packaging requires FIREFLY_BUILD_CONFIG_TOOLS=ON")
+    endif()
+    add_test(NAME ProductionPackaging COMMAND "${Python3_EXECUTABLE}"
+        "${PROJECT_SOURCE_DIR}/tests/ProductionPackagingTests.py"
+        "--source" "${PROJECT_SOURCE_DIR}"
+        "--build" "${CMAKE_BINARY_DIR}"
+        "--rkllm-library" "${RKLLM_LIBRARY}"
+        "--sherpa-library" "${SHERPA_ONNX_LIBRARY}"
+        "--onnx-library" "${SHERPA_ONNX_ROOT}/lib/libonnxruntime.so"
+        "--wake-site" "${FIREFLY_PACKAGING_WAKE_SITE}"
+        "--config-tool" "$<TARGET_FILE:firefly-config>")
+    set_tests_properties(ProductionPackaging PROPERTIES TIMEOUT 300)
+endif()
 set(FIREFLY_WAKE_PYTHON "" CACHE FILEPATH "Optional Python with frozen KWS packages for CPU backend tests")
 if(BUILD_TESTING AND FIREFLY_WAKE_PYTHON)
     add_test(NAME AminaStreamingBackend COMMAND "${FIREFLY_WAKE_PYTHON}" "${PROJECT_SOURCE_DIR}/tests/WakeWorkerTests.py" "${PROJECT_SOURCE_DIR}")

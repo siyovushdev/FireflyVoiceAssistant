@@ -91,6 +91,11 @@ void scenario(const std::string& mode, const std::string& text = "амина в�
     });
     VoiceProcessor processor(recognizer,engine);
     source.next = [&] {
+        // Once the 256 ms grace is captured, pace pending probe frames at
+        // their actual duration. Pumping 32 ms of virtual audio per 1 ms
+        // future wait makes thread scheduling consume the fake latency budget.
+        if (phase == "CHECKING_CONTINUATION" && time - detected >= std::chrono::milliseconds(256))
+            std::this_thread::sleep_for(std::chrono::milliseconds(32));
         time += std::chrono::milliseconds(32); ++reads;
         require(reads < 200000, "Loop stalled");
         if ((mode == "stop-check" && phase == "CHECKING_CONTINUATION") ||

@@ -3,18 +3,18 @@ import copy, os, json, pathlib, subprocess, sys, tempfile, time, urllib.request,
 app, worker, root = sys.argv[1:]
 with tempfile.TemporaryDirectory(prefix='firefly-b3-api-') as temp:
     pathlib.Path(temp, 'store').mkdir(mode=0o700)
-    log = open(pathlib.Path(temp)/'server.log', 'w+')
+    log_path = pathlib.Path(temp)/'server.log'
+    log = open(log_path, 'a')
     gate = pathlib.Path(temp, 'entry-gate'); gate.touch()
     process = subprocess.Popen([app, '--store', temp+'/store', '--init-config', root+'/config/empty-home.json', '--runtime-worker', worker, '--admin-port', '0'], stdout=log, stderr=log, env={**os.environ,'FIREFLY_B3_ENTRY_GATE':str(gate)})
     try:
         url = None
         for _ in range(200):
-            log.flush(); log.seek(0)
-            for line in log.read().splitlines():
+            for line in log_path.read_text().splitlines():
                 if line.startswith('ADMIN_LISTEN '): url = line.split()[1]
             if url: break
             time.sleep(.05)
-        assert url, 'server startup'
+        assert url, ('server startup', process.poll(), log_path.read_text())
         def call(path, body=None, code=200):
             request = urllib.request.Request(url+path, data=None if body is None else json.dumps(body).encode(), headers={'Content-Type':'application/json', 'Origin':url,'X-Firefly-Admin':'1'})
             try:
@@ -22,6 +22,16 @@ with tempfile.TemporaryDirectory(prefix='firefly-b3-api-') as temp:
             except urllib.error.HTTPError as error: status, data = error.code, json.load(error)
             assert status in (code if isinstance(code, tuple) else (code,)), (path,status,data)
             return data
+        def await_available(path, body):
+            # Published setup status can precede release of the session lock
+            # while the draft is fsynced. Retry only this documented busy state.
+            deadline = time.monotonic() + 10
+            while True:
+                data = call(path, body, (200,409))
+                if data.get('ok'): return data
+                assert data['errors'][0]['message'] == 'setup_busy', (path, data)
+                assert time.monotonic() < deadline, (path, data)
+                time.sleep(.02)
         for _ in range(200):
             if call('/api/status')['runtime_ready']: break
             time.sleep(.05)
@@ -29,7 +39,7 @@ with tempfile.TemporaryDirectory(prefix='firefly-b3-api-') as temp:
         state = call('/api/setup/start', {'async_enter':True}); token = state['session_id']
         assert state['status'] == 'entering' and token
         assert 'session_id' not in call('/api/setup/status')
-        assert call('/api/setup/heartbeat', {'session_id':token})['status'] == 'entering'
+        assert await_available('/api/setup/heartbeat', {'session_id':token})['status'] == 'entering'
         call('/api/setup/heartbeat', {'session_id':'second-browser'},409)
         call('/api/setup/start', {'async_enter':True},409)
         for route in ['message','draft','apply','authorize']:
@@ -42,7 +52,7 @@ with tempfile.TemporaryDirectory(prefix='firefly-b3-api-') as temp:
             time.sleep(.02)
         assert call('/api/setup/status')['status'] == 'cancelled_draft_saved'
         assert call('/api/config')['hash'] == original['hash']
-        state = call('/api/setup/resume', {'async_enter':True}); token = state['session_id']
+        state = await_available('/api/setup/resume', {'async_enter':True}); token = state['session_id']
         for _ in range(200):
             state = call('/api/setup/heartbeat', {'session_id':token}, (200,409))
             if state.get('status') == 'editing': break

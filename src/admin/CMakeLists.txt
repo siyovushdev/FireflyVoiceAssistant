@@ -3,6 +3,11 @@ file(READ "${PROJECT_SOURCE_DIR}/config/admin-templates.json" FIREFLY_ADMIN_TEMP
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/config/admin-templates.json")
 configure_file(AdminTemplates.h.in AdminTemplates.h @ONLY)
 execute_process(COMMAND git rev-parse HEAD WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}" OUTPUT_VARIABLE FIREFLY_BUILD_HEAD OUTPUT_STRIP_TRAILING_WHITESPACE)
+execute_process(COMMAND git status --porcelain --untracked-files=normal WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}" OUTPUT_VARIABLE FIREFLY_BUILD_STATUS OUTPUT_STRIP_TRAILING_WHITESPACE)
+set(FIREFLY_BUILD_DIRTY false)
+if(FIREFLY_BUILD_STATUS)
+    set(FIREFLY_BUILD_DIRTY true)
+endif()
 string(TIMESTAMP FIREFLY_BUILD_TIME "%Y-%m-%dT%H:%M:%SZ" UTC)
 # Enumerate source subtrees without hashing frontend dependencies/build outputs.
 # A recursive src/* glob would start monitoring node_modules and reconfigure on npm ci.
@@ -17,8 +22,9 @@ foreach(child IN LISTS FIREFLY_SOURCE_CHILDREN)
     endif()
 endforeach()
 file(GLOB admin_inputs CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/*.h" "${CMAKE_CURRENT_SOURCE_DIR}/*.in" "${CMAKE_CURRENT_SOURCE_DIR}/*.txt" "${CMAKE_CURRENT_SOURCE_DIR}/frontend/*.json" "${CMAKE_CURRENT_SOURCE_DIR}/frontend/*.ts" "${CMAKE_CURRENT_SOURCE_DIR}/frontend/*.html")
-file(GLOB_RECURSE other_inputs CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/include/*" "${PROJECT_SOURCE_DIR}/config/*" "${CMAKE_CURRENT_SOURCE_DIR}/frontend/src/*")
+file(GLOB_RECURSE other_inputs CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/include/*" "${PROJECT_SOURCE_DIR}/config/*" "${PROJECT_SOURCE_DIR}/third_party/*" "${CMAKE_CURRENT_SOURCE_DIR}/frontend/src/*")
 list(APPEND FIREFLY_BUILD_INPUTS ${admin_inputs} ${other_inputs})
+list(APPEND FIREFLY_BUILD_INPUTS "${PROJECT_SOURCE_DIR}/CMakeLists.txt" "${PROJECT_SOURCE_DIR}/scripts/package-admin-v2.py")
 list(SORT FIREFLY_BUILD_INPUTS)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${FIREFLY_BUILD_INPUTS})
 set(FIREFLY_SOURCE_MANIFEST "")
@@ -27,7 +33,6 @@ foreach(input IN LISTS FIREFLY_BUILD_INPUTS)
     string(APPEND FIREFLY_SOURCE_MANIFEST "${input}:${digest}\n")
 endforeach()
 string(SHA256 FIREFLY_BUILD_SOURCE "${FIREFLY_SOURCE_MANIFEST}")
-configure_file(AdminBuild.h.in AdminBuild.h @ONLY)
 add_library(firefly_execution
     ../execution/MockDeviceExecutor.cpp
     ../execution/BoundDeviceExecutor.cpp
@@ -57,6 +62,16 @@ endif()
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 set(v2_assets "${CMAKE_CURRENT_BINARY_DIR}/AdminV2Bundle.h")
 file(GLOB_RECURSE v2_inputs CONFIGURE_DEPENDS "${FIREFLY_ADMIN_DIST_DIR}/*")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${v2_inputs})
+set(FIREFLY_ASSETS_MANIFEST "")
+list(SORT v2_inputs)
+foreach(input IN LISTS v2_inputs)
+    file(SHA256 "${input}" digest)
+    file(RELATIVE_PATH relative "${FIREFLY_ADMIN_DIST_DIR}" "${input}")
+    string(APPEND FIREFLY_ASSETS_MANIFEST "${relative}:${digest}\n")
+endforeach()
+string(SHA256 FIREFLY_BUILD_ASSETS "${FIREFLY_ASSETS_MANIFEST}")
+configure_file(AdminBuild.h.in AdminBuild.h @ONLY)
 add_custom_command(OUTPUT "${v2_assets}"
     COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/scripts/package-admin-v2.py" "${FIREFLY_ADMIN_DIST_DIR}" "${v2_assets}"
     DEPENDS ${v2_inputs} "${PROJECT_SOURCE_DIR}/scripts/package-admin-v2.py"
@@ -76,6 +91,12 @@ if(FIREFLY_BUILD_ASSISTANT)
         target_compile_definitions(firefly-demo PRIVATE FIREFLY_WITH_VOICE)
         target_link_libraries(firefly-demo PRIVATE firefly_speech)
     endif()
+    # Build-tree RUNPATH stays absolute so ./build/firefly-demo can find the SDK.
+    # cmake --install rewrites it to $ORIGIN/../lib for the relocatable package.
+    set_target_properties(firefly-demo PROPERTIES
+        INSTALL_RPATH "\$ORIGIN/../lib"
+        INSTALL_RPATH_USE_LINK_PATH OFF
+        BUILD_WITH_INSTALL_RPATH OFF)
     add_executable(firefly-admin-runtime WorkerMain.cpp)
     target_link_libraries(firefly-admin-runtime PRIVATE firefly_admin_transport firefly_rkllm)
     set_target_properties(firefly-admin-runtime PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}")

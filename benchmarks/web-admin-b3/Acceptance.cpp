@@ -24,7 +24,8 @@ int main(int argc,char**argv) {
     try {
         firefly::config::ConfigStore store(directory);
         const auto baseline=store.initialize(firefly::config::ConfigLoader::fromFile("config/empty-home.json"));
-        RuntimeModel model("/home/firefly/demo_Linux_aarch64/Qwen3-4B_W8A8_RK3588_3core.rkllm");
+        RuntimeModel model("/home/firefly/demo_Linux_aarch64/Qwen3-4B_W8A8_RK3588_3core.rkllm",
+            "/home/firefly/demo_Linux_aarch64/Qwen3-4B_W8A8_CTX4096_RK3588_3core.rkllm");
         RuntimeWorker worker(model);
         const auto call=[&](const Json& request) {
             if(interrupted)throw std::runtime_error("cancelled");
