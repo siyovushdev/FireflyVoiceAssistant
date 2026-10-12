@@ -1,0 +1,93 @@
+{
+  "original_root": "/home/firefly/firefly-safety-rollout3-20261012T125224Z",
+  "ledger_sha256": "6601083c39ee3eccab3d1f139483a2d6dba4373f65bf1c40ec6d14dc1ef3fd97",
+  "verified_count": 107,
+  "originals_unchanged": true,
+  "sources": {
+    "FINAL-ROLLOUT-REPORT.json": "128e4321bcaf8510378708604e6a822e8eee165a7c2dc74c83040dab6cbff679",
+    "launcher-systemd-fixture/startup_failure/result.json": "4053c5ff0eb2f587886a2f4b187a66250031abd705abae422bd1982b2d65acc2",
+    "launcher-systemd-fixture/startup_failure/events.jsonl": "b27ee94a1f3f788a2c84447a7885be24d2e7054270886321103b1d32fb4cf6ef",
+    "launcher-systemd-fixture/startup_failure/journal.jsonl": "4a6254be876b1d6a2c1359d9702733f927706c61d881e3b20ad622c0d41c5b57",
+    "failed-fixture-terminal.txt": "42191ef3dc5f6a7806a21697f9ca95dbbf599e32adee3fa480de42fa665ff2c5"
+  },
+  "race_observation": {
+    "state": "FORWARD_FAILED",
+    "unit": "firefly-launcher-fixture-startup_failure-zi31pv4l-worker.service",
+    "observation": {
+      "active": "failed",
+      "sub": "failed",
+      "job": [
+        0,
+        "/"
+      ],
+      "pid": 484205,
+      "control_pid": 0,
+      "result": "success",
+      "exit_code": 0,
+      "exit_status": 0,
+      "exited_monotonic_us": 0
+    }
+  },
+  "actual_worker_pid": 484205,
+  "journal_excerpt": [
+    {
+      "timestamp_us": "1791809580935519",
+      "pid": "1",
+      "message": "Started /usr/bin/python3 /run/firefly-launcher-fixture-startup_failure-zi31pv4l/rollback.py /run/firefly-launcher-fixture-startup_failure-zi31pv4l firefly-launcher-fixture-startup_failure-zi31pv4l-worker.service."
+    },
+    {
+      "timestamp_us": "1791809580976738",
+      "pid": "1",
+      "message": "Starting /usr/bin/python3 /run/firefly-launcher-fixture-startup_failure-zi31pv4l/nonexistent-worker.py..."
+    },
+    {
+      "timestamp_us": "1791809581023414",
+      "pid": "484205",
+      "message": "/usr/bin/python3: can't open file '/run/firefly-launcher-fixture-startup_failure-zi31pv4l/nonexistent-worker.py': [Errno 2] No such file or directory"
+    },
+    {
+      "timestamp_us": "1791809581030353",
+      "pid": "1",
+      "message": "firefly-launcher-fixture-startup_failure-zi31pv4l-worker.service: Main process exited, code=exited, status=2/INVALIDARGUMENT"
+    },
+    {
+      "timestamp_us": "1791809581033786",
+      "pid": "1",
+      "message": "firefly-launcher-fixture-startup_failure-zi31pv4l-worker.service: Failed with result 'exit-code'."
+    },
+    {
+      "timestamp_us": "1791809581033959",
+      "pid": "1",
+      "message": "Failed to start /usr/bin/python3 /run/firefly-launcher-fixture-startup_failure-zi31pv4l/nonexistent-worker.py."
+    }
+  ],
+  "raw_original_files": [
+    {
+      "source": "/home/firefly/firefly-safety-rollout3-20261012T125224Z/launcher-systemd-fixture/startup_failure/result.json",
+      "source_sha256": "4053c5ff0eb2f587886a2f4b187a66250031abd705abae422bd1982b2d65acc2",
+      "raw_bundle_file": "rollout3/launcher-systemd-fixture/startup_failure/result.json"
+    },
+    {
+      "source": "/home/firefly/firefly-safety-rollout3-20261012T125224Z/launcher-systemd-fixture/startup_failure/events.jsonl",
+      "source_sha256": "b27ee94a1f3f788a2c84447a7885be24d2e7054270886321103b1d32fb4cf6ef",
+      "raw_bundle_file": "rollout3/launcher-systemd-fixture/startup_failure/events.jsonl"
+    },
+    {
+      "source": "/home/firefly/firefly-safety-rollout3-20261012T125224Z/launcher-systemd-fixture/startup_failure/journal.jsonl",
+      "source_sha256": "4a6254be876b1d6a2c1359d9702733f927706c61d881e3b20ad622c0d41c5b57",
+      "raw_bundle_file": "rollout3/launcher-systemd-fixture/startup_failure/journal.jsonl"
+    },
+    {
+      "source": "/home/firefly/firefly-safety-rollout3-20261012T125224Z/failed-fixture-terminal.txt",
+      "source_sha256": "42191ef3dc5f6a7806a21697f9ca95dbbf599e32adee3fa480de42fa665ff2c5",
+      "raw_bundle_file": "rollout3/failed-fixture-terminal.txt"
+    }
+  ],
+  "baseline_regression": {
+    "source": "/home/firefly/firefly-observation-race-20261012T131432Z/launcher-before-fix.log",
+    "sha256": "2c66bd3760ac55acdde88f6411e4c71ae201dc4dcd9bd2edb24d13e3c82b65de",
+    "expected_failure": "test_worker_fails_between_service_and_unit_queries: AssertionError: 0 != 2",
+    "launcher_under_test": "master c12da76491e621687916e6d8ae5353ab51190b0d; existing 13 tests passed, new regression failed"
+  },
+  "interpretation": "Separate Service/Unit reads crossed process exit. The old launcher returned FORWARD_FAILED with the running Service PID and stale exit status 0; journal/terminal evidence confirm actual exit 2. No production cutover occurred."
+}

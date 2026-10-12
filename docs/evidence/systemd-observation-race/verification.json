@@ -1,0 +1,481 @@
+{
+  "base_commit": "c12da76491e621687916e6d8ae5353ab51190b0d",
+  "tested_identity": "Working-tree operator-only patch; tested launcher/test SHA256 below identifies the committed bytes. No runtime build/deployment.",
+  "code_sha256": {
+    "scripts/deployment-launcher.py": "34e0ee88f57460226811c00561d68f0ae7113a9e4a44bd0291a6300a3f6174b3",
+    "tests/DeploymentLauncherTests.py": "cd81d959acf6a0b636371b5a33ac074fc1c91cc856584fb6ee74188af5836ac9",
+    "tests/DeploymentLauncherSystemdTests.py": "68196d00eb0d793434ed1d4f76574811e940f47fcf2875cf6284dd38c2f31d12",
+    "scripts/production-rollout.py": "1a3b560102a69d0262ff6287b556ce0df857153d36feb24c7038d775f6d02025",
+    "packaging/firefly_recovery.py": "cf9d3983660788ec54bc32ae14d321cae812ef734de5b2ee8da566ca32e00182"
+  },
+  "fix": "Require two consecutive identical complete terminal samples, no job/MainPID/ControlPID, real exit code and exit timestamp, and the unchanged strict success predicate. Errors/incomplete/changed samples reset confirmation. Original deadline bounds both confirmation and retries.",
+  "tests": {
+    "launcher_existing": 13,
+    "launcher_new": 4,
+    "launcher_pass_total": 17,
+    "recovery_pass_total": 34,
+    "ctest_targeted_pass": 2,
+    "file_only_runs": [
+      {
+        "run": 1,
+        "pass_cases": 5,
+        "total_cases": 5,
+        "summary_source": "/home/firefly/firefly-observation-race-20261012T131432Z/systemd-fixture-run1/summary.json",
+        "summary_sha256": "1d7347cd1b458948325bae2cccb59c306ce86a8ed847da0cbd33946722720bb2",
+        "cases": [
+          {
+            "case": "old_client_timeout",
+            "pass": true,
+            "outcome": "BASELINE_REPRODUCED",
+            "submission_seconds": null,
+            "observation_seconds": null,
+            "terminal_observation": null,
+            "fixture_restoration": {
+              "release": "old",
+              "ready": true,
+              "events": [
+                "stop",
+                "atomic-switch-old",
+                "start",
+                "verify-store-health-ownership"
+              ],
+              "pid": 490560,
+              "ppid": 1,
+              "monotonic": 103509.028081258,
+              "scope": "file-only fixture"
+            },
+            "independent_timer_active_after_observation": {
+              "type": "s",
+              "data": "active"
+            },
+            "raw_result": "systemd-fixture-run1/old_client_timeout/result.json"
+          },
+          {
+            "case": "success",
+            "pass": true,
+            "outcome": "WORKER_SUCCEEDED",
+            "submission_seconds": 0.01477682999393437,
+            "observation_seconds": 17.79382062998775,
+            "terminal_observation": {
+              "active": "active",
+              "sub": "exited",
+              "job": [
+                0,
+                "/"
+              ],
+              "pid": 0,
+              "control_pid": 0,
+              "result": "success",
+              "exit_code": 1,
+              "exit_status": 0,
+              "exited_monotonic_us": 103502358395
+            },
+            "fixture_restoration": {
+              "release": "old",
+              "ready": true,
+              "events": [
+                "stop",
+                "atomic-switch-old",
+                "start",
+                "verify-store-health-ownership"
+              ],
+              "pid": 490562,
+              "ppid": 1,
+              "monotonic": 103509.078225289,
+              "scope": "file-only fixture"
+            },
+            "independent_timer_active_after_observation": {
+              "type": "s",
+              "data": "active"
+            },
+            "raw_result": "systemd-fixture-run1/success/result.json"
+          },
+          {
+            "case": "worker_failure",
+            "pass": true,
+            "outcome": "FORWARD_FAILED",
+            "submission_seconds": 0.031237559000146575,
+            "observation_seconds": 17.77617513599398,
+            "terminal_observation": {
+              "active": "failed",
+              "sub": "failed",
+              "job": [
+                0,
+                "/"
+              ],
+              "pid": 0,
+              "control_pid": 0,
+              "result": "exit-code",
+              "exit_code": 1,
+              "exit_status": 42,
+              "exited_monotonic_us": 103502405507
+            },
+            "fixture_restoration": {
+              "release": "old",
+              "ready": true,
+              "events": [
+                "stop",
+                "atomic-switch-old",
+                "start",
+                "verify-store-health-ownership"
+              ],
+              "pid": 490563,
+              "ppid": 1,
+              "monotonic": 103509.085726476,
+              "scope": "file-only fixture"
+            },
+            "independent_timer_active_after_observation": {
+              "type": "s",
+              "data": "active"
+            },
+            "raw_result": "systemd-fixture-run1/worker_failure/result.json"
+          },
+          {
+            "case": "startup_failure",
+            "pass": true,
+            "outcome": "FORWARD_FAILED",
+            "submission_seconds": 0.02779767800529953,
+            "observation_seconds": 0.49059127199871,
+            "terminal_observation": {
+              "active": "failed",
+              "sub": "failed",
+              "job": [
+                0,
+                "/"
+              ],
+              "pid": 0,
+              "control_pid": 0,
+              "result": "exit-code",
+              "exit_code": 1,
+              "exit_status": 2,
+              "exited_monotonic_us": 103485353573
+            },
+            "fixture_restoration": {
+              "release": "old",
+              "ready": true,
+              "events": [
+                "stop",
+                "atomic-switch-old",
+                "start",
+                "verify-store-health-ownership"
+              ],
+              "pid": 490561,
+              "ppid": 1,
+              "monotonic": 103509.077527612,
+              "scope": "file-only fixture"
+            },
+            "independent_timer_active_after_observation": {
+              "type": "s",
+              "data": "active"
+            },
+            "raw_result": "systemd-fixture-run1/startup_failure/result.json"
+          },
+          {
+            "case": "observation_deadline",
+            "pass": true,
+            "outcome": "OBSERVATION_DEADLINE",
+            "submission_seconds": 0.02692724899679888,
+            "observation_seconds": 3.0285463170002913,
+            "terminal_observation": {
+              "active": "activating",
+              "sub": "start",
+              "job": [
+                9925,
+                "/org/freedesktop/systemd1/job/9925"
+              ],
+              "pid": 490001,
+              "control_pid": 0,
+              "result": "success",
+              "exit_code": 0,
+              "exit_status": 0,
+              "exited_monotonic_us": 0
+            },
+            "fixture_restoration": {
+              "release": "old",
+              "ready": true,
+              "events": [
+                "stop",
+                "atomic-switch-old",
+                "start",
+                "verify-store-health-ownership"
+              ],
+              "pid": 490267,
+              "ppid": 1,
+              "monotonic": 103494.023373665,
+              "scope": "file-only fixture"
+            },
+            "independent_timer_active_after_observation": {
+              "type": "s",
+              "data": "active"
+            },
+            "raw_result": "systemd-fixture-run1/observation_deadline/result.json"
+          }
+        ]
+      },
+      {
+        "run": 2,
+        "pass_cases": 5,
+        "total_cases": 5,
+        "summary_source": "/home/firefly/firefly-observation-race-20261012T131432Z/systemd-fixture-run2/summary.json",
+        "summary_sha256": "f1273c4e6694dc74763b3c43d23254b394776ff5cd2c80bf7f37ceda48d8ffc6",
+        "cases": [
+          {
+            "case": "old_client_timeout",
+            "pass": true,
+            "outcome": "BASELINE_REPRODUCED",
+            "submission_seconds": null,
+            "observation_seconds": null,
+            "terminal_observation": null,
+            "fixture_restoration": {
+              "release": "old",
+              "ready": true,
+              "events": [
+                "stop",
+                "atomic-switch-old",
+                "start",
+                "verify-store-health-ownership"
+              ],
+              "pid": 491231,
+              "ppid": 1,
+              "monotonic": 103545.762921326,
+              "scope": "file-only fixture"
+            },
+            "independent_timer_active_after_observation": {
+              "type": "s",
+              "data": "active"
+            },
+            "raw_result": "systemd-fixture-run2/old_client_timeout/result.json"
+          },
+          {
+            "case": "success",
+            "pass": true,
+            "outcome": "WORKER_SUCCEEDED",
+            "submission_seconds": 0.037734899000497535,
+            "observation_seconds": 17.639884293996147,
+            "terminal_observation": {
+              "active": "active",
+              "sub": "exited",
+              "job": [
+                0,
+                "/"
+              ],
+              "pid": 0,
+              "control_pid": 0,
+              "result": "success",
+              "exit_code": 1,
+              "exit_status": 0,
+              "exited_monotonic_us": 103539062031
+            },
+            "fixture_restoration": {
+              "release": "old",
+              "ready": true,
+              "events": [
+                "stop",
+                "atomic-switch-old",
+                "start",
+                "verify-store-health-ownership"
+              ],
+              "pid": 491233,
+              "ppid": 1,
+              "monotonic": 103545.833875063,
+              "scope": "file-only fixture"
+            },
+            "independent_timer_active_after_observation": {
+              "type": "s",
+              "data": "active"
+            },
+            "raw_result": "systemd-fixture-run2/success/result.json"
+          },
+          {
+            "case": "worker_failure",
+            "pass": true,
+            "outcome": "FORWARD_FAILED",
+            "submission_seconds": 0.022988902986980975,
+            "observation_seconds": 17.654553289990872,
+            "terminal_observation": {
+              "active": "failed",
+              "sub": "failed",
+              "job": [
+                0,
+                "/"
+              ],
+              "pid": 0,
+              "control_pid": 0,
+              "result": "exit-code",
+              "exit_code": 1,
+              "exit_status": 42,
+              "exited_monotonic_us": 103539059553
+            },
+            "fixture_restoration": {
+              "release": "old",
+              "ready": true,
+              "events": [
+                "stop",
+                "atomic-switch-old",
+                "start",
+                "verify-store-health-ownership"
+              ],
+              "pid": 491234,
+              "ppid": 1,
+              "monotonic": 103545.828176401,
+              "scope": "file-only fixture"
+            },
+            "independent_timer_active_after_observation": {
+              "type": "s",
+              "data": "active"
+            },
+            "raw_result": "systemd-fixture-run2/worker_failure/result.json"
+          },
+          {
+            "case": "startup_failure",
+            "pass": true,
+            "outcome": "FORWARD_FAILED",
+            "submission_seconds": 0.024928222002927214,
+            "observation_seconds": 0.4899629800056573,
+            "terminal_observation": {
+              "active": "failed",
+              "sub": "failed",
+              "job": [
+                0,
+                "/"
+              ],
+              "pid": 0,
+              "control_pid": 0,
+              "result": "exit-code",
+              "exit_code": 1,
+              "exit_status": 2,
+              "exited_monotonic_us": 103521988813
+            },
+            "fixture_restoration": {
+              "release": "old",
+              "ready": true,
+              "events": [
+                "stop",
+                "atomic-switch-old",
+                "start",
+                "verify-store-health-ownership"
+              ],
+              "pid": 491232,
+              "ppid": 1,
+              "monotonic": 103545.835735631,
+              "scope": "file-only fixture"
+            },
+            "independent_timer_active_after_observation": {
+              "type": "s",
+              "data": "active"
+            },
+            "raw_result": "systemd-fixture-run2/startup_failure/result.json"
+          },
+          {
+            "case": "observation_deadline",
+            "pass": true,
+            "outcome": "OBSERVATION_DEADLINE",
+            "submission_seconds": 0.015693926005042158,
+            "observation_seconds": 3.0167885730043054,
+            "terminal_observation": {
+              "active": "activating",
+              "sub": "start",
+              "job": [
+                10856,
+                "/org/freedesktop/systemd1/job/10856"
+              ],
+              "pid": 490661,
+              "control_pid": 0,
+              "result": "success",
+              "exit_code": 0,
+              "exit_status": 0,
+              "exited_monotonic_us": 0
+            },
+            "fixture_restoration": {
+              "release": "old",
+              "ready": true,
+              "events": [
+                "stop",
+                "atomic-switch-old",
+                "start",
+                "verify-store-health-ownership"
+              ],
+              "pid": 490947,
+              "ppid": 1,
+              "monotonic": 103530.758663686,
+              "scope": "file-only fixture"
+            },
+            "independent_timer_active_after_observation": {
+              "type": "s",
+              "data": "active"
+            },
+            "raw_result": "systemd-fixture-run2/observation_deadline/result.json"
+          }
+        ]
+      }
+    ]
+  },
+  "unchanged": {
+    "controller": true,
+    "recovery_helper": true,
+    "systemd_fixture_tests": true,
+    "SafetyGate_voice_models_ConfigStore": true
+  },
+  "production": {
+    "pid": 467978,
+    "release": "wake-beep-dc7b142e-20261011",
+    "build_head": "dc7b142e4acae74d178a2583cdc1568ec4de8ee8",
+    "voice": "WAITING_WAKE",
+    "ready": true,
+    "stt_ready": true,
+    "microphone": "connected",
+    "store_hash": "688690e892d2f59413cdc2f7d81f1e129ab9ac0dd247f84b2898d74c3c3cdd18",
+    "full_bytes_modes_owners_timestamps_unchanged": true,
+    "unit_argv_pid_release_unchanged": true,
+    "stops_restarts_deployments": 0,
+    "NPU_or_microphone_tests": 0,
+    "before": {
+      "source": "/home/firefly/firefly-observation-race-20261012T131432Z/production-before.json",
+      "sha256": "9545cfadc8cc8edbc59c719db966e0528c38ab43206946d79026f21e9b6b65a6"
+    },
+    "after": {
+      "source": "/home/firefly/firefly-observation-race-20261012T131432Z/production-after.json",
+      "sha256": "68fd055e846964bcbbdbe2061ee2074708fdda86a9906a3d911c8b1dc5611f37"
+    },
+    "limitation": "Original dc7b142e remains installed. This PR fixes observation only; no new SafetyGate deployment or acoustic test."
+  },
+  "fixture_source_pins": {
+    "systemd-fixture-run1/old_client_timeout/scripts/deployment-launcher.py": "34e0ee88f57460226811c00561d68f0ae7113a9e4a44bd0291a6300a3f6174b3",
+    "systemd-fixture-run1/old_client_timeout/scripts/production-rollout.py": "1a3b560102a69d0262ff6287b556ce0df857153d36feb24c7038d775f6d02025",
+    "systemd-fixture-run1/old_client_timeout/packaging/firefly_recovery.py": "cf9d3983660788ec54bc32ae14d321cae812ef734de5b2ee8da566ca32e00182",
+    "systemd-fixture-run1/success/scripts/deployment-launcher.py": "34e0ee88f57460226811c00561d68f0ae7113a9e4a44bd0291a6300a3f6174b3",
+    "systemd-fixture-run1/success/scripts/production-rollout.py": "1a3b560102a69d0262ff6287b556ce0df857153d36feb24c7038d775f6d02025",
+    "systemd-fixture-run1/success/packaging/firefly_recovery.py": "cf9d3983660788ec54bc32ae14d321cae812ef734de5b2ee8da566ca32e00182",
+    "systemd-fixture-run1/worker_failure/scripts/deployment-launcher.py": "34e0ee88f57460226811c00561d68f0ae7113a9e4a44bd0291a6300a3f6174b3",
+    "systemd-fixture-run1/worker_failure/scripts/production-rollout.py": "1a3b560102a69d0262ff6287b556ce0df857153d36feb24c7038d775f6d02025",
+    "systemd-fixture-run1/worker_failure/packaging/firefly_recovery.py": "cf9d3983660788ec54bc32ae14d321cae812ef734de5b2ee8da566ca32e00182",
+    "systemd-fixture-run1/startup_failure/scripts/deployment-launcher.py": "34e0ee88f57460226811c00561d68f0ae7113a9e4a44bd0291a6300a3f6174b3",
+    "systemd-fixture-run1/startup_failure/scripts/production-rollout.py": "1a3b560102a69d0262ff6287b556ce0df857153d36feb24c7038d775f6d02025",
+    "systemd-fixture-run1/startup_failure/packaging/firefly_recovery.py": "cf9d3983660788ec54bc32ae14d321cae812ef734de5b2ee8da566ca32e00182",
+    "systemd-fixture-run1/observation_deadline/scripts/deployment-launcher.py": "34e0ee88f57460226811c00561d68f0ae7113a9e4a44bd0291a6300a3f6174b3",
+    "systemd-fixture-run1/observation_deadline/scripts/production-rollout.py": "1a3b560102a69d0262ff6287b556ce0df857153d36feb24c7038d775f6d02025",
+    "systemd-fixture-run1/observation_deadline/packaging/firefly_recovery.py": "cf9d3983660788ec54bc32ae14d321cae812ef734de5b2ee8da566ca32e00182",
+    "systemd-fixture-run2/old_client_timeout/scripts/deployment-launcher.py": "34e0ee88f57460226811c00561d68f0ae7113a9e4a44bd0291a6300a3f6174b3",
+    "systemd-fixture-run2/old_client_timeout/scripts/production-rollout.py": "1a3b560102a69d0262ff6287b556ce0df857153d36feb24c7038d775f6d02025",
+    "systemd-fixture-run2/old_client_timeout/packaging/firefly_recovery.py": "cf9d3983660788ec54bc32ae14d321cae812ef734de5b2ee8da566ca32e00182",
+    "systemd-fixture-run2/success/scripts/deployment-launcher.py": "34e0ee88f57460226811c00561d68f0ae7113a9e4a44bd0291a6300a3f6174b3",
+    "systemd-fixture-run2/success/scripts/production-rollout.py": "1a3b560102a69d0262ff6287b556ce0df857153d36feb24c7038d775f6d02025",
+    "systemd-fixture-run2/success/packaging/firefly_recovery.py": "cf9d3983660788ec54bc32ae14d321cae812ef734de5b2ee8da566ca32e00182",
+    "systemd-fixture-run2/worker_failure/scripts/deployment-launcher.py": "34e0ee88f57460226811c00561d68f0ae7113a9e4a44bd0291a6300a3f6174b3",
+    "systemd-fixture-run2/worker_failure/scripts/production-rollout.py": "1a3b560102a69d0262ff6287b556ce0df857153d36feb24c7038d775f6d02025",
+    "systemd-fixture-run2/worker_failure/packaging/firefly_recovery.py": "cf9d3983660788ec54bc32ae14d321cae812ef734de5b2ee8da566ca32e00182",
+    "systemd-fixture-run2/startup_failure/scripts/deployment-launcher.py": "34e0ee88f57460226811c00561d68f0ae7113a9e4a44bd0291a6300a3f6174b3",
+    "systemd-fixture-run2/startup_failure/scripts/production-rollout.py": "1a3b560102a69d0262ff6287b556ce0df857153d36feb24c7038d775f6d02025",
+    "systemd-fixture-run2/startup_failure/packaging/firefly_recovery.py": "cf9d3983660788ec54bc32ae14d321cae812ef734de5b2ee8da566ca32e00182",
+    "systemd-fixture-run2/observation_deadline/scripts/deployment-launcher.py": "34e0ee88f57460226811c00561d68f0ae7113a9e4a44bd0291a6300a3f6174b3",
+    "systemd-fixture-run2/observation_deadline/scripts/production-rollout.py": "1a3b560102a69d0262ff6287b556ce0df857153d36feb24c7038d775f6d02025",
+    "systemd-fixture-run2/observation_deadline/packaging/firefly_recovery.py": "cf9d3983660788ec54bc32ae14d321cae812ef734de5b2ee8da566ca32e00182"
+  },
+  "raw_bundle": {
+    "file": "file-only-raw.json.gz",
+    "sha256": "906774820a9a3f77c26b94ef575ee63a2f302a238439f2ed60ce027cb702b869",
+    "decompressed_sha256": "4ac1bb695b20c7f55058ff14cb542f8efcbe067f83a3ba9bb336009d6943beb1",
+    "format": "After gzip decompression, /files/<raw_result>/utf8 is the original UTF-8 file without truncation; each entry includes original SHA256/size."
+  },
+  "status": "READY_FOR_CHIEF_ENGINEER_REVIEW"
+}

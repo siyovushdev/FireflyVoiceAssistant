@@ -71,14 +71,31 @@ class LauncherTests(unittest.TestCase):
         result, clock, _ = self.observe(lambda t: properties() if t < 20 else
             properties('active', 'exited', 1, 0, job=0))
         self.assertEqual(result['state'], 'WORKER_SUCCEEDED')
-        self.assertEqual(clock.now, 20)
+        self.assertEqual(clock.now, 20.25)
 
     def test_long_failed_worker_reports_actual_exit_status(self):
         result, clock, _ = self.observe(lambda t: properties() if t < 20 else
             properties('failed', 'failed', 1, 42, 'exit-code', job=0))
         self.assertEqual(result['state'], 'FORWARD_FAILED')
         self.assertEqual(result['observation']['exit_status'], 42)
-        self.assertEqual(clock.now, 20)
+        self.assertEqual(clock.now, 20.25)
+
+    def test_worker_fails_between_service_and_unit_queries(self):
+        clock = Clock(); ops = Mock(); calls = []
+        running = properties()
+        failed = properties('failed', 'failed', 1, 2, 'exit-code', job=0)
+        def probe(unit, interface):
+            calls.append(interface)
+            # The process exits after the first Service read, before Unit.
+            return (running if len(calls) == 1 else failed)[interface]
+        ops.systemd_properties.side_effect = probe
+        result = launcher.observe_worker(ops, 'fixture.service', 3,
+                                        clock=clock, pause=clock.sleep)
+        self.assertEqual(result['state'], 'FORWARD_FAILED')
+        self.assertEqual(result['observation']['exit_status'], 2)
+        self.assertEqual(result['observation']['pid'], 0)
+        self.assertGreaterEqual(len(calls), 6)  # Mixed read plus two complete reads.
+        ops.run.assert_not_called()
 
     def test_observation_deadline_does_not_stop_worker_or_watchdog(self):
         result, clock, ops = self.observe(lambda _: properties(), deadline=3)
@@ -93,7 +110,46 @@ class LauncherTests(unittest.TestCase):
             return properties('active', 'exited', 1, 0, job=0)
         result, clock, _ = self.observe(selector)
         self.assertEqual(result['state'], 'WORKER_SUCCEEDED')
-        self.assertEqual(clock.now, 1)
+        self.assertEqual(clock.now, 1.25)
+
+    def test_incomplete_failure_cannot_report_stale_exit_status(self):
+        for interface, key, value in [
+                ('Service', 'MainPID', {'type': 'u', 'data': 123}),
+                ('Service', 'ControlPID', {'type': 'u', 'data': 22}),
+                ('Service', 'ExecMainCode', {'type': 'i', 'data': 0}),
+                ('Service', 'ExecMainExitTimestampMonotonic', {'type': 't', 'data': 0}),
+                ('Service', 'Result', {'type': 's', 'data': 'success'}),
+                ('Service', 'ExecMainStatus', {'type': 's', 'data': '2'}),
+                ('Unit', 'Job', {'type': '(uo)', 'data': [1, '/']}),
+                ('Unit', 'SubState', {'type': 's', 'data': 'start'})]:
+            with self.subTest(key=key):
+                p = properties('failed', 'failed', 1, 2, 'exit-code', job=0)
+                p[interface][key] = value
+                result, clock, ops = self.observe(lambda _: p, deadline=1)
+                self.assertEqual(result['state'], 'OBSERVATION_DEADLINE')
+                self.assertEqual(clock.now, 1)
+                ops.run.assert_not_called()
+
+    def test_terminal_confirmation_cannot_extend_original_deadline(self):
+        for active, sub, status, outcome in [('active', 'exited', 0, 'success'),
+                                             ('failed', 'failed', 2, 'exit-code')]:
+            with self.subTest(active=active):
+                result, clock, ops = self.observe(lambda t: properties() if t < .75 else
+                    properties(active, sub, 1, status, outcome, job=0), deadline=1)
+                self.assertEqual(result['state'], 'OBSERVATION_DEADLINE')
+                self.assertEqual(clock.now, 1)
+                ops.run.assert_not_called()
+
+    def test_interrupted_terminal_confirmation_requires_fresh_evidence(self):
+        def selector(t):
+            if t == .25:
+                raise RuntimeError('lost confirmation probe')
+            return properties('failed', 'failed', 1, 2, 'exit-code', job=0)
+        result, clock, ops = self.observe(selector, deadline=1)
+        self.assertEqual(result['state'], 'FORWARD_FAILED')
+        self.assertEqual(result['observation']['exit_status'], 2)
+        self.assertEqual(clock.now, .75)
+        ops.run.assert_not_called()
 
     def test_missing_malformed_and_incomplete_success_fail_closed(self):
         for key, value in [('MainPID', {'type': 's', 'data': '0'}),

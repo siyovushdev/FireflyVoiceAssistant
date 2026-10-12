@@ -35,6 +35,7 @@ def submit_worker(ops, unit, argv):
 
 def observe_worker(ops, unit, deadline, *, clock=time.monotonic, pause=time.sleep):
     last = None
+    terminal = None
     while clock() < deadline:
         try:
             service = ops.systemd_properties(unit, 'Service')
@@ -54,15 +55,24 @@ def observe_worker(ops, unit, deadline, *, clock=time.monotonic, pause=time.slee
                 last = sample
             if clock() >= deadline:
                 break
-            if sample['active'] == 'failed':
-                return {'state': 'FORWARD_FAILED', 'unit': unit, 'observation': sample}
-            if (sample['active'] == 'active' and sample['sub'] == 'exited'
-                    and sample['job'] == [0, '/'] and sample['pid'] == 0
-                    and sample['control_pid'] == 0 and sample['result'] == 'success'
-                    and sample['exit_code'] == 1 and sample['exit_status'] == 0
-                    and sample['exited_monotonic_us'] > 0):
-                return {'state': 'WORKER_SUCCEEDED', 'unit': unit, 'observation': sample}
+            finished = (sample['job'] == [0, '/'] and sample['pid'] == 0
+                        and sample['control_pid'] == 0 and sample['exit_code'] in (1, 2, 3)
+                        and sample['exited_monotonic_us'] > 0)
+            outcome = None
+            if (finished and sample['active'] == 'failed' and sample['sub'] == 'failed'
+                    and sample['result'] not in ('', 'success')):
+                outcome = 'FORWARD_FAILED'
+            elif (finished and sample['active'] == 'active' and sample['sub'] == 'exited'
+                    and sample['result'] == 'success' and sample['exit_code'] == 1
+                    and sample['exit_status'] == 0):
+                outcome = 'WORKER_SUCCEEDED'
+            # Service and Unit are separate reads. Require complete, identical
+            # terminal evidence on two consecutive polls within the original deadline.
+            if outcome and terminal == (outcome, sample):
+                return {'state': outcome, 'unit': unit, 'observation': sample}
+            terminal = (outcome, sample) if outcome else None
         except Exception as error:
+            terminal = None
             sample = {'error': repr(error)}
             if sample != last:
                 ops.record('forward-observation', sample)
