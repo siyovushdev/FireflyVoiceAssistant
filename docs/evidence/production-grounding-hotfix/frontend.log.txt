@@ -1,0 +1,271 @@
+
+> firefly-admin-v2@0.1.0 test
+> tsc -p tsconfig.tests.json && node --test tests/*.test.mjs
+
+TAP version 13
+# Subtest: wire DTO retains rare fields and immutable data; zones are a projection
+ok 1 - wire DTO retains rare fields and immutable data; zones are a projection
+  ---
+  duration_ms: 9.661016
+  type: 'test'
+  ...
+# Subtest: initial and legacy values never become physical facts
+ok 2 - initial and legacy values never become physical facts
+  ---
+  duration_ms: 0.427589
+  type: 'test'
+  ...
+# Subtest: knowledge, stale and reachability stay separate; false/zero are retained
+ok 3 - knowledge, stale and reachability stay separate; false/zero are retained
+  ---
+  duration_ms: 1.294435
+  type: 'test'
+  ...
+# Subtest: evidence cannot cross generation, catalog identity or stored/active boundary
+ok 4 - evidence cannot cross generation, catalog identity or stored/active boundary
+  ---
+  duration_ms: 1.159684
+  type: 'test'
+  ...
+# Subtest: malformed responses fail closed and error envelopes never look successful
+ok 5 - malformed responses fail closed and error envelopes never look successful
+  ---
+  duration_ms: 1.223851
+  type: 'test'
+  ...
+# Subtest: read-only client cannot call a mutation or external endpoint
+ok 6 - read-only client cannot call a mutation or external endpoint
+  ---
+  duration_ms: 0.715177
+  type: 'test'
+  ...
+# Subtest: partial API failures keep catalog available, clear current evidence and expose errors
+ok 7 - partial API failures keep catalog available, clear current evidence and expose errors
+  ---
+  duration_ms: 29.817227
+  type: 'test'
+  ...
+# Subtest: no active runtime shows stored catalog with Unknown evidence
+ok 8 - no active runtime shows stored catalog with Unknown evidence
+  ---
+  duration_ms: 1.170767
+  type: 'test'
+  ...
+# Subtest: AI workflow locks immediately, suppresses duplicate, shows progress, clears on response/error
+ok 9 - AI workflow locks immediately, suppresses duplicate, shows progress, clears on response/error
+  ---
+  duration_ms: 574.37869
+  type: 'test'
+  ...
+# Subtest: fast completion cancels delayed display; exception also clears pending
+ok 10 - fast completion cancels delayed display; exception also clears pending
+  ---
+  duration_ms: 35.513686
+  type: 'test'
+  ...
+# Subtest: concurrent completion cannot hide another operation; sequential stages retain identity and visibility
+ok 11 - concurrent completion cannot hide another operation; sequential stages retain identity and visibility
+  ---
+  duration_ms: 19.988793
+  type: 'test'
+  ...
+# Subtest: background snapshot refresh never enters foreground registry, even when slow or failing
+ok 12 - background snapshot refresh never enters foreground registry, even when slow or failing
+  ---
+  duration_ms: 290.014574
+  type: 'test'
+  ...
+# Subtest: manual review/CAS Save/Apply/verify retain one operation and reject double submission on success and failure
+ok 13 - manual review/CAS Save/Apply/verify retain one operation and reject double submission on success and failure
+  ---
+  duration_ms: 595.503041
+  type: 'test'
+  ...
+# Subtest: offline runtime retains manual edits and validation while final Apply stays blocked
+ok 14 - offline runtime retains manual edits and validation while final Apply stays blocked
+  ---
+  duration_ms: 9.749976
+  type: 'test'
+  ...
+# Subtest: incomplete TaskBuffer stays isolated; Cancel retains previously staged task and unknown fields
+ok 15 - incomplete TaskBuffer stays isolated; Cancel retains previously staged task and unknown fields
+  ---
+  duration_ms: 10.211691
+  type: 'test'
+  ...
+# Subtest: whole review then explicit CAS Save/Apply uses saved identity; edit invalidates review
+ok 16 - whole review then explicit CAS Save/Apply uses saved identity; edit invalidates review
+  ---
+  duration_ms: 8.804962
+  type: 'test'
+  ...
+# Subtest: stale stored or active after review causes zero mutations
+ok 17 - stale stored or active after review causes zero mutations
+  ---
+  duration_ms: 2.426702
+  type: 'test'
+  ...
+# Subtest: saved-not-active and lost Save response reconcile with reads; never blind retry
+ok 18 - saved-not-active and lost Save response reconcile with reads; never blind retry
+  ---
+  duration_ms: 8.487333
+  type: 'test'
+  ...
+# Subtest: setup ownership blocks manual mutation without discarding local task
+ok 19 - setup ownership blocks manual mutation without discarding local task
+  ---
+  duration_ms: 4.228937
+  type: 'test'
+  ...
+# Subtest: shared consumers, typed values and rare mapping fields survive review projection
+ok 20 - shared consumers, typed values and rare mapping fields survive review projection
+  ---
+  duration_ms: 1.733692
+  type: 'test'
+  ...
+# Subtest: power-only template has exactly two actions; command intent pins target; door never synthesized
+ok 21 - power-only template has exactly two actions; command intent pins target; door never synthesized
+  ---
+  duration_ms: 0.897472
+  type: 'test'
+  ...
+# Subtest: unaccepted import invalidates review and blocks publication without replacing accepted candidate
+ok 22 - unaccepted import invalidates review and blocks publication without replacing accepted candidate
+  ---
+  duration_ms: 2.149615
+  type: 'test'
+  ...
+# Subtest: same hash but changed active generation requires another review
+ok 23 - same hash but changed active generation requires another review
+  ---
+  duration_ms: 1.936987
+  type: 'test'
+  ...
+# Subtest: zone examples never populate TaskBuffer; missing speech blocks validation without losing edits
+ok 24 - zone examples never populate TaskBuffer; missing speech blocks validation without losing edits
+  ---
+  duration_ms: 23.417676
+  type: 'test'
+  ...
+# Subtest: zone group keeps existing backend rule; whitespace is not an explicit speech value
+ok 25 - zone group keeps existing backend rule; whitespace is not an explicit speech value
+  ---
+  duration_ms: 7.336399
+  type: 'test'
+  ...
+# Subtest: backend zone errors have human presentation without changing technical details or other errors
+ok 26 - backend zone errors have human presentation without changing technical details or other errors
+  ---
+  duration_ms: 1.081224
+  type: 'test'
+  ...
+# Subtest: line editing preserves spaces/newlines until explicit blur normalization
+ok 27 - line editing preserves spaces/newlines until explicit blur normalization
+  ---
+  duration_ms: 0.679593
+  type: 'test'
+  ...
+# Subtest: wizard projection includes new and Observe-only consumers and removes detached consumers without writes
+ok 28 - wizard projection includes new and Observe-only consumers and removes detached consumers without writes
+  ---
+  duration_ms: 1.109516
+  type: 'test'
+  ...
+# Subtest: Simple review shows HTTP contract without internals; exact data and technical-only changes remain reviewable
+ok 29 - Simple review shows HTTP contract without internals; exact data and technical-only changes remain reviewable
+  ---
+  duration_ms: 1.867278
+  type: 'test'
+  ...
+# Subtest: opening final review clears obsolete task-staged status while preserving pending changes
+ok 30 - opening final review clears obsolete task-staged status while preserving pending changes
+  ---
+  duration_ms: 6.955185
+  type: 'test'
+  ...
+# Subtest: explicit facts accumulate without guesses; dotted IPv4 and JSON use physical lane intact
+ok 31 - explicit facts accumulate without guesses; dotted IPv4 and JSON use physical lane intact
+  ---
+  duration_ms: 7.279815
+  type: 'test'
+  ...
+# Subtest: explicit connectivity uses B2 defaults/projection, exact scalar contracts, and immutable semantic plan
+ok 32 - explicit connectivity uses B2 defaults/projection, exact scalar contracts, and immutable semantic plan
+  ---
+  duration_ms: 7.611736
+  type: 'test'
+  ...
+# Subtest: explicit shared/separate choice preserves other consumers including Observe-only; no-observe removes only selected reading
+ok 33 - explicit shared/separate choice preserves other consumers including Observe-only; no-observe removes only selected reading
+  ---
+  duration_ms: 1.548772
+  type: 'test'
+  ...
+# Subtest: no guesses: incomplete, non-power, ambiguous actions and unsupported HTTP use manual fallback
+ok 34 - no guesses: incomplete, non-power, ambiguous actions and unsupported HTTP use manual fallback
+  ---
+  duration_ms: 1.476439
+  type: 'test'
+  ...
+# Subtest: contextual AI gives editable values, preserves capabilities; checkpoint is immutable
+ok 35 - contextual AI gives editable values, preserves capabilities; checkpoint is immutable
+  ---
+  duration_ms: 0.761261
+  type: 'test'
+  ...
+# Subtest: coordinator opening is read-only; semantic proposal reject/accept never writes stored or executes
+ok 36 - coordinator opening is read-only; semantic proposal reject/accept never writes stored or executes
+  ---
+  duration_ms: 270.099825
+  type: 'test'
+  ...
+# Subtest: manual final review in owned setup uses setup Apply only; no direct CAS bypass
+ok 37 - manual final review in owned setup uses setup Apply only; no direct CAS bypass
+  ---
+  duration_ms: 2.930418
+  type: 'test'
+  ...
+# Subtest: physical coordinator validates before review and Accept, never calls AI; stale facts/version preserve accepted plan
+ok 38 - physical coordinator validates before review and Accept, never calls AI; stale facts/version preserve accepted plan
+  ---
+  duration_ms: 24.082394
+  type: 'test'
+  ...
+# Subtest: startup persists ownership during entering, restores same tab, and blocks competing actions
+ok 39 - startup persists ownership during entering, restores same tab, and blocks competing actions
+  ---
+  duration_ms: 9.377512
+  type: 'test'
+  ...
+# Subtest: manual plan carried into Start waits for entry and uses one CAS draft request after reload
+ok 40 - manual plan carried into Start waits for entry and uses one CAS draft request after reload
+  ---
+  duration_ms: 7.367025
+  type: 'test'
+  ...
+1..40
+# tests 40
+# suites 0
+# pass 40
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1964.699854
+
+> firefly-admin-v2@0.1.0 build
+> vite build && node tests/offline.mjs
+
+vite v8.3.2 building client environment for production...
+transforming...
+✓ 90 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/assets/mark-CUIbH93Y.svg     0.21 kB │ gzip:  0.17 kB
+dist/index.html                   0.51 kB │ gzip:  0.35 kB
+dist/firefly-assets.json          0.57 kB │ gzip:  0.33 kB
+dist/assets/index-CznSkQWX.css   14.66 kB │ gzip:  4.19 kB
+dist/assets/index-DEV0JKYB.js   242.12 kB │ gzip: 78.81 kB
+
+✓ built in 1.22s
+PASS offline artifact: 4 declared local files, hashed JS/CSS, no external HTML/CSS resources

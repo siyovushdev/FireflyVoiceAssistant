@@ -31,6 +31,13 @@ int main(int argc,char** argv) {try {
         check(unsupported(runtime.domain.validate(GenericAction("action_set_brightness","device_kitchen_light",{{"extra",IntegerArgument(std::int64_t{40})}}))),"wrong argument identity fails");
     }
     Runtime current(sample);
+    for (const auto* text : {"на кухне свет 40 в неизвестной комнате", "на кухне свет 40 в подвале",
+                             "на кухне свет 40 в спальне", "полностью включи свет на кухне на 40 процентов"}) {
+        const auto candidate = light("device_kitchen_light", 40);
+        check(unsupported(SafetyGate::apply(text, candidate, current.domain)), "Builtin light cannot drop location constraints");
+        current.llm.raw = current.codec.render(candidate);
+        check(unsupported(current.engine.process(text).action), "Legacy fallback shares original-request authorization");
+    }
     for(const auto* raw:{"L|K|-1","L|K|101","L|K|abc","L|K|","L|K|50|extra"}) {
         current.llm.raw=raw;const auto result=current.engine.process("Пожалуйста на кухне свет 50");
         check(unsupported(result.action)&&result.invalidModelOutput,"malformed model brightness is not semantic action");

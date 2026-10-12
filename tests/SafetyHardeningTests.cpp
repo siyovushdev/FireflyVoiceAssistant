@@ -157,16 +157,18 @@ int main(int argc, char** argv) {
                  {"Включи свет на кухне на 1 процент", 1}, {"Включи свет на кухне на пятьдесят процентов", 50},
                  {"Свет на кухне наполовину, 50 процентов", 50}, {"Свет на кухне наполовину пятьдесят процентов", 50},
                  {"Свет на кухне на максимум 100%", 100}, {"Свет на кухне на максимум сто процентов", 100},
-                 {"Включи свет на кухне на девяносто девять процентов", 99},
-                 {"На кухне свет был выключен, поставь яркость на 50 процентов", 50},
-                 {"Установи свет на кухне на 50 процентов с выключателя", 50},
-                 {"После выключения поставь свет на кухне на 50 процентов", 50}}) {
+                 {"Включи свет на кухне на девяносто девять процентов", 99}}) {
             gate(input, compact('K', value), compact('K', value));
             fallback(input, compact('K', value), compact('K', value));
         }
-        // A time quantity is not brightness; this preserves gate behavior only,
-        // and does not add timed commands to the parser/product.
-        gate("выключи свет на кухне через 50 секунд", "L|K|0", "L|K|0");
+        // Issue #17: satisfying a brightness value is not authorization to drop
+        // remaining source/time/context constraints. No runtime grammar supports
+        // these constructions, even when the model returns a valid light value.
+        for (const auto* input : {"На кухне свет был выключен, поставь яркость на 50 процентов",
+                                 "Установи свет на кухне на 50 процентов с выключателя",
+                                 "После выключения поставь свет на кухне на 50 процентов",
+                                 "выключи свет на кухне через 50 секунд"})
+            rejectEveryCandidate(input);
         for (const auto* input : {"выключи телевизор в гостиной", "в детской выключи свет", "не включи свет на кухне",
                                  "выключи свет через 50 секунд", "на кухне свет 40 или 50 процентов"})
             fallback(input, "U", "U");
