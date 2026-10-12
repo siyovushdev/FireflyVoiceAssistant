@@ -1,0 +1,55 @@
+{
+  "base_commit": "057852255ccfef678f89f4ee407258ff920471b6",
+  "scope": "operator launcher only; no production service control, release activation, ConfigStore writes, NPU/microphone/model inference",
+  "tested_sources_sha256": {
+    "scripts/deployment-launcher.py": "126793b342e1bb8a7723da0dc4f13fd38689c258156ff442c5fb80eaae292cfb",
+    "tests/DeploymentLauncherTests.py": "d33d2c31154fcf62c5c47a939748b8989ca3d3286a64adfeaeacf35379a8556e",
+    "tests/DeploymentLauncherSystemdTests.py": "68196d00eb0d793434ed1d4f76574811e940f47fcf2875cf6284dd38c2f31d12",
+    "scripts/production-rollout.py": "1a3b560102a69d0262ff6287b556ce0df857153d36feb24c7038d775f6d02025",
+    "packaging/firefly_recovery.py": "cf9d3983660788ec54bc32ae14d321cae812ef734de5b2ee8da566ca32e00182"
+  },
+  "results": {
+    "targeted_CTest": "2/2 PASS: DeploymentLauncher13 tests;ReleaseRecovery34 tests",
+    "real_systemd_fixtures": "5/5 PASS",
+    "original_behavior": "15-second client timeout reproduced; client killed/reaped while independent worker continues >19s",
+    "success": {
+      "submission_seconds": 0.02942246399470605,
+      "observed_seconds": 17.315745667001465
+    },
+    "failed_worker_exit_status": 42,
+    "startup_failure_exit_status": 2,
+    "local_observation_deadline": "worker remained active; independent timer fired and restored file-only fixture without launcher intervention",
+    "rollback_preservation": "All final cases timer active after observation, later independent root PID/PPID1 writes old/READY fixture proof",
+    "production_unchanged": true,
+    "unchanged_recovery_code": true
+  },
+  "initial_fixture_attempt": {
+    "result": "3/5 test assertions PASS; raw failures retained",
+    "corrections": [
+      "File-only fake rollback incorrectly stopped a garbage-collected baseline worker; now recognizes missing/inactive/PID0 own fixture unit, matching existing unchanged recovery behavior.",
+      "Missing executable is rejected by systemd-run before a start job; startup-failure fixture now submits a valid Python executable with a missing script and observes actual exit2."
+    ]
+  },
+  "source_links": {
+    "ctest-targeted-final.log": {
+      "original": "/home/firefly/firefly-launcher-fix-20261012T114352Z/ctest-targeted-final.log",
+      "sha256": "d74c4783f756ed46a6c03da67fb351061fad94419cd2f0ecb342c0509e832190"
+    },
+    "launcher-unit-final.log": {
+      "original": "/home/firefly/firefly-launcher-fix-20261012T114352Z/launcher-unit-final.log",
+      "sha256": "b5984d0ccde11907dee7481f510a81f6deaa8f97895d5c6ab864c4391c168049"
+    },
+    "recovery-unit-final.log": {
+      "original": "/home/firefly/firefly-launcher-fix-20261012T114352Z/recovery-unit-final.log",
+      "sha256": "17a164c007a655fbe9257a50b6db60992b358a071b6f3b81001e3efcb84a076e"
+    },
+    "production-unchanged.json": {
+      "original": "/home/firefly/firefly-launcher-fix-20261012T114352Z/production-unchanged.json",
+      "sha256": "bc87253dfe1cb4975609820c324e9629826d5587cee262ee6c5c2936942d0de2"
+    }
+  },
+  "raw_encoding": "file-only-raw.json.gz lossless UTF8 JSON; /<attempt>/<case>/files/<name>/text equals original bytes; SHA256 and original paths alongside",
+  "readiness": "READY_FOR_CHIEF_ENGINEER_REVIEW",
+  "new_rollout_authorized": false,
+  "fixture_summary_projection": "fixture-summary.json selects case/result/metrics/PID/restore fields, original source hashes and raw JSON pointers; complete data remains in file-only-raw.json.gz"
+}

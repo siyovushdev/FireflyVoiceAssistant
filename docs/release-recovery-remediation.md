@@ -153,6 +153,11 @@ by bypassing ownership checks: abort before cutover if restoration cannot be
 guaranteed. This patch cannot guarantee recovery from an indefinitely wedged
 kernel/device owner or failure of PID 1 itself.
 
+Forward submission must use the checked-in [deployment launcher](deployment-launcher-fix.md),
+copied and SHA256-pinned in the new root-private plan. Its asynchronous submission
+and separate deadline-bound observation replace the temporary rollout #2 wrapper.
+The independent recovery service/timer and the guard above remain unchanged.
+
 ## Offline verification
 
 `python3 tests/ReleaseRecoveryTests.py` covers delayed release, hung service

@@ -1,0 +1,23 @@
+sudo -n python3 - <<'PY'
+import os,json,time,subprocess,importlib.util
+from pathlib import Path
+os.umask(0o077)
+root=Path('/run/firefly-safety-rollout2-20261012T111230Z');spec=importlib.util.spec_from_file_location('controller',root/'scripts/production-rollout.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+plan=json.loads((root/'prepared-plan.json').read_text());timer=plan['rollback_timer'];base=plan['rollback_unit'].removesuffix('.service');armed=False;launched=False
+try:
+ assert not (root/'CUTOVER_STARTED').exists() and not (root/'ACCEPTED').exists()
+ command=['systemd-run','--unit='+base,'--on-active=240s','--timer-property=AccuracySec=250ms','--property=Type=exec','--property=Restart=on-failure','--property=RestartSec=1s','--property=RestartPreventExitStatus=78','--property=StartLimitIntervalSec=0','--property=TimeoutStartSec=10s','--property=TimeoutStopSec=10s','--property=RuntimeMaxSec=360s','/usr/bin/python3',str(root/'scripts/production-rollout.py'),'rollback',str(root)]
+ r=subprocess.run(command,capture_output=True,text=True,timeout=15);(root/'evidence/arming-command.json').write_text(json.dumps(dict(argv=command,returncode=r.returncode,stdout=r.stdout,stderr=r.stderr,utc=m.utc()),indent=2)+'\n');assert r.returncode==0,r.stderr;armed=True
+ probe=m.Production.__new__(m.Production);probe.root=root;probe.env=dict(os.environ,PYTHONDONTWRITEBYTECODE='1');probe.operation_deadline=time.monotonic()+20
+ properties=probe.systemd_properties(timer,'Timer');deadline=m.property_value(properties,'NextElapseUSecMonotonic','t')
+ plan.update(deadline_monotonic=deadline/1e6,armed_monotonic=(deadline-240000000)/1e6,armed_utc=m.utc())
+ (root/'plan.json').write_text(json.dumps(plan,indent=2)+'\n')
+ ops=m.Production(root);ops.record('preflight-gates',ops.gates(plan['old']));ops.supervision_gate();ops.record('preflight-result',dict(result='PASS',utc=m.utc(),tests='82/82 CTest;40/40 frontend;450/450 grounding;34/34 recovery;actual systemd crash/restart fixture and typed supervision_gate',deadline_monotonic=plan['deadline_monotonic'],recovery_deadline_monotonic=ops.recovery_deadline))
+ worker=['systemd-run','--unit='+plan['worker_unit'].removesuffix('.service'),'--property=Type=oneshot','--property=TimeoutStartSec=240s','--property=TimeoutStopSec=10s','--property=KillMode=control-group','/usr/bin/python3',str(root/'scripts/production-rollout.py'),'deploy',str(root)]
+ output=ops.run(worker,timeout=15);launched=True;ops.record('forward-worker-submitted',dict(utc=m.utc(),output=output,one_attempt=True));print(json.dumps(dict(result='PREFLIGHT_PASS_SINGLE_WORKER_SUBMITTED',utc=m.utc(),verification_seconds_remaining=plan['deadline_monotonic']-time.monotonic(),total_seconds_remaining=ops.recovery_deadline-time.monotonic())))
+except BaseException as error:
+ (root/'evidence/arming-error.json').write_text(json.dumps(dict(utc=m.utc(),error=repr(error),launched=launched,cutover_marker=(root/'CUTOVER_STARTED').exists()),indent=2)+'\n')
+ if armed and not launched and not (root/'CUTOVER_STARTED').exists():
+  subprocess.run(['systemctl','stop',timer],timeout=15,check=True)
+ raise
+PY
