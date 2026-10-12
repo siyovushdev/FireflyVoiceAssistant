@@ -1,0 +1,25 @@
+{
+  "utc": "2026-10-12T09:48:24.229982+00:00",
+  "checks": {
+    "pid_unchanged": true,
+    "release_unchanged": true,
+    "store_bytes_metadata_timestamps_unchanged": true,
+    "unit_unchanged": true,
+    "active_stored_unchanged": true,
+    "runtime_ready": true,
+    "stt_ready": true,
+    "waiting_wake": true,
+    "microphone_connected": true,
+    "sole_resource_owner": true
+  },
+  "pid": 421157,
+  "release": "releases/wake-beep-dc7b142e-20261011",
+  "active": {
+    "generation_id": 1,
+    "hash": "688690e892d2f59413cdc2f7d81f1e129ab9ac0dd247f84b2898d74c3c3cdd18",
+    "revision": 2
+  },
+  "unit_sha256": "77334f69759d06ae07c9b052511544c6ceefbaa5e7e1e2434ac749e839045b39",
+  "original_evidence_reverified": 56,
+  "scope": "read-only; no production stop/start, Apply, NPU inference or device command"
+}

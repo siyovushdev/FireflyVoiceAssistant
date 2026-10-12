@@ -1,0 +1,79 @@
+{
+  "base_commit": "41e3cafd252eb7e1b753eba4331d824ac5221e31",
+  "scope": "offline only; real fuser on a temporary file; transient systemd file-only fault fixture; read-only production comparison",
+  "tested_source_sha256": {
+    "CMakeLists.txt": "006256fba20eb6ce44e4a58f45e135c9a6c3161bfe55d4640b82d85775a3c5ed",
+    "packaging/firefly_recovery.py": "cf9d3983660788ec54bc32ae14d321cae812ef734de5b2ee8da566ca32e00182",
+    "scripts/production-rollout.py": "b821d88dbc07066cfcd7a544b0f1110223af8d257ea8478346250208cef071a9",
+    "tests/ReleaseRecoveryTests.py": "2709f15962bd583b0a2f840d41b70f69a92d2c89401f1dc9e1da390c155654b1"
+  },
+  "results": {
+    "CTest": "82/82 PASS (291.24 seconds)",
+    "ReleaseRecovery_final": "25/25 PASS; standalone and final CTest rerun",
+    "original_algorithm_delayed_fixture": "two immediate failures; corrected recovery succeeds",
+    "systemd_restart_fixture": "PASS: PID426394 exits23 -> automatic PID426405 PPID1;one simulated switch/start",
+    "production_unchanged": true
+  },
+  "systemd_fixture_source_sha256": {
+    "tests/ReleaseRecoveryTests.py": "7f28626fd599446be6ec1fe183bb062c9475044fbd80a76e442f44cdae590f6a",
+    "packaging/firefly_recovery.py": "cf9d3983660788ec54bc32ae14d321cae812ef734de5b2ee8da566ca32e00182",
+    "scripts/production-rollout.py": "56da67740a60586bb5697933f09f9fcd2739cca602bdc937f39376a03371d3e9"
+  },
+  "systemd_fixture_helper_matches_final": true,
+  "evidence_root": "/home/firefly/firefly-recovery-remediation-20261012T093402Z",
+  "export_sources": {
+    "production-unchanged.json": {
+      "original": "/home/firefly/firefly-recovery-remediation-20261012T093402Z/evidence/production-unchanged.json",
+      "original_sha256": "173eb9391176a90ad8af4c34a08794535c8ed254b61d9acee0e345ac6f2251cb",
+      "published_sha256": "173eb9391176a90ad8af4c34a08794535c8ed254b61d9acee0e345ac6f2251cb"
+    },
+    "ctest.log": {
+      "original": "/home/firefly/firefly-recovery-remediation-20261012T093402Z/evidence/ctest.log",
+      "original_sha256": "df167c5643f833ca326cc1fc27996ead19e0d0e32145f2dfb987b1eb75de4e5d",
+      "published_sha256": "df167c5643f833ca326cc1fc27996ead19e0d0e32145f2dfb987b1eb75de4e5d"
+    },
+    "systemd-fixture-state.json": {
+      "original": "/home/firefly/firefly-recovery-remediation-20261012T093402Z/evidence/systemd-fixture-state.json",
+      "original_sha256": "23dbed3918895a95f2327d74548f2359942448dd81d2cb6252e7cbe3e71f5933",
+      "published_sha256": "23dbed3918895a95f2327d74548f2359942448dd81d2cb6252e7cbe3e71f5933"
+    },
+    "original-algorithm-reproduction.json": {
+      "original": "/home/firefly/firefly-recovery-remediation-20261012T093402Z/evidence/original-algorithm-reproduction.json",
+      "original_sha256": "d019804a6ed25ba805e9abb1a07923a3b38b0590aea2e598ca98d6cf7ccf4a4f",
+      "published_sha256": "d019804a6ed25ba805e9abb1a07923a3b38b0590aea2e598ca98d6cf7ccf4a4f"
+    },
+    "recovery-tests.log": {
+      "original": "/home/firefly/firefly-recovery-remediation-20261012T093402Z/evidence/recovery-tests.log",
+      "original_sha256": "4f6677fd361775602f0819fe364787c98724010cfdff8f10cc4601896e86761b",
+      "published_sha256": "4f6677fd361775602f0819fe364787c98724010cfdff8f10cc4601896e86761b"
+    },
+    "systemd-fixture-journal.log": {
+      "original": "/home/firefly/firefly-recovery-remediation-20261012T093402Z/evidence/systemd-fixture-journal.log",
+      "original_sha256": "b1c9518f361a8bec9a5d76daddc4f6491a6c7cbbe9adaf73bc48d570feca99ed",
+      "published_sha256": "b1c9518f361a8bec9a5d76daddc4f6491a6c7cbbe9adaf73bc48d570feca99ed"
+    },
+    "readonly-resource-snapshot.json": {
+      "original": "/home/firefly/firefly-recovery-remediation-20261012T093402Z/evidence/readonly-resource-snapshot.json",
+      "original_sha256": "0a77fe5cd6421a2df74519252e0aae5f98d25a501b2a1a11d115b9cadc8c9c59",
+      "published_sha256": "1567dc0b19b6ff36c91d03e5d83693706e0176fff8d6e5eb523420b75dcfd14c",
+      "projection": "top-level fields copied; /processes/<pid>/stat yields state (field3) and start_ticks (field22); exe and cgroup copied; other stat fields omitted"
+    },
+    "controller-changes.patch.gz": {
+      "derivation": "unified diff from original controller SHA2564ba42841 to scripts/production-rollout.py",
+      "uncompressed_sha256": "d7bbab9a56749d506272169e8ff7b352f64470e664c4f72404e69feac6b482c2",
+      "encoding": "lossless gzip",
+      "published_sha256": "3f0ae678bec757802c4aec6297f20ebe2e36a8fa0b383581486113a706137eb7"
+    },
+    "recovery-ctest-final.log.gz": {
+      "original": "/home/firefly/firefly-recovery-remediation-20261012T093402Z/evidence/recovery-ctest-final.log",
+      "original_sha256": "2ad6a4e6df250ebf0b9168bca7293779a05c7cc475e6050bd66dd9323978d193",
+      "published_sha256": "b481f4681410aa06b91ab74c32c8a545edd004f3f22e7bd81dc011b821bfa7a7",
+      "encoding": "lossless gzip"
+    }
+  },
+  "limitations": [
+    "Historical owner PID/device not captured; no attribution claim.",
+    "Permanent foreign owner/hung kernel/PID1 failure cannot guarantee restoration; no ownership bypass.",
+    "No production rollout; old grounding vulnerability remains."
+  ]
+}

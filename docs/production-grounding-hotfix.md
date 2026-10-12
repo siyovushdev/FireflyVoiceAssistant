@@ -88,6 +88,11 @@ and disposable test stores; it never opens the production ConfigStore.
 
 ## Proposed update and rollback — not executed
 
+The first authorized attempt subsequently rolled back before pointer activation.
+For a separately authorized retry, use the reviewed resource barrier and recovery
+supervision described in [release recovery remediation](release-recovery-remediation.md).
+The old single-shot controller and its instantaneous-release fixtures are insufficient.
+
 1. Obtain independent Chief Engineer approval of this Draft PR and separate
    owner authorization for deployment/downtime. This preparation authorizes
    neither merge nor deployment.

@@ -1,0 +1,74 @@
+{
+  "parent_commit": "cd08f53f22813c8d9c7ec5eb0fcf7d7eca6cebbe",
+  "review": "https://github.com/siyovushdev/FireflyVoiceAssistant/pull/20#pullrequestreview-5489261317",
+  "scope": "only automatic supervisor preflight and its tests/docs; recovery algorithm unchanged",
+  "tested_source_sha256": {
+    "scripts/production-rollout.py": "1a3b560102a69d0262ff6287b556ce0df857153d36feb24c7038d775f6d02025",
+    "tests/ReleaseRecoveryTests.py": "12c5e9bb6398cad5d4ed0e19042ec38eec05693d8a05daeb6046fb3eec8eba73",
+    "packaging/firefly_recovery.py": "cf9d3983660788ec54bc32ae14d321cae812ef734de5b2ee8da566ca32e00182",
+    "CMakeLists.txt": "006256fba20eb6ce44e4a58f45e135c9a6c3161bfe55d4640b82d85775a3c5ed"
+  },
+  "results": {
+    "ReleaseRecovery": "34/34 PASS",
+    "negative_deployment_subcases": 193,
+    "all_negative_subcases_zero_marker_stop_control": true,
+    "full_CTest": "82/82 PASS;283.26 seconds",
+    "real_systemd_guard": "PASS; transient units, root-private pinned controller/helper and frozen plan; no deploy",
+    "production_unchanged": true
+  },
+  "export_sources": {
+    "ctest.log.gz": {
+      "original": "/home/firefly/firefly-supervision-gate-20261012T102008Z/evidence/ctest.log",
+      "original_sha256": "c8cdd50331f4b7a7f6004ecae496a673aedf27f02bb30ccdcd34736dcb5d7ec2",
+      "published_sha256": "bbf1a02d5a1a9176cddb0d0dec985d9381b6e80e7c96715d9fa8855e92be7801",
+      "encoding": "lossless gzip"
+    },
+    "ctest-release-recovery.log.gz": {
+      "original": "/home/firefly/firefly-supervision-gate-20261012T102008Z/evidence/ctest-release-recovery.log",
+      "original_sha256": "f6a654e9ea6ff2d8c8c346283ec96b1cc50d8290a19504f219c3c2acbe31c809",
+      "published_sha256": "99a940bb45e38d9a1f9120fd5b092be68dabea05bddab1955ddde233c1240b66",
+      "encoding": "lossless gzip",
+      "derived_from": {
+        "original": "/home/firefly/firefly-supervision-gate-20261012T102008Z/evidence/ctest-last-test.log",
+        "original_sha256": "c63ad10bfdd29b36e2910ada6fb63451ac9beaabafc92405f129c4f57b11552c",
+        "locator": "1/82 Testing: ReleaseRecovery section"
+      }
+    },
+    "recovery-tests-final.log.gz": {
+      "original": "/home/firefly/firefly-supervision-gate-20261012T102008Z/evidence/recovery-tests-final.log",
+      "original_sha256": "864df618bc6442387db9e0751dc94bbdbcd2a89087580777fb730319126697fb",
+      "published_sha256": "c754f996725340bb64fbc9ce59ccb986de6c1b1a0be214ba14f29ec0481bbbda",
+      "encoding": "lossless gzip"
+    },
+    "production-unchanged.json": {
+      "original": "/home/firefly/firefly-supervision-gate-20261012T102008Z/evidence/production-unchanged.json",
+      "original_sha256": "a83ec0d34987d1838d7eba40d4b65ccd221bf1c3282a748ef780c7e17dfaaa91",
+      "published_sha256": "a83ec0d34987d1838d7eba40d4b65ccd221bf1c3282a748ef780c7e17dfaaa91",
+      "encoding": "JSON copied unchanged"
+    },
+    "final-systemd-real-systemd-proof-result.json": {
+      "original": "/home/firefly/firefly-supervision-gate-20261012T102008Z/evidence/final-systemd-real-systemd-proof-result.json",
+      "original_sha256": "30906a68591690cd1ec03e76b5f2e01f66f9b892e00cadd76b8b10a510e499f6",
+      "published_sha256": "30906a68591690cd1ec03e76b5f2e01f66f9b892e00cadd76b8b10a510e499f6",
+      "encoding": "JSON copied unchanged"
+    },
+    "guard-cases.json.gz": {
+      "original": "/home/firefly/firefly-supervision-gate-20261012T102008Z/evidence/guard-cases.json",
+      "original_sha256": "eb19ac8d8906c1a33517798a405a859353b4ea1ca85252205b36c3a092e2bd62",
+      "published_sha256": "955c42b276fc319d0d4ffa93ed4034e13264dd4cf14c79aa1682c7a0e52943ae",
+      "encoding": "lossless gzip"
+    },
+    "final-systemd-supervision-preflight.json.gz": {
+      "original": "/home/firefly/firefly-supervision-gate-20261012T102008Z/evidence/final-systemd-supervision-preflight.json",
+      "original_sha256": "1ed42d7aa6bb01213d8aef16016918b5f6e395dd4e147717ba8312ffc5fe3a83",
+      "published_sha256": "fd9b317b852f2d6da53e8d4b11571e674930a85e379c6a650b5c2de23da906f8",
+      "encoding": "lossless gzip"
+    }
+  },
+  "evidence_root": "/home/firefly/firefly-supervision-gate-20261012T102008Z",
+  "limitations": [
+    "All acceptance is offline, except read-only production health/integrity checks.",
+    "No production recovery or rollout attempted. New owner authorization required.",
+    "Historical incident owner PID/device remains unknown; production still runs old SafetyGate."
+  ]
+}
