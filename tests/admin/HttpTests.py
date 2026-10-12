@@ -1,15 +1,21 @@
 """Real HTTP, IPC child, ConfigStore and CommandEngine; only inference is a seam."""
 import copy
 import http.client
+import hashlib
+import importlib.util
 import json
+import os
 import re
 import select
 import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
+import urllib.request
+from unittest.mock import patch
 from pathlib import Path
 
 APP, WORKER, ROOT = map(Path, sys.argv[1:4])
@@ -89,6 +95,120 @@ class HttpTests(unittest.TestCase):
                 self.assertEqual(self.request('/')[0],200)
             finally:
                 self.port=previous;process.terminate();process.wait(timeout=10);process.stdout.close()
+
+    def test_rollout_non_actuating_checks(self):
+        def module(name, path):
+            spec = importlib.util.spec_from_file_location(name, path)
+            value = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(value)
+            return value
+
+        rollout = module('rollout_http_regression', ROOT/'scripts/production-rollout.py')
+        device = module('rollout_http_mock', ROOT/'scripts/mock-http-device.py').MockDevice()
+        thread = threading.Thread(target=device.serve_forever, daemon=True)
+        thread.start()
+        try:
+            # Real HTTP bindings make an accidental execution observable. The
+            # existing fake worker uses production RuntimeWorker with mock inference.
+            home = json.loads((ROOT/'config/empty-home.json').read_text())
+            home['rooms'] = [{'id': 'room_office', 'name': 'Кабинет', 'speech': {
+                'mentions': ['кабинет', 'кабинете'], 'locations': ['в кабинете']}}]
+            home['devices'] = [{'id': 'device_lamp', 'name': 'Лампа', 'kind': 'generic',
+                'room_id': 'room_office', 'enabled': True, 'spoken_aliases': ['лампа', 'лампу'],
+                'action_ids': ['action_on', 'action_off'], 'state': [{'id': 'power', 'name': 'Питание',
+                    'type': 'boolean', 'required': True, 'unit': '', 'description': '', 'initial': False}]}]
+            home['actions'] = [{'id': 'action_'+name, 'name': title, 'operation': 'mock.assign.v1',
+                'enabled': True, 'parameters': [], 'speech_aliases': [alias], 'description': '',
+                'assignments': [{'field': 'power', 'value': value}]}
+                for name, title, alias, value in [('on', 'Включить', 'включи', True), ('off', 'Выключить', 'выключи', False)]]
+            home['connections'] = [{'id': 'connection_test', 'name': 'Isolated mock', 'type': 'http',
+                'enabled': True, 'timeout_ms': 150, 'http': {
+                    'base_url': f'http://127.0.0.1:{device.server_port}', 'base_path': ''}}]
+            home['bindings'] = [{'target_id': 'device_lamp', 'action_id': 'action_'+name,
+                'connection_id': 'connection_test', 'executor': 'http', 'http': {
+                    'method': 'POST', 'path': '/relay/1', 'body': {'on': value}, 'expected_status': 200}}
+                for name, value in [('on', True), ('off', False)]]
+            home['observations'] = [{'target_id': 'device_lamp', 'connection_id': 'connection_test',
+                'executor': 'http', 'http': {'method': 'GET', 'path': '/relay/1', 'expected_status': 200},
+                'fields': {'on': 'power'}}]
+            identity = lambda value: {k: value[k] for k in ('revision', 'hash')}
+            stored = self.api('/api/config')[1]
+            status, saved = self.api('/api/config', 'PUT', {'configuration': home, 'expected': identity(stored)})
+            self.assertEqual(status, 200, saved)
+            self.assertEqual(self.api('/api/config/apply', 'POST', {'expected': identity(saved)})[0], 200)
+            status, preview = self.api('/api/test-command', 'POST', {
+                'text': 'включи лампу в кабинете', 'execute': False, 'production': False})
+            self.assertEqual(status, 200, preview)
+            self.assertEqual(preview['result']['targetId'], 'device_lamp')
+            self.assertEqual(preview['result']['actionId'], 'action_on')
+            self.assertIsNone(preview['execution'])
+            history = self.api('/api/executions')[1]
+            state = self.api('/api/devices/state')[1]
+            def store_sha256():
+                return {str(p.relative_to(self.directory.name)): hashlib.sha256(p.read_bytes()).hexdigest()
+                        for p in Path(self.directory.name).rglob('*') if p.is_file()}
+            store_before = store_sha256()
+            unauthenticated = []
+            texts = ('какая погода', 'включи лампу в неизвестной комнате')
+            for text in texts:
+                body = {'text': text, 'execute': False, 'production': False}
+                status, raw, _ = self.request('/api/test-command', 'POST', json.dumps(body).encode(),
+                    {'Content-Type': 'application/json'})
+                self.assertEqual(status, 403)
+                response = json.loads(raw)
+                self.assertEqual(response['errors'][0]['message'], 'X-Firefly-Admin: 1 is required.')
+                unauthenticated.append({'request': body, 'status': status, 'response': response})
+
+            # Redirect only the controller's fixed loopback origin in the test.
+            # Keep its real request headers/body, real HTTP guard and response.
+            real_urlopen = urllib.request.urlopen
+            requests = []
+            def isolated_urlopen(request, timeout):
+                url = request if isinstance(request, str) else request.full_url
+                self.assertIn(url, ('http://127.0.0.1:8080/api/test-command',
+                                   'http://127.0.0.1:8080/api/executions'))
+                local = url.replace('http://127.0.0.1:8080', f'http://127.0.0.1:{self.port}', 1)
+                if isinstance(request, str):
+                    return real_urlopen(local, timeout=timeout)
+                self.assertEqual(request.get_method(), 'POST')
+                self.assertEqual(request.get_header('X-firefly-admin'), '1')
+                self.assertEqual(request.get_header('Content-type'), 'application/json')
+                body = json.loads(request.data)
+                self.assertIs(body['execute'], False)
+                self.assertIs(body['production'], False)
+                response = real_urlopen(urllib.request.Request(local, data=request.data,
+                    headers=dict(request.header_items()), method=request.get_method()), timeout=timeout)
+                requests.append({'request': body, 'headers': dict(request.header_items()), 'status': response.status})
+                return response
+
+            controller = rollout.Production.__new__(rollout.Production)
+            controller.root = Path(self.directory.name)/'controller'
+            (controller.root/'evidence').mkdir(parents=True)
+            controller.operation_deadline = time.monotonic()+30
+            with patch.object(rollout.urllib.request, 'urlopen', side_effect=isolated_urlopen):
+                replies = controller.non_actuating_checks()
+            self.assertEqual([r['request']['text'] for r in requests], list(texts))
+            self.assertEqual([r['status'] for r in requests], [200, 200])
+            for reply in replies:
+                self.assertTrue(reply['response']['ok'])
+                self.assertEqual(reply['response']['result'], {'unsupported': True})
+                self.assertIsNone(reply['response']['execution'])
+            self.assertEqual(self.api('/api/executions')[1], history)
+            self.assertEqual(self.api('/api/devices/state')[1], state)
+            store_after = {k: v for k, v in store_sha256().items() if not k.startswith('controller/')}
+            self.assertEqual(store_after, store_before)
+            self.assertEqual(device.snapshot(), [])
+            evidence = {'inference': 'MOCK (admin_fake_worker); no NPU/microphone',
+                'known_device_non_actuating_preview': preview,
+                'unauthenticated': unauthenticated, 'authenticated_requests': requests, 'replies': replies,
+                'history_before': history, 'history_after': self.api('/api/executions')[1],
+                'device_http_requests': device.snapshot(), 'store_sha256_before': store_before,
+                'store_sha256_after': store_after, 'device_state_unchanged': True}
+            if os.environ.get('FIREFLY_ROLLOUT_HTTP_EVIDENCE'):
+                Path(os.environ['FIREFLY_ROLLOUT_HTTP_EVIDENCE']).write_text(
+                    json.dumps(evidence, ensure_ascii=False, indent=2)+'\n')
+        finally:
+            device.shutdown(); device.server_close(); thread.join(timeout=2)
 
     def test_protocol_static_and_errors(self):
         html = self.request('/')[1].decode()
