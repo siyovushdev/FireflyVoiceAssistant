@@ -3,6 +3,7 @@
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -17,6 +18,35 @@ runner = importlib.util.module_from_spec(spec); spec.loader.exec_module(runner)
 
 
 class RunnerTests(unittest.TestCase):
+    def test_offline_child_never_receives_inherited_owner_permission(self):
+        probe = ['/usr/bin/python3', '-c',
+                 'import os; print(repr(os.environ.get("FIREFLY_OWNER_ACCEPTED")))']
+        for inherited in [None, '1']:
+            with self.subTest(inherited=inherited), tempfile.TemporaryDirectory() as tmp, \
+                 patch.dict(os.environ):
+                os.environ.pop('FIREFLY_OWNER_ACCEPTED', None)
+                if inherited is not None:
+                    os.environ['FIREFLY_OWNER_ACCEPTED'] = inherited
+                self.assertEqual(runner.command(Path(tmp), probe), 'None')
+                self.assertEqual(os.environ.get('FIREFLY_OWNER_ACCEPTED'), inherited)
+
+    def test_explicit_owner_permission_is_scoped_to_one_child(self):
+        probe = ['/usr/bin/python3', '-c',
+                 'import os; print(repr(os.environ.get("FIREFLY_OWNER_ACCEPTED")))']
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {'FIREFLY_OWNER_ACCEPTED': '1'}):
+            root = Path(tmp)
+            self.assertEqual(runner.command(root, probe, owner_authorized=True), "'1'")
+            self.assertEqual(runner.command(root, probe), 'None')
+
+    def test_all_offline_checks_strip_parent_permission(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {'FIREFLY_OWNER_ACCEPTED': '1'}), \
+             patch.object(runner.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, '', '')) as run:
+            runner.application_checks(Path(tmp), SOURCE)
+            runner.mandatory_fixtures(Path(tmp))
+            self.assertEqual(run.call_count, 8)
+            for call in run.call_args_list:
+                self.assertNotIn('FIREFLY_OWNER_ACCEPTED', call.kwargs['env'])
+
     def test_preparation_build_identity_contract_backup_and_receipt(self):
         # Real private filesystem preparation; only production paths, commands and
         # binary/status interfaces are substituted. No production file is opened.
@@ -92,6 +122,10 @@ class RunnerTests(unittest.TestCase):
                         fixtures.assert_called_once(); app.assert_called_once(); ops.gates.assert_called_once_with('old')
                         self.assertFalse((target / 'CUTOVER_STARTED').exists())
                     self.assertFalse(any(call.args[1][0] == 'systemctl' for call in commands.call_args_list))
+                    authorized = [call for call in commands.call_args_list if call.kwargs.get('owner_authorized')]
+                    self.assertEqual(len(authorized), 2)
+                    self.assertEqual([call.args[1][-1] for call in authorized], ['old', 'new'])
+                    self.assertTrue(all('verify' in call.args[1] for call in authorized))
 
     def test_application_checks_use_fixed_existing_commands_without_root_runtime(self):
         with patch.object(runner, 'command') as command:

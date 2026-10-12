@@ -20,12 +20,16 @@ def load(path):
     return module
 
 
-def command(root, argv, timeout=60):
+def command(root, argv, timeout=60, *, owner_authorized=False):
     """Preserve the response before judging a mandatory preparation command."""
+    env = {**os.environ, 'PYTHONDONTWRITEBYTECODE': '1'}
+    # Offline checks must not inherit live-root permission from the operator.
+    env.pop('FIREFLY_OWNER_ACCEPTED', None)
+    if owner_authorized:
+        env['FIREFLY_OWNER_ACCEPTED'] = '1'
     try:
         result = subprocess.run(argv, capture_output=True, text=True, timeout=timeout,
-                                env={**os.environ, 'PYTHONDONTWRITEBYTECODE': '1',
-                                     'FIREFLY_OWNER_ACCEPTED': '1'})
+                                env=env)
         record = dict(argv=argv, returncode=result.returncode,
                       stdout=result.stdout, stderr=result.stderr)
     except subprocess.TimeoutExpired as error:
@@ -107,7 +111,8 @@ def prepare(root, source, commit, release):
     old = Path(os.readlink(prefix / 'current')).name
     for target in [old, release]:
         command(root, ['/usr/bin/python3', str(root / 'tools/scripts/stage-release.py'),
-                       'verify', '--destination', str(prefix), '--release-id', target], timeout=600)
+                       'verify', '--destination', str(prefix), '--release-id', target],
+                timeout=600, owner_authorized=True)
     identities = {target: package.build_identity(prefix / 'releases' / target / 'bin/firefly-demo')
                   for target in [old, release]}
     if (old == release or identities[release]['head'] != commit or identities[release]['dirty']

@@ -1,0 +1,9 @@
+{
+  "mode": "prepare only; run/cutover/restart prohibited",
+  "source": "/home/firefly/FireflyVoiceAssistantLinux-auth-env",
+  "tested_commit": "a439276a4420e4bd78f2896b1ec97539bb21f3a4",
+  "parent_FIREFLY_OWNER_ACCEPTED": "1",
+  "root": "/run/firefly-release-auth-env-20261012T171101Z",
+  "new_inactive_release": "auth-env-a439276a-20261012T171101Z",
+  "command": "sudo -n env PYTHONDONTWRITEBYTECODE=1 FIREFLY_OWNER_ACCEPTED=1 FIREFLY_GROUNDING_EVIDENCE=/home/firefly/firefly-auth-env-20261012T171101Z/grounding-matrix-prepare.json /usr/bin/python3 /home/firefly/FireflyVoiceAssistantLinux-auth-env/scripts/release-runner.py prepare --source /home/firefly/FireflyVoiceAssistantLinux-auth-env --approved-commit a439276a4420e4bd78f2896b1ec97539bb21f3a4 --new-release auth-env-a439276a-20261012T171101Z --root /run/firefly-release-auth-env-20261012T171101Z"
+}

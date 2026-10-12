@@ -1,0 +1,269 @@
+Internal ctest changing into directory: /home/firefly/FireflyVoiceAssistantLinux-rollout5/build
+Test project /home/firefly/FireflyVoiceAssistantLinux-rollout5/build
+      Start 69: GroundingAuthorizationHttp
+      Start 22: ProductionPackaging
+ 1/84 Test #22: ProductionPackaging ...............***Failed   70.78 sec
+-- Install configuration: ""
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-fixture-a-nrhfmj5h/prefix/releases/m18.6-fixture-a/share/firefly/wake/amina-v3.tflite
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-fixture-a-nrhfmj5h/prefix/releases/m18.6-fixture-a/share/firefly/wake/manifest.json
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-fixture-a-nrhfmj5h/prefix/releases/m18.6-fixture-a/share/firefly/wake/amina_worker.py
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-fixture-a-nrhfmj5h/prefix/releases/m18.6-fixture-a/share/firefly/wake/requirements.txt
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-fixture-a-nrhfmj5h/prefix/releases/m18.6-fixture-a/share/firefly/wake/python/bin/python
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-fixture-a-nrhfmj5h/prefix/releases/m18.6-fixture-a/share/firefly/config/empty-home.json
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-fixture-a-nrhfmj5h/prefix/releases/m18.6-fixture-a/bin/firefly-demo
+-- Set runtime path of "/tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-fixture-a-nrhfmj5h/prefix/releases/m18.6-fixture-a/bin/firefly-demo" to "$ORIGIN/../lib"
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-fixture-a-nrhfmj5h/prefix/releases/m18.6-fixture-a/bin/firefly-config
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-fixture-a-nrhfmj5h/prefix/releases/m18.6-fixture-a/share/firefly/deployment/scripts/stage-release.py
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-fixture-a-nrhfmj5h/prefix/releases/m18.6-fixture-a/share/firefly/deployment/packaging/__init__.py
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-fixture-a-nrhfmj5h/prefix/releases/m18.6-fixture-a/share/firefly/deployment/packaging/firefly_release.py
+....-- Install configuration: ""
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-clean-fixture-somx69h_/prefix/releases/m18.6-clean-fixture/share/firefly/wake/amina-v3.tflite
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-clean-fixture-somx69h_/prefix/releases/m18.6-clean-fixture/share/firefly/wake/manifest.json
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-clean-fixture-somx69h_/prefix/releases/m18.6-clean-fixture/share/firefly/wake/amina_worker.py
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-clean-fixture-somx69h_/prefix/releases/m18.6-clean-fixture/share/firefly/wake/requirements.txt
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-clean-fixture-somx69h_/prefix/releases/m18.6-clean-fixture/share/firefly/wake/python/bin/python
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-clean-fixture-somx69h_/prefix/releases/m18.6-clean-fixture/share/firefly/config/empty-home.json
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-clean-fixture-somx69h_/prefix/releases/m18.6-clean-fixture/bin/firefly-demo
+-- Set runtime path of "/tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-clean-fixture-somx69h_/prefix/releases/m18.6-clean-fixture/bin/firefly-demo" to "$ORIGIN/../lib"
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-clean-fixture-somx69h_/prefix/releases/m18.6-clean-fixture/bin/firefly-config
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-clean-fixture-somx69h_/prefix/releases/m18.6-clean-fixture/share/firefly/deployment/scripts/stage-release.py
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-clean-fixture-somx69h_/prefix/releases/m18.6-clean-fixture/share/firefly/deployment/packaging/__init__.py
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-clean-fixture-somx69h_/prefix/releases/m18.6-clean-fixture/share/firefly/deployment/packaging/firefly_release.py
+-- Install configuration: ""
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-dirty-fixture-p9g4v1s3/prefix/releases/m18.6-dirty-fixture/share/firefly/wake/amina-v3.tflite
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-dirty-fixture-p9g4v1s3/prefix/releases/m18.6-dirty-fixture/share/firefly/wake/manifest.json
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-dirty-fixture-p9g4v1s3/prefix/releases/m18.6-dirty-fixture/share/firefly/wake/amina_worker.py
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-dirty-fixture-p9g4v1s3/prefix/releases/m18.6-dirty-fixture/share/firefly/wake/requirements.txt
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-dirty-fixture-p9g4v1s3/prefix/releases/m18.6-dirty-fixture/share/firefly/wake/python/bin/python
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-dirty-fixture-p9g4v1s3/prefix/releases/m18.6-dirty-fixture/share/firefly/config/empty-home.json
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-dirty-fixture-p9g4v1s3/prefix/releases/m18.6-dirty-fixture/bin/firefly-demo
+-- Set runtime path of "/tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-dirty-fixture-p9g4v1s3/prefix/releases/m18.6-dirty-fixture/bin/firefly-demo" to "$ORIGIN/../lib"
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-dirty-fixture-p9g4v1s3/prefix/releases/m18.6-dirty-fixture/bin/firefly-config
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-dirty-fixture-p9g4v1s3/prefix/releases/m18.6-dirty-fixture/share/firefly/deployment/scripts/stage-release.py
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-dirty-fixture-p9g4v1s3/prefix/releases/m18.6-dirty-fixture/share/firefly/deployment/packaging/__init__.py
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-dirty-fixture-p9g4v1s3/prefix/releases/m18.6-dirty-fixture/share/firefly/deployment/packaging/firefly_release.py
+...-- Install configuration: ""
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-reuse-a34y8kx_/prefix/releases/m18.6-reuse/share/firefly/wake/amina-v3.tflite
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-reuse-a34y8kx_/prefix/releases/m18.6-reuse/share/firefly/wake/manifest.json
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-reuse-a34y8kx_/prefix/releases/m18.6-reuse/share/firefly/wake/amina_worker.py
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-reuse-a34y8kx_/prefix/releases/m18.6-reuse/share/firefly/wake/requirements.txt
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-reuse-a34y8kx_/prefix/releases/m18.6-reuse/share/firefly/wake/python/bin/python
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-reuse-a34y8kx_/prefix/releases/m18.6-reuse/share/firefly/config/empty-home.json
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-reuse-a34y8kx_/prefix/releases/m18.6-reuse/bin/firefly-demo
+-- Set runtime path of "/tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-reuse-a34y8kx_/prefix/releases/m18.6-reuse/bin/firefly-demo" to "$ORIGIN/../lib"
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-reuse-a34y8kx_/prefix/releases/m18.6-reuse/bin/firefly-config
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-reuse-a34y8kx_/prefix/releases/m18.6-reuse/share/firefly/deployment/scripts/stage-release.py
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-reuse-a34y8kx_/prefix/releases/m18.6-reuse/share/firefly/deployment/packaging/__init__.py
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-reuse-a34y8kx_/prefix/releases/m18.6-reuse/share/firefly/deployment/packaging/firefly_release.py
+..-- Install configuration: ""
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-boom-u3l4z5qb/prefix/releases/m18.6-boom/share/firefly/wake/amina-v3.tflite
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-boom-u3l4z5qb/prefix/releases/m18.6-boom/share/firefly/wake/manifest.json
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-boom-u3l4z5qb/prefix/releases/m18.6-boom/share/firefly/wake/amina_worker.py
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-boom-u3l4z5qb/prefix/releases/m18.6-boom/share/firefly/wake/requirements.txt
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-boom-u3l4z5qb/prefix/releases/m18.6-boom/share/firefly/wake/python/bin/python
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-boom-u3l4z5qb/prefix/releases/m18.6-boom/share/firefly/config/empty-home.json
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-boom-u3l4z5qb/prefix/releases/m18.6-boom/bin/firefly-demo
+-- Set runtime path of "/tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-boom-u3l4z5qb/prefix/releases/m18.6-boom/bin/firefly-demo" to "$ORIGIN/../lib"
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-boom-u3l4z5qb/prefix/releases/m18.6-boom/bin/firefly-config
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-boom-u3l4z5qb/prefix/releases/m18.6-boom/share/firefly/deployment/scripts/stage-release.py
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-boom-u3l4z5qb/prefix/releases/m18.6-boom/share/firefly/deployment/packaging/__init__.py
+-- Installing: /tmp/firefly-package-fgjppe48/prefix/.staging-m18.6-boom-u3l4z5qb/prefix/releases/m18.6-boom/share/firefly/deployment/packaging/firefly_release.py
+........F...............-- Install configuration: ""
+-- Installing: /tmp/firefly-package-fgjppe48/stage-cleanup/prefix/.staging-cleanup-be5lohk4/prefix/releases/cleanup/share/firefly/wake/amina-v3.tflite
+-- Installing: /tmp/firefly-package-fgjppe48/stage-cleanup/prefix/.staging-cleanup-be5lohk4/prefix/releases/cleanup/share/firefly/wake/manifest.json
+-- Installing: /tmp/firefly-package-fgjppe48/stage-cleanup/prefix/.staging-cleanup-be5lohk4/prefix/releases/cleanup/share/firefly/wake/amina_worker.py
+-- Installing: /tmp/firefly-package-fgjppe48/stage-cleanup/prefix/.staging-cleanup-be5lohk4/prefix/releases/cleanup/share/firefly/wake/requirements.txt
+-- Installing: /tmp/firefly-package-fgjppe48/stage-cleanup/prefix/.staging-cleanup-be5lohk4/prefix/releases/cleanup/share/firefly/wake/python/bin/python
+-- Installing: /tmp/firefly-package-fgjppe48/stage-cleanup/prefix/.staging-cleanup-be5lohk4/prefix/releases/cleanup/share/firefly/config/empty-home.json
+-- Installing: /tmp/firefly-package-fgjppe48/stage-cleanup/prefix/.staging-cleanup-be5lohk4/prefix/releases/cleanup/bin/firefly-demo
+-- Set runtime path of "/tmp/firefly-package-fgjppe48/stage-cleanup/prefix/.staging-cleanup-be5lohk4/prefix/releases/cleanup/bin/firefly-demo" to "$ORIGIN/../lib"
+-- Installing: /tmp/firefly-package-fgjppe48/stage-cleanup/prefix/.staging-cleanup-be5lohk4/prefix/releases/cleanup/bin/firefly-config
+-- Installing: /tmp/firefly-package-fgjppe48/stage-cleanup/prefix/.staging-cleanup-be5lohk4/prefix/releases/cleanup/share/firefly/deployment/scripts/stage-release.py
+-- Installing: /tmp/firefly-package-fgjppe48/stage-cleanup/prefix/.staging-cleanup-be5lohk4/prefix/releases/cleanup/share/firefly/deployment/packaging/__init__.py
+-- Installing: /tmp/firefly-package-fgjppe48/stage-cleanup/prefix/.staging-cleanup-be5lohk4/prefix/releases/cleanup/share/firefly/deployment/packaging/firefly_release.py
+.............
+======================================================================
+FAIL: test_live_roots_and_health_gate (__main__.ProductionPackaging)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/firefly/FireflyVoiceAssistantLinux-rollout5/tests/ProductionPackagingTests.py", line 311, in test_live_roots_and_health_gate
+    with self.assertRaises(ReleaseError):
+AssertionError: ReleaseError not raised
+
+----------------------------------------------------------------------
+Ran 46 tests in 70.501s
+
+FAILED (failures=1)
+
+      Start 73: AdminV2Chromium
+ 2/84 Test #73: AdminV2Chromium ...................   Passed   64.22 sec
+      Start 77: AdminManualChromium
+ 3/84 Test #69: GroundingAuthorizationHttp ........   Passed  165.23 sec
+      Start 78: AdminSetupV2Chromium
+ 4/84 Test #77: AdminManualChromium ...............   Passed   51.34 sec
+      Start 27: ConfigRetention
+ 5/84 Test #78: AdminSetupV2Chromium ..............   Passed   48.38 sec
+      Start 84: VoiceRecoveryIntegration
+ 6/84 Test #27: ConfigRetention ...................   Passed   28.01 sec
+      Start 48: HealthReliability
+ 7/84 Test #48: HealthReliability .................   Passed    9.53 sec
+      Start 59: AdminNetworkSecurity
+ 8/84 Test #84: VoiceRecoveryIntegration ..........   Passed   18.43 sec
+      Start 47: AdminGenerationApi
+ 9/84 Test #59: AdminNetworkSecurity ..............   Passed    9.44 sec
+      Start 36: ParserRoomCutover
+10/84 Test #47: AdminGenerationApi ................   Passed    6.71 sec
+      Start 76: ProductionApiHardening
+11/84 Test #36: ParserRoomCutover .................   Passed    6.24 sec
+      Start 83: WakeAcknowledgementOptions
+12/84 Test #76: ProductionApiHardening ............   Passed    5.90 sec
+      Start 49: AdminHttp
+13/84 Test #83: WakeAcknowledgementOptions ........   Passed    5.70 sec
+      Start 82: ProductionStartup
+14/84 Test #49: AdminHttp .........................   Passed    5.66 sec
+      Start 57: ConnectivityHttp
+15/84 Test #82: ProductionStartup .................   Passed    5.61 sec
+      Start 56: V1PrototypePipeline
+16/84 Test #57: ConnectivityHttp ..................   Passed    5.43 sec
+      Start 71: DialogueSetup
+17/84 Test #56: V1PrototypePipeline ...............   Passed    5.24 sec
+      Start 75: AdminManualApi
+18/84 Test #75: AdminManualApi ....................   Passed    4.30 sec
+      Start  9: SafetyHardening
+19/84 Test #71: DialogueSetup .....................   Passed    4.98 sec
+      Start 80: AdminV2Migration
+20/84 Test #80: AdminV2Migration ..................   Passed    3.43 sec
+      Start 37: BrightnessCutover
+21/84 Test  #9: SafetyHardening ...................   Passed    4.12 sec
+      Start  1: ReleaseRecovery
+22/84 Test  #1: ReleaseRecovery ...................   Passed    2.94 sec
+      Start 26: ConfigStore
+23/84 Test #37: BrightnessCutover .................   Passed    3.46 sec
+      Start 50: ConnectionAdmin
+24/84 Test #50: ConnectionAdmin ...................   Passed    1.29 sec
+      Start 58: UnifiedHttp
+25/84 Test #26: ConfigStore .......................   Passed    1.85 sec
+      Start 79: AdminSetupV2Api
+26/84 Test #58: UnifiedHttp .......................   Passed    2.26 sec
+      Start 62: AdminTranscribe
+27/84 Test #79: AdminSetupV2Api ...................   Passed    2.30 sec
+      Start 60: GeneralizedAdmin
+28/84 Test #62: AdminTranscribe ...................   Passed    2.22 sec
+      Start 63: AdminSuggestionRetry
+29/84 Test #60: GeneralizedAdmin ..................   Passed    2.13 sec
+      Start 32: StructuredOutput
+30/84 Test #63: AdminSuggestionRetry ..............   Passed    2.06 sec
+      Start 61: AdminCopilot
+31/84 Test #32: StructuredOutput ..................   Passed    1.84 sec
+      Start 52: MockExecutionUnifiedRuntime
+32/84 Test #61: AdminCopilot ......................   Passed    1.62 sec
+      Start 23: AminaStreamingBackend
+33/84 Test #52: MockExecutionUnifiedRuntime .......   Passed    1.61 sec
+      Start 19: AminaWorkerLifecycle
+34/84 Test #23: AminaStreamingBackend .............   Passed    1.13 sec
+      Start 64: AdminDialogueContract
+35/84 Test #19: AminaWorkerLifecycle ..............   Passed    1.38 sec
+      Start 65: TypedMockConfiguration
+36/84 Test #64: AdminDialogueContract .............   Passed    1.29 sec
+      Start 41: BrightnessCutoverCli
+37/84 Test #65: TypedMockConfiguration ............   Passed    1.19 sec
+      Start 70: LanguageAdminProfile
+38/84 Test #41: BrightnessCutoverCli ..............   Passed    0.90 sec
+      Start 20: AlsaAcknowledgement
+39/84 Test #70: LanguageAdminProfile ..............   Passed    1.03 sec
+      Start 54: HardwareBindings
+40/84 Test #20: AlsaAcknowledgement ...............   Passed    1.03 sec
+      Start 39: RuntimeConfigCli
+41/84 Test #54: HardwareBindings ..................   Passed    1.03 sec
+      Start 46: EntranceDoorCutoverVoiceStartup
+42/84 Test #39: RuntimeConfigCli ..................   Passed    0.95 sec
+      Start 45: BrightnessCutoverVoiceStartup
+43/84 Test #46: EntranceDoorCutoverVoiceStartup ...   Passed    0.92 sec
+      Start 29: ConfigCli
+44/84 Test #45: BrightnessCutoverVoiceStartup .....   Passed    0.76 sec
+      Start 42: EntranceDoorCutoverCli
+45/84 Test #29: ConfigCli .........................   Passed    0.55 sec
+      Start 21: GenericRuntime
+46/84 Test #42: EntranceDoorCutoverCli ............   Passed    0.73 sec
+      Start 38: EntranceDoorCutover
+47/84 Test #21: GenericRuntime ....................   Passed    0.75 sec
+      Start 15: SeamlessWake
+48/84 Test #38: EntranceDoorCutover ...............   Passed    0.59 sec
+      Start 55: DeviceStateLifecycle
+49/84 Test #15: SeamlessWake ......................   Passed    0.41 sec
+      Start 11: CliRobustness
+50/84 Test #55: DeviceStateLifecycle ..............   Passed    0.51 sec
+      Start  3: ReleaseRunner
+51/84 Test #11: CliRobustness .....................   Passed    0.73 sec
+      Start 68: LanguageComposition
+52/84 Test  #3: ReleaseRunner .....................   Passed    0.54 sec
+      Start 18: WakeLiveHelper
+53/84 Test #68: LanguageComposition ...............   Passed    0.47 sec
+      Start 40: ParserRoomCutoverCli
+54/84 Test #18: WakeLiveHelper ....................   Passed    0.55 sec
+      Start 53: ConnectivityConfig
+55/84 Test #40: ParserRoomCutoverCli ..............   Passed    0.40 sec
+      Start  2: DeploymentLauncher
+56/84 Test  #2: DeploymentLauncher ................   Passed    0.23 sec
+      Start 24: ConfigValidation
+57/84 Test #53: ConnectivityConfig ................   Passed    0.39 sec
+      Start 44: ParserRoomCutoverVoiceStartup
+58/84 Test #24: ConfigValidation ..................   Passed    0.32 sec
+      Start 43: RuntimeConfigVoiceStartup
+59/84 Test #44: ParserRoomCutoverVoiceStartup .....   Passed    0.40 sec
+      Start 17: ProductionStartupContract
+60/84 Test #43: RuntimeConfigVoiceStartup .........   Passed    0.29 sec
+      Start 66: CompactActionDecoder
+61/84 Test #17: ProductionStartupContract .........   Passed    0.30 sec
+      Start 67: LanguageIndex
+62/84 Test #66: CompactActionDecoder ..............   Passed    0.30 sec
+      Start 10: RkllmEngineFailures
+63/84 Test #67: LanguageIndex .....................   Passed    0.24 sec
+      Start  6: DeterministicParser
+64/84 Test #10: RkllmEngineFailures ...............   Passed    0.18 sec
+      Start 81: VoiceRecovery
+65/84 Test  #6: DeterministicParser ...............   Passed    0.15 sec
+      Start 31: CompactV1Adapter
+66/84 Test #81: VoiceRecovery .....................   Passed    0.13 sec
+      Start 72: AdminV2Packaging
+67/84 Test #31: CompactV1Adapter ..................   Passed    0.13 sec
+      Start 25: ConfigSnapshot
+68/84 Test #72: AdminV2Packaging ..................   Passed    0.12 sec
+      Start 28: ConfigShadow
+69/84 Test #25: ConfigSnapshot ....................   Passed    0.06 sec
+      Start 33: LlmContext
+70/84 Test #33: LlmContext ........................   Passed    0.08 sec
+      Start  7: SafetyGate
+71/84 Test #28: ConfigShadow ......................   Passed    0.14 sec
+      Start  8: CommandEngine
+72/84 Test  #7: SafetyGate ........................   Passed    0.07 sec
+      Start 35: RuntimeConfig
+73/84 Test #35: RuntimeConfig .....................   Passed    0.05 sec
+      Start 74: AdminGuardedCommand
+74/84 Test  #8: CommandEngine .....................   Passed    0.11 sec
+      Start 13: VoicePipeline
+75/84 Test #74: AdminGuardedCommand ...............   Passed    0.08 sec
+      Start 34: StructuredPipeline
+76/84 Test #13: VoicePipeline .....................   Passed    0.09 sec
+      Start 16: WakeSessionUx
+77/84 Test #34: StructuredPipeline ................   Passed    0.05 sec
+      Start 14: WakeVoiceGating
+78/84 Test #16: WakeSessionUx .....................   Passed    0.04 sec
+      Start  4: Action
+79/84 Test  #4: Action ............................   Passed    0.00 sec
+      Start  5: ActionValidator
+80/84 Test #14: WakeVoiceGating ...................   Passed    0.01 sec
+      Start 12: WakeAcknowledgementPcm
+81/84 Test  #5: ActionValidator ...................   Passed    0.01 sec
+      Start 51: RkllmContextRefresh
+82/84 Test #12: WakeAcknowledgementPcm ............   Passed    0.01 sec
+      Start 30: GenericAction
+83/84 Test #51: RkllmContextRefresh ...............   Passed    0.01 sec
+84/84 Test #30: GenericAction .....................   Passed    0.01 sec
+
+99% tests passed, 1 tests failed out of 84
+
+Total Test time (real) = 288.16 sec
+
+The following tests FAILED:
+	 22 - ProductionPackaging (Failed)
