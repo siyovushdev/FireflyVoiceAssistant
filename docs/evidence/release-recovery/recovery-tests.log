@@ -1,0 +1,30 @@
+test_before_pointer_switch_restores_without_activation (__main__.RecoveryTests) ... ok
+test_child_without_device_fd_is_not_quiescent (__main__.RecoveryTests) ... ok
+test_control_command_timeout_keeps_partial_diagnostics (__main__.RecoveryTests) ... ok
+test_controller_reentry_restores_once (__main__.RecoveryTests) ... ok
+test_delayed_release_waits_without_bypass (__main__.RecoveryTests) ... ok
+test_expired_controller_cannot_stop_worker (__main__.RecoveryTests) ... ok
+test_expired_deadline_cannot_mutate (__main__.RecoveryTests) ... ok
+test_expired_http_verification_cannot_issue_request (__main__.RecoveryTests) ... ok
+test_false_free_observation_cannot_authorize (__main__.RecoveryTests) ... ok
+test_foreign_owner_never_killed_or_ignored (__main__.RecoveryTests) ... ok
+test_fuser_error_with_exit_one_is_not_free (__main__.RecoveryTests) ... ok
+test_fuser_records_offending_pid_stdout_stderr (__main__.RecoveryTests) ... ok
+test_fuser_timeout_keeps_partial_output (__main__.RecoveryTests) ... ok
+test_garbage_collected_worker_does_not_block_repeat_recovery (__main__.RecoveryTests) ... ok
+test_hung_child_blocks_switch_and_start (__main__.RecoveryTests) ... ok
+test_independent_fixture_supervisor_crash_and_restart (__main__.RecoveryTests) ... ok
+test_live_or_control_pid_blocks_barrier (__main__.RecoveryTests) ... ok
+test_missing_resource_fails_closed_before_fuser (__main__.RecoveryTests) ... ok
+test_new_owner_after_switch_blocks_start (__main__.RecoveryTests) ... ok
+test_probe_errors_fail_closed_with_diagnostics (__main__.RecoveryTests) ... ok
+test_probe_finishing_after_deadline_cannot_authorize (__main__.RecoveryTests) ... ok
+test_real_fuser_and_delayed_fixture_process (__main__.RecoveryTests) ... ok
+test_repeated_recovery_is_verified_noop (__main__.RecoveryTests) ... ok
+test_rollback_before_stop_marker_is_noop (__main__.RecoveryTests) ... ok
+test_transient_control_failure_retries_old_only (__main__.RecoveryTests) ... ok
+
+----------------------------------------------------------------------
+Ran 25 tests in 2.569s
+
+OK

@@ -8,6 +8,12 @@ add_compile_options("-ffile-prefix-map=${CMAKE_SOURCE_DIR}=.")
 
 option(FIREFLY_BUILD_ADMIN "Build local configuration admin and owned text runtime" ON)
 include(CTest)
+if(BUILD_TESTING)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_test(NAME ReleaseRecovery COMMAND "${Python3_EXECUTABLE}"
+        "${PROJECT_SOURCE_DIR}/tests/ReleaseRecoveryTests.py")
+    set_tests_properties(ReleaseRecovery PROPERTIES TIMEOUT 60)
+endif()
 option(FIREFLY_BUILD_CONFIG_TOOLS "Build offline configuration tools and tests" OFF)
 add_library(firefly_legacy_compact src/legacy/Action.cpp src/legacy/ActionValidator.cpp)
 target_include_directories(firefly_legacy_compact PUBLIC include)
