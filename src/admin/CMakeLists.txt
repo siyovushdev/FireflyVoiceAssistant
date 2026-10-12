@@ -241,6 +241,14 @@ if(BUILD_TESTING)
     target_link_libraries(language_composition_tests PRIVATE firefly_admin_core)
     target_include_directories(language_composition_tests SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
     add_test(NAME LanguageComposition COMMAND language_composition_tests "${PROJECT_SOURCE_DIR}")
+    add_executable(grounding_authorization_tests "${PROJECT_SOURCE_DIR}/tests/language/GroundingAuthorizationTests.cpp")
+    target_link_libraries(grounding_authorization_tests PRIVATE firefly_admin_core)
+    target_include_directories(grounding_authorization_tests SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
+    target_compile_options(grounding_authorization_tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME GroundingAuthorizationHttp COMMAND "${Python3_EXECUTABLE}"
+        "${PROJECT_SOURCE_DIR}/tests/language/GroundingHttpTests.py"
+        $<TARGET_FILE:grounding_authorization_tests> "${PROJECT_SOURCE_DIR}")
+    set_tests_properties(GroundingAuthorizationHttp PROPERTIES TIMEOUT 600)
 endif()
 
 if(BUILD_TESTING)
