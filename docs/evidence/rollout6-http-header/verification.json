@@ -1,0 +1,51 @@
+{
+  "tested_commit": "e20459f99989b3e890a9aeb1461c5c20df4ec1b0",
+  "build_identity": {
+    "head": "e20459f99989b3e890a9aeb1461c5c20df4ec1b0",
+    "source_sha256": "ad7efe6ff4c079035f8618ee44a43ffe63a3867cc4a422096f4232400520837e",
+    "built_utc": "2026-10-12T19:36:30Z",
+    "dirty": false,
+    "admin_assets_sha256": "6ec619a8145689b1ce16bcc9b246f3d9e7fad779be44b0cfde689a7c94b73e27"
+  },
+  "CTest": "84/84 PASS",
+  "AdminHttp": "4/4 PASS",
+  "frontend": "40/40 PASS; typecheck/build PASS",
+  "launcher": "17/17 PASS",
+  "recovery": "34/34 PASS",
+  "runner": "16/16 PASS",
+  "systemd_fixtures": "5/5 PASS",
+  "production": {
+    "pid": 596736,
+    "systemd": "MainPID=596736\nActiveState=active\nActiveEnterTimestamp=Mon 2026-10-12 19:03:58 UTC\n",
+    "release": "/opt/firefly/voice-assistant/releases/wake-beep-dc7b142e-20261011",
+    "same_pid_release_start_time": true,
+    "config_store_bytes_rights_timestamps_unchanged": true,
+    "config_file_sha256": "688690e892d2f59413cdc2f7d81f1e129ab9ac0dd247f84b2898d74c3c3cdd18",
+    "owners": {
+      "/dev/dri/card1": [
+        596736
+      ],
+      "/dev/snd/pcmC3D0c": [
+        596736
+      ]
+    },
+    "status": {
+      "runtime_ready": true,
+      "voice": "WAITING_WAKE",
+      "microphone": "connected"
+    },
+    "downtime_seconds": 0,
+    "hotfix_installed": false,
+    "production_commands_sent": 0,
+    "stop_restart_cutover_performed": false
+  },
+  "unchanged_sources_sha256": {
+    "src/SafetyGate.cpp": "15b9d57aa18809b745decdf641342d1f66a167b52573f85b14e9b50a69ca6a50",
+    "src/admin/HttpServer.cpp": "fddd3a45a9cc88485b478b4e775539aa2a2b266cd56a2688bb4a422cdaaca369",
+    "src/admin/RuntimeWorker.cpp": "b4c80b548fa4156ead06980333adfba0502eacbf921a2af0e5f702e452914bb0",
+    "packaging/firefly_recovery.py": "cf9d3983660788ec54bc32ae14d321cae812ef734de5b2ee8da566ca32e00182",
+    "scripts/deployment-launcher.py": "34e0ee88f57460226811c00561d68f0ae7113a9e4a44bd0291a6300a3f6174b3",
+    "scripts/release-runner.py": "376fd8bad59fe8cbb395bc03529e4c49e5b8475483558ddc44cc7c7b0d6d0162",
+    "tests/ProductionPackagingTests.py": "44bf80649d0b0a43763da4712f0e5c7f36b3a1ada3bb365a169a158158af5fbf"
+  }
+}
