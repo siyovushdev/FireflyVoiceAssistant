@@ -13,6 +13,9 @@ if(BUILD_TESTING)
     add_test(NAME ReleaseRecovery COMMAND "${Python3_EXECUTABLE}"
         "${PROJECT_SOURCE_DIR}/tests/ReleaseRecoveryTests.py")
     set_tests_properties(ReleaseRecovery PROPERTIES TIMEOUT 60)
+    add_test(NAME DeploymentLauncher COMMAND "${Python3_EXECUTABLE}"
+        "${PROJECT_SOURCE_DIR}/tests/DeploymentLauncherTests.py")
+    set_tests_properties(DeploymentLauncher PROPERTIES TIMEOUT 60)
 endif()
 option(FIREFLY_BUILD_CONFIG_TOOLS "Build offline configuration tools and tests" OFF)
 add_library(firefly_legacy_compact src/legacy/Action.cpp src/legacy/ActionValidator.cpp)

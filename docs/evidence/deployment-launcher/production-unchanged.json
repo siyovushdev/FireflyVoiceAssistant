@@ -1,0 +1,27 @@
+{
+  "production_unchanged": true,
+  "pid": 467978,
+  "release": "releases/wake-beep-dc7b142e-20261011",
+  "source": "dc7b142e4acae74d178a2583cdc1568ec4de8ee8",
+  "active": {
+    "generation_id": 1,
+    "hash": "688690e892d2f59413cdc2f7d81f1e129ab9ac0dd247f84b2898d74c3c3cdd18",
+    "revision": 2
+  },
+  "stored": {
+    "hash": "688690e892d2f59413cdc2f7d81f1e129ab9ac0dd247f84b2898d74c3c3cdd18",
+    "revision": 2
+  },
+  "health": "ready",
+  "voice": "WAITING_WAKE",
+  "stt_ready": true,
+  "microphone": "connected",
+  "sole_npu_microphone_owner": 467978,
+  "store_bytes_owners_modes_timestamps_unchanged": true,
+  "unit_sha256": "77334f69759d06ae07c9b052511544c6ceefbaa5e7e1e2434ac749e839045b39",
+  "fuser": {
+    "returncode": 0,
+    "stdout": " 467978 467978",
+    "stderr": "/dev/dri/card1:     m\n/dev/snd/pcmC3D0c:  \n"
+  }
+}

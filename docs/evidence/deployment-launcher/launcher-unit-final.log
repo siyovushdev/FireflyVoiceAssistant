@@ -1,0 +1,18 @@
+test_interrupt_preserves_independent_recovery (__main__.LauncherTests) ... ok
+test_long_failed_worker_reports_actual_exit_status (__main__.LauncherTests) ... ok
+test_missing_malformed_and_incomplete_success_fail_closed (__main__.LauncherTests) ... ok
+test_observation_cannot_change_original_plan (__main__.LauncherTests) ... ok
+test_observation_deadline_does_not_stop_worker_or_watchdog (__main__.LauncherTests) ... ok
+test_operation_longer_than_submission_timeout (__main__.LauncherTests) ... ok
+test_run_observes_even_after_uncertain_submission (__main__.LauncherTests) ... ok
+test_single_submission_and_pinned_launcher (__main__.LauncherTests) ... ok
+test_slow_probe_after_deadline_cannot_authorize_success (__main__.LauncherTests) ... ok
+test_submission_failure_is_uncertain_not_worker_completion (__main__.LauncherTests) ... ok
+test_submission_is_asynchronous_and_retains_terminal_state (__main__.LauncherTests) ... ok
+test_transient_probe_error_does_not_mean_completed (__main__.LauncherTests) ... ok
+test_worker_exit_zero_requires_acceptance_and_actual_production_gates (__main__.LauncherTests) ... ok
+
+----------------------------------------------------------------------
+Ran 13 tests in 0.033s
+
+OK

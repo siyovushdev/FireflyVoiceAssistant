@@ -1,0 +1,525 @@
+{
+  "scope": "file-only fixtures; projection of retained original summaries and lossless raw bundle",
+  "sources": {
+    "systemd-fixtures": {
+      "original": "/home/firefly/firefly-launcher-fix-20261012T114352Z/systemd-fixtures/summary.json",
+      "sha256": "2ac8504b0e8823e74040f226845970a7a27e3024d40562a6eb58eb45e94804a4"
+    },
+    "systemd-fixtures-final": {
+      "original": "/home/firefly/firefly-launcher-fix-20261012T114352Z/systemd-fixtures-final/summary.json",
+      "sha256": "8f36d1c7626f710aa8fddb7397461750754b8a52ef956fc877ad988631fb4f84"
+    }
+  },
+  "cases": [
+    {
+      "case": "old_client_timeout",
+      "pass_case": false,
+      "root": "/run/firefly-launcher-fixture-old_client_timeout-4fuoh0cx",
+      "outcome": "BASELINE_REPRODUCED",
+      "error": "RuntimeError('Fixture file deadline: /run/firefly-launcher-fixture-old_client_timeout-4fuoh0cx/restored.json')",
+      "client_pid": 471908,
+      "client_returncode": -9,
+      "client_duration": 15.057229679994634,
+      "worker_after_client_exit": {
+        "pid": 471915,
+        "ppid": 1,
+        "monotonic": 98563.52551425
+      },
+      "completed": {
+        "duration": 19.01957827300066,
+        "status": 0
+      },
+      "attempt": "systemd-fixtures",
+      "raw_pointer": "/systemd-fixtures/old_client_timeout",
+      "timer_state_after_observation": {
+        "ActiveState": {
+          "type": "s",
+          "data": "active"
+        },
+        "SubState": {
+          "type": "s",
+          "data": "waiting"
+        },
+        "Triggers": {
+          "type": "as",
+          "data": [
+            "firefly-launcher-fixture-old_client_timeout-4fuoh0cx-rollback.service"
+          ]
+        }
+      }
+    },
+    {
+      "case": "success",
+      "pass_case": true,
+      "root": "/run/firefly-launcher-fixture-success-zdc3ka7p",
+      "submission_duration": 0.030119693008600734,
+      "observed_duration": 17.49216498300666,
+      "completed": {
+        "duration": 17.014211935005733,
+        "status": 0
+      },
+      "restoration": {
+        "release": "old",
+        "ready": true,
+        "events": [
+          "stop",
+          "atomic-switch-old",
+          "start",
+          "verify-store-health-ownership"
+        ],
+        "pid": 472466,
+        "ppid": 1,
+        "monotonic": 98587.317886291,
+        "scope": "file-only fixture"
+      },
+      "attempt": "systemd-fixtures",
+      "raw_pointer": "/systemd-fixtures/success",
+      "observation": {
+        "state": "WORKER_SUCCEEDED",
+        "unit": "firefly-launcher-fixture-success-zdc3ka7p-worker.service",
+        "observation": {
+          "active": "active",
+          "sub": "exited",
+          "job": [
+            0,
+            "/"
+          ],
+          "pid": 0,
+          "control_pid": 0,
+          "result": "success",
+          "exit_code": 1,
+          "exit_status": 0,
+          "exited_monotonic_us": 98580561125
+        }
+      },
+      "timer_state_after_observation": {
+        "ActiveState": {
+          "type": "s",
+          "data": "active"
+        },
+        "SubState": {
+          "type": "s",
+          "data": "waiting"
+        },
+        "Triggers": {
+          "type": "as",
+          "data": [
+            "firefly-launcher-fixture-success-zdc3ka7p-rollback.service"
+          ]
+        }
+      }
+    },
+    {
+      "case": "worker_failure",
+      "pass_case": true,
+      "root": "/run/firefly-launcher-fixture-worker_failure-xh03b0oc",
+      "submission_duration": 0.023977917997399345,
+      "observed_duration": 17.466774332002387,
+      "completed": {
+        "duration": 17.0130414479936,
+        "status": 42
+      },
+      "restoration": {
+        "release": "old",
+        "ready": true,
+        "events": [
+          "stop",
+          "atomic-switch-old",
+          "start",
+          "verify-store-health-ownership"
+        ],
+        "pid": 472467,
+        "ppid": 1,
+        "monotonic": 98587.301724861,
+        "scope": "file-only fixture"
+      },
+      "attempt": "systemd-fixtures",
+      "raw_pointer": "/systemd-fixtures/worker_failure",
+      "observation": {
+        "state": "FORWARD_FAILED",
+        "unit": "firefly-launcher-fixture-worker_failure-xh03b0oc-worker.service",
+        "observation": {
+          "active": "failed",
+          "sub": "failed",
+          "job": [
+            0,
+            "/"
+          ],
+          "pid": 0,
+          "control_pid": 0,
+          "result": "exit-code",
+          "exit_code": 1,
+          "exit_status": 42,
+          "exited_monotonic_us": 98580566527
+        }
+      },
+      "timer_state_after_observation": {
+        "ActiveState": {
+          "type": "s",
+          "data": "active"
+        },
+        "SubState": {
+          "type": "s",
+          "data": "waiting"
+        },
+        "Triggers": {
+          "type": "as",
+          "data": [
+            "firefly-launcher-fixture-worker_failure-xh03b0oc-rollback.service"
+          ]
+        }
+      }
+    },
+    {
+      "case": "exec_failure",
+      "pass_case": false,
+      "root": "/run/firefly-launcher-fixture-exec_failure-yo0mn04b",
+      "error": "AssertionError()",
+      "attempt": "systemd-fixtures",
+      "raw_pointer": "/systemd-fixtures/exec_failure"
+    },
+    {
+      "case": "observation_deadline",
+      "pass_case": true,
+      "root": "/run/firefly-launcher-fixture-observation_deadline-wlsawdrl",
+      "submission_duration": 0.020194908996927552,
+      "observed_duration": 3.021791471997858,
+      "restoration": {
+        "release": "old",
+        "ready": true,
+        "events": [
+          "stop",
+          "atomic-switch-old",
+          "start",
+          "verify-store-health-ownership"
+        ],
+        "pid": 472174,
+        "ppid": 1,
+        "monotonic": 98572.293072807,
+        "scope": "file-only fixture"
+      },
+      "attempt": "systemd-fixtures",
+      "raw_pointer": "/systemd-fixtures/observation_deadline",
+      "observation": {
+        "state": "OBSERVATION_DEADLINE",
+        "unit": "firefly-launcher-fixture-observation_deadline-wlsawdrl-worker.service",
+        "observation": {
+          "active": "activating",
+          "sub": "start",
+          "job": [
+            6208,
+            "/org/freedesktop/systemd1/job/6208"
+          ],
+          "pid": 471910,
+          "control_pid": 0,
+          "result": "success",
+          "exit_code": 0,
+          "exit_status": 0,
+          "exited_monotonic_us": 0
+        }
+      },
+      "timer_state_after_observation": {
+        "ActiveState": {
+          "type": "s",
+          "data": "active"
+        },
+        "SubState": {
+          "type": "s",
+          "data": "waiting"
+        },
+        "Triggers": {
+          "type": "as",
+          "data": [
+            "firefly-launcher-fixture-observation_deadline-wlsawdrl-rollback.service"
+          ]
+        }
+      }
+    },
+    {
+      "case": "old_client_timeout",
+      "pass_case": true,
+      "root": "/run/firefly-launcher-fixture-old_client_timeout-3_rjmt66",
+      "outcome": "BASELINE_REPRODUCED",
+      "client_pid": 472780,
+      "client_returncode": -9,
+      "client_duration": 15.063310776997241,
+      "worker_after_client_exit": {
+        "pid": 472783,
+        "ppid": 1,
+        "monotonic": 98674.381103351
+      },
+      "completed": {
+        "duration": 19.019625365996035,
+        "status": 0
+      },
+      "restoration": {
+        "release": "old",
+        "ready": true,
+        "events": [
+          "stop",
+          "atomic-switch-old",
+          "start",
+          "verify-store-health-ownership"
+        ],
+        "pid": 473330,
+        "ppid": 1,
+        "monotonic": 98698.022056147,
+        "scope": "file-only fixture"
+      },
+      "attempt": "systemd-fixtures-final",
+      "raw_pointer": "/systemd-fixtures-final/old_client_timeout",
+      "timer_state_after_observation": {
+        "ActiveState": {
+          "type": "s",
+          "data": "active"
+        },
+        "SubState": {
+          "type": "s",
+          "data": "waiting"
+        },
+        "Triggers": {
+          "type": "as",
+          "data": [
+            "firefly-launcher-fixture-old_client_timeout-3_rjmt66-rollback.service"
+          ]
+        }
+      }
+    },
+    {
+      "case": "success",
+      "pass_case": true,
+      "root": "/run/firefly-launcher-fixture-success-u14kq7ly",
+      "submission_duration": 0.02942246399470605,
+      "observed_duration": 17.315745667001465,
+      "completed": {
+        "duration": 17.01752660400234,
+        "status": 0
+      },
+      "restoration": {
+        "release": "old",
+        "ready": true,
+        "events": [
+          "stop",
+          "atomic-switch-old",
+          "start",
+          "verify-store-health-ownership"
+        ],
+        "pid": 473332,
+        "ppid": 1,
+        "monotonic": 98698.073987444,
+        "scope": "file-only fixture"
+      },
+      "attempt": "systemd-fixtures-final",
+      "raw_pointer": "/systemd-fixtures-final/success",
+      "observation": {
+        "state": "WORKER_SUCCEEDED",
+        "unit": "firefly-launcher-fixture-success-u14kq7ly-worker.service",
+        "observation": {
+          "active": "active",
+          "sub": "exited",
+          "job": [
+            0,
+            "/"
+          ],
+          "pid": 0,
+          "control_pid": 0,
+          "result": "success",
+          "exit_code": 1,
+          "exit_status": 0,
+          "exited_monotonic_us": 98691425866
+        }
+      },
+      "timer_state_after_observation": {
+        "ActiveState": {
+          "type": "s",
+          "data": "active"
+        },
+        "SubState": {
+          "type": "s",
+          "data": "waiting"
+        },
+        "Triggers": {
+          "type": "as",
+          "data": [
+            "firefly-launcher-fixture-success-u14kq7ly-rollback.service"
+          ]
+        }
+      }
+    },
+    {
+      "case": "worker_failure",
+      "pass_case": true,
+      "root": "/run/firefly-launcher-fixture-worker_failure-2t92d5bj",
+      "submission_duration": 0.04400904700742103,
+      "observed_duration": 17.32387022599869,
+      "completed": {
+        "duration": 17.017600398001377,
+        "status": 42
+      },
+      "restoration": {
+        "release": "old",
+        "ready": true,
+        "events": [
+          "stop",
+          "atomic-switch-old",
+          "start",
+          "verify-store-health-ownership"
+        ],
+        "pid": 473333,
+        "ppid": 1,
+        "monotonic": 98698.074198907,
+        "scope": "file-only fixture"
+      },
+      "attempt": "systemd-fixtures-final",
+      "raw_pointer": "/systemd-fixtures-final/worker_failure",
+      "observation": {
+        "state": "FORWARD_FAILED",
+        "unit": "firefly-launcher-fixture-worker_failure-2t92d5bj-worker.service",
+        "observation": {
+          "active": "failed",
+          "sub": "failed",
+          "job": [
+            0,
+            "/"
+          ],
+          "pid": 0,
+          "control_pid": 0,
+          "result": "exit-code",
+          "exit_code": 1,
+          "exit_status": 42,
+          "exited_monotonic_us": 98691422790
+        }
+      },
+      "timer_state_after_observation": {
+        "ActiveState": {
+          "type": "s",
+          "data": "active"
+        },
+        "SubState": {
+          "type": "s",
+          "data": "waiting"
+        },
+        "Triggers": {
+          "type": "as",
+          "data": [
+            "firefly-launcher-fixture-worker_failure-2t92d5bj-rollback.service"
+          ]
+        }
+      }
+    },
+    {
+      "case": "startup_failure",
+      "pass_case": true,
+      "root": "/run/firefly-launcher-fixture-startup_failure-uileap4w",
+      "submission_duration": 0.060121666014310904,
+      "observed_duration": 0.11541942901385482,
+      "restoration": {
+        "release": "old",
+        "ready": true,
+        "events": [
+          "stop",
+          "atomic-switch-old",
+          "start",
+          "verify-store-health-ownership"
+        ],
+        "pid": 473331,
+        "ppid": 1,
+        "monotonic": 98698.074590332,
+        "scope": "file-only fixture"
+      },
+      "attempt": "systemd-fixtures-final",
+      "raw_pointer": "/systemd-fixtures-final/startup_failure",
+      "observation": {
+        "state": "FORWARD_FAILED",
+        "unit": "firefly-launcher-fixture-startup_failure-uileap4w-worker.service",
+        "observation": {
+          "active": "failed",
+          "sub": "failed",
+          "job": [
+            0,
+            "/"
+          ],
+          "pid": 0,
+          "control_pid": 0,
+          "result": "exit-code",
+          "exit_code": 1,
+          "exit_status": 2,
+          "exited_monotonic_us": 98674367130
+        }
+      },
+      "timer_state_after_observation": {
+        "ActiveState": {
+          "type": "s",
+          "data": "active"
+        },
+        "SubState": {
+          "type": "s",
+          "data": "waiting"
+        },
+        "Triggers": {
+          "type": "as",
+          "data": [
+            "firefly-launcher-fixture-startup_failure-uileap4w-rollback.service"
+          ]
+        }
+      }
+    },
+    {
+      "case": "observation_deadline",
+      "pass_case": true,
+      "root": "/run/firefly-launcher-fixture-observation_deadline-45ghzq2q",
+      "submission_duration": 0.016797759002656676,
+      "observed_duration": 3.0181142340006772,
+      "restoration": {
+        "release": "old",
+        "ready": true,
+        "events": [
+          "stop",
+          "atomic-switch-old",
+          "start",
+          "verify-store-health-ownership"
+        ],
+        "pid": 473050,
+        "ppid": 1,
+        "monotonic": 98683.03309906,
+        "scope": "file-only fixture"
+      },
+      "attempt": "systemd-fixtures-final",
+      "raw_pointer": "/systemd-fixtures-final/observation_deadline",
+      "observation": {
+        "state": "OBSERVATION_DEADLINE",
+        "unit": "firefly-launcher-fixture-observation_deadline-45ghzq2q-worker.service",
+        "observation": {
+          "active": "activating",
+          "sub": "start",
+          "job": [
+            7733,
+            "/org/freedesktop/systemd1/job/7733"
+          ],
+          "pid": 472787,
+          "control_pid": 0,
+          "result": "success",
+          "exit_code": 0,
+          "exit_status": 0,
+          "exited_monotonic_us": 0
+        }
+      },
+      "timer_state_after_observation": {
+        "ActiveState": {
+          "type": "s",
+          "data": "active"
+        },
+        "SubState": {
+          "type": "s",
+          "data": "waiting"
+        },
+        "Triggers": {
+          "type": "as",
+          "data": [
+            "firefly-launcher-fixture-observation_deadline-45ghzq2q-rollback.service"
+          ]
+        }
+      }
+    }
+  ]
+}

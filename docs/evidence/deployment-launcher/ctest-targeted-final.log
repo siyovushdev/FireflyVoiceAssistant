@@ -1,0 +1,10 @@
+Internal ctest changing into directory: /home/firefly/FireflyVoiceAssistantLinux-launcher/build
+Test project /home/firefly/FireflyVoiceAssistantLinux-launcher/build
+    Start 1: ReleaseRecovery
+1/2 Test #1: ReleaseRecovery ..................   Passed    2.97 sec
+    Start 2: DeploymentLauncher
+2/2 Test #2: DeploymentLauncher ...............   Passed    0.23 sec
+
+100% tests passed, 0 tests failed out of 2
+
+Total Test time (real) =   3.21 sec
