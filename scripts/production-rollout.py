@@ -4,6 +4,7 @@ import datetime
 import fcntl
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import stat
@@ -42,6 +43,18 @@ def comparable(tree):
     return {p: {k: v for k, v in e.items() if k != 'mtime_ns'} for p, e in tree.items()}
 
 
+def property_value(properties, name, signature):
+    value = properties.get(name)
+    if not isinstance(value, dict) or value.get('type') != signature or 'data' not in value:
+        raise RuntimeError('Unconfirmed systemd property: ' + name)
+    data = value['data']
+    scalar_types = {'s': str, 'b': bool, 't': int, 'u': int, 'i': int}
+    expected = scalar_types.get(signature, list)
+    if type(data) is not expected:
+        raise RuntimeError('Malformed systemd property: ' + name)
+    return data
+
+
 class Production:
     def __init__(self, root):
         assert os.geteuid() == 0
@@ -51,7 +64,9 @@ class Production:
         if info.st_uid != 0 or stat.S_IMODE(info.st_mode) != 0o700:
             raise RuntimeError('Supervisor directory must be root-owned mode 0700')
         self.root = root
-        self.plan = json.loads((root / 'plan.json').read_text())
+        plan_bytes = (root / 'plan.json').read_bytes()
+        self.plan = json.loads(plan_bytes)
+        self.plan_sha256 = hashlib.sha256(plan_bytes).hexdigest()
         self.before = json.loads((root / 'production-before.json').read_text())
         self.prefix = Path('/opt/firefly/voice-assistant')
         self.unit = 'firefly-voice-assistant.service'
@@ -172,6 +187,144 @@ class Production:
     def free(self):
         return wait_quiescent(self.resource_snapshot, self.record,
                               min(time.monotonic() + 30, self.plan['deadline_monotonic']))
+
+    def systemd_properties(self, unit, interface):
+        bus = ['busctl', '--system', '--json=short', 'call', 'org.freedesktop.systemd1']
+        reply = json.loads(self.run(bus + ['/org/freedesktop/systemd1',
+            'org.freedesktop.systemd1.Manager', 'GetUnit', 's', unit], timeout=5))
+        if (reply.get('type') != 'o' or len(reply.get('data', [])) != 1
+                or not isinstance(reply['data'][0], str)
+                or not reply['data'][0].startswith('/org/freedesktop/systemd1/unit/')):
+            raise RuntimeError('Unconfirmed systemd unit: ' + unit)
+        reply = json.loads(self.run(bus + [reply['data'][0],
+            'org.freedesktop.DBus.Properties', 'GetAll', 's',
+            'org.freedesktop.systemd1.' + interface], timeout=5))
+        if (reply.get('type') != 'a{sv}' or len(reply.get('data', [])) != 1
+                or not isinstance(reply['data'][0], dict)):
+            raise RuntimeError('Unconfirmed systemd interface: ' + interface)
+        return reply['data'][0]
+
+    def supervisor_files(self):
+        """Prove the future ExecStart uses this controller and its original plan."""
+        if not self.root.is_absolute() or self.root.resolve() != self.root:
+            raise RuntimeError('Supervisor root must be canonical and absolute')
+        for directory in [self.root / 'scripts', self.root / 'packaging', self.root, *self.root.parents]:
+            info = directory.lstat()
+            if (not stat.S_ISDIR(info.st_mode) or info.st_uid != 0
+                    or stat.S_IMODE(info.st_mode) & 0o022):
+                raise RuntimeError('Untrusted supervisor directory: ' + str(directory))
+        if stat.S_IMODE(self.root.stat().st_mode) != 0o700:
+            raise RuntimeError('Supervisor root must remain private')
+        controller = self.root / 'scripts/production-rollout.py'
+        helper = self.root / 'packaging/firefly_recovery.py'
+        for path in [self.root / 'plan.json', controller, helper]:
+            info = path.lstat()
+            if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0
+                    or stat.S_IMODE(info.st_mode) & 0o022 or path.resolve() != path):
+                raise RuntimeError('Untrusted supervisor file: ' + str(path))
+        if (Path(__file__).resolve() != controller
+                or sha(controller) != self.plan['controller_sha256']
+                or sha(helper) != self.plan['recovery_helper_sha256']
+                or sha(self.root / 'plan.json') != self.plan_sha256
+                or json.loads((self.root / 'plan.json').read_bytes()) != self.plan):
+            raise RuntimeError('Supervisor code or original plan changed')
+
+    def supervision_gate(self):
+        """Read-only, fail-closed gate required before the cutover marker/stop."""
+        self.supervisor_files()
+        plan = self.plan
+        timer_name, service_name = plan['rollback_timer'], plan['rollback_unit']
+        if (not timer_name.endswith('.timer')
+                or service_name != timer_name[:-6] + '.service'
+                or service_name in (self.unit, plan['worker_unit'])):
+            raise RuntimeError('Invalid rollback unit linkage in plan')
+        if plan['boot_id'] != Path('/proc/sys/kernel/random/boot_id').read_text().strip():
+            raise RuntimeError('Armed plan belongs to a different boot')
+        for name in ('deadline_monotonic', 'armed_monotonic'):
+            if type(plan[name]) not in (int, float) or not math.isfinite(plan[name]):
+                raise RuntimeError('Invalid original plan deadline: ' + name)
+        if (plan['verification_budget_seconds'] != 240 or plan['recovery_budget_seconds'] != 360
+                or self.operation_deadline != plan['deadline_monotonic']
+                or self.recovery_deadline != plan['deadline_monotonic'] + 360):
+            raise RuntimeError('Unexpected or reset original plan budget')
+        deadline_us = round(plan['deadline_monotonic'] * 1000000)
+        armed_us = round(plan['armed_monotonic'] * 1000000)
+        if deadline_us - armed_us != 240000000:
+            raise RuntimeError('Plan is not the original 240-second armed interval')
+
+        timer_unit = self.systemd_properties(timer_name, 'Unit')
+        timer = self.systemd_properties(timer_name, 'Timer')
+        service_unit = self.systemd_properties(service_name, 'Unit')
+        service = self.systemd_properties(service_name, 'Service')
+        def require(properties, name, signature, expected):
+            if property_value(properties, name, signature) != expected:
+                raise RuntimeError('Unsafe rollback supervisor property: ' + name)
+        for unit, name, active, substate in [(timer_unit, timer_name, 'active', 'waiting'),
+                                            (service_unit, service_name, 'inactive', 'dead')]:
+            for key, value in [('Id', name), ('LoadState', 'loaded'),
+                               ('ActiveState', active), ('SubState', substate)]:
+                require(unit, key, 's', value)
+            require(unit, 'Transient', 'b', True)
+            require(unit, 'Job', '(uo)', [0, '/'])
+            require(unit, 'Conditions', 'a(sbbsi)', [])
+            require(unit, 'Asserts', 'a(sbbsi)', [])
+        require(timer_unit, 'Triggers', 'as', [service_name])
+        require(service_unit, 'TriggeredBy', 'as', [timer_name])
+        require(service_unit, 'StartLimitIntervalUSec', 't', 0)
+        require(service_unit, 'RefuseManualStart', 'b', False)
+        require(service_unit, 'StopWhenUnneeded', 'b', False)
+        require(service_unit, 'OnFailure', 'as', [])
+        for name in ('FailureAction', 'SuccessAction', 'StartLimitAction'):
+            require(service_unit, name, 's', 'none')
+        for name, value in [('Type', 'exec'), ('Restart', 'on-failure'),
+                            ('KillMode', 'control-group'), ('RootDirectory', ''), ('RootImage', ''),
+                            ('ProtectProc', 'default'), ('ProcSubset', 'all'),
+                            ('TimeoutStartFailureMode', 'terminate'), ('TimeoutStopFailureMode', 'terminate')]:
+            require(service, name, 's', value)
+        for name in ('User', 'Group'):
+            if property_value(service, name, 's') not in ('', 'root', '0'):
+                raise RuntimeError('Rollback supervisor must run as root')
+        for name, value in [('DynamicUser', False), ('PrivateUsers', False),
+                            ('PrivateNetwork', False), ('PrivateDevices', False),
+                            ('RemainAfterExit', False), ('SendSIGKILL', True)]:
+            require(service, name, 'b', value)
+        for name, value in [('KillSignal', 15), ('FinalKillSignal', 9)]:
+            require(service, name, 'i', value)
+        for name, value in [('RestartUSec', 1000000), ('TimeoutStartUSec', 10000000),
+                            ('TimeoutStopUSec', 10000000), ('RuntimeMaxUSec', 360000000)]:
+            require(service, name, 't', value)
+        for name in ('MainPID', 'ControlPID'):
+            require(service, name, 'u', 0)
+        require(service, 'RestartPreventExitStatus', '(aiai)', [[78], []])
+        for name in ('RestartForceExitStatus', 'SuccessExitStatus'):
+            require(service, name, '(aiai)', [[], []])
+        require(service, 'Environment', 'as', [])
+        require(service, 'EnvironmentFiles', 'a(sb)', [])
+        for name in ('ExecCondition', 'ExecStartPre', 'ExecStartPost', 'ExecStop', 'ExecStopPost', 'ExecReload'):
+            require(service, name, 'a(sasbttttuii)', [])
+        expected_argv = ['/usr/bin/python3', str(self.root / 'scripts/production-rollout.py'),
+                         'rollback', str(self.root)]
+        entries = property_value(service, 'ExecStart', 'a(sasbttttuii)')
+        if (len(entries) != 1 or len(entries[0]) != 10 or entries[0][0] != expected_argv[0]
+                or entries[0][1] != expected_argv or entries[0][2] is not False):
+            raise RuntimeError('Wrong rollback supervisor ExecStart')
+        require(timer, 'Unit', 's', service_name)
+        require(timer, 'Result', 's', 'success')
+        require(timer, 'RandomizedDelayUSec', 't', 0)
+        require(timer, 'Persistent', 'b', False)
+        require(timer, 'WakeSystem', 'b', False)
+        require(timer, 'TimersCalendar', 'a(sst)', [])
+        require(timer, 'TimersMonotonic', 'a(stt)', [['OnActiveUSec', 240000000, deadline_us]])
+        require(timer, 'NextElapseUSecMonotonic', 't', deadline_us)
+        accuracy = property_value(timer, 'AccuracyUSec', 't')
+        now = time.monotonic()
+        if not 0 < accuracy <= 250000 or not plan['armed_monotonic'] <= now < plan['deadline_monotonic'] - 180:
+            raise RuntimeError('Rollback timer is not armed with a usable cutover budget')
+        # Recheck the immutable plan after D-Bus reads, immediately before stop.
+        self.supervisor_files()
+        self.record('supervision-preflight', {'utc': utc(), 'plan_sha256': self.plan_sha256,
+                    'timer_unit': timer_unit, 'timer': timer, 'service_unit': service_unit,
+                    'service': service, 'remaining_seconds': plan['deadline_monotonic'] - now})
 
     def switch(self, target):
         # Explicit recorded rollback target avoids depending on a partially
@@ -355,12 +508,14 @@ def main():
     assert mode == 'deploy'
     lock = (root / 'operation.lock').open('a')
     fcntl.flock(lock, fcntl.LOCK_EX)
+    cutover_started = False
     try:
         assert not (root / 'CUTOVER_STARTED').exists(), 'One attempt already consumed'
         ops.record('immediate-preflight', ops.gates(ops.plan['old']))
-        assert ops.run(['systemctl', 'is-active', ops.plan['rollback_timer']]) == 'active'
+        ops.supervision_gate()
         assert time.monotonic() < ops.plan['deadline_monotonic'] - 180
         (root / 'CUTOVER_STARTED').write_text(utc() + '\n')
+        cutover_started = True
         ops.stop()
         ops.free()
         ops.record('resources-released', {'utc': utc(), 'owners': ops.owners()})
@@ -378,8 +533,11 @@ def main():
         (root / 'ACCEPTED').write_text(utc() + '\n')
     except BaseException as error:
         ops.record('deployment-error', {'utc': utc(), 'error': repr(error)})
-        ops.run(['systemctl', 'start', '--no-block', ops.plan['rollback_unit']])
+        if cutover_started:
+            ops.run(['systemctl', 'start', '--no-block', ops.plan['rollback_unit']])
         raise
+    finally:
+        lock.close()
 
 
 if __name__ == '__main__':

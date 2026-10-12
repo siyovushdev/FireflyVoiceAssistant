@@ -94,10 +94,15 @@ The directory also needs `evidence/`, `production-before.json` and `plan.json`.
 Keep the existing verified full backup/release/unit/model/identity checks.
 
 The incident plan fields remain required; additionally record the current
-`/proc/sys/kernel/random/boot_id` as `boot_id`. Set `deadline_monotonic` to the
-end of the 240-second forward-verification budget, and
-`recovery_budget_seconds=360`. These deadlines must not reset on recovery or
-supervisor restart. Verify the read-only `preflight` mode before downtime.
+`/proc/sys/kernel/random/boot_id` as `boot_id` and pin the root-private controller
+and helper bytes as `controller_sha256` and `recovery_helper_sha256`. After the
+timer is armed, obtain its actual `NextElapseUSecMonotonic` from systemd. Finalize
+`deadline_monotonic` as that integer divided by 1,000,000; set `armed_monotonic`
+to `(NextElapseUSecMonotonic - 240000000) / 1000000`. Keep
+`verification_budget_seconds=240` and `recovery_budget_seconds=360`. This avoids
+guessing the trigger from the time the agent launched systemd-run. Freeze this
+plan before starting the forward worker; do not reset these deadlines on recovery
+or supervisor restart. Verify the read-only production `preflight` before downtime.
 
 The independent timer must be active before the single worker can stop anything.
 The recovery service must use **Type=exec**, `Restart=on-failure`, `RestartSec=1s`,
@@ -118,8 +123,29 @@ sudo systemd-run --unit="$ROLLBACK_UNIT_BASE" --on-active=240s \
   /usr/bin/python3 "$SUPERVISOR/scripts/production-rollout.py" rollback "$SUPERVISOR"
 ```
 
-Verify the actual timer/service properties and run a separate fixture fault
-proof with these properties before downtime. Retain the timer until independent
+The controller now **automatically verifies** the actual timer/service settings
+before `CUTOVER_STARTED` and the first production stop. It reads typed D-Bus
+properties via systemd's `busctl --system --json=short`; it does not parse display
+strings from `systemctl show`. The gate requires exact reciprocal timer/service
+linkage, loaded transient units, an active/waiting timer, an inactive/dead recovery
+service, and no pending jobs/conditions. It verifies root identity, exact ExecStart
+argv to this root-private controller in `rollback` mode with this plan directory,
+restart/exit-status/timeouts/runtime/kill settings above, and no injected
+environment, extra execution hooks or failure/reboot actions. Device/network/proc
+isolation that would prevent resource/health checks is rejected; ordinary TERM/KILL
+signals and terminating timeout modes are required. Root-controlled
+directories/files, pinned code bytes and the original cached plan SHA256 are
+rechecked. Missing/malformed/unsupported settings or queries fail closed.
+
+The single `OnActiveUSec=240000000` monotonic trigger must match the frozen plan's
+deadline exactly at microsecond precision, with no calendar/randomized trigger,
+accuracy at most 250ms and more than 180 seconds of forward budget remaining.
+Boot identity and the original 360-second recovery budget must still match.
+A rejected preflight creates no cutover marker, stops no service and **does not
+start an unverified rollback unit**. Raw accepted settings and plan SHA256 are
+recorded in private `supervision-preflight.json`.
+
+Run a separate fixture fault proof before downtime. Retain the timer until independent
 production verification succeeds. Keep the original single-worker timeout and
 one-cutover marker; do not configure restart on the forward worker. Expired
 plans, persistent unknown owners and a nonfunctional systemd cannot be made safe
@@ -143,3 +169,14 @@ ordinary JSON files and never calls production systemctl, NPU, ALSA or HTTP.
 See [verification.json](evidence/release-recovery/verification.json) for results,
 raw logs and SHA256. This is offline recovery evidence, not a production rollout
 or acoustic acceptance. No new Qwen inference is claimed.
+
+The [supervision gate follow-up evidence](evidence/release-recovery/supervision-gate/verification.json)
+addresses Chief Engineer review `5489261317`: property/plan failures exercise the
+actual `main/deploy` boundary and prove no marker, stop or rollback launch. A
+separate actual root-private transient service/timer passed the typed guard
+without invoking deployment; its timer was then stopped. Both this proof and
+the original recovery fault evidence remain offline, with production unchanged.
+Results: 34/34 recovery tests, including 193 rejected deployment configurations
+with no marker/stop/control calls, and 82/82 full CTest PASS. The shared recovery
+helper is byte-identical to `cd08f53`. Previous evidence and its checksum ledger
+remain intact; new raw snapshots, case results and logs have a separate ledger.

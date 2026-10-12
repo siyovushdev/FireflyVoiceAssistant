@@ -1,0 +1,26 @@
+{
+  "result": "PASS",
+  "launch_argv": [
+    "systemd-run",
+    "--unit=firefly-supervision-gate-proof-20261012T102008Z-v2",
+    "--on-active=240s",
+    "--timer-property=AccuracySec=250ms",
+    "--property=Type=exec",
+    "--property=Restart=on-failure",
+    "--property=RestartSec=1s",
+    "--property=RestartPreventExitStatus=78",
+    "--property=StartLimitIntervalSec=0",
+    "--property=TimeoutStartSec=10s",
+    "--property=TimeoutStopSec=10s",
+    "--property=RuntimeMaxSec=360s",
+    "/usr/bin/python3",
+    "/run/firefly-supervision-gate-proof-20261012T102008Z-v2/scripts/production-rollout.py",
+    "rollback",
+    "/run/firefly-supervision-gate-proof-20261012T102008Z-v2"
+  ],
+  "scope": "actual transient systemd properties, guard only; no deploy/NPU/microphone/service control for production",
+  "cutover_marker_absent": true,
+  "controller_sha256": "1a3b560102a69d0262ff6287b556ce0df857153d36feb24c7038d775f6d02025",
+  "helper_sha256": "cf9d3983660788ec54bc32ae14d321cae812ef734de5b2ee8da566ca32e00182",
+  "plan_sha256": "653f2019cce3a8c0bc094d152e683096f786109d6ceec2036dafff08ef2de5f4"
+}

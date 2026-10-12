@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Offline recovery faults. No production unit, ConfigStore or device is opened."""
 import importlib.util
+import copy
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -69,6 +71,233 @@ class Operations:
         self.ready = True
     def wait_ready(self, target, seconds):
         return self.gates(target)
+
+
+def supervision_properties(root, deadline_us):
+    """Typed systemd 249 property fixture; no systemd operations."""
+    def variant(signature, data):
+        return {'type': signature, 'data': data}
+    units = {}
+    for name, state, substate in [('fixture.timer', 'active', 'waiting'),
+                                  ('fixture.service', 'inactive', 'dead')]:
+        units[(name, 'Unit')] = {
+            'Id': variant('s', name), 'LoadState': variant('s', 'loaded'),
+            'ActiveState': variant('s', state), 'SubState': variant('s', substate),
+            'Transient': variant('b', True), 'Job': variant('(uo)', [0, '/']),
+            'Conditions': variant('a(sbbsi)', []), 'Asserts': variant('a(sbbsi)', [])}
+    units[('fixture.timer', 'Unit')]['Triggers'] = variant('as', ['fixture.service'])
+    units[('fixture.service', 'Unit')].update({
+        'TriggeredBy': variant('as', ['fixture.timer']),
+        'StartLimitIntervalUSec': variant('t', 0),
+        'RefuseManualStart': variant('b', False), 'StopWhenUnneeded': variant('b', False),
+        'OnFailure': variant('as', []), **{k: variant('s', 'none') for k in
+        ['FailureAction', 'SuccessAction', 'StartLimitAction']}})
+    units[('fixture.timer', 'Timer')] = {
+        'Unit': variant('s', 'fixture.service'), 'Result': variant('s', 'success'),
+        'RandomizedDelayUSec': variant('t', 0), 'Persistent': variant('b', False),
+        'WakeSystem': variant('b', False), 'TimersCalendar': variant('a(sst)', []),
+        'TimersMonotonic': variant('a(stt)', [['OnActiveUSec', 240000000, deadline_us]]),
+        'NextElapseUSecMonotonic': variant('t', deadline_us), 'AccuracyUSec': variant('t', 250000)}
+    service = {k: variant('s', v) for k, v in [('Type', 'exec'), ('Restart', 'on-failure'),
+        ('KillMode', 'control-group'), ('RootDirectory', ''), ('RootImage', ''), ('User', ''), ('Group', ''),
+        ('ProtectProc', 'default'), ('ProcSubset', 'all'),
+        ('TimeoutStartFailureMode', 'terminate'), ('TimeoutStopFailureMode', 'terminate')]}
+    service.update({k: variant('b', v) for k, v in [('DynamicUser', False), ('PrivateUsers', False),
+        ('PrivateNetwork', False), ('PrivateDevices', False), ('RemainAfterExit', False), ('SendSIGKILL', True)]})
+    service.update({k: variant('i', v) for k, v in [('KillSignal', 15), ('FinalKillSignal', 9)]})
+    service.update({k: variant('t', v) for k, v in [('RestartUSec', 1000000),
+        ('TimeoutStartUSec', 10000000), ('TimeoutStopUSec', 10000000), ('RuntimeMaxUSec', 360000000)]})
+    service.update({k: variant('u', 0) for k in ['MainPID', 'ControlPID']})
+    service.update({k: variant('(aiai)', v) for k, v in [('RestartPreventExitStatus', [[78], []]),
+        ('RestartForceExitStatus', [[], []]), ('SuccessExitStatus', [[], []])]})
+    service.update(Environment=variant('as', []), EnvironmentFiles=variant('a(sb)', []))
+    service.update({k: variant('a(sasbttttuii)', []) for k in
+        ['ExecCondition', 'ExecStartPre', 'ExecStartPost', 'ExecStop', 'ExecStopPost', 'ExecReload']})
+    argv = ['/usr/bin/python3', str(root / 'scripts/production-rollout.py'), 'rollback', str(root)]
+    service['ExecStart'] = variant('a(sasbttttuii)', [[argv[0], argv, False, 0, 0, 0, 0, 0, 0, 0]])
+    units[('fixture.service', 'Service')] = service
+    return units
+
+
+class SupervisionGateTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.ops = object.__new__(controller.Production)
+        self.ops.root, self.ops.unit = self.root, 'firefly-voice-assistant.service'
+        self.ops.plan = dict(rollback_timer='fixture.timer', rollback_unit='fixture.service',
+            worker_unit='fixture-worker.service', verification_budget_seconds=240,
+            recovery_budget_seconds=360, armed_monotonic=990, deadline_monotonic=1230,
+            boot_id=Path('/proc/sys/kernel/random/boot_id').read_text().strip())
+        self.ops.operation_deadline, self.ops.recovery_deadline = 1230, 1590
+        self.ops.plan_sha256 = 'fixture-plan-digest'
+        self.properties = supervision_properties(self.root, 1230000000)
+        self.records, self.controls = [], []
+        self.ops.record = lambda k, v: self.records.append((k, v))
+        self.ops.systemd_properties = lambda unit, interface: self.properties[(unit, interface)]
+        # File ownership/pinning is exercised separately below and in the real
+        # root-private systemd snapshot proof; this matrix tests unit properties.
+        self.ops.supervisor_files = lambda: None
+        self.ops.gates = lambda target: {'ready': True}
+        self.ops.plan['old'] = 'old'
+        self.ops.run = lambda args, **kw: self.controls.append(args)
+        self.stops = []
+        def stop():
+            self.stops.append((self.root / 'CUTOVER_STARTED').exists())
+            raise RuntimeError('fixture-stop-boundary')
+        self.ops.stop = stop
+        self.addCleanup(patch.stopall)
+        patch.object(controller.time, 'monotonic', return_value=1000).start()
+    def deploy(self):
+        with patch.object(controller, 'Production', return_value=self.ops), \
+                patch.object(sys, 'argv', ['controller', 'deploy', str(self.root)]):
+            controller.main()
+    def assert_blocked(self):
+        with self.assertRaises(Exception):
+            self.deploy()
+        self.assertFalse((self.root / 'CUTOVER_STARTED').exists())
+        self.assertEqual(self.stops, [])
+        self.assertEqual(self.controls, [])  # Never start an unverified supervisor.
+    def test_valid_supervisor_gate_precedes_marker_and_stop(self):
+        with self.assertRaisesRegex(RuntimeError, 'fixture-stop-boundary'):
+            self.deploy()
+        self.assertEqual(self.stops, [True])
+        self.assertTrue(any(k == 'supervision-preflight' for k, v in self.records))
+        self.assertEqual(self.controls, [['systemctl', 'start', '--no-block', 'fixture.service']])
+    def test_missing_or_wrongly_typed_properties_block_before_stop(self):
+        baseline = copy.deepcopy(self.properties)
+        for unit, properties in baseline.items():
+            for name in properties:
+                for fault in ('missing', 'wrong-type'):
+                    with self.subTest(unit=unit, name=name, fault=fault):
+                        self.properties = copy.deepcopy(baseline)
+                        if fault == 'missing':
+                            del self.properties[unit][name]
+                        else:
+                            self.properties[unit][name]['type'] = 'unconfirmed'
+                        self.assert_blocked()
+    def test_unsafe_property_values_block_before_stop(self):
+        baseline = copy.deepcopy(self.properties)
+        faults = [('fixture.timer', 'Unit', 'ActiveState', 'inactive'),
+            ('fixture.timer', 'Unit', 'SubState', 'elapsed'),
+            ('fixture.timer', 'Unit', 'Triggers', ['other.service']),
+            ('fixture.service', 'Unit', 'LoadState', 'not-found'),
+            ('fixture.service', 'Unit', 'StartLimitIntervalUSec', 10000000),
+            ('fixture.service', 'Unit', 'TriggeredBy', ['other.timer']),
+            ('fixture.service', 'Unit', 'FailureAction', 'reboot'),
+            ('fixture.service', 'Unit', 'Conditions', [['ConditionPathExists', False, False, '/missing', 0]]),
+            ('fixture.service', 'Service', 'Type', 'oneshot'),
+            ('fixture.service', 'Service', 'Restart', 'no'),
+            ('fixture.service', 'Service', 'RestartPreventExitStatus', [[], []]),
+            ('fixture.service', 'Service', 'RestartPreventExitStatus', [[0, 78], []]),
+            ('fixture.service', 'Service', 'RestartUSec', 60000000),
+            ('fixture.service', 'Service', 'RuntimeMaxUSec', 18446744073709551615),
+            ('fixture.service', 'Service', 'TimeoutStartUSec', 90000000),
+            ('fixture.service', 'Service', 'TimeoutStopUSec', 90000000),
+            ('fixture.service', 'Service', 'User', 'firefly'),
+            ('fixture.service', 'Service', 'Group', 'firefly'),
+            ('fixture.service', 'Service', 'DynamicUser', True),
+            ('fixture.service', 'Service', 'PrivateUsers', True),
+            ('fixture.service', 'Service', 'PrivateNetwork', True),
+            ('fixture.service', 'Service', 'PrivateDevices', True),
+            ('fixture.service', 'Service', 'ProtectProc', 'invisible'),
+            ('fixture.service', 'Service', 'ProcSubset', 'pid'),
+            ('fixture.service', 'Service', 'FinalKillSignal', 15),
+            ('fixture.service', 'Service', 'TimeoutStopFailureMode', 'abort'),
+            ('fixture.service', 'Service', 'KillMode', 'process'),
+            ('fixture.service', 'Service', 'SendSIGKILL', False),
+            ('fixture.service', 'Service', 'Environment', ['PYTHONPATH=/untrusted']),
+            ('fixture.service', 'Service', 'ExecStartPre', [['/bin/false', [], False, 0, 0, 0, 0, 0, 0, 0]]),
+            ('fixture.timer', 'Timer', 'Unit', 'other.service'),
+            ('fixture.timer', 'Timer', 'NextElapseUSecMonotonic', 0),
+            ('fixture.timer', 'Timer', 'NextElapseUSecMonotonic', 999000000),
+            ('fixture.timer', 'Timer', 'TimersMonotonic', []),
+            ('fixture.timer', 'Timer', 'TimersMonotonic', [['OnBootUSec', 240000000, 1230000000]]),
+            ('fixture.timer', 'Timer', 'RandomizedDelayUSec', 1000000),
+            ('fixture.timer', 'Timer', 'AccuracyUSec', 60000000)]
+        for name, interface, key, value in faults:
+            with self.subTest(name=name, key=key):
+                self.properties = copy.deepcopy(baseline)
+                self.properties[(name, interface)][key]['data'] = value
+                self.assert_blocked()
+    def test_wrong_exec_path_argv_plan_and_ignored_errors_block(self):
+        baseline = copy.deepcopy(self.properties)
+        for fault in ['path', 'controller', 'root', 'mode', 'ignored', 'extra-command', 'extra-argument']:
+            with self.subTest(fault=fault):
+                self.properties = copy.deepcopy(baseline)
+                entries = self.properties[('fixture.service', 'Service')]['ExecStart']['data']
+                if fault == 'path': entries[0][0] = '/bin/sh'
+                if fault == 'controller': entries[0][1][1] = '/wrong/controller.py'
+                if fault == 'root': entries[0][1][3] = '/wrong-plan'
+                if fault == 'mode': entries[0][1][2] = 'deploy'
+                if fault == 'ignored': entries[0][2] = True
+                if fault == 'extra-command': entries.append(copy.deepcopy(entries[0]))
+                if fault == 'extra-argument': entries[0][1].append('-O')
+                self.assert_blocked()
+    def test_expired_reset_or_wrong_boot_plan_blocks(self):
+        baseline = copy.deepcopy(self.ops.plan)
+        for key, value in [('rollback_unit', 'other.service'), ('boot_id', 'wrong-boot'),
+            ('deadline_monotonic', 999), ('armed_monotonic', 1001),
+            ('verification_budget_seconds', 300), ('recovery_budget_seconds', 600),
+            ('deadline_monotonic', float('nan'))]:
+            with self.subTest(key=key):
+                self.ops.plan = dict(baseline, **{key: value})
+                self.assert_blocked()
+    def test_unconfirmed_systemd_query_blocks_without_rollback_launch(self):
+        self.ops.systemd_properties = lambda *a: (_ for _ in ()).throw(subprocess.TimeoutExpired('busctl', 5))
+        self.assert_blocked()
+    def test_busctl_typed_snapshot_validation(self):
+        del self.ops.systemd_properties
+        replies = iter([json.dumps({'type': 'o', 'data': ['/org/freedesktop/systemd1/unit/fixture_2eservice']}),
+                        json.dumps({'type': 'a{sv}', 'data': [self.properties[('fixture.service', 'Service')]]})])
+        calls = []
+        def run(args, **kw):
+            calls.append(args)
+            return next(replies)
+        self.ops.run = run
+        result = self.ops.systemd_properties('fixture.service', 'Service')
+        self.assertEqual(result['Type']['data'], 'exec')
+        self.assertIn('GetUnit', calls[0])
+        self.assertIn('GetAll', calls[1])
+        self.assertIn('--system', calls[0])
+    def test_malformed_busctl_response_blocks(self):
+        del self.ops.systemd_properties
+        self.ops.run = lambda *a, **kw: json.dumps({'type': 's', 'data': ['unknown']})
+        with self.assertRaises(RuntimeError):
+            self.ops.systemd_properties('fixture.service', 'Service')
+    def test_file_plan_and_code_pins(self):
+        for directory in ['scripts', 'packaging']:
+            (self.root / directory).mkdir()
+        script = self.root / 'scripts/production-rollout.py'
+        helper = self.root / 'packaging/firefly_recovery.py'
+        script.write_bytes((ROOT / 'scripts/production-rollout.py').read_bytes())
+        helper.write_bytes((ROOT / 'packaging/firefly_recovery.py').read_bytes())
+        self.ops.plan.update(controller_sha256=controller.sha(script), recovery_helper_sha256=controller.sha(helper))
+        plan = self.root / 'plan.json'
+        plan.write_text(json.dumps(self.ops.plan))
+        self.ops.plan_sha256 = controller.sha(plan)
+        del self.ops.supervisor_files
+        real_lstat = Path.lstat
+        def root_owned(path):
+            original = list(real_lstat(path))
+            original[4] = 0
+            if path != self.root and self.root not in path.parents:
+                original[0] &= ~0o022  # Simulate root-controlled fixture ancestors.
+            return os.stat_result(original)
+        with patch.object(controller, '__file__', str(script)), patch.object(Path, 'lstat', root_owned):
+            self.ops.supervisor_files()
+            for file in [plan, script, helper]:
+                with self.subTest(file=file):
+                    original = file.read_bytes()
+                    file.write_bytes(original + b' ')
+                    with self.assertRaises(RuntimeError): self.ops.supervisor_files()
+                    file.write_bytes(original)
+            script.chmod(0o666)
+            with self.assertRaises(RuntimeError): self.ops.supervisor_files()
+            script.chmod(0o600)
+            (self.root / 'scripts').chmod(0o777)
+            with self.assertRaises(RuntimeError): self.ops.supervisor_files()
 
 
 class RecoveryTests(unittest.TestCase):
