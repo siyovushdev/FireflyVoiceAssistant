@@ -1,0 +1,94 @@
+{
+  "source": "/home/firefly/firefly-safety-rollout4-20261012T134212Z",
+  "ledger_sha256": "6b5426f0b9f64c50805a884875a5bee43fc0c5d3216f5b2a90fb3b8ba0d5dae2",
+  "original_files_verified": 124,
+  "assertion": "assert 'NRestarts=1' in props",
+  "evidence_limit": "First systemctl show response was not saved; exact failure cause is unconfirmed.",
+  "why_added": "Agent attempted an additional real restart proof for Restart=on-failure, beyond the reviewed mandatory tests and typed supervision gate. The snapshot NRestarts assertion was not a reviewed release step.",
+  "actual_fixture_workers": [
+    497549,
+    497570
+  ],
+  "established_behavior": "Journal proves exit 23 then automatic restart counter 1; second PID restored file-only old state READY, exactly one simulated switch/start.",
+  "source_hashes": {
+    "FINAL-ROLLOUT-REPORT.json": "aa522fdaf54f7671150e2b8d41008f95225bc8c811217317279713c7a2e75e9b",
+    "original-fixture-invocation-records.json": "a21310638aaee4c358dd5aeb0e81032f5d43314a2fd473ff346e3960fedce743",
+    "crash-fixture-journal.jsonl": "8b82dff36e3cfce4d8ae7cdedaedeb7ebe29ef4771d036b60532bf30e39f2564",
+    "crash-fixture-original/state/state.json": "9684bbcd3b34312618984a29f87f04e1732dca84bfa0281dd0a52371d1171dff",
+    "crash-fixture-terminal-after-gc.txt": "0965c91e601c6cc78258f24d335fbf836167515d29bad4c4b753313eab99cc39"
+  },
+  "invocation_reference": "original-fixture-invocation-records.json#/records",
+  "journal_timeline": [
+    {
+      "utc": "2026-10-12T13:44:21.698108+00:00",
+      "pid": "1",
+      "message": "Started /usr/bin/python3 /run/firefly-safety-rollout4-crash-fixture-20261012T134212Z/tests/ReleaseRecoveryTests.py fixture-worker /run/firefly-safety-rollout4-crash-fixture-20261012T134212Z/state."
+    },
+    {
+      "utc": "2026-10-12T13:44:23.780304+00:00",
+      "pid": "1",
+      "message": "Starting /usr/bin/python3 /run/firefly-safety-rollout4-crash-fixture-20261012T134212Z/tests/ReleaseRecoveryTests.py fixture-worker /run/firefly-safety-rollout4-crash-fixture-20261012T134212Z/state..."
+    },
+    {
+      "utc": "2026-10-12T13:44:23.793270+00:00",
+      "pid": "1",
+      "message": "Started /usr/bin/python3 /run/firefly-safety-rollout4-crash-fixture-20261012T134212Z/tests/ReleaseRecoveryTests.py fixture-worker /run/firefly-safety-rollout4-crash-fixture-20261012T134212Z/state."
+    },
+    {
+      "utc": "2026-10-12T13:44:24.251723+00:00",
+      "pid": "1",
+      "message": "firefly-safety-rollout4-crash-fixture-20261012T134212Z.service: Main process exited, code=exited, status=23/n/a"
+    },
+    {
+      "utc": "2026-10-12T13:44:24.259986+00:00",
+      "pid": "1",
+      "message": "firefly-safety-rollout4-crash-fixture-20261012T134212Z.service: Failed with result 'exit-code'."
+    },
+    {
+      "utc": "2026-10-12T13:44:24.260391+00:00",
+      "pid": "1",
+      "message": "firefly-safety-rollout4-crash-fixture-20261012T134212Z.timer: Deactivated successfully."
+    },
+    {
+      "utc": "2026-10-12T13:44:25.275642+00:00",
+      "pid": "1",
+      "message": "firefly-safety-rollout4-crash-fixture-20261012T134212Z.service: Scheduled restart job, restart counter is at 1."
+    },
+    {
+      "utc": "2026-10-12T13:44:25.301284+00:00",
+      "pid": "1",
+      "message": "Stopped /usr/bin/python3 /run/firefly-safety-rollout4-crash-fixture-20261012T134212Z/tests/ReleaseRecoveryTests.py fixture-worker /run/firefly-safety-rollout4-crash-fixture-20261012T134212Z/state."
+    },
+    {
+      "utc": "2026-10-12T13:44:25.306203+00:00",
+      "pid": "1",
+      "message": "Starting /usr/bin/python3 /run/firefly-safety-rollout4-crash-fixture-20261012T134212Z/tests/ReleaseRecoveryTests.py fixture-worker /run/firefly-safety-rollout4-crash-fixture-20261012T134212Z/state..."
+    },
+    {
+      "utc": "2026-10-12T13:44:25.309434+00:00",
+      "pid": "1",
+      "message": "Started /usr/bin/python3 /run/firefly-safety-rollout4-crash-fixture-20261012T134212Z/tests/ReleaseRecoveryTests.py fixture-worker /run/firefly-safety-rollout4-crash-fixture-20261012T134212Z/state."
+    },
+    {
+      "utc": "2026-10-12T13:44:26.010283+00:00",
+      "pid": "1",
+      "message": "firefly-safety-rollout4-crash-fixture-20261012T134212Z.service: Deactivated successfully."
+    }
+  ],
+  "invocation_excerpts": [
+    {
+      "original": "/home/firefly/firefly-safety-rollout4-20261012T134212Z/original-fixture-invocation-records.json",
+      "json_pointer": "/records/0/record/payload/input",
+      "original_record_line": 8194,
+      "original_record_sha256": "38bb8bcf75c59c96978c4574852bfae5ba3f497251e0554bca13b7713960b97b",
+      "excerpt": " props=subprocess.check_output(['systemctl','show',base+'.service','-p','Type','-p','Restart','-p','RestartPreventExitStatus','-p','NRestarts','-p','Result'],text=True)\n assert 'NRestarts=1' in props\n subprocess.run(['systemctl','stop',base+'.timer',base+'.service'],capture_output=True,text=True,timeout=15)\n subprocess.run(['systemctl','stop',base+'.timer',base+'.service'],capture_output=True,text=True,timeout=15)"
+    },
+    {
+      "original": "/home/firefly/firefly-safety-rollout4-20261012T134212Z/original-fixture-invocation-records.json",
+      "json_pointer": "/records/2/record/payload/input",
+      "original_record_line": 8238,
+      "original_record_sha256": "2cd8ac1cd5419283964bc8e2d2e3592d78f2d747ce72e0a59515672a4f67e3e0",
+      "excerpt": " if b\"assert 'NRestarts=1' in props\" in line and b'rollout4-crash-fixture-' in line:\n'extra_real_systemd_restart_proof':'FAIL: operator assertion on transient NRestarts property; evidence collection did not persist first show response',\n'failed_assertion':\"assert 'NRestarts=1' in props\",'fixture_worker_pids':[x['pid'] for x in crash['workers']],\n'failure_interpretation':'Operational proof assertion on ephemeral service state failed. Later captured systemctl state is LoadState=not-found, NRestarts=0. Initial show stdout was not saved; its exact returned value is unknown. No product or recovery algorithm failure demonstrated.',"
+    }
+  ]
+}

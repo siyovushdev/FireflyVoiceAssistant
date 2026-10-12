@@ -1,0 +1,355 @@
+{
+  "scope": "Operator procedure only; real systemd FILE_ONLY fixtures; no production stop, NPU, microphone, deployment or new C++/Qwen acceptance",
+  "base_commit": "c5726d0fa5adca4073f386353f505901baffcf4f",
+  "tested_source_sha256": {
+    "scripts/release-runner.py": "49dea581868981789a6f319dc6736f18e2f6749f832d2f0111c223201f715158",
+    "tests/ReleaseRunnerTests.py": "ae383e5116a0375d32ed31a7a927946f91ddb6493ddeaf8a679bf8be36629435",
+    "tests/ReleaseRunnerFixture.py": "f8bcb190ad6aa4f1c437765fee99c01337627a54a8d8c2d0ee7173ae50d482f3",
+    "tests/ReleaseRunnerSystemdTests.py": "8f2885f380a2092a8b3500eedb1b7954888c7aafe57b9b1c68a5a0138a17d843",
+    "CMakeLists.txt": "dcbe7e7b8dba286c408cb3b875c5ac62107977655090d1648fffa0cef838440c"
+  },
+  "unchanged_mechanisms_sha256": {
+    "scripts/production-rollout.py": "1a3b560102a69d0262ff6287b556ce0df857153d36feb24c7038d775f6d02025",
+    "scripts/deployment-launcher.py": "34e0ee88f57460226811c00561d68f0ae7113a9e4a44bd0291a6300a3f6174b3",
+    "packaging/firefly_recovery.py": "cf9d3983660788ec54bc32ae14d321cae812ef734de5b2ee8da566ca32e00182",
+    "src/SafetyGate.cpp": "15b9d57aa18809b745decdf641342d1f66a167b52573f85b14e9b50a69ca6a50"
+  },
+  "tests": {
+    "ReleaseRunner": "13/13",
+    "DeploymentLauncher": "17/17",
+    "ReleaseRecovery": "34/34",
+    "targeted_CTest": "3/3",
+    "existing_systemd_fixtures": "5/5 before each complete coordinator run",
+    "complete_coordinator_runs": {
+      "systemd-e2e-verified": [
+        {
+          "case": "success",
+          "root": "/run/firefly-release-runner-fixture-success-fjkoyifu",
+          "scope": "FILE_ONLY; no production/API/NPU/microphone",
+          "pass": true,
+          "pass_case": true,
+          "result": "DEPLOYED_VERIFIED",
+          "duration_seconds": 20.55242695500783,
+          "final_runtime": {
+            "pid": 519876,
+            "release": "new"
+          },
+          "switches": [
+            {
+              "pid": 519167,
+              "target": "new",
+              "monotonic": 110487.607697116
+            }
+          ],
+          "original_deadline_preserved": true,
+          "repeat_launch_blocked": true
+        },
+        {
+          "case": "forward_failure",
+          "root": "/run/firefly-release-runner-fixture-forward_failure-ui4p9bl7",
+          "scope": "FILE_ONLY; no production/API/NPU/microphone",
+          "pass": true,
+          "pass_case": true,
+          "result": "ROLLED_BACK",
+          "duration_seconds": 4.4305194259941345,
+          "final_runtime": {
+            "pid": 519415,
+            "release": "old"
+          },
+          "switches": [
+            {
+              "pid": 519221,
+              "target": "new",
+              "monotonic": 110487.942977439
+            },
+            {
+              "pid": 519370,
+              "target": "old",
+              "monotonic": 110489.12525207
+            }
+          ],
+          "original_deadline_preserved": true,
+          "repeat_launch_blocked": true
+        },
+        {
+          "case": "worker_crash",
+          "root": "/run/firefly-release-runner-fixture-worker_crash-19vb5ga8",
+          "scope": "FILE_ONLY; no production/API/NPU/microphone",
+          "pass": true,
+          "pass_case": true,
+          "result": "ROLLED_BACK",
+          "duration_seconds": 242.23345595999854,
+          "final_runtime": {
+            "pid": 520960,
+            "release": "old"
+          },
+          "switches": [
+            {
+              "pid": 519210,
+              "target": "new",
+              "monotonic": 110487.902313573
+            },
+            {
+              "pid": 520925,
+              "target": "old",
+              "monotonic": 110727.028701354
+            }
+          ],
+          "original_deadline_preserved": true,
+          "repeat_launch_blocked": true
+        },
+        {
+          "case": "runner_crash",
+          "root": "/run/firefly-release-runner-fixture-runner_crash-0a4uh5vr",
+          "scope": "FILE_ONLY; no production/API/NPU/microphone",
+          "pass": true,
+          "pass_case": true,
+          "result": "ROLLED_BACK",
+          "duration_seconds": 241.8100854450022,
+          "final_runtime": {
+            "pid": 520965,
+            "release": "old"
+          },
+          "switches": [
+            {
+              "pid": 519228,
+              "target": "new",
+              "monotonic": 110487.993648739
+            },
+            {
+              "pid": 520924,
+              "target": "old",
+              "monotonic": 110727.09591739
+            }
+          ],
+          "original_deadline_preserved": true,
+          "repeat_launch_blocked": true
+        },
+        {
+          "case": "diagnostic_error",
+          "root": "/run/firefly-release-runner-fixture-diagnostic_error-utyyd11w",
+          "scope": "FILE_ONLY; no production/API/NPU/microphone",
+          "pass": true,
+          "pass_case": true,
+          "result": "DEPLOYED_VERIFIED",
+          "duration_seconds": 20.747852918997523,
+          "final_runtime": {
+            "pid": 520088,
+            "release": "new"
+          },
+          "switches": [
+            {
+              "pid": 519493,
+              "target": "new",
+              "monotonic": 110492.728751345
+            }
+          ],
+          "original_deadline_preserved": true,
+          "repeat_launch_blocked": true
+        },
+        {
+          "case": "rollback_crash",
+          "root": "/run/firefly-release-runner-fixture-rollback_crash-lruougro",
+          "scope": "FILE_ONLY; no production/API/NPU/microphone",
+          "pass": true,
+          "restart_evidence": "Durable recovered file state and original journal; no NRestarts snapshot assertion",
+          "pass_case": true,
+          "result": "ROLLED_BACK",
+          "duration_seconds": 6.380265814004815,
+          "final_runtime": {
+            "pid": 520141,
+            "release": "old"
+          },
+          "switches": [
+            {
+              "pid": 519977,
+              "target": "new",
+              "monotonic": 110508.647097578
+            },
+            {
+              "pid": 520042,
+              "target": "old",
+              "monotonic": 110509.856662592
+            }
+          ],
+          "original_deadline_preserved": true,
+          "repeat_launch_blocked": true
+        }
+      ],
+      "systemd-e2e-repeat": [
+        {
+          "case": "success",
+          "root": "/run/firefly-release-runner-fixture-success-gghi9ztc",
+          "scope": "FILE_ONLY; no production/API/NPU/microphone",
+          "pass": true,
+          "pass_case": true,
+          "result": "DEPLOYED_VERIFIED",
+          "duration_seconds": 20.451010178003344,
+          "final_runtime": {
+            "pid": 522587,
+            "release": "new"
+          },
+          "switches": [
+            {
+              "pid": 521882,
+              "target": "new",
+              "monotonic": 110786.850079482
+            }
+          ],
+          "original_deadline_preserved": true,
+          "repeat_launch_blocked": true
+        },
+        {
+          "case": "forward_failure",
+          "root": "/run/firefly-release-runner-fixture-forward_failure-86e5v3xu",
+          "scope": "FILE_ONLY; no production/API/NPU/microphone",
+          "pass": true,
+          "pass_case": true,
+          "result": "ROLLED_BACK",
+          "duration_seconds": 4.454030522989342,
+          "final_runtime": {
+            "pid": 522081,
+            "release": "old"
+          },
+          "switches": [
+            {
+              "pid": 521888,
+              "target": "new",
+              "monotonic": 110786.935566435
+            },
+            {
+              "pid": 522039,
+              "target": "old",
+              "monotonic": 110788.071858145
+            }
+          ],
+          "original_deadline_preserved": true,
+          "repeat_launch_blocked": true
+        },
+        {
+          "case": "worker_crash",
+          "root": "/run/firefly-release-runner-fixture-worker_crash-u0jd2j8b",
+          "scope": "FILE_ONLY; no production/API/NPU/microphone",
+          "pass": true,
+          "pass_case": true,
+          "result": "ROLLED_BACK",
+          "duration_seconds": 242.2892100050085,
+          "final_runtime": {
+            "pid": 523597,
+            "release": "old"
+          },
+          "switches": [
+            {
+              "pid": 521875,
+              "target": "new",
+              "monotonic": 110786.92020222
+            },
+            {
+              "pid": 523558,
+              "target": "old",
+              "monotonic": 111026.081756405
+            }
+          ],
+          "original_deadline_preserved": true,
+          "repeat_launch_blocked": true
+        },
+        {
+          "case": "runner_crash",
+          "root": "/run/firefly-release-runner-fixture-runner_crash-egl7yylw",
+          "scope": "FILE_ONLY; no production/API/NPU/microphone",
+          "pass": true,
+          "pass_case": true,
+          "result": "ROLLED_BACK",
+          "duration_seconds": 241.94418197400228,
+          "final_runtime": {
+            "pid": 523596,
+            "release": "old"
+          },
+          "switches": [
+            {
+              "pid": 521881,
+              "target": "new",
+              "monotonic": 110786.850086482
+            },
+            {
+              "pid": 523557,
+              "target": "old",
+              "monotonic": 111026.073910696
+            }
+          ],
+          "original_deadline_preserved": true,
+          "repeat_launch_blocked": true
+        },
+        {
+          "case": "diagnostic_error",
+          "root": "/run/firefly-release-runner-fixture-diagnostic_error-7qjcwwdk",
+          "scope": "FILE_ONLY; no production/API/NPU/microphone",
+          "pass": true,
+          "pass_case": true,
+          "result": "DEPLOYED_VERIFIED",
+          "duration_seconds": 20.53794396200101,
+          "final_runtime": {
+            "pid": 522784,
+            "release": "new"
+          },
+          "switches": [
+            {
+              "pid": 522159,
+              "target": "new",
+              "monotonic": 110791.625775849
+            }
+          ],
+          "original_deadline_preserved": true,
+          "repeat_launch_blocked": true
+        },
+        {
+          "case": "rollback_crash",
+          "root": "/run/firefly-release-runner-fixture-rollback_crash-gef_xev4",
+          "scope": "FILE_ONLY; no production/API/NPU/microphone",
+          "pass": true,
+          "restart_evidence": "Durable recovered file state and original journal; no NRestarts snapshot assertion",
+          "pass_case": true,
+          "result": "ROLLED_BACK",
+          "duration_seconds": 5.76106834699749,
+          "final_runtime": {
+            "pid": 522836,
+            "release": "old"
+          },
+          "switches": [
+            {
+              "pid": 522678,
+              "target": "new",
+              "monotonic": 110807.615205597
+            },
+            {
+              "pid": 522744,
+              "target": "old",
+              "monotonic": 110808.738075313
+            }
+          ],
+          "original_deadline_preserved": true,
+          "repeat_launch_blocked": true
+        }
+      ]
+    }
+  },
+  "frozen_budgets": {
+    "verification_seconds": 240,
+    "recovery_seconds": 360
+  },
+  "raw_bundle": {
+    "path": "file-only-raw.json.gz",
+    "sha256": "994d6e1b2cd8d2eefacd380e7e118c260671e36a26ae149ce97b1f10ee0693de",
+    "decompressed_sha256": "856f2b83271560cda9014bb98c7884686e84df6f855f5032ab7268adee00c33c",
+    "provenance": "Lossless UTF-8 records; /<index>/text is the complete original file, checked against /<index>/sha256. Original absolute paths retained."
+  },
+  "originals": "Unmodified private audit directories retained, including earlier test-only preparation failures. Those are not counted as PASS.",
+  "preparation_limit": "Actual production prepare was not run; it requires a newly reviewed clean commit and staged release. Unit tests substitute production boundaries; real fixtures verify the fixed mandatory list and entire run/restore flow.",
+  "production": {
+    "pid": 467978,
+    "release": "wake-beep-dc7b142e-20261011",
+    "new_safety_gate_installed": false,
+    "unchanged_proof": "production-unchanged.json"
+  },
+  "private_audit": "/home/firefly/firefly-release-procedure-20261012T142316Z"
+}

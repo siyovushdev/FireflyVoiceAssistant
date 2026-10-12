@@ -1,0 +1,26 @@
+{
+  "checks": {
+    "store_manifest": true,
+    "unit_sha256": true,
+    "argv": true,
+    "release": true,
+    "pid_unchanged": true,
+    "active_unchanged": true,
+    "stored_unchanged": true,
+    "build_unchanged": true,
+    "sole_npu_microphone_owner": true,
+    "ready": true
+  },
+  "all_pass": true,
+  "pid": 467978,
+  "release": "releases/wake-beep-dc7b142e-20261011",
+  "active": {
+    "generation_id": 1,
+    "hash": "688690e892d2f59413cdc2f7d81f1e129ab9ac0dd247f84b2898d74c3c3cdd18",
+    "revision": 2
+  },
+  "original_evidence_files_reverified": 124,
+  "production_was_not_stopped": true,
+  "source": "Read-only status/proc/fuser and full ConfigStore metadata comparison",
+  "original_evidence_ledger_sha256": "6b5426f0b9f64c50805a884875a5bee43fc0c5d3216f5b2a90fb3b8ba0d5dae2"
+}
