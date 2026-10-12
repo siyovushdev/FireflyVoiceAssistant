@@ -1,0 +1,22 @@
+[
+  {
+    "original": "/home/firefly/firefly-release-procedure-20261012T142316Z/ctest-verified.log",
+    "sha256": "93762f88530a923313b7a4d93efd69b88904a4973e1b9cb0c1ee5992ca69ba66",
+    "text": "Internal ctest changing into directory: /home/firefly/FireflyVoiceAssistantLinux-release-runner/build\nTest project /home/firefly/FireflyVoiceAssistantLinux-release-runner/build\n    Start 1: ReleaseRecovery\n1/3 Test #1: ReleaseRecovery ..................   Passed    3.02 sec\n    Start 2: DeploymentLauncher\n2/3 Test #2: DeploymentLauncher ...............   Passed    0.25 sec\n    Start 3: ReleaseRunner\n3/3 Test #3: ReleaseRunner ....................   Passed    0.57 sec\n\n100% tests passed, 0 tests failed out of 3\n\nTotal Test time (real) =   3.85 sec\n"
+  },
+  {
+    "original": "/home/firefly/firefly-release-procedure-20261012T142316Z/runner-unit-final-corrected.log",
+    "sha256": "aab83c9c58f7d8c070afd285e4c79dfb4f64b62a725b48430bd37708d3fbb2d4",
+    "text": "test_application_checks_use_fixed_existing_commands_without_root_runtime (__main__.RunnerTests) ... ok\ntest_arm_failure_does_not_submit_forward_or_stop_runtime (__main__.RunnerTests) ... ok\ntest_atomic_plan_publication_preserves_prior_bytes_on_partial_failure (__main__.RunnerTests) ... ok\ntest_dirty_or_untracked_runner_rejected_before_bundle_creation (__main__.RunnerTests) ... ok\ntest_failed_worker_before_cutover_verifies_original_without_recovery (__main__.RunnerTests) ... ok\ntest_failure_or_observation_timeout_waits_for_independent_recovery (__main__.RunnerTests) ... ok\ntest_mandatory_command_preserves_response_before_failure (__main__.RunnerTests) ... ok\ntest_mandatory_suite_is_fixed_and_failure_stops_preparation (__main__.RunnerTests) ... ok\ntest_optional_diagnostics_do_not_change_verified_result (__main__.RunnerTests) ... ok\ntest_preparation_build_identity_contract_backup_and_receipt (__main__.RunnerTests) ... ok\ntest_success_requires_independent_existing_gates_before_timer_stop (__main__.RunnerTests) ... ok\ntest_supervision_failure_aborts_before_forward_submission (__main__.RunnerTests) ... ok\ntest_unconfirmed_recovery_does_not_disarm_watchdog (__main__.RunnerTests) ... ok\n\n----------------------------------------------------------------------\nRan 13 tests in 0.371s\n\nOK\n"
+  },
+  {
+    "original": "/home/firefly/firefly-release-procedure-20261012T142316Z/systemd-e2e-verified.log",
+    "sha256": "ab11b3b23ee63011f6756caaa140268a976586785250e3dd702af8472976cad4",
+    "text": "[{\"case\": \"success\", \"PASS\": true, \"result\": \"DEPLOYED_VERIFIED\", \"error\": null}, {\"case\": \"forward_failure\", \"PASS\": true, \"result\": \"ROLLED_BACK\", \"error\": null}, {\"case\": \"worker_crash\", \"PASS\": true, \"result\": \"ROLLED_BACK\", \"error\": null}, {\"case\": \"runner_crash\", \"PASS\": true, \"result\": \"ROLLED_BACK\", \"error\": null}, {\"case\": \"diagnostic_error\", \"PASS\": true, \"result\": \"DEPLOYED_VERIFIED\", \"error\": null}, {\"case\": \"rollback_crash\", \"PASS\": true, \"result\": \"ROLLED_BACK\", \"error\": null}]\n"
+  },
+  {
+    "original": "/home/firefly/firefly-release-procedure-20261012T142316Z/systemd-e2e-repeat.log",
+    "sha256": "ab11b3b23ee63011f6756caaa140268a976586785250e3dd702af8472976cad4",
+    "text": "[{\"case\": \"success\", \"PASS\": true, \"result\": \"DEPLOYED_VERIFIED\", \"error\": null}, {\"case\": \"forward_failure\", \"PASS\": true, \"result\": \"ROLLED_BACK\", \"error\": null}, {\"case\": \"worker_crash\", \"PASS\": true, \"result\": \"ROLLED_BACK\", \"error\": null}, {\"case\": \"runner_crash\", \"PASS\": true, \"result\": \"ROLLED_BACK\", \"error\": null}, {\"case\": \"diagnostic_error\", \"PASS\": true, \"result\": \"DEPLOYED_VERIFIED\", \"error\": null}, {\"case\": \"rollback_crash\", \"PASS\": true, \"result\": \"ROLLED_BACK\", \"error\": null}]\n"
+  }
+]
