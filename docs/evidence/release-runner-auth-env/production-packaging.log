@@ -1,0 +1,97 @@
+22/84 Testing: ProductionPackaging
+22/84 Test: ProductionPackaging
+Command: "/usr/bin/python3.10" "/home/firefly/FireflyVoiceAssistantLinux-auth-env/tests/ProductionPackagingTests.py" "--source" "/home/firefly/FireflyVoiceAssistantLinux-auth-env" "--build" "/home/firefly/FireflyVoiceAssistantLinux-auth-env/build" "--rkllm-library" "/home/firefly/demo_Linux_aarch64/lib/librkllmrt.so" "--sherpa-library" "/home/firefly/FireflyVoiceAssistantLinux/build/stt/sherpa-onnx-v1.13.7-linux-aarch64-shared-cpu/lib/libsherpa-onnx-c-api.so" "--onnx-library" "/home/firefly/FireflyVoiceAssistantLinux/build/stt/sherpa-onnx-v1.13.7-linux-aarch64-shared-cpu/lib/libonnxruntime.so" "--wake-site" "/home/firefly/FireflyVoiceAssistantLinux/build/wake-venv/lib/python3.10/site-packages" "--config-tool" "/home/firefly/FireflyVoiceAssistantLinux-auth-env/build/firefly-config"
+Directory: /home/firefly/FireflyVoiceAssistantLinux-auth-env/build
+"ProductionPackaging" start time: Oct 12 17:33 UTC
+Output:
+----------------------------------------------------------
+-- Install configuration: ""
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-fixture-a-ya7mrs5k/prefix/releases/m18.6-fixture-a/share/firefly/wake/amina-v3.tflite
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-fixture-a-ya7mrs5k/prefix/releases/m18.6-fixture-a/share/firefly/wake/manifest.json
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-fixture-a-ya7mrs5k/prefix/releases/m18.6-fixture-a/share/firefly/wake/amina_worker.py
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-fixture-a-ya7mrs5k/prefix/releases/m18.6-fixture-a/share/firefly/wake/requirements.txt
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-fixture-a-ya7mrs5k/prefix/releases/m18.6-fixture-a/share/firefly/wake/python/bin/python
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-fixture-a-ya7mrs5k/prefix/releases/m18.6-fixture-a/share/firefly/config/empty-home.json
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-fixture-a-ya7mrs5k/prefix/releases/m18.6-fixture-a/bin/firefly-demo
+-- Set runtime path of "/tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-fixture-a-ya7mrs5k/prefix/releases/m18.6-fixture-a/bin/firefly-demo" to "$ORIGIN/../lib"
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-fixture-a-ya7mrs5k/prefix/releases/m18.6-fixture-a/bin/firefly-config
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-fixture-a-ya7mrs5k/prefix/releases/m18.6-fixture-a/share/firefly/deployment/scripts/stage-release.py
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-fixture-a-ya7mrs5k/prefix/releases/m18.6-fixture-a/share/firefly/deployment/packaging/__init__.py
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-fixture-a-ya7mrs5k/prefix/releases/m18.6-fixture-a/share/firefly/deployment/packaging/firefly_release.py
+....-- Install configuration: ""
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-clean-fixture-f5opt491/prefix/releases/m18.6-clean-fixture/share/firefly/wake/amina-v3.tflite
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-clean-fixture-f5opt491/prefix/releases/m18.6-clean-fixture/share/firefly/wake/manifest.json
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-clean-fixture-f5opt491/prefix/releases/m18.6-clean-fixture/share/firefly/wake/amina_worker.py
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-clean-fixture-f5opt491/prefix/releases/m18.6-clean-fixture/share/firefly/wake/requirements.txt
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-clean-fixture-f5opt491/prefix/releases/m18.6-clean-fixture/share/firefly/wake/python/bin/python
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-clean-fixture-f5opt491/prefix/releases/m18.6-clean-fixture/share/firefly/config/empty-home.json
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-clean-fixture-f5opt491/prefix/releases/m18.6-clean-fixture/bin/firefly-demo
+-- Set runtime path of "/tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-clean-fixture-f5opt491/prefix/releases/m18.6-clean-fixture/bin/firefly-demo" to "$ORIGIN/../lib"
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-clean-fixture-f5opt491/prefix/releases/m18.6-clean-fixture/bin/firefly-config
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-clean-fixture-f5opt491/prefix/releases/m18.6-clean-fixture/share/firefly/deployment/scripts/stage-release.py
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-clean-fixture-f5opt491/prefix/releases/m18.6-clean-fixture/share/firefly/deployment/packaging/__init__.py
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-clean-fixture-f5opt491/prefix/releases/m18.6-clean-fixture/share/firefly/deployment/packaging/firefly_release.py
+-- Install configuration: ""
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-dirty-fixture-ju6rhi2r/prefix/releases/m18.6-dirty-fixture/share/firefly/wake/amina-v3.tflite
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-dirty-fixture-ju6rhi2r/prefix/releases/m18.6-dirty-fixture/share/firefly/wake/manifest.json
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-dirty-fixture-ju6rhi2r/prefix/releases/m18.6-dirty-fixture/share/firefly/wake/amina_worker.py
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-dirty-fixture-ju6rhi2r/prefix/releases/m18.6-dirty-fixture/share/firefly/wake/requirements.txt
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-dirty-fixture-ju6rhi2r/prefix/releases/m18.6-dirty-fixture/share/firefly/wake/python/bin/python
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-dirty-fixture-ju6rhi2r/prefix/releases/m18.6-dirty-fixture/share/firefly/config/empty-home.json
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-dirty-fixture-ju6rhi2r/prefix/releases/m18.6-dirty-fixture/bin/firefly-demo
+-- Set runtime path of "/tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-dirty-fixture-ju6rhi2r/prefix/releases/m18.6-dirty-fixture/bin/firefly-demo" to "$ORIGIN/../lib"
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-dirty-fixture-ju6rhi2r/prefix/releases/m18.6-dirty-fixture/bin/firefly-config
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-dirty-fixture-ju6rhi2r/prefix/releases/m18.6-dirty-fixture/share/firefly/deployment/scripts/stage-release.py
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-dirty-fixture-ju6rhi2r/prefix/releases/m18.6-dirty-fixture/share/firefly/deployment/packaging/__init__.py
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-dirty-fixture-ju6rhi2r/prefix/releases/m18.6-dirty-fixture/share/firefly/deployment/packaging/firefly_release.py
+...-- Install configuration: ""
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-reuse-2vod63p7/prefix/releases/m18.6-reuse/share/firefly/wake/amina-v3.tflite
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-reuse-2vod63p7/prefix/releases/m18.6-reuse/share/firefly/wake/manifest.json
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-reuse-2vod63p7/prefix/releases/m18.6-reuse/share/firefly/wake/amina_worker.py
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-reuse-2vod63p7/prefix/releases/m18.6-reuse/share/firefly/wake/requirements.txt
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-reuse-2vod63p7/prefix/releases/m18.6-reuse/share/firefly/wake/python/bin/python
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-reuse-2vod63p7/prefix/releases/m18.6-reuse/share/firefly/config/empty-home.json
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-reuse-2vod63p7/prefix/releases/m18.6-reuse/bin/firefly-demo
+-- Set runtime path of "/tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-reuse-2vod63p7/prefix/releases/m18.6-reuse/bin/firefly-demo" to "$ORIGIN/../lib"
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-reuse-2vod63p7/prefix/releases/m18.6-reuse/bin/firefly-config
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-reuse-2vod63p7/prefix/releases/m18.6-reuse/share/firefly/deployment/scripts/stage-release.py
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-reuse-2vod63p7/prefix/releases/m18.6-reuse/share/firefly/deployment/packaging/__init__.py
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-reuse-2vod63p7/prefix/releases/m18.6-reuse/share/firefly/deployment/packaging/firefly_release.py
+..-- Install configuration: ""
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-boom-tcc8c5du/prefix/releases/m18.6-boom/share/firefly/wake/amina-v3.tflite
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-boom-tcc8c5du/prefix/releases/m18.6-boom/share/firefly/wake/manifest.json
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-boom-tcc8c5du/prefix/releases/m18.6-boom/share/firefly/wake/amina_worker.py
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-boom-tcc8c5du/prefix/releases/m18.6-boom/share/firefly/wake/requirements.txt
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-boom-tcc8c5du/prefix/releases/m18.6-boom/share/firefly/wake/python/bin/python
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-boom-tcc8c5du/prefix/releases/m18.6-boom/share/firefly/config/empty-home.json
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-boom-tcc8c5du/prefix/releases/m18.6-boom/bin/firefly-demo
+-- Set runtime path of "/tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-boom-tcc8c5du/prefix/releases/m18.6-boom/bin/firefly-demo" to "$ORIGIN/../lib"
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-boom-tcc8c5du/prefix/releases/m18.6-boom/bin/firefly-config
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-boom-tcc8c5du/prefix/releases/m18.6-boom/share/firefly/deployment/scripts/stage-release.py
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-boom-tcc8c5du/prefix/releases/m18.6-boom/share/firefly/deployment/packaging/__init__.py
+-- Installing: /tmp/firefly-package-9bvehkp8/prefix/.staging-m18.6-boom-tcc8c5du/prefix/releases/m18.6-boom/share/firefly/deployment/packaging/firefly_release.py
+........................-- Install configuration: ""
+-- Installing: /tmp/firefly-package-9bvehkp8/stage-cleanup/prefix/.staging-cleanup-4941exzb/prefix/releases/cleanup/share/firefly/wake/amina-v3.tflite
+-- Installing: /tmp/firefly-package-9bvehkp8/stage-cleanup/prefix/.staging-cleanup-4941exzb/prefix/releases/cleanup/share/firefly/wake/manifest.json
+-- Installing: /tmp/firefly-package-9bvehkp8/stage-cleanup/prefix/.staging-cleanup-4941exzb/prefix/releases/cleanup/share/firefly/wake/amina_worker.py
+-- Installing: /tmp/firefly-package-9bvehkp8/stage-cleanup/prefix/.staging-cleanup-4941exzb/prefix/releases/cleanup/share/firefly/wake/requirements.txt
+-- Installing: /tmp/firefly-package-9bvehkp8/stage-cleanup/prefix/.staging-cleanup-4941exzb/prefix/releases/cleanup/share/firefly/wake/python/bin/python
+-- Installing: /tmp/firefly-package-9bvehkp8/stage-cleanup/prefix/.staging-cleanup-4941exzb/prefix/releases/cleanup/share/firefly/config/empty-home.json
+-- Installing: /tmp/firefly-package-9bvehkp8/stage-cleanup/prefix/.staging-cleanup-4941exzb/prefix/releases/cleanup/bin/firefly-demo
+-- Set runtime path of "/tmp/firefly-package-9bvehkp8/stage-cleanup/prefix/.staging-cleanup-4941exzb/prefix/releases/cleanup/bin/firefly-demo" to "$ORIGIN/../lib"
+-- Installing: /tmp/firefly-package-9bvehkp8/stage-cleanup/prefix/.staging-cleanup-4941exzb/prefix/releases/cleanup/bin/firefly-config
+-- Installing: /tmp/firefly-package-9bvehkp8/stage-cleanup/prefix/.staging-cleanup-4941exzb/prefix/releases/cleanup/share/firefly/deployment/scripts/stage-release.py
+-- Installing: /tmp/firefly-package-9bvehkp8/stage-cleanup/prefix/.staging-cleanup-4941exzb/prefix/releases/cleanup/share/firefly/deployment/packaging/__init__.py
+-- Installing: /tmp/firefly-package-9bvehkp8/stage-cleanup/prefix/.staging-cleanup-4941exzb/prefix/releases/cleanup/share/firefly/deployment/packaging/firefly_release.py
+.............
+----------------------------------------------------------------------
+Ran 46 tests in 69.739s
+
+OK
+<end of output>
+Test time =  69.97 sec
+----------------------------------------------------------
+Test Passed.
+"ProductionPackaging" end time: Oct 12 17:34 UTC
+"ProductionPackaging" time elapsed: 00:01:09
+----------------------------------------------------------

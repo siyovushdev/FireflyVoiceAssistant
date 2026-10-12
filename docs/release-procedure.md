@@ -36,6 +36,12 @@ frontend must retain its installed dependencies. Preparation reruns the existing
 CTest and frontend typecheck/test/build commands as `firefly`, without downloads.
 Use the [hotfix build instructions](production-grounding-hotfix.md).
 
+Offline application checks and mandatory fixtures strip `FIREFLY_OWNER_ACCEPTED`
+even when inherited from the operator. Only the two read-only installed-package
+`verify` invocations explicitly receive live-root permission. This does not
+authorize `run` or a deployment; see the
+[environment-isolation evidence](evidence/release-runner-auth-env/README.md).
+
 Use only these two checked-in entry points; substitute the approved absolute
 source path, full merge SHA, staged release ID and a new unique `/run` directory:
 

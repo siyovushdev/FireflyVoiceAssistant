@@ -1,0 +1,2367 @@
+[
+  {
+    "case": "old_client_timeout",
+    "root": "/run/firefly-launcher-fixture-old_client_timeout-6x1fnl86",
+    "worker_unit": "firefly-launcher-fixture-old_client_timeout-6x1fnl86-worker.service",
+    "rollback_timer": "firefly-launcher-fixture-old_client_timeout-6x1fnl86-rollback.timer",
+    "client_pid": 570314,
+    "client_returncode": -9,
+    "client_duration": 15.061194430003525,
+    "worker_after_client_exit": {
+      "pid": 570321,
+      "ppid": 1,
+      "monotonic": 119309.061964866
+    },
+    "original_command": [
+      "systemd-run",
+      "--unit=firefly-launcher-fixture-old_client_timeout-6x1fnl86-worker.service",
+      "--property=Type=oneshot",
+      "--property=TimeoutStartSec=240s",
+      "--property=TimeoutStopSec=10s",
+      "--property=KillMode=control-group",
+      "/usr/bin/python3",
+      "/run/firefly-launcher-fixture-old_client_timeout-6x1fnl86/worker.py",
+      "/run/firefly-launcher-fixture-old_client_timeout-6x1fnl86",
+      "19",
+      "0"
+    ],
+    "stdout": "",
+    "stderr": "",
+    "outcome": "BASELINE_REPRODUCED",
+    "completed": {
+      "duration": 19.020015589994728,
+      "status": 0
+    },
+    "independent_timer_after_observation": {
+      "Id": {
+        "type": "s",
+        "data": "firefly-launcher-fixture-old_client_timeout-6x1fnl86-rollback.timer"
+      },
+      "Names": {
+        "type": "as",
+        "data": [
+          "firefly-launcher-fixture-old_client_timeout-6x1fnl86-rollback.timer"
+        ]
+      },
+      "Following": {
+        "type": "s",
+        "data": ""
+      },
+      "Requires": {
+        "type": "as",
+        "data": [
+          "sysinit.target"
+        ]
+      },
+      "Requisite": {
+        "type": "as",
+        "data": []
+      },
+      "Wants": {
+        "type": "as",
+        "data": []
+      },
+      "BindsTo": {
+        "type": "as",
+        "data": []
+      },
+      "PartOf": {
+        "type": "as",
+        "data": []
+      },
+      "RequiredBy": {
+        "type": "as",
+        "data": []
+      },
+      "RequisiteOf": {
+        "type": "as",
+        "data": []
+      },
+      "WantedBy": {
+        "type": "as",
+        "data": []
+      },
+      "BoundBy": {
+        "type": "as",
+        "data": []
+      },
+      "ConsistsOf": {
+        "type": "as",
+        "data": []
+      },
+      "Conflicts": {
+        "type": "as",
+        "data": [
+          "shutdown.target"
+        ]
+      },
+      "ConflictedBy": {
+        "type": "as",
+        "data": []
+      },
+      "Before": {
+        "type": "as",
+        "data": [
+          "shutdown.target",
+          "firefly-launcher-fixture-old_client_timeout-6x1fnl86-rollback.service",
+          "timers.target"
+        ]
+      },
+      "After": {
+        "type": "as",
+        "data": [
+          "sysinit.target"
+        ]
+      },
+      "OnFailure": {
+        "type": "as",
+        "data": []
+      },
+      "OnFailureOf": {
+        "type": "as",
+        "data": []
+      },
+      "OnSuccess": {
+        "type": "as",
+        "data": []
+      },
+      "OnSuccessOf": {
+        "type": "as",
+        "data": []
+      },
+      "Triggers": {
+        "type": "as",
+        "data": [
+          "firefly-launcher-fixture-old_client_timeout-6x1fnl86-rollback.service"
+        ]
+      },
+      "TriggeredBy": {
+        "type": "as",
+        "data": []
+      },
+      "PropagatesReloadTo": {
+        "type": "as",
+        "data": []
+      },
+      "ReloadPropagatedFrom": {
+        "type": "as",
+        "data": []
+      },
+      "PropagatesStopTo": {
+        "type": "as",
+        "data": []
+      },
+      "StopPropagatedFrom": {
+        "type": "as",
+        "data": []
+      },
+      "JoinsNamespaceOf": {
+        "type": "as",
+        "data": []
+      },
+      "SliceOf": {
+        "type": "as",
+        "data": []
+      },
+      "RequiresMountsFor": {
+        "type": "as",
+        "data": []
+      },
+      "Documentation": {
+        "type": "as",
+        "data": []
+      },
+      "Description": {
+        "type": "s",
+        "data": "/usr/bin/python3 /run/firefly-launcher-fixture-old_client_timeout-6x1fnl86/rollback.py /run/firefly-launcher-fixture-old_client_timeout-6x1fnl86 firefly-launcher-fixture-old_client_timeout-6x1fnl86-worker.service"
+      },
+      "LoadState": {
+        "type": "s",
+        "data": "loaded"
+      },
+      "ActiveState": {
+        "type": "s",
+        "data": "active"
+      },
+      "FreezerState": {
+        "type": "s",
+        "data": "running"
+      },
+      "SubState": {
+        "type": "s",
+        "data": "waiting"
+      },
+      "FragmentPath": {
+        "type": "s",
+        "data": "/run/systemd/transient/firefly-launcher-fixture-old_client_timeout-6x1fnl86-rollback.timer"
+      },
+      "SourcePath": {
+        "type": "s",
+        "data": ""
+      },
+      "DropInPaths": {
+        "type": "as",
+        "data": []
+      },
+      "UnitFileState": {
+        "type": "s",
+        "data": "transient"
+      },
+      "UnitFilePreset": {
+        "type": "s",
+        "data": "enabled"
+      },
+      "StateChangeTimestamp": {
+        "type": "t",
+        "data": 1791826806124518
+      },
+      "StateChangeTimestampMonotonic": {
+        "type": "t",
+        "data": 119308942665
+      },
+      "InactiveExitTimestamp": {
+        "type": "t",
+        "data": 1791826806124518
+      },
+      "InactiveExitTimestampMonotonic": {
+        "type": "t",
+        "data": 119308942665
+      },
+      "ActiveEnterTimestamp": {
+        "type": "t",
+        "data": 1791826806124518
+      },
+      "ActiveEnterTimestampMonotonic": {
+        "type": "t",
+        "data": 119308942665
+      },
+      "ActiveExitTimestamp": {
+        "type": "t",
+        "data": 0
+      },
+      "ActiveExitTimestampMonotonic": {
+        "type": "t",
+        "data": 0
+      },
+      "InactiveEnterTimestamp": {
+        "type": "t",
+        "data": 0
+      },
+      "InactiveEnterTimestampMonotonic": {
+        "type": "t",
+        "data": 0
+      },
+      "CanStart": {
+        "type": "b",
+        "data": true
+      },
+      "CanStop": {
+        "type": "b",
+        "data": true
+      },
+      "CanReload": {
+        "type": "b",
+        "data": false
+      },
+      "CanIsolate": {
+        "type": "b",
+        "data": false
+      },
+      "CanClean": {
+        "type": "as",
+        "data": []
+      },
+      "CanFreeze": {
+        "type": "b",
+        "data": false
+      },
+      "Job": {
+        "type": "(uo)",
+        "data": [
+          0,
+          "/"
+        ]
+      },
+      "StopWhenUnneeded": {
+        "type": "b",
+        "data": false
+      },
+      "RefuseManualStart": {
+        "type": "b",
+        "data": false
+      },
+      "RefuseManualStop": {
+        "type": "b",
+        "data": false
+      },
+      "AllowIsolate": {
+        "type": "b",
+        "data": false
+      },
+      "DefaultDependencies": {
+        "type": "b",
+        "data": true
+      },
+      "OnSuccessJobMode": {
+        "type": "s",
+        "data": "fail"
+      },
+      "OnFailureJobMode": {
+        "type": "s",
+        "data": "replace"
+      },
+      "IgnoreOnIsolate": {
+        "type": "b",
+        "data": false
+      },
+      "NeedDaemonReload": {
+        "type": "b",
+        "data": false
+      },
+      "Markers": {
+        "type": "as",
+        "data": []
+      },
+      "JobTimeoutUSec": {
+        "type": "t",
+        "data": 18446744073709551615
+      },
+      "JobRunningTimeoutUSec": {
+        "type": "t",
+        "data": 18446744073709551615
+      },
+      "JobTimeoutAction": {
+        "type": "s",
+        "data": "none"
+      },
+      "JobTimeoutRebootArgument": {
+        "type": "s",
+        "data": ""
+      },
+      "ConditionResult": {
+        "type": "b",
+        "data": true
+      },
+      "AssertResult": {
+        "type": "b",
+        "data": true
+      },
+      "ConditionTimestamp": {
+        "type": "t",
+        "data": 1791826806123670
+      },
+      "ConditionTimestampMonotonic": {
+        "type": "t",
+        "data": 119308941816
+      },
+      "AssertTimestamp": {
+        "type": "t",
+        "data": 1791826806123673
+      },
+      "AssertTimestampMonotonic": {
+        "type": "t",
+        "data": 119308941819
+      },
+      "Conditions": {
+        "type": "a(sbbsi)",
+        "data": []
+      },
+      "Asserts": {
+        "type": "a(sbbsi)",
+        "data": []
+      },
+      "LoadError": {
+        "type": "(ss)",
+        "data": [
+          "",
+          ""
+        ]
+      },
+      "Transient": {
+        "type": "b",
+        "data": true
+      },
+      "Perpetual": {
+        "type": "b",
+        "data": false
+      },
+      "StartLimitIntervalUSec": {
+        "type": "t",
+        "data": 10000000
+      },
+      "StartLimitBurst": {
+        "type": "u",
+        "data": 5
+      },
+      "StartLimitAction": {
+        "type": "s",
+        "data": "none"
+      },
+      "FailureAction": {
+        "type": "s",
+        "data": "none"
+      },
+      "FailureActionExitStatus": {
+        "type": "i",
+        "data": -1
+      },
+      "SuccessAction": {
+        "type": "s",
+        "data": "none"
+      },
+      "SuccessActionExitStatus": {
+        "type": "i",
+        "data": -1
+      },
+      "RebootArgument": {
+        "type": "s",
+        "data": ""
+      },
+      "InvocationID": {
+        "type": "ay",
+        "data": [
+          169,
+          118,
+          37,
+          110,
+          167,
+          101,
+          71,
+          198,
+          184,
+          169,
+          49,
+          210,
+          133,
+          3,
+          212,
+          139
+        ]
+      },
+      "CollectMode": {
+        "type": "s",
+        "data": "inactive"
+      },
+      "Refs": {
+        "type": "as",
+        "data": []
+      }
+    },
+    "restoration": {
+      "release": "old",
+      "ready": true,
+      "events": [
+        "stop",
+        "atomic-switch-old",
+        "start",
+        "verify-store-health-ownership"
+      ],
+      "pid": 570894,
+      "ppid": 1,
+      "monotonic": 119332.744082839,
+      "scope": "file-only fixture"
+    },
+    "pass_case": true
+  },
+  {
+    "case": "success",
+    "root": "/run/firefly-launcher-fixture-success-ffgghrpc",
+    "worker_unit": "firefly-launcher-fixture-success-ffgghrpc-worker.service",
+    "rollback_timer": "firefly-launcher-fixture-success-ffgghrpc-rollback.timer",
+    "submission": {
+      "state": "SUBMITTED",
+      "argv": [
+        "systemd-run",
+        "--no-block",
+        "--unit=firefly-launcher-fixture-success-ffgghrpc-worker.service",
+        "--property=Type=oneshot",
+        "--property=RemainAfterExit=yes",
+        "--property=TimeoutStartSec=240s",
+        "--property=TimeoutStopSec=10s",
+        "--property=KillMode=control-group",
+        "/usr/bin/python3",
+        "/run/firefly-launcher-fixture-success-ffgghrpc/worker.py",
+        "/run/firefly-launcher-fixture-success-ffgghrpc",
+        "17",
+        "0"
+      ]
+    },
+    "submission_duration": 0.04649414200684987,
+    "observed_duration": 17.685789948009187,
+    "observation": {
+      "state": "WORKER_SUCCEEDED",
+      "unit": "firefly-launcher-fixture-success-ffgghrpc-worker.service",
+      "observation": {
+        "active": "active",
+        "sub": "exited",
+        "job": [
+          0,
+          "/"
+        ],
+        "pid": 0,
+        "control_pid": 0,
+        "result": "success",
+        "exit_code": 1,
+        "exit_status": 0,
+        "exited_monotonic_us": 119326107514
+      }
+    },
+    "completed": {
+      "duration": 17.017780458001653,
+      "status": 0
+    },
+    "independent_timer_after_observation": {
+      "Id": {
+        "type": "s",
+        "data": "firefly-launcher-fixture-success-ffgghrpc-rollback.timer"
+      },
+      "Names": {
+        "type": "as",
+        "data": [
+          "firefly-launcher-fixture-success-ffgghrpc-rollback.timer"
+        ]
+      },
+      "Following": {
+        "type": "s",
+        "data": ""
+      },
+      "Requires": {
+        "type": "as",
+        "data": [
+          "sysinit.target"
+        ]
+      },
+      "Requisite": {
+        "type": "as",
+        "data": []
+      },
+      "Wants": {
+        "type": "as",
+        "data": []
+      },
+      "BindsTo": {
+        "type": "as",
+        "data": []
+      },
+      "PartOf": {
+        "type": "as",
+        "data": []
+      },
+      "RequiredBy": {
+        "type": "as",
+        "data": []
+      },
+      "RequisiteOf": {
+        "type": "as",
+        "data": []
+      },
+      "WantedBy": {
+        "type": "as",
+        "data": []
+      },
+      "BoundBy": {
+        "type": "as",
+        "data": []
+      },
+      "ConsistsOf": {
+        "type": "as",
+        "data": []
+      },
+      "Conflicts": {
+        "type": "as",
+        "data": [
+          "shutdown.target"
+        ]
+      },
+      "ConflictedBy": {
+        "type": "as",
+        "data": []
+      },
+      "Before": {
+        "type": "as",
+        "data": [
+          "timers.target",
+          "firefly-launcher-fixture-success-ffgghrpc-rollback.service",
+          "shutdown.target"
+        ]
+      },
+      "After": {
+        "type": "as",
+        "data": [
+          "sysinit.target"
+        ]
+      },
+      "OnFailure": {
+        "type": "as",
+        "data": []
+      },
+      "OnFailureOf": {
+        "type": "as",
+        "data": []
+      },
+      "OnSuccess": {
+        "type": "as",
+        "data": []
+      },
+      "OnSuccessOf": {
+        "type": "as",
+        "data": []
+      },
+      "Triggers": {
+        "type": "as",
+        "data": [
+          "firefly-launcher-fixture-success-ffgghrpc-rollback.service"
+        ]
+      },
+      "TriggeredBy": {
+        "type": "as",
+        "data": []
+      },
+      "PropagatesReloadTo": {
+        "type": "as",
+        "data": []
+      },
+      "ReloadPropagatedFrom": {
+        "type": "as",
+        "data": []
+      },
+      "PropagatesStopTo": {
+        "type": "as",
+        "data": []
+      },
+      "StopPropagatedFrom": {
+        "type": "as",
+        "data": []
+      },
+      "JoinsNamespaceOf": {
+        "type": "as",
+        "data": []
+      },
+      "SliceOf": {
+        "type": "as",
+        "data": []
+      },
+      "RequiresMountsFor": {
+        "type": "as",
+        "data": []
+      },
+      "Documentation": {
+        "type": "as",
+        "data": []
+      },
+      "Description": {
+        "type": "s",
+        "data": "/usr/bin/python3 /run/firefly-launcher-fixture-success-ffgghrpc/rollback.py /run/firefly-launcher-fixture-success-ffgghrpc firefly-launcher-fixture-success-ffgghrpc-worker.service"
+      },
+      "LoadState": {
+        "type": "s",
+        "data": "loaded"
+      },
+      "ActiveState": {
+        "type": "s",
+        "data": "active"
+      },
+      "FreezerState": {
+        "type": "s",
+        "data": "running"
+      },
+      "SubState": {
+        "type": "s",
+        "data": "waiting"
+      },
+      "FragmentPath": {
+        "type": "s",
+        "data": "/run/systemd/transient/firefly-launcher-fixture-success-ffgghrpc-rollback.timer"
+      },
+      "SourcePath": {
+        "type": "s",
+        "data": ""
+      },
+      "DropInPaths": {
+        "type": "as",
+        "data": []
+      },
+      "UnitFileState": {
+        "type": "s",
+        "data": "transient"
+      },
+      "UnitFilePreset": {
+        "type": "s",
+        "data": "enabled"
+      },
+      "StateChangeTimestamp": {
+        "type": "t",
+        "data": 1791826806127217
+      },
+      "StateChangeTimestampMonotonic": {
+        "type": "t",
+        "data": 119308945363
+      },
+      "InactiveExitTimestamp": {
+        "type": "t",
+        "data": 1791826806127217
+      },
+      "InactiveExitTimestampMonotonic": {
+        "type": "t",
+        "data": 119308945363
+      },
+      "ActiveEnterTimestamp": {
+        "type": "t",
+        "data": 1791826806127217
+      },
+      "ActiveEnterTimestampMonotonic": {
+        "type": "t",
+        "data": 119308945363
+      },
+      "ActiveExitTimestamp": {
+        "type": "t",
+        "data": 0
+      },
+      "ActiveExitTimestampMonotonic": {
+        "type": "t",
+        "data": 0
+      },
+      "InactiveEnterTimestamp": {
+        "type": "t",
+        "data": 0
+      },
+      "InactiveEnterTimestampMonotonic": {
+        "type": "t",
+        "data": 0
+      },
+      "CanStart": {
+        "type": "b",
+        "data": true
+      },
+      "CanStop": {
+        "type": "b",
+        "data": true
+      },
+      "CanReload": {
+        "type": "b",
+        "data": false
+      },
+      "CanIsolate": {
+        "type": "b",
+        "data": false
+      },
+      "CanClean": {
+        "type": "as",
+        "data": []
+      },
+      "CanFreeze": {
+        "type": "b",
+        "data": false
+      },
+      "Job": {
+        "type": "(uo)",
+        "data": [
+          0,
+          "/"
+        ]
+      },
+      "StopWhenUnneeded": {
+        "type": "b",
+        "data": false
+      },
+      "RefuseManualStart": {
+        "type": "b",
+        "data": false
+      },
+      "RefuseManualStop": {
+        "type": "b",
+        "data": false
+      },
+      "AllowIsolate": {
+        "type": "b",
+        "data": false
+      },
+      "DefaultDependencies": {
+        "type": "b",
+        "data": true
+      },
+      "OnSuccessJobMode": {
+        "type": "s",
+        "data": "fail"
+      },
+      "OnFailureJobMode": {
+        "type": "s",
+        "data": "replace"
+      },
+      "IgnoreOnIsolate": {
+        "type": "b",
+        "data": false
+      },
+      "NeedDaemonReload": {
+        "type": "b",
+        "data": false
+      },
+      "Markers": {
+        "type": "as",
+        "data": []
+      },
+      "JobTimeoutUSec": {
+        "type": "t",
+        "data": 18446744073709551615
+      },
+      "JobRunningTimeoutUSec": {
+        "type": "t",
+        "data": 18446744073709551615
+      },
+      "JobTimeoutAction": {
+        "type": "s",
+        "data": "none"
+      },
+      "JobTimeoutRebootArgument": {
+        "type": "s",
+        "data": ""
+      },
+      "ConditionResult": {
+        "type": "b",
+        "data": true
+      },
+      "AssertResult": {
+        "type": "b",
+        "data": true
+      },
+      "ConditionTimestamp": {
+        "type": "t",
+        "data": 1791826806126672
+      },
+      "ConditionTimestampMonotonic": {
+        "type": "t",
+        "data": 119308944818
+      },
+      "AssertTimestamp": {
+        "type": "t",
+        "data": 1791826806126675
+      },
+      "AssertTimestampMonotonic": {
+        "type": "t",
+        "data": 119308944820
+      },
+      "Conditions": {
+        "type": "a(sbbsi)",
+        "data": []
+      },
+      "Asserts": {
+        "type": "a(sbbsi)",
+        "data": []
+      },
+      "LoadError": {
+        "type": "(ss)",
+        "data": [
+          "",
+          ""
+        ]
+      },
+      "Transient": {
+        "type": "b",
+        "data": true
+      },
+      "Perpetual": {
+        "type": "b",
+        "data": false
+      },
+      "StartLimitIntervalUSec": {
+        "type": "t",
+        "data": 10000000
+      },
+      "StartLimitBurst": {
+        "type": "u",
+        "data": 5
+      },
+      "StartLimitAction": {
+        "type": "s",
+        "data": "none"
+      },
+      "FailureAction": {
+        "type": "s",
+        "data": "none"
+      },
+      "FailureActionExitStatus": {
+        "type": "i",
+        "data": -1
+      },
+      "SuccessAction": {
+        "type": "s",
+        "data": "none"
+      },
+      "SuccessActionExitStatus": {
+        "type": "i",
+        "data": -1
+      },
+      "RebootArgument": {
+        "type": "s",
+        "data": ""
+      },
+      "InvocationID": {
+        "type": "ay",
+        "data": [
+          23,
+          20,
+          247,
+          158,
+          16,
+          220,
+          78,
+          6,
+          191,
+          190,
+          54,
+          133,
+          80,
+          113,
+          17,
+          200
+        ]
+      },
+      "CollectMode": {
+        "type": "s",
+        "data": "inactive"
+      },
+      "Refs": {
+        "type": "as",
+        "data": []
+      }
+    },
+    "restoration": {
+      "release": "old",
+      "ready": true,
+      "events": [
+        "stop",
+        "atomic-switch-old",
+        "start",
+        "verify-store-health-ownership"
+      ],
+      "pid": 570896,
+      "ppid": 1,
+      "monotonic": 119332.800289407,
+      "scope": "file-only fixture"
+    },
+    "pass_case": true
+  },
+  {
+    "case": "worker_failure",
+    "root": "/run/firefly-launcher-fixture-worker_failure-nc0c58zb",
+    "worker_unit": "firefly-launcher-fixture-worker_failure-nc0c58zb-worker.service",
+    "rollback_timer": "firefly-launcher-fixture-worker_failure-nc0c58zb-rollback.timer",
+    "submission": {
+      "state": "SUBMITTED",
+      "argv": [
+        "systemd-run",
+        "--no-block",
+        "--unit=firefly-launcher-fixture-worker_failure-nc0c58zb-worker.service",
+        "--property=Type=oneshot",
+        "--property=RemainAfterExit=yes",
+        "--property=TimeoutStartSec=240s",
+        "--property=TimeoutStopSec=10s",
+        "--property=KillMode=control-group",
+        "/usr/bin/python3",
+        "/run/firefly-launcher-fixture-worker_failure-nc0c58zb/worker.py",
+        "/run/firefly-launcher-fixture-worker_failure-nc0c58zb",
+        "17",
+        "42"
+      ]
+    },
+    "submission_duration": 0.028797802995541133,
+    "observed_duration": 17.6364352160017,
+    "observation": {
+      "state": "FORWARD_FAILED",
+      "unit": "firefly-launcher-fixture-worker_failure-nc0c58zb-worker.service",
+      "observation": {
+        "active": "failed",
+        "sub": "failed",
+        "job": [
+          0,
+          "/"
+        ],
+        "pid": 0,
+        "control_pid": 0,
+        "result": "exit-code",
+        "exit_code": 1,
+        "exit_status": 42,
+        "exited_monotonic_us": 119326110982
+      }
+    },
+    "completed": {
+      "duration": 17.011362792007276,
+      "status": 42
+    },
+    "independent_timer_after_observation": {
+      "Id": {
+        "type": "s",
+        "data": "firefly-launcher-fixture-worker_failure-nc0c58zb-rollback.timer"
+      },
+      "Names": {
+        "type": "as",
+        "data": [
+          "firefly-launcher-fixture-worker_failure-nc0c58zb-rollback.timer"
+        ]
+      },
+      "Following": {
+        "type": "s",
+        "data": ""
+      },
+      "Requires": {
+        "type": "as",
+        "data": [
+          "sysinit.target"
+        ]
+      },
+      "Requisite": {
+        "type": "as",
+        "data": []
+      },
+      "Wants": {
+        "type": "as",
+        "data": []
+      },
+      "BindsTo": {
+        "type": "as",
+        "data": []
+      },
+      "PartOf": {
+        "type": "as",
+        "data": []
+      },
+      "RequiredBy": {
+        "type": "as",
+        "data": []
+      },
+      "RequisiteOf": {
+        "type": "as",
+        "data": []
+      },
+      "WantedBy": {
+        "type": "as",
+        "data": []
+      },
+      "BoundBy": {
+        "type": "as",
+        "data": []
+      },
+      "ConsistsOf": {
+        "type": "as",
+        "data": []
+      },
+      "Conflicts": {
+        "type": "as",
+        "data": [
+          "shutdown.target"
+        ]
+      },
+      "ConflictedBy": {
+        "type": "as",
+        "data": []
+      },
+      "Before": {
+        "type": "as",
+        "data": [
+          "timers.target",
+          "firefly-launcher-fixture-worker_failure-nc0c58zb-rollback.service",
+          "shutdown.target"
+        ]
+      },
+      "After": {
+        "type": "as",
+        "data": [
+          "sysinit.target"
+        ]
+      },
+      "OnFailure": {
+        "type": "as",
+        "data": []
+      },
+      "OnFailureOf": {
+        "type": "as",
+        "data": []
+      },
+      "OnSuccess": {
+        "type": "as",
+        "data": []
+      },
+      "OnSuccessOf": {
+        "type": "as",
+        "data": []
+      },
+      "Triggers": {
+        "type": "as",
+        "data": [
+          "firefly-launcher-fixture-worker_failure-nc0c58zb-rollback.service"
+        ]
+      },
+      "TriggeredBy": {
+        "type": "as",
+        "data": []
+      },
+      "PropagatesReloadTo": {
+        "type": "as",
+        "data": []
+      },
+      "ReloadPropagatedFrom": {
+        "type": "as",
+        "data": []
+      },
+      "PropagatesStopTo": {
+        "type": "as",
+        "data": []
+      },
+      "StopPropagatedFrom": {
+        "type": "as",
+        "data": []
+      },
+      "JoinsNamespaceOf": {
+        "type": "as",
+        "data": []
+      },
+      "SliceOf": {
+        "type": "as",
+        "data": []
+      },
+      "RequiresMountsFor": {
+        "type": "as",
+        "data": []
+      },
+      "Documentation": {
+        "type": "as",
+        "data": []
+      },
+      "Description": {
+        "type": "s",
+        "data": "/usr/bin/python3 /run/firefly-launcher-fixture-worker_failure-nc0c58zb/rollback.py /run/firefly-launcher-fixture-worker_failure-nc0c58zb firefly-launcher-fixture-worker_failure-nc0c58zb-worker.service"
+      },
+      "LoadState": {
+        "type": "s",
+        "data": "loaded"
+      },
+      "ActiveState": {
+        "type": "s",
+        "data": "active"
+      },
+      "FreezerState": {
+        "type": "s",
+        "data": "running"
+      },
+      "SubState": {
+        "type": "s",
+        "data": "waiting"
+      },
+      "FragmentPath": {
+        "type": "s",
+        "data": "/run/systemd/transient/firefly-launcher-fixture-worker_failure-nc0c58zb-rollback.timer"
+      },
+      "SourcePath": {
+        "type": "s",
+        "data": ""
+      },
+      "DropInPaths": {
+        "type": "as",
+        "data": []
+      },
+      "UnitFileState": {
+        "type": "s",
+        "data": "transient"
+      },
+      "UnitFilePreset": {
+        "type": "s",
+        "data": "enabled"
+      },
+      "StateChangeTimestamp": {
+        "type": "t",
+        "data": 1791826806128045
+      },
+      "StateChangeTimestampMonotonic": {
+        "type": "t",
+        "data": 119308946191
+      },
+      "InactiveExitTimestamp": {
+        "type": "t",
+        "data": 1791826806128045
+      },
+      "InactiveExitTimestampMonotonic": {
+        "type": "t",
+        "data": 119308946191
+      },
+      "ActiveEnterTimestamp": {
+        "type": "t",
+        "data": 1791826806128045
+      },
+      "ActiveEnterTimestampMonotonic": {
+        "type": "t",
+        "data": 119308946191
+      },
+      "ActiveExitTimestamp": {
+        "type": "t",
+        "data": 0
+      },
+      "ActiveExitTimestampMonotonic": {
+        "type": "t",
+        "data": 0
+      },
+      "InactiveEnterTimestamp": {
+        "type": "t",
+        "data": 0
+      },
+      "InactiveEnterTimestampMonotonic": {
+        "type": "t",
+        "data": 0
+      },
+      "CanStart": {
+        "type": "b",
+        "data": true
+      },
+      "CanStop": {
+        "type": "b",
+        "data": true
+      },
+      "CanReload": {
+        "type": "b",
+        "data": false
+      },
+      "CanIsolate": {
+        "type": "b",
+        "data": false
+      },
+      "CanClean": {
+        "type": "as",
+        "data": []
+      },
+      "CanFreeze": {
+        "type": "b",
+        "data": false
+      },
+      "Job": {
+        "type": "(uo)",
+        "data": [
+          0,
+          "/"
+        ]
+      },
+      "StopWhenUnneeded": {
+        "type": "b",
+        "data": false
+      },
+      "RefuseManualStart": {
+        "type": "b",
+        "data": false
+      },
+      "RefuseManualStop": {
+        "type": "b",
+        "data": false
+      },
+      "AllowIsolate": {
+        "type": "b",
+        "data": false
+      },
+      "DefaultDependencies": {
+        "type": "b",
+        "data": true
+      },
+      "OnSuccessJobMode": {
+        "type": "s",
+        "data": "fail"
+      },
+      "OnFailureJobMode": {
+        "type": "s",
+        "data": "replace"
+      },
+      "IgnoreOnIsolate": {
+        "type": "b",
+        "data": false
+      },
+      "NeedDaemonReload": {
+        "type": "b",
+        "data": false
+      },
+      "Markers": {
+        "type": "as",
+        "data": []
+      },
+      "JobTimeoutUSec": {
+        "type": "t",
+        "data": 18446744073709551615
+      },
+      "JobRunningTimeoutUSec": {
+        "type": "t",
+        "data": 18446744073709551615
+      },
+      "JobTimeoutAction": {
+        "type": "s",
+        "data": "none"
+      },
+      "JobTimeoutRebootArgument": {
+        "type": "s",
+        "data": ""
+      },
+      "ConditionResult": {
+        "type": "b",
+        "data": true
+      },
+      "AssertResult": {
+        "type": "b",
+        "data": true
+      },
+      "ConditionTimestamp": {
+        "type": "t",
+        "data": 1791826806127705
+      },
+      "ConditionTimestampMonotonic": {
+        "type": "t",
+        "data": 119308945851
+      },
+      "AssertTimestamp": {
+        "type": "t",
+        "data": 1791826806127707
+      },
+      "AssertTimestampMonotonic": {
+        "type": "t",
+        "data": 119308945853
+      },
+      "Conditions": {
+        "type": "a(sbbsi)",
+        "data": []
+      },
+      "Asserts": {
+        "type": "a(sbbsi)",
+        "data": []
+      },
+      "LoadError": {
+        "type": "(ss)",
+        "data": [
+          "",
+          ""
+        ]
+      },
+      "Transient": {
+        "type": "b",
+        "data": true
+      },
+      "Perpetual": {
+        "type": "b",
+        "data": false
+      },
+      "StartLimitIntervalUSec": {
+        "type": "t",
+        "data": 10000000
+      },
+      "StartLimitBurst": {
+        "type": "u",
+        "data": 5
+      },
+      "StartLimitAction": {
+        "type": "s",
+        "data": "none"
+      },
+      "FailureAction": {
+        "type": "s",
+        "data": "none"
+      },
+      "FailureActionExitStatus": {
+        "type": "i",
+        "data": -1
+      },
+      "SuccessAction": {
+        "type": "s",
+        "data": "none"
+      },
+      "SuccessActionExitStatus": {
+        "type": "i",
+        "data": -1
+      },
+      "RebootArgument": {
+        "type": "s",
+        "data": ""
+      },
+      "InvocationID": {
+        "type": "ay",
+        "data": [
+          160,
+          64,
+          18,
+          224,
+          197,
+          58,
+          78,
+          35,
+          136,
+          22,
+          132,
+          99,
+          18,
+          216,
+          7,
+          40
+        ]
+      },
+      "CollectMode": {
+        "type": "s",
+        "data": "inactive"
+      },
+      "Refs": {
+        "type": "as",
+        "data": []
+      }
+    },
+    "restoration": {
+      "release": "old",
+      "ready": true,
+      "events": [
+        "stop",
+        "atomic-switch-old",
+        "start",
+        "verify-store-health-ownership"
+      ],
+      "pid": 570897,
+      "ppid": 1,
+      "monotonic": 119332.808975406,
+      "scope": "file-only fixture"
+    },
+    "pass_case": true
+  },
+  {
+    "case": "startup_failure",
+    "root": "/run/firefly-launcher-fixture-startup_failure-jnnhj9b2",
+    "worker_unit": "firefly-launcher-fixture-startup_failure-jnnhj9b2-worker.service",
+    "rollback_timer": "firefly-launcher-fixture-startup_failure-jnnhj9b2-rollback.timer",
+    "submission": {
+      "state": "SUBMITTED",
+      "argv": [
+        "systemd-run",
+        "--no-block",
+        "--unit=firefly-launcher-fixture-startup_failure-jnnhj9b2-worker.service",
+        "--property=Type=oneshot",
+        "--property=RemainAfterExit=yes",
+        "--property=TimeoutStartSec=240s",
+        "--property=TimeoutStopSec=10s",
+        "--property=KillMode=control-group",
+        "/usr/bin/python3",
+        "/run/firefly-launcher-fixture-startup_failure-jnnhj9b2/nonexistent-worker.py"
+      ]
+    },
+    "submission_duration": 0.027795407993835397,
+    "observed_duration": 0.9030729840014828,
+    "observation": {
+      "state": "FORWARD_FAILED",
+      "unit": "firefly-launcher-fixture-startup_failure-jnnhj9b2-worker.service",
+      "observation": {
+        "active": "failed",
+        "sub": "failed",
+        "job": [
+          0,
+          "/"
+        ],
+        "pid": 0,
+        "control_pid": 0,
+        "result": "exit-code",
+        "exit_code": 1,
+        "exit_status": 2,
+        "exited_monotonic_us": 119309059095
+      }
+    },
+    "independent_timer_after_observation": {
+      "Id": {
+        "type": "s",
+        "data": "firefly-launcher-fixture-startup_failure-jnnhj9b2-rollback.timer"
+      },
+      "Names": {
+        "type": "as",
+        "data": [
+          "firefly-launcher-fixture-startup_failure-jnnhj9b2-rollback.timer"
+        ]
+      },
+      "Following": {
+        "type": "s",
+        "data": ""
+      },
+      "Requires": {
+        "type": "as",
+        "data": [
+          "sysinit.target"
+        ]
+      },
+      "Requisite": {
+        "type": "as",
+        "data": []
+      },
+      "Wants": {
+        "type": "as",
+        "data": []
+      },
+      "BindsTo": {
+        "type": "as",
+        "data": []
+      },
+      "PartOf": {
+        "type": "as",
+        "data": []
+      },
+      "RequiredBy": {
+        "type": "as",
+        "data": []
+      },
+      "RequisiteOf": {
+        "type": "as",
+        "data": []
+      },
+      "WantedBy": {
+        "type": "as",
+        "data": []
+      },
+      "BoundBy": {
+        "type": "as",
+        "data": []
+      },
+      "ConsistsOf": {
+        "type": "as",
+        "data": []
+      },
+      "Conflicts": {
+        "type": "as",
+        "data": [
+          "shutdown.target"
+        ]
+      },
+      "ConflictedBy": {
+        "type": "as",
+        "data": []
+      },
+      "Before": {
+        "type": "as",
+        "data": [
+          "shutdown.target",
+          "timers.target",
+          "firefly-launcher-fixture-startup_failure-jnnhj9b2-rollback.service"
+        ]
+      },
+      "After": {
+        "type": "as",
+        "data": [
+          "sysinit.target"
+        ]
+      },
+      "OnFailure": {
+        "type": "as",
+        "data": []
+      },
+      "OnFailureOf": {
+        "type": "as",
+        "data": []
+      },
+      "OnSuccess": {
+        "type": "as",
+        "data": []
+      },
+      "OnSuccessOf": {
+        "type": "as",
+        "data": []
+      },
+      "Triggers": {
+        "type": "as",
+        "data": [
+          "firefly-launcher-fixture-startup_failure-jnnhj9b2-rollback.service"
+        ]
+      },
+      "TriggeredBy": {
+        "type": "as",
+        "data": []
+      },
+      "PropagatesReloadTo": {
+        "type": "as",
+        "data": []
+      },
+      "ReloadPropagatedFrom": {
+        "type": "as",
+        "data": []
+      },
+      "PropagatesStopTo": {
+        "type": "as",
+        "data": []
+      },
+      "StopPropagatedFrom": {
+        "type": "as",
+        "data": []
+      },
+      "JoinsNamespaceOf": {
+        "type": "as",
+        "data": []
+      },
+      "SliceOf": {
+        "type": "as",
+        "data": []
+      },
+      "RequiresMountsFor": {
+        "type": "as",
+        "data": []
+      },
+      "Documentation": {
+        "type": "as",
+        "data": []
+      },
+      "Description": {
+        "type": "s",
+        "data": "/usr/bin/python3 /run/firefly-launcher-fixture-startup_failure-jnnhj9b2/rollback.py /run/firefly-launcher-fixture-startup_failure-jnnhj9b2 firefly-launcher-fixture-startup_failure-jnnhj9b2-worker.service"
+      },
+      "LoadState": {
+        "type": "s",
+        "data": "loaded"
+      },
+      "ActiveState": {
+        "type": "s",
+        "data": "active"
+      },
+      "FreezerState": {
+        "type": "s",
+        "data": "running"
+      },
+      "SubState": {
+        "type": "s",
+        "data": "waiting"
+      },
+      "FragmentPath": {
+        "type": "s",
+        "data": "/run/systemd/transient/firefly-launcher-fixture-startup_failure-jnnhj9b2-rollback.timer"
+      },
+      "SourcePath": {
+        "type": "s",
+        "data": ""
+      },
+      "DropInPaths": {
+        "type": "as",
+        "data": []
+      },
+      "UnitFileState": {
+        "type": "s",
+        "data": "transient"
+      },
+      "UnitFilePreset": {
+        "type": "s",
+        "data": "enabled"
+      },
+      "StateChangeTimestamp": {
+        "type": "t",
+        "data": 1791826806126015
+      },
+      "StateChangeTimestampMonotonic": {
+        "type": "t",
+        "data": 119308944161
+      },
+      "InactiveExitTimestamp": {
+        "type": "t",
+        "data": 1791826806126015
+      },
+      "InactiveExitTimestampMonotonic": {
+        "type": "t",
+        "data": 119308944161
+      },
+      "ActiveEnterTimestamp": {
+        "type": "t",
+        "data": 1791826806126015
+      },
+      "ActiveEnterTimestampMonotonic": {
+        "type": "t",
+        "data": 119308944161
+      },
+      "ActiveExitTimestamp": {
+        "type": "t",
+        "data": 0
+      },
+      "ActiveExitTimestampMonotonic": {
+        "type": "t",
+        "data": 0
+      },
+      "InactiveEnterTimestamp": {
+        "type": "t",
+        "data": 0
+      },
+      "InactiveEnterTimestampMonotonic": {
+        "type": "t",
+        "data": 0
+      },
+      "CanStart": {
+        "type": "b",
+        "data": true
+      },
+      "CanStop": {
+        "type": "b",
+        "data": true
+      },
+      "CanReload": {
+        "type": "b",
+        "data": false
+      },
+      "CanIsolate": {
+        "type": "b",
+        "data": false
+      },
+      "CanClean": {
+        "type": "as",
+        "data": []
+      },
+      "CanFreeze": {
+        "type": "b",
+        "data": false
+      },
+      "Job": {
+        "type": "(uo)",
+        "data": [
+          0,
+          "/"
+        ]
+      },
+      "StopWhenUnneeded": {
+        "type": "b",
+        "data": false
+      },
+      "RefuseManualStart": {
+        "type": "b",
+        "data": false
+      },
+      "RefuseManualStop": {
+        "type": "b",
+        "data": false
+      },
+      "AllowIsolate": {
+        "type": "b",
+        "data": false
+      },
+      "DefaultDependencies": {
+        "type": "b",
+        "data": true
+      },
+      "OnSuccessJobMode": {
+        "type": "s",
+        "data": "fail"
+      },
+      "OnFailureJobMode": {
+        "type": "s",
+        "data": "replace"
+      },
+      "IgnoreOnIsolate": {
+        "type": "b",
+        "data": false
+      },
+      "NeedDaemonReload": {
+        "type": "b",
+        "data": false
+      },
+      "Markers": {
+        "type": "as",
+        "data": []
+      },
+      "JobTimeoutUSec": {
+        "type": "t",
+        "data": 18446744073709551615
+      },
+      "JobRunningTimeoutUSec": {
+        "type": "t",
+        "data": 18446744073709551615
+      },
+      "JobTimeoutAction": {
+        "type": "s",
+        "data": "none"
+      },
+      "JobTimeoutRebootArgument": {
+        "type": "s",
+        "data": ""
+      },
+      "ConditionResult": {
+        "type": "b",
+        "data": true
+      },
+      "AssertResult": {
+        "type": "b",
+        "data": true
+      },
+      "ConditionTimestamp": {
+        "type": "t",
+        "data": 1791826806125366
+      },
+      "ConditionTimestampMonotonic": {
+        "type": "t",
+        "data": 119308943512
+      },
+      "AssertTimestamp": {
+        "type": "t",
+        "data": 1791826806125368
+      },
+      "AssertTimestampMonotonic": {
+        "type": "t",
+        "data": 119308943514
+      },
+      "Conditions": {
+        "type": "a(sbbsi)",
+        "data": []
+      },
+      "Asserts": {
+        "type": "a(sbbsi)",
+        "data": []
+      },
+      "LoadError": {
+        "type": "(ss)",
+        "data": [
+          "",
+          ""
+        ]
+      },
+      "Transient": {
+        "type": "b",
+        "data": true
+      },
+      "Perpetual": {
+        "type": "b",
+        "data": false
+      },
+      "StartLimitIntervalUSec": {
+        "type": "t",
+        "data": 10000000
+      },
+      "StartLimitBurst": {
+        "type": "u",
+        "data": 5
+      },
+      "StartLimitAction": {
+        "type": "s",
+        "data": "none"
+      },
+      "FailureAction": {
+        "type": "s",
+        "data": "none"
+      },
+      "FailureActionExitStatus": {
+        "type": "i",
+        "data": -1
+      },
+      "SuccessAction": {
+        "type": "s",
+        "data": "none"
+      },
+      "SuccessActionExitStatus": {
+        "type": "i",
+        "data": -1
+      },
+      "RebootArgument": {
+        "type": "s",
+        "data": ""
+      },
+      "InvocationID": {
+        "type": "ay",
+        "data": [
+          142,
+          151,
+          9,
+          50,
+          45,
+          218,
+          76,
+          70,
+          133,
+          49,
+          188,
+          41,
+          32,
+          203,
+          107,
+          62
+        ]
+      },
+      "CollectMode": {
+        "type": "s",
+        "data": "inactive"
+      },
+      "Refs": {
+        "type": "as",
+        "data": []
+      }
+    },
+    "restoration": {
+      "release": "old",
+      "ready": true,
+      "events": [
+        "stop",
+        "atomic-switch-old",
+        "start",
+        "verify-store-health-ownership"
+      ],
+      "pid": 570895,
+      "ppid": 1,
+      "monotonic": 119332.803698472,
+      "scope": "file-only fixture"
+    },
+    "pass_case": true
+  },
+  {
+    "case": "observation_deadline",
+    "root": "/run/firefly-launcher-fixture-observation_deadline-4bju_53i",
+    "worker_unit": "firefly-launcher-fixture-observation_deadline-4bju_53i-worker.service",
+    "rollback_timer": "firefly-launcher-fixture-observation_deadline-4bju_53i-rollback.timer",
+    "submission": {
+      "state": "SUBMITTED",
+      "argv": [
+        "systemd-run",
+        "--no-block",
+        "--unit=firefly-launcher-fixture-observation_deadline-4bju_53i-worker.service",
+        "--property=Type=oneshot",
+        "--property=RemainAfterExit=yes",
+        "--property=TimeoutStartSec=240s",
+        "--property=TimeoutStopSec=10s",
+        "--property=KillMode=control-group",
+        "/usr/bin/python3",
+        "/run/firefly-launcher-fixture-observation_deadline-4bju_53i/worker.py",
+        "/run/firefly-launcher-fixture-observation_deadline-4bju_53i",
+        "25",
+        "0"
+      ]
+    },
+    "submission_duration": 0.022880604999954812,
+    "observed_duration": 3.0241398829966784,
+    "observation": {
+      "state": "OBSERVATION_DEADLINE",
+      "unit": "firefly-launcher-fixture-observation_deadline-4bju_53i-worker.service",
+      "observation": {
+        "active": "activating",
+        "sub": "start",
+        "job": [
+          26594,
+          "/org/freedesktop/systemd1/job/26594"
+        ],
+        "pid": 570319,
+        "control_pid": 0,
+        "result": "success",
+        "exit_code": 0,
+        "exit_status": 0,
+        "exited_monotonic_us": 0
+      }
+    },
+    "independent_timer_after_observation": {
+      "Id": {
+        "type": "s",
+        "data": "firefly-launcher-fixture-observation_deadline-4bju_53i-rollback.timer"
+      },
+      "Names": {
+        "type": "as",
+        "data": [
+          "firefly-launcher-fixture-observation_deadline-4bju_53i-rollback.timer"
+        ]
+      },
+      "Following": {
+        "type": "s",
+        "data": ""
+      },
+      "Requires": {
+        "type": "as",
+        "data": [
+          "sysinit.target"
+        ]
+      },
+      "Requisite": {
+        "type": "as",
+        "data": []
+      },
+      "Wants": {
+        "type": "as",
+        "data": []
+      },
+      "BindsTo": {
+        "type": "as",
+        "data": []
+      },
+      "PartOf": {
+        "type": "as",
+        "data": []
+      },
+      "RequiredBy": {
+        "type": "as",
+        "data": []
+      },
+      "RequisiteOf": {
+        "type": "as",
+        "data": []
+      },
+      "WantedBy": {
+        "type": "as",
+        "data": []
+      },
+      "BoundBy": {
+        "type": "as",
+        "data": []
+      },
+      "ConsistsOf": {
+        "type": "as",
+        "data": []
+      },
+      "Conflicts": {
+        "type": "as",
+        "data": [
+          "shutdown.target"
+        ]
+      },
+      "ConflictedBy": {
+        "type": "as",
+        "data": []
+      },
+      "Before": {
+        "type": "as",
+        "data": [
+          "firefly-launcher-fixture-observation_deadline-4bju_53i-rollback.service",
+          "timers.target",
+          "shutdown.target"
+        ]
+      },
+      "After": {
+        "type": "as",
+        "data": [
+          "sysinit.target"
+        ]
+      },
+      "OnFailure": {
+        "type": "as",
+        "data": []
+      },
+      "OnFailureOf": {
+        "type": "as",
+        "data": []
+      },
+      "OnSuccess": {
+        "type": "as",
+        "data": []
+      },
+      "OnSuccessOf": {
+        "type": "as",
+        "data": []
+      },
+      "Triggers": {
+        "type": "as",
+        "data": [
+          "firefly-launcher-fixture-observation_deadline-4bju_53i-rollback.service"
+        ]
+      },
+      "TriggeredBy": {
+        "type": "as",
+        "data": []
+      },
+      "PropagatesReloadTo": {
+        "type": "as",
+        "data": []
+      },
+      "ReloadPropagatedFrom": {
+        "type": "as",
+        "data": []
+      },
+      "PropagatesStopTo": {
+        "type": "as",
+        "data": []
+      },
+      "StopPropagatedFrom": {
+        "type": "as",
+        "data": []
+      },
+      "JoinsNamespaceOf": {
+        "type": "as",
+        "data": []
+      },
+      "SliceOf": {
+        "type": "as",
+        "data": []
+      },
+      "RequiresMountsFor": {
+        "type": "as",
+        "data": []
+      },
+      "Documentation": {
+        "type": "as",
+        "data": []
+      },
+      "Description": {
+        "type": "s",
+        "data": "/usr/bin/python3 /run/firefly-launcher-fixture-observation_deadline-4bju_53i/rollback.py /run/firefly-launcher-fixture-observation_deadline-4bju_53i firefly-launcher-fixture-observation_deadline-4bju_53i-worker.service"
+      },
+      "LoadState": {
+        "type": "s",
+        "data": "loaded"
+      },
+      "ActiveState": {
+        "type": "s",
+        "data": "active"
+      },
+      "FreezerState": {
+        "type": "s",
+        "data": "running"
+      },
+      "SubState": {
+        "type": "s",
+        "data": "waiting"
+      },
+      "FragmentPath": {
+        "type": "s",
+        "data": "/run/systemd/transient/firefly-launcher-fixture-observation_deadline-4bju_53i-rollback.timer"
+      },
+      "SourcePath": {
+        "type": "s",
+        "data": ""
+      },
+      "DropInPaths": {
+        "type": "as",
+        "data": []
+      },
+      "UnitFileState": {
+        "type": "s",
+        "data": "transient"
+      },
+      "UnitFilePreset": {
+        "type": "s",
+        "data": "enabled"
+      },
+      "StateChangeTimestamp": {
+        "type": "t",
+        "data": 1791826806122500
+      },
+      "StateChangeTimestampMonotonic": {
+        "type": "t",
+        "data": 119308940646
+      },
+      "InactiveExitTimestamp": {
+        "type": "t",
+        "data": 1791826806122500
+      },
+      "InactiveExitTimestampMonotonic": {
+        "type": "t",
+        "data": 119308940646
+      },
+      "ActiveEnterTimestamp": {
+        "type": "t",
+        "data": 1791826806122500
+      },
+      "ActiveEnterTimestampMonotonic": {
+        "type": "t",
+        "data": 119308940646
+      },
+      "ActiveExitTimestamp": {
+        "type": "t",
+        "data": 0
+      },
+      "ActiveExitTimestampMonotonic": {
+        "type": "t",
+        "data": 0
+      },
+      "InactiveEnterTimestamp": {
+        "type": "t",
+        "data": 0
+      },
+      "InactiveEnterTimestampMonotonic": {
+        "type": "t",
+        "data": 0
+      },
+      "CanStart": {
+        "type": "b",
+        "data": true
+      },
+      "CanStop": {
+        "type": "b",
+        "data": true
+      },
+      "CanReload": {
+        "type": "b",
+        "data": false
+      },
+      "CanIsolate": {
+        "type": "b",
+        "data": false
+      },
+      "CanClean": {
+        "type": "as",
+        "data": []
+      },
+      "CanFreeze": {
+        "type": "b",
+        "data": false
+      },
+      "Job": {
+        "type": "(uo)",
+        "data": [
+          0,
+          "/"
+        ]
+      },
+      "StopWhenUnneeded": {
+        "type": "b",
+        "data": false
+      },
+      "RefuseManualStart": {
+        "type": "b",
+        "data": false
+      },
+      "RefuseManualStop": {
+        "type": "b",
+        "data": false
+      },
+      "AllowIsolate": {
+        "type": "b",
+        "data": false
+      },
+      "DefaultDependencies": {
+        "type": "b",
+        "data": true
+      },
+      "OnSuccessJobMode": {
+        "type": "s",
+        "data": "fail"
+      },
+      "OnFailureJobMode": {
+        "type": "s",
+        "data": "replace"
+      },
+      "IgnoreOnIsolate": {
+        "type": "b",
+        "data": false
+      },
+      "NeedDaemonReload": {
+        "type": "b",
+        "data": false
+      },
+      "Markers": {
+        "type": "as",
+        "data": []
+      },
+      "JobTimeoutUSec": {
+        "type": "t",
+        "data": 18446744073709551615
+      },
+      "JobRunningTimeoutUSec": {
+        "type": "t",
+        "data": 18446744073709551615
+      },
+      "JobTimeoutAction": {
+        "type": "s",
+        "data": "none"
+      },
+      "JobTimeoutRebootArgument": {
+        "type": "s",
+        "data": ""
+      },
+      "ConditionResult": {
+        "type": "b",
+        "data": true
+      },
+      "AssertResult": {
+        "type": "b",
+        "data": true
+      },
+      "ConditionTimestamp": {
+        "type": "t",
+        "data": 1791826806121283
+      },
+      "ConditionTimestampMonotonic": {
+        "type": "t",
+        "data": 119308939429
+      },
+      "AssertTimestamp": {
+        "type": "t",
+        "data": 1791826806121290
+      },
+      "AssertTimestampMonotonic": {
+        "type": "t",
+        "data": 119308939436
+      },
+      "Conditions": {
+        "type": "a(sbbsi)",
+        "data": []
+      },
+      "Asserts": {
+        "type": "a(sbbsi)",
+        "data": []
+      },
+      "LoadError": {
+        "type": "(ss)",
+        "data": [
+          "",
+          ""
+        ]
+      },
+      "Transient": {
+        "type": "b",
+        "data": true
+      },
+      "Perpetual": {
+        "type": "b",
+        "data": false
+      },
+      "StartLimitIntervalUSec": {
+        "type": "t",
+        "data": 10000000
+      },
+      "StartLimitBurst": {
+        "type": "u",
+        "data": 5
+      },
+      "StartLimitAction": {
+        "type": "s",
+        "data": "none"
+      },
+      "FailureAction": {
+        "type": "s",
+        "data": "none"
+      },
+      "FailureActionExitStatus": {
+        "type": "i",
+        "data": -1
+      },
+      "SuccessAction": {
+        "type": "s",
+        "data": "none"
+      },
+      "SuccessActionExitStatus": {
+        "type": "i",
+        "data": -1
+      },
+      "RebootArgument": {
+        "type": "s",
+        "data": ""
+      },
+      "InvocationID": {
+        "type": "ay",
+        "data": [
+          7,
+          70,
+          206,
+          180,
+          19,
+          105,
+          68,
+          245,
+          185,
+          133,
+          237,
+          206,
+          156,
+          163,
+          129,
+          92
+        ]
+      },
+      "CollectMode": {
+        "type": "s",
+        "data": "inactive"
+      },
+      "Refs": {
+        "type": "as",
+        "data": []
+      }
+    },
+    "restoration": {
+      "release": "old",
+      "ready": true,
+      "events": [
+        "stop",
+        "atomic-switch-old",
+        "start",
+        "verify-store-health-ownership"
+      ],
+      "pid": 570607,
+      "ppid": 1,
+      "monotonic": 119317.781816773,
+      "scope": "file-only fixture"
+    },
+    "pass_case": true
+  }
+]

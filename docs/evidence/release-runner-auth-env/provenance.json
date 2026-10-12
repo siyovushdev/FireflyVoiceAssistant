@@ -1,0 +1,63 @@
+{
+  "prepare.stdout": {
+    "original": "/home/firefly/firefly-auth-env-20261012T171101Z/prepare.stdout",
+    "original_sha256": "73d5dac6009824151614a9b26a1be8cf4bc2e867d3d196538e4892d534c9c3af",
+    "published_sha256": "73d5dac6009824151614a9b26a1be8cf4bc2e867d3d196538e4892d534c9c3af",
+    "redactions": []
+  },
+  "prepare.stderr": {
+    "original": "/home/firefly/firefly-auth-env-20261012T171101Z/prepare.stderr",
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "published_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "redactions": []
+  },
+  "prepare-invocation.json": {
+    "original": "/home/firefly/firefly-auth-env-20261012T171101Z/prepare-invocation.json",
+    "original_sha256": "bc38b8882055c4f2a587ea2e2816593f957b5bac736fd01d77c7147391b59dd8",
+    "published_sha256": "bc38b8882055c4f2a587ea2e2816593f957b5bac736fd01d77c7147391b59dd8",
+    "redactions": []
+  },
+  "PREPARED.json": {
+    "original": "/run/firefly-release-auth-env-20261012T171101Z/PREPARED",
+    "original_sha256": "3559dd755abd1a03e516ab6ad3d8bb8e4c5af17c42c3c5c3ced76510b8b34e55",
+    "published_sha256": "3559dd755abd1a03e516ab6ad3d8bb8e4c5af17c42c3c5c3ced76510b8b34e55",
+    "redactions": []
+  },
+  "preparation-commands.jsonl": {
+    "original": "/run/firefly-release-auth-env-20261012T171101Z/preparation-commands.jsonl",
+    "original_sha256": "32b5a5a8ba69c7a542387ae23942059a99027973f5477413fe55e5da16e2348a",
+    "published_sha256": "32b5a5a8ba69c7a542387ae23942059a99027973f5477413fe55e5da16e2348a",
+    "redactions": []
+  },
+  "systemd-fixtures.json": {
+    "original": "/run/firefly-release-auth-env-20261012T171101Z/mandatory-systemd-fixtures/summary.json",
+    "original_sha256": "677733a6d42ee302eb6e7353c54b748c3459014668ec99da4e4f031c16845185",
+    "published_sha256": "677733a6d42ee302eb6e7353c54b748c3459014668ec99da4e4f031c16845185",
+    "redactions": []
+  },
+  "original-evidence-check.json": {
+    "original": "/home/firefly/firefly-auth-env-20261012T171101Z/original-evidence-check.json",
+    "original_sha256": "0feaf05415711dda8c92ea0052471b8224007387ec61c83aac414ec5f77e3efd",
+    "published_sha256": "0feaf05415711dda8c92ea0052471b8224007387ec61c83aac414ec5f77e3efd",
+    "redactions": []
+  },
+  "production-packaging.log": {
+    "original": "/home/firefly/firefly-auth-env-20261012T171101Z/ctest-LastTest.log",
+    "original_sha256": "0d08099662b39ca4423a4c41ed0447eed81c84644face95dc7df2ccfd46c17c2",
+    "selector": "ProductionPackaging section",
+    "published_sha256": "c94f084a6fc5dae365c64af1c17e15962264699f565e03077fd0193d5dcf47ad",
+    "redactions": []
+  },
+  "previous-prepare-failure.stdout": {
+    "original": "/home/firefly/firefly-safety-rollout5-20261012T154709Z/ctest-full-prepare.stdout",
+    "original_sha256": "a8dd69f1a8975915c484451bf373749be74d8a6f3bf303672eeb5f5e5a1b80ef",
+    "published_sha256": "a8dd69f1a8975915c484451bf373749be74d8a6f3bf303672eeb5f5e5a1b80ef",
+    "redactions": []
+  },
+  "unarmed-units.txt": {
+    "original": "/home/firefly/firefly-auth-env-20261012T171101Z/unarmed-units.txt",
+    "original_sha256": "6fc9ea705a43124077cb307bd7cc97d91757265a76b196ff2b88736dec64bda5",
+    "published_sha256": "6fc9ea705a43124077cb307bd7cc97d91757265a76b196ff2b88736dec64bda5",
+    "redactions": []
+  }
+}
