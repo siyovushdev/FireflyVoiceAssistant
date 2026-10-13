@@ -1,0 +1,141 @@
+{
+  "status": "PASS",
+  "scope": "Offline scripted inference and synthetic voice seam, real C++ command authorization/execution and independent localhost HTTP observer; no new real Qwen inference or acoustic acceptance",
+  "created_utc": "2026-10-12T08:02:05.494362+00:00",
+  "provenance": {
+    "master": "5fed4230a3cd04d522e5f0ba482609cc7bb9599f",
+    "installed_source": "dc7b142e4acae74d178a2583cdc1568ec4de8ee8",
+    "master_tree": "646d0385e24336dfb95c67058b5d31723e256f42",
+    "installed_source_tree": "646d0385e24336dfb95c67058b5d31723e256f42",
+    "master_tree_matches_installed_source": true,
+    "installed_build_identity": {
+      "head": "dc7b142e4acae74d178a2583cdc1568ec4de8ee8",
+      "source_sha256": "97dcc7ce8afe5b61d6b5fc088e232bfbb77a13583dd42b1f1dc8eaae40204c5b",
+      "built_utc": "2026-10-11T09:49:12Z",
+      "dirty": false,
+      "admin_assets_sha256": "6ec619a8145689b1ce16bcc9b246f3d9e7fad779be44b0cfde689a7c94b73e27"
+    },
+    "unchanged_admin_assets_sha256": "6ec619a8145689b1ce16bcc9b246f3d9e7fad779be44b0cfde689a7c94b73e27",
+    "installed_source_worktree_verified_sha256": "97dcc7ce8afe5b61d6b5fc088e232bfbb77a13583dd42b1f1dc8eaae40204c5b",
+    "installed_source_worktree_clean": true
+  },
+  "backport_from": "8a6eb084dba4aecb19af2894f5b26c6cf3ca69e0",
+  "SafetyGate_file_sha256": "15b9d57aa18809b745decdf641342d1f66a167b52573f85b14e9b50a69ca6a50",
+  "only_runtime_changes": [
+    "src/SafetyGate.cpp",
+    "src/admin/CMakeLists.txt"
+  ],
+  "baseline_defect": {
+    "input": "включи лампу в неизвестной комнате",
+    "index_status": "INDEX_MISS",
+    "language_route": "LLM_FALLBACK",
+    "safety": "PASS",
+    "scripted_raw_output": "[]",
+    "post_count": 1,
+    "installed_service_received_command": false
+  },
+  "regression": {
+    "cases": 450,
+    "allowed": 164,
+    "rejected": 286,
+    "observed_POST": 164,
+    "rejected_HTTP": 0,
+    "protocols": [
+      "stable_compact",
+      "structured"
+    ],
+    "paths": [
+      "api-device",
+      "api-text",
+      "engine-no-index",
+      "gate-injected",
+      "voice-seam",
+      "worker-text"
+    ],
+    "every_case_has_exact_source_index": "Unmodified raw files are published losslessly; JSON pointer /cases/<index> identifies each original case."
+  },
+  "checks": {
+    "CTest": {
+      "passed": 81,
+      "failed": 0
+    },
+    "frontend": {
+      "typecheck": "PASS",
+      "tests_passed": 40,
+      "tests_failed": 0,
+      "build_and_offline_assets": "PASS"
+    },
+    "native_voice_build": "PASS",
+    "installed_and_new_config_validation_equivalent": true,
+    "fresh_assets_equal_installed": true,
+    "runtime_code_identical_to_8a6eb08_SafetyGate": true,
+    "source_review": "Only shared SafetyGate logic; all index/parser/fallback routes already invoke it with original input; unchanged protocol, execution lanes, configuration and voice code"
+  },
+  "production": {
+    "status": "PASS",
+    "production_pid_unchanged": 380056,
+    "release_unchanged": "/opt/firefly/voice-assistant/releases/wake-beep-dc7b142e-20261011",
+    "active": {
+      "generation_id": 1,
+      "hash": "688690e892d2f59413cdc2f7d81f1e129ab9ac0dd247f84b2898d74c3c3cdd18",
+      "revision": 2
+    },
+    "stored": {
+      "hash": "688690e892d2f59413cdc2f7d81f1e129ab9ac0dd247f84b2898d74c3c3cdd18",
+      "revision": 2
+    },
+    "runtime_ready": true,
+    "stt_ready": true,
+    "voice": "WAITING_WAKE",
+    "microphone": "connected",
+    "sole_owners": [
+      380056
+    ],
+    "full_store_bytes_modes_owners_mtimes_unchanged": true,
+    "unit_sha256_unchanged": true,
+    "before_manifest_sha256": "b27f077075b5258d99d542b8744079da6376c2ec52a2a1530913a3fb0d3245e7",
+    "after_manifest_sha256": "b27f077075b5258d99d542b8744079da6376c2ec52a2a1530913a3fb0d3245e7"
+  },
+  "artifacts": {
+    "baseline-scripted-http.json.gz": {
+      "original_basename": "baseline-http.json",
+      "original_sha256": "22003b1d32b274d98818a59c0585e323f37e1677618511b25c1de7b8489c3336",
+      "published_sha256": "dff64e0aff32db5a393ab60ee7d6969f8a00183c282b2f6bcf89656c708c80b1",
+      "transform": "lossless gzip, mtime=0; decompressed bytes exactly match original; synthetic fixture data only"
+    },
+    "fixed-scripted-http.json.gz": {
+      "original_basename": "fixed-http.json",
+      "original_sha256": "bec4f537c0c9a19403166b5936f65b77a91cb6331d35ea6ae623a226e9eaea02",
+      "published_sha256": "955040fa707f8efc8958eaf24028da55b3482335a5d181ddd757641465d797fd",
+      "transform": "lossless gzip, mtime=0; decompressed bytes exactly match original; synthetic fixture data only"
+    },
+    "ctest.log.txt": {
+      "original_basename": "ctest.log",
+      "original_sha256": "4b1bcd4a743b0784eb72e65a22d779ad97842e478f6da096a7d8dded561e627e",
+      "published_sha256": "347546eef0b2faac2d332b0630cb9c234a076c52efca6e6f16e1cc19bf3cb5c9",
+      "transform": "build-directory path redacted; test output unchanged"
+    },
+    "frontend.log.txt": {
+      "original_basename": "frontend.log",
+      "original_sha256": "36354c37f03479a0df723cdef2ebec78c66cef37510454e2602a2361439fd42c",
+      "published_sha256": "36354c37f03479a0df723cdef2ebec78c66cef37510454e2602a2361439fd42c",
+      "transform": "build-directory path redacted; test output unchanged"
+    }
+  },
+  "private_originals": "/home/firefly/firefly-safety-hotfix-audit-20261012T074150Z",
+  "limitations": [
+    "Scripted model and synthetic recognizer are not real Qwen/wake/STT acceptance.",
+    "No production restart, Apply, pointer/unit change, deployment or merge.",
+    "Installed production remains exposed until separately approved hotfix deployment.",
+    "Stricter gate rejects unmodeled context/timing/source qualifiers and unreviewed operation typos; config/aliases are not migrated.",
+    "Wake Word investigation remains deferred in Issue #18."
+  ],
+  "tested_build_identity": {
+    "head": "5fed4230a3cd04d522e5f0ba482609cc7bb9599f",
+    "source_sha256": "5e6a87b1ae70595e05e490a92e156f73c5ebe97fcc3a99d682c926f1874ce769",
+    "built_utc": "2026-10-12T07:47:17Z",
+    "dirty": true,
+    "admin_assets_sha256": "6ec619a8145689b1ce16bcc9b246f3d9e7fad779be44b0cfde689a7c94b73e27"
+  },
+  "tested_build_note": "Full suites tested these source bytes before commit; final clean metadata is verified against this source fingerprint and reported in the PR."
+}

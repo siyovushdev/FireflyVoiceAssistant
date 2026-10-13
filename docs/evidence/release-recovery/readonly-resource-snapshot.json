@@ -1,0 +1,32 @@
+{
+  "main_pid": 421157,
+  "control_pid": 0,
+  "active_state": "active",
+  "cgroup": "/system.slice/firefly-voice-assistant.service",
+  "cgroup_pids": [
+    421157,
+    421417
+  ],
+  "owners": [
+    421157
+  ],
+  "processes": {
+    "421157": {
+      "state": "S",
+      "start_ticks": 8860769,
+      "exe": "/opt/firefly/voice-assistant/releases/wake-beep-dc7b142e-20261011/bin/firefly-demo",
+      "cgroup": "0::/system.slice/firefly-voice-assistant.service\n"
+    },
+    "421417": {
+      "state": "S",
+      "start_ticks": 8865670,
+      "exe": "/usr/bin/python3.10",
+      "cgroup": "0::/system.slice/firefly-voice-assistant.service\n"
+    }
+  },
+  "source": {
+    "path": "/home/firefly/firefly-recovery-remediation-20261012T093402Z/evidence/readonly-resource-snapshot.json",
+    "sha256": "0a77fe5cd6421a2df74519252e0aae5f98d25a501b2a1a11d115b9cadc8c9c59",
+    "mapping": "top-level fields copied; /processes/<pid>/stat yields state (field3) and start_ticks (field22); exe and cgroup copied; other stat fields omitted"
+  }
+}

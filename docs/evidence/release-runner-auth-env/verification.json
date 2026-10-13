@@ -1,0 +1,120 @@
+{
+  "result": "PREPARED",
+  "tested_code_commit": "a439276a4420e4bd78f2896b1ec97539bb21f3a4",
+  "parent_authorization_challenge": "FIREFLY_OWNER_ACCEPTED=1; offline children strip it",
+  "candidate_identity": {
+    "head": "a439276a4420e4bd78f2896b1ec97539bb21f3a4",
+    "source_sha256": "2f57fe03a86d21ed5a399e86baeef333939522f9edeb8288ed1b3d7277f7d244",
+    "built_utc": "2026-10-12T17:12:09Z",
+    "dirty": false,
+    "admin_assets_sha256": "6ec619a8145689b1ce16bcc9b246f3d9e7fad779be44b0cfde689a7c94b73e27"
+  },
+  "candidate_activated": false,
+  "full_CTest": "84/84 PASS through prepare",
+  "frontend": "40/40 PASS; typecheck/build PASS",
+  "operator_unit_tests": {
+    "launcher": 17,
+    "recovery": 34,
+    "runner": 16
+  },
+  "real_systemd_file_only_fixtures": {
+    "passed": 5,
+    "total": 5
+  },
+  "all_preparation_commands_returned_zero": true,
+  "production_checks": {
+    "pid": true,
+    "release": true,
+    "binary_sha256": true,
+    "store_manifest": true,
+    "unit_sha256": true,
+    "argv": true,
+    "service_started": true,
+    "sole_npu_microphone_owner": true,
+    "active_unchanged": true,
+    "stored_unchanged": true,
+    "ready_waiting_wake": true,
+    "initial_backup_exact": true,
+    "prepared_backup_exact": true,
+    "health_subsystems_ready": true
+  },
+  "production_unchanged": true,
+  "production_pid": 467978,
+  "production_release": "releases/wake-beep-dc7b142e-20261011",
+  "production_identity": {
+    "built_utc": "2026-10-11T09:49:12Z",
+    "head": "dc7b142e4acae74d178a2583cdc1568ec4de8ee8",
+    "product": "Firefly Milestone 17 \u00b7 Runtime service reliability",
+    "source_sha256": "97dcc7ce8afe5b61d6b5fc088e232bfbb77a13583dd42b1f1dc8eaae40204c5b"
+  },
+  "active_config": {
+    "generation_id": 1,
+    "hash": "688690e892d2f59413cdc2f7d81f1e129ab9ac0dd247f84b2898d74c3c3cdd18",
+    "revision": 2
+  },
+  "unit_sha256": "77334f69759d06ae07c9b052511544c6ceefbaa5e7e1e2434ac749e839045b39",
+  "production_binary_sha256": "6df749c18d805c3fa2d06168481fad3b98532fde0dcb410f60c70bea081dbc41",
+  "downtime_seconds": 0,
+  "run_called": false,
+  "production_rollback_timer_armed": false,
+  "cutover_started": false,
+  "forward_launch_started": false,
+  "production_hotfix_active": false,
+  "new_NPU_or_microphone_runtime_started": false,
+  "unchanged_files": {
+    "scripts/production-rollout.py": {
+      "sha256": "1a3b560102a69d0262ff6287b556ce0df857153d36feb24c7038d775f6d02025",
+      "equals_c43bd3b": true
+    },
+    "scripts/deployment-launcher.py": {
+      "sha256": "34e0ee88f57460226811c00561d68f0ae7113a9e4a44bd0291a6300a3f6174b3",
+      "equals_c43bd3b": true
+    },
+    "packaging/firefly_recovery.py": {
+      "sha256": "cf9d3983660788ec54bc32ae14d321cae812ef734de5b2ee8da566ca32e00182",
+      "equals_c43bd3b": true
+    },
+    "packaging/firefly_release.py": {
+      "sha256": "7b86fd571a6bf98f6a356a5adbfee0049ef43e10811727ad158043881d44a656",
+      "equals_c43bd3b": true
+    },
+    "tests/ProductionPackagingTests.py": {
+      "sha256": "44bf80649d0b0a43763da4712f0e5c7f36b3a1ada3bb365a169a158158af5fbf",
+      "equals_c43bd3b": true
+    },
+    "src/SafetyGate.cpp": {
+      "sha256": "15b9d57aa18809b745decdf641342d1f66a167b52573f85b14e9b50a69ca6a50",
+      "equals_c43bd3b": true
+    }
+  },
+  "previous_incident": {
+    "report": "/home/firefly/firefly-safety-rollout5-20261012T154709Z/FINAL-ROLLOUT-REPORT.json",
+    "report_sha256": "adb6ea0d0b353e3677adfada8f4b4eadd6a571148f745c65eccd4e1c65c5575f",
+    "original_ledger_sha256": "ebd770b82ec9f3808face1db39d7bc0c9c3d5605d561a2b28ae8de5226dba7ad",
+    "cause": "Generic command() injected FIREFLY_OWNER_ACCEPTED=1 into offline CTest; unmodified live-root refusal test failed."
+  },
+  "private_evidence": "/home/firefly/firefly-auth-env-20261012T171101Z",
+  "private_prepared_bundle": "/run/firefly-release-auth-env-20261012T171101Z",
+  "limits": "Offline preparation only; no new Qwen/audio/production safety acceptance. New rollout requires separate authorization.",
+  "private_original_references": {
+    "production-before.json": {
+      "path": "/home/firefly/firefly-auth-env-20261012T171101Z/production-before.json",
+      "sha256": "fe81c8aee8e17a020e64665d42e355897dc65f31939966f987b7bd8d73e6d341"
+    },
+    "production-after.json": {
+      "path": "/home/firefly/firefly-auth-env-20261012T171101Z/production-after.json",
+      "sha256": "68d2357406c90be85c91ce6b283a645ea7ca75745dd7a43472843057fd8c5723"
+    }
+  },
+  "prepared_gates_original": {
+    "path": "/run/firefly-release-auth-env-20261012T171101Z/evidence/prepared-gates.json",
+    "sha256": "405cf87ff74a6d9ff798ab1272e9f861ec3914520b83d2ca78e79d9f8e91a75a"
+  },
+  "no_production_units_armed_evidence": "unarmed-units.txt",
+  "no_run_claim": {
+    "RUNNER_STARTED": false,
+    "PLAN_FROZEN": false,
+    "FORWARD_LAUNCH_STARTED": false,
+    "CUTOVER_STARTED": false
+  }
+}

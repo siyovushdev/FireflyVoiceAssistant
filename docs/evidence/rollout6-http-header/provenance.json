@@ -1,0 +1,130 @@
+{
+  "http-diagnostics.json": [
+    {
+      "original": "/home/firefly/firefly-rollout-http-fix-20261012T192201Z/ctest-http-diagnostics.json",
+      "sha256": "f108af2fc216d2a52a09bbe9fd76ed56d903f913c497e5a2f8dbb30e2a297c79",
+      "selector": "whole file"
+    }
+  ],
+  "ctest.log": [
+    {
+      "original": "/home/firefly/firefly-rollout-http-fix-20261012T192201Z/ctest.log",
+      "sha256": "1bd056fdee0b03fa852acb3c3931c454ffeff2d6f294d5baa7c3b1b2f1027974",
+      "selector": "whole file"
+    }
+  ],
+  "frontend-tests.log": [
+    {
+      "original": "/home/firefly/firefly-rollout-http-fix-20261012T192201Z/frontend-tests.log",
+      "sha256": "7d2b8c9e2851a3b32577977b91711f0ef22db8a6b88d94b791249f817620b0d2",
+      "selector": "whole file"
+    }
+  ],
+  "verification.json": [
+    {
+      "original": "/home/firefly/firefly-rollout-http-fix-20261012T192201Z/verification.json",
+      "sha256": "a51cb7aa445b1dde554016da6a992153818512e7f93453c79a490fa52f378228",
+      "selector": "whole file"
+    }
+  ],
+  "original-evidence-check.json": [
+    {
+      "original": "/home/firefly/firefly-rollout-http-fix-20261012T192201Z/original-evidence-check.json",
+      "sha256": "ba95704394ac3f639e3864200108c14b7f2f6c46265f2da4e47a976a9a7af04e",
+      "selector": "whole file"
+    }
+  ],
+  "operator-tests.log": [
+    {
+      "original": "/home/firefly/firefly-rollout-http-fix-20261012T192201Z/recovery-tests.log",
+      "sha256": "5033a5d0feab6260088ded107a12887ddb7c999c484f6bb72b465397cdc6803d",
+      "selector": "whole file"
+    },
+    {
+      "original": "/home/firefly/firefly-rollout-http-fix-20261012T192201Z/launcher-tests.log",
+      "sha256": "8db93b2d62c227aa38234cf7c8a6c18ae3b2419e166f987e927f3349e16ef3f6",
+      "selector": "whole file"
+    },
+    {
+      "original": "/home/firefly/firefly-rollout-http-fix-20261012T192201Z/runner-tests.log",
+      "sha256": "f57ac2bd4ae61af56aafb70837d9917126e23e1285312838c05681cc49a28756",
+      "selector": "whole file"
+    }
+  ],
+  "systemd-fixtures.json": [
+    {
+      "original": "/home/firefly/firefly-rollout-http-fix-20261012T192201Z/systemd-fixtures/summary.json",
+      "sha256": "07c46a46448210c0749b9d00de4d5a8d2cd7d34b556f852912a3520e7f5caabb",
+      "selector": "each case: case, pass_case, outcome/observation, restoration; timer Unit ActiveState, SubState, Triggers"
+    }
+  ],
+  "supporting_private_originals": [
+    {
+      "original": "/home/firefly/firefly-rollout-http-fix-20261012T192201Z/frontend-typecheck.log",
+      "sha256": "e4f009cb9005e812a89d60a39d0f126fca8eeabee4760239ce7c657a76dd293a",
+      "selector": "whole file"
+    },
+    {
+      "original": "/home/firefly/firefly-rollout-http-fix-20261012T192201Z/frontend-build.log",
+      "sha256": "2590aa3611126e0965000e50710c4ee53e057a5ebe3e2aa5960650e7931d7c5e",
+      "selector": "whole file"
+    },
+    {
+      "original": "/home/firefly/firefly-rollout-http-fix-20261012T192201Z/admin-http-tests.log",
+      "sha256": "5adacc930e54a4698627e02a75344b946675d0d9db92da97524b4c861cddcf3d",
+      "selector": "whole file"
+    },
+    {
+      "original": "/home/firefly/firefly-rollout-http-fix-20261012T192201Z/configure.log",
+      "sha256": "4513125ab6757ac720e0dceb5db320557eec2737b17cf1e8a4019698fc381a77",
+      "selector": "whole file"
+    },
+    {
+      "original": "/home/firefly/firefly-rollout-http-fix-20261012T192201Z/build.log",
+      "sha256": "272c07b2b3054c8568e72ac1dbb6335d5b73f9dcd351b9e545703d426e4a97cd",
+      "selector": "whole file"
+    },
+    {
+      "original": "/home/firefly/firefly-rollout-http-fix-20261012T192201Z/configure-final.log",
+      "sha256": "d21839bb3e76ff5d52823066d71ce65c3ed6da3e501d80d3cef7acb1dbb56c46",
+      "selector": "whole file"
+    },
+    {
+      "original": "/home/firefly/firefly-rollout-http-fix-20261012T192201Z/build-final.log",
+      "sha256": "a55de8506701f814241d28a24d011c811e9eff1f67a6fc79b95303f36c0f86af",
+      "selector": "whole file"
+    },
+    {
+      "original": "/home/firefly/firefly-rollout-http-fix-20261012T192201Z/build-identity.json",
+      "sha256": "8fe8a7e5c4c4132c2ccf8aaa107ac8024d675faf4b7d1e2c778b16b30a907e62",
+      "selector": "whole file"
+    },
+    {
+      "original": "/home/firefly/firefly-rollout-http-fix-20261012T192201Z/production-before.json",
+      "sha256": "2b48a2b7d9156408d4f051a76f4e3bed5e983f7a5e046483a6e565a0aa7ba4ad",
+      "selector": "whole file"
+    },
+    {
+      "original": "/home/firefly/firefly-rollout-http-fix-20261012T192201Z/production-final-private.json",
+      "sha256": "93ab27415f580d85dff30939dd53cd5ff8d18e53dfb528eaeb1973704240c08b",
+      "selector": "whole file"
+    }
+  ],
+  "incident_private_originals": [
+    {
+      "original": "/home/firefly/firefly-safety-rollout6-20261012T182938Z/FINAL-ROLLOUT-REPORT.json",
+      "sha256": "9bf6e4c6e5ac3e49b6d85fc05ceb88de9ae16db4ef050738cadfe4225b7c9ffb",
+      "selector": "whole file"
+    },
+    {
+      "original": "/home/firefly/firefly-safety-rollout6-20261012T182938Z/EVIDENCE-SHA256.json",
+      "sha256": "f5ba362827bbee65a54f93b38c90b1dcfadcbf11fe3bd9625ab568d59d6fc556",
+      "selector": "whole file"
+    },
+    {
+      "original": "/home/firefly/firefly-safety-rollout6-20261012T182938Z/supervisor-final/evidence/deployment-error.json",
+      "sha256": "72051eb6f1e60d6fc7026d0a919088dd4c4b8742716185d781e96744beb68d7b",
+      "selector": "whole file"
+    }
+  ]
+}

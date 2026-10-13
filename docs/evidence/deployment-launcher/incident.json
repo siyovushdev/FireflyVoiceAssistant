@@ -1,0 +1,217 @@
+{
+  "original_evidence": "/home/firefly/firefly-safety-rollout2-20261012T111230Z",
+  "original_ledger": "eff2c76aa51bbb1f043caec012d3ccaf54778812e35416b678eb3fa93a0b52c9",
+  "verified_original_files": 84,
+  "original_sources": {
+    "supervisor-final/evidence/command-timeout.json": {
+      "path": "/home/firefly/firefly-safety-rollout2-20261012T111230Z/supervisor-final/evidence/command-timeout.json",
+      "sha256": "31cc0c41379beca3ed8b1e2a23e74b40d7572b7ffea24aa16507e0753f658c6e"
+    },
+    "supervisor-final/evidence/arming-error.json": {
+      "path": "/home/firefly/firefly-safety-rollout2-20261012T111230Z/supervisor-final/evidence/arming-error.json",
+      "sha256": "fedbce772caf2bdf82faad80e2f379f4a433ad1dec0c921fb1f9fe9479bc36a5"
+    },
+    "supervisor-final/evidence/mandatory-rollback-trigger.json": {
+      "path": "/home/firefly/firefly-safety-rollout2-20261012T111230Z/supervisor-final/evidence/mandatory-rollback-trigger.json",
+      "sha256": "744634fbfa0b2e2c9a882dc22f7a3d0ec08b8cb338ed2f71dbfd21e9b616f201"
+    },
+    "final-journal.jsonl": {
+      "path": "/home/firefly/firefly-safety-rollout2-20261012T111230Z/final-journal.jsonl",
+      "sha256": "2c3ec7dd8b248fe67f5bce5bc8899f04e54ba63e948de43f44b181d2d7148857"
+    },
+    "FINAL-ROLLOUT-REPORT.json": {
+      "path": "/home/firefly/firefly-safety-rollout2-20261012T111230Z/FINAL-ROLLOUT-REPORT.json",
+      "sha256": "709d57a4791f4408d58f3f6cf1edb05e8a7ed3e028d2133914c6ee98a4792622"
+    }
+  },
+  "original_wrapper": {
+    "session": "/home/firefly/.codex/sessions/2026/10/11/rollout-2026-10-11T11-02-03-01a12aa0-7de3-7602-8849-36e6523171e6.jsonl",
+    "line": 7535,
+    "record_sha256": "1feb1f3dbcd725b26e806d32a5631732e1ba54933e7493d882e9eee5d2389c9b",
+    "command_sha256": "144c31205997a63e0f6dc98c9083e3148267847c250923b2908182c2e3c11600",
+    "completed_at_ms": 1791804725771,
+    "published_file": "original-launcher-command.txt",
+    "published_sha256": "144c31205997a63e0f6dc98c9083e3148267847c250923b2908182c2e3c11600"
+  },
+  "worker_observation": {
+    "session": "/home/firefly/.codex/sessions/2026/10/11/rollout-2026-10-11T11-02-03-01a12aa0-7de3-7602-8849-36e6523171e6.jsonl",
+    "line": 7533,
+    "record_sha256": "30f2a274471b3e7dea7db63a77c6eb4dc80b47309e352987513b2abe5e3d3aea",
+    "excerpt": "xt': 'Mon Oct 12 11:32:04 UTC 2026\\n2026-10-12T11:31:50.692118+00:00\\nMainPID=467296\\nResult=success\\nActiveState=activating\\nSubState=start\\nNextElapseUSecMonotonic=1d 3h 4min 12.641368s\\nActiveState=active\\nS",
+    "worker_pid": 467296
+  },
+  "client_timeout": {
+    "argv": [
+      "systemd-run",
+      "--unit=firefly-safety-cutover2-20261012T111230Z",
+      "--property=Type=oneshot",
+      "--property=TimeoutStartSec=240s",
+      "--property=TimeoutStopSec=10s",
+      "--property=KillMode=control-group",
+      "/usr/bin/python3",
+      "/run/firefly-safety-rollout2-20261012T111230Z/scripts/production-rollout.py",
+      "deploy",
+      "/run/firefly-safety-rollout2-20261012T111230Z"
+    ],
+    "error": "Command '['systemd-run', '--unit=firefly-safety-cutover2-20261012T111230Z', '--property=Type=oneshot', '--property=TimeoutStartSec=240s', '--property=TimeoutStopSec=10s', '--property=KillMode=control-group', '/usr/bin/python3', '/run/firefly-safety-rollout2-20261012T111230Z/scripts/production-rollout.py', 'deploy', '/run/firefly-safety-rollout2-20261012T111230Z']' timed out after 15 seconds",
+    "stdout": "None",
+    "stderr": "None"
+  },
+  "arming_error": {
+    "utc": "2026-10-12T11:32:05.253790+00:00",
+    "error": "TimeoutExpired(['systemd-run', '--unit=firefly-safety-cutover2-20261012T111230Z', '--property=Type=oneshot', '--property=TimeoutStartSec=240s', '--property=TimeoutStopSec=10s', '--property=KillMode=control-group', '/usr/bin/python3', '/run/firefly-safety-rollout2-20261012T111230Z/scripts/production-rollout.py', 'deploy', '/run/firefly-safety-rollout2-20261012T111230Z'], 15)",
+    "launched": false,
+    "cutover_marker": true
+  },
+  "rollback_trigger": {
+    "utc": "2026-10-12T11:33:09.172828+00:00",
+    "reason": "Operator launch wrapper timeout after 15s while systemd Type=oneshot start job continues; owner requires rollback on any error",
+    "error": {
+      "utc": "2026-10-12T11:32:05.253790+00:00",
+      "error": "TimeoutExpired(['systemd-run', '--unit=firefly-safety-cutover2-20261012T111230Z', '--property=Type=oneshot', '--property=TimeoutStartSec=240s', '--property=TimeoutStopSec=10s', '--property=KillMode=control-group', '/usr/bin/python3', '/run/firefly-safety-rollout2-20261012T111230Z/scripts/production-rollout.py', 'deploy', '/run/firefly-safety-rollout2-20261012T111230Z'], 15)",
+      "launched": false,
+      "cutover_marker": true
+    },
+    "rollback_unit": "firefly-safety-rollback2-20261012T111230Z.service"
+  },
+  "timeline": [
+    {
+      "utc": "2026-10-12T11:31:50.708291+00:00",
+      "unix_us": 1791804710708291,
+      "pid": "421157",
+      "message": "HEALTH ready -> degraded phase=stopping",
+      "unit": "firefly-voice-assistant.service",
+      "journal_cursor": "s=e92f92e5605641828875938a6640b7e3;i=10f84e;b=066ea1da7e034039b038e6f3a4486cef;m=16a260b1a5;t=65da30b49e443;x=5a4f0b758c4bb7dd"
+    },
+    {
+      "utc": "2026-10-12T11:31:50.761664+00:00",
+      "unix_us": 1791804710761664,
+      "pid": "1",
+      "message": "Stopping Firefly Voice Assistant...",
+      "unit": "init.scope",
+      "journal_cursor": "s=82083039d7244e218ce9a47c88b69c19;i=10f852;b=066ea1da7e034039b038e6f3a4486cef;m=16a2618222;t=65da30b4ab4c0;x=154f9464d9158331"
+    },
+    {
+      "utc": "2026-10-12T11:31:53.563719+00:00",
+      "unix_us": 1791804713563719,
+      "pid": "1",
+      "message": "firefly-voice-assistant.service: Deactivated successfully.",
+      "unit": "init.scope",
+      "journal_cursor": "s=82083039d7244e218ce9a47c88b69c19;i=10f856;b=066ea1da7e034039b038e6f3a4486cef;m=16a28c43a9;t=65da30b757647;x=8a60c98381a7a94b"
+    },
+    {
+      "utc": "2026-10-12T11:31:53.578593+00:00",
+      "unix_us": 1791804713578593,
+      "pid": "1",
+      "message": "Stopped Firefly Voice Assistant.",
+      "unit": "init.scope",
+      "journal_cursor": "s=82083039d7244e218ce9a47c88b69c19;i=10f857;b=066ea1da7e034039b038e6f3a4486cef;m=16a28c7dc3;t=65da30b75b061;x=7f52244fbe948800"
+    },
+    {
+      "utc": "2026-10-12T11:32:37.858278+00:00",
+      "unix_us": 1791804757858278,
+      "pid": "1",
+      "message": "Started Firefly Voice Assistant.",
+      "unit": "init.scope",
+      "journal_cursor": "s=82083039d7244e218ce9a47c88b69c19;i=10f869;b=066ea1da7e034039b038e6f3a4486cef;m=16a5302548;t=65da30e1957e6;x=d7c40df37087b50"
+    },
+    {
+      "utc": "2026-10-12T11:33:09.482361+00:00",
+      "unix_us": 1791804789482361,
+      "pid": "1",
+      "message": "firefly-safety-cutover2-20261012T111230Z.service: Main process exited, code=killed, status=15/TERM",
+      "unit": "init.scope",
+      "journal_cursor": "s=82083039d7244e218ce9a47c88b69c19;i=10f883;b=066ea1da7e034039b038e6f3a4486cef;m=16a712b0db;t=65da30ffbe379;x=123cd056c3d06bfe"
+    },
+    {
+      "utc": "2026-10-12T11:33:09.687378+00:00",
+      "unix_us": 1791804789687378,
+      "pid": "1",
+      "message": "Stopping Firefly Voice Assistant...",
+      "unit": "init.scope",
+      "journal_cursor": "s=82083039d7244e218ce9a47c88b69c19;i=10f889;b=066ea1da7e034039b038e6f3a4486cef;m=16a715d1b4;t=65da30fff0452;x=c910e444e8982d16"
+    },
+    {
+      "utc": "2026-10-12T11:33:15.598684+00:00",
+      "unix_us": 1791804795598684,
+      "pid": "467543",
+      "message": "STARTUP runtime ready recovered=no model_ready=1",
+      "unit": "firefly-voice-assistant.service",
+      "journal_cursor": "s=e92f92e5605641828875938a6640b7e3;i=10f896;b=066ea1da7e034039b038e6f3a4486cef;m=16a77004be;t=65da31059375c;x=7a630e13813ddd7b"
+    },
+    {
+      "utc": "2026-10-12T11:33:17.970660+00:00",
+      "unix_us": 1791804797970660,
+      "pid": "1",
+      "message": "firefly-voice-assistant.service: Deactivated successfully.",
+      "unit": "init.scope",
+      "journal_cursor": "s=82083039d7244e218ce9a47c88b69c19;i=10f89a;b=066ea1da7e034039b038e6f3a4486cef;m=16a7943647;t=65da3107d68e4;x=b5fe349250695b7a"
+    },
+    {
+      "utc": "2026-10-12T11:33:17.980356+00:00",
+      "unix_us": 1791804797980356,
+      "pid": "1",
+      "message": "Stopped Firefly Voice Assistant.",
+      "unit": "init.scope",
+      "journal_cursor": "s=82083039d7244e218ce9a47c88b69c19;i=10f89b;b=066ea1da7e034039b038e6f3a4486cef;m=16a7945c27;t=65da3107d8ec4;x=f24d1295f74ea8fb"
+    },
+    {
+      "utc": "2026-10-12T11:34:03.000056+00:00",
+      "unix_us": 1791804843000056,
+      "pid": "1",
+      "message": "Started Firefly Voice Assistant.",
+      "unit": "init.scope",
+      "journal_cursor": "s=82083039d7244e218ce9a47c88b69c19;i=10f8a9;b=066ea1da7e034039b038e6f3a4486cef;m=16aa434e5a;t=65da3132c80f8;x=55a7ea66d2ceb09d"
+    },
+    {
+      "utc": "2026-10-12T11:34:37.573176+00:00",
+      "unix_us": 1791804877573176,
+      "pid": "467978",
+      "message": "STARTUP runtime ready recovered=no model_ready=1",
+      "unit": "firefly-voice-assistant.service",
+      "journal_cursor": "s=e92f92e5605641828875938a6640b7e3;i=10f8c6;b=066ea1da7e034039b038e6f3a4486cef;m=16ac52d99a;t=65da3153c0c38;x=eb99fc25fac5d084"
+    },
+    {
+      "utc": "2026-10-12T11:34:50.793540+00:00",
+      "unix_us": 1791804890793540,
+      "pid": "467978",
+      "message": "VOICE_STATE WAITING_WAKE monotonic_ms=97393611",
+      "unit": "firefly-voice-assistant.service",
+      "journal_cursor": "s=e92f92e5605641828875938a6640b7e3;i=10f8cb;b=066ea1da7e034039b038e6f3a4486cef;m=16ad1c93a6;t=65da31605c644;x=3cda9fe988483ece"
+    },
+    {
+      "utc": "2026-10-12T11:34:50.793540+00:00",
+      "unix_us": 1791804890793540,
+      "pid": "467978",
+      "message": "HEALTH starting -> ready phase=ready",
+      "unit": "firefly-voice-assistant.service",
+      "journal_cursor": "s=e92f92e5605641828875938a6640b7e3;i=10f8cc;b=066ea1da7e034039b038e6f3a4486cef;m=16ad1c93a6;t=65da31605c644;x=3d71bd15a8be3a7"
+    },
+    {
+      "utc": "2026-10-12T11:34:51.444274+00:00",
+      "unix_us": 1791804891444274,
+      "pid": "1",
+      "message": "firefly-safety-rollback2-20261012T111230Z.service: Deactivated successfully.",
+      "unit": "init.scope",
+      "journal_cursor": "s=82083039d7244e218ce9a47c88b69c19;i=10f8cd;b=066ea1da7e034039b038e6f3a4486cef;m=16ad268194;t=65da3160fb432;x=5f8b8a3898280a0e"
+    },
+    {
+      "utc": "2026-10-12T11:35:48.728184+00:00",
+      "unix_us": 1791804948728184,
+      "pid": "1",
+      "message": "firefly-safety-rollback2-20261012T111230Z.timer: Deactivated successfully.",
+      "unit": "init.scope",
+      "journal_cursor": "s=82083039d7244e218ce9a47c88b69c19;i=10f8db;b=066ea1da7e034039b038e6f3a4486cef;m=16b09096da;t=65da31979c978;x=e60881f4e1833e7f"
+    }
+  ],
+  "attribution": {
+    "systemd_run_client_pid": "not preserved in original evidence",
+    "client_outcome": "subprocess.run kills/reaps only its client after TimeoutExpired; CPython3.10 installed subprocess.py lines506-520",
+    "stdlib_file": "/usr/lib/python3.10/subprocess.py",
+    "stdlib_sha256": "53bb0d0780e166ef4ae94f3b2a817a8aae49a84d899db1f4c31f933d429057d6",
+    "worker_outcome": "continued past timeout; terminated with TERM by verified rollback service at11:33:09",
+    "original_recovery_service_pid": 467718,
+    "candidate_runtime_pid": 467543,
+    "restored_runtime_pid": 467978
+  }
+}

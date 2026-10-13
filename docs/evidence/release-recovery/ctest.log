@@ -1,0 +1,170 @@
+Internal ctest changing into directory: /home/firefly/FireflyVoiceAssistantLinux-recovery/build
+Test project /home/firefly/FireflyVoiceAssistantLinux-recovery/build
+      Start  1: ReleaseRecovery
+      Start  2: Action
+ 1/82 Test  #2: Action ............................   Passed    0.01 sec
+      Start  3: ActionValidator
+ 2/82 Test  #3: ActionValidator ...................   Passed    0.01 sec
+      Start  4: DeterministicParser
+ 3/82 Test  #4: DeterministicParser ...............   Passed    0.16 sec
+      Start  5: SafetyGate
+ 4/82 Test  #5: SafetyGate ........................   Passed    0.08 sec
+      Start  6: CommandEngine
+ 5/82 Test  #6: CommandEngine .....................   Passed    0.13 sec
+      Start  7: SafetyHardening
+ 6/82 Test  #1: ReleaseRecovery ...................   Passed    2.20 sec
+      Start  8: RkllmEngineFailures
+ 7/82 Test  #8: RkllmEngineFailures ...............   Passed    0.16 sec
+      Start  9: CliRobustness
+ 8/82 Test  #9: CliRobustness .....................   Passed    0.65 sec
+      Start 10: WakeAcknowledgementPcm
+ 9/82 Test #10: WakeAcknowledgementPcm ............   Passed    0.01 sec
+      Start 11: VoicePipeline
+10/82 Test #11: VoicePipeline .....................   Passed    0.07 sec
+      Start 12: WakeVoiceGating
+11/82 Test #12: WakeVoiceGating ...................   Passed    0.13 sec
+      Start 13: SeamlessWake
+12/82 Test #13: SeamlessWake ......................   Passed    0.57 sec
+      Start 14: WakeSessionUx
+13/82 Test #14: WakeSessionUx .....................   Passed    0.06 sec
+      Start 15: ProductionStartupContract
+14/82 Test #15: ProductionStartupContract .........   Passed    0.33 sec
+      Start 16: WakeLiveHelper
+15/82 Test  #7: SafetyHardening ...................   Passed    4.12 sec
+      Start 17: AminaWorkerLifecycle
+16/82 Test #16: WakeLiveHelper ....................   Passed    0.52 sec
+      Start 18: AlsaAcknowledgement
+17/82 Test #18: AlsaAcknowledgement ...............   Passed    1.05 sec
+      Start 19: GenericRuntime
+18/82 Test #17: AminaWorkerLifecycle ..............   Passed    1.37 sec
+      Start 20: ProductionPackaging
+19/82 Test #19: GenericRuntime ....................   Passed    0.82 sec
+      Start 21: AminaStreamingBackend
+20/82 Test #21: AminaStreamingBackend .............   Passed    1.49 sec
+      Start 22: ConfigValidation
+21/82 Test #22: ConfigValidation ..................   Passed    0.35 sec
+      Start 23: ConfigSnapshot
+22/82 Test #23: ConfigSnapshot ....................   Passed    0.06 sec
+      Start 24: ConfigStore
+23/82 Test #24: ConfigStore .......................   Passed    2.04 sec
+      Start 25: ConfigRetention
+24/82 Test #25: ConfigRetention ...................   Passed   27.66 sec
+      Start 26: ConfigShadow
+25/82 Test #26: ConfigShadow ......................   Passed    0.15 sec
+      Start 27: ConfigCli
+26/82 Test #27: ConfigCli .........................   Passed    0.61 sec
+      Start 28: GenericAction
+27/82 Test #28: GenericAction .....................   Passed    0.01 sec
+      Start 29: CompactV1Adapter
+28/82 Test #29: CompactV1Adapter ..................   Passed    0.21 sec
+      Start 30: StructuredOutput
+29/82 Test #30: StructuredOutput ..................   Passed    1.89 sec
+      Start 31: LlmContext
+30/82 Test #31: LlmContext ........................   Passed    0.12 sec
+      Start 32: StructuredPipeline
+31/82 Test #32: StructuredPipeline ................   Passed    0.12 sec
+      Start 33: RuntimeConfig
+32/82 Test #33: RuntimeConfig .....................   Passed    0.11 sec
+      Start 34: ParserRoomCutover
+33/82 Test #34: ParserRoomCutover .................   Passed    6.46 sec
+      Start 35: BrightnessCutover
+34/82 Test #35: BrightnessCutover .................   Passed    3.66 sec
+      Start 36: EntranceDoorCutover
+35/82 Test #36: EntranceDoorCutover ...............   Passed    0.65 sec
+      Start 37: RuntimeConfigCli
+36/82 Test #37: RuntimeConfigCli ..................   Passed    1.87 sec
+      Start 38: ParserRoomCutoverCli
+37/82 Test #38: ParserRoomCutoverCli ..............   Passed    0.27 sec
+      Start 39: BrightnessCutoverCli
+38/82 Test #39: BrightnessCutoverCli ..............   Passed    0.86 sec
+      Start 40: EntranceDoorCutoverCli
+39/82 Test #40: EntranceDoorCutoverCli ............   Passed    0.80 sec
+      Start 41: RuntimeConfigVoiceStartup
+40/82 Test #41: RuntimeConfigVoiceStartup .........   Passed    0.23 sec
+      Start 42: ParserRoomCutoverVoiceStartup
+41/82 Test #42: ParserRoomCutoverVoiceStartup .....   Passed    0.35 sec
+      Start 43: BrightnessCutoverVoiceStartup
+42/82 Test #43: BrightnessCutoverVoiceStartup .....   Passed    0.70 sec
+      Start 44: EntranceDoorCutoverVoiceStartup
+43/82 Test #44: EntranceDoorCutoverVoiceStartup ...   Passed    0.88 sec
+      Start 45: AdminGenerationApi
+44/82 Test #45: AdminGenerationApi ................   Passed    6.90 sec
+      Start 46: HealthReliability
+45/82 Test #20: ProductionPackaging ...............   Passed   66.87 sec
+      Start 47: AdminHttp
+46/82 Test #46: HealthReliability .................   Passed    9.66 sec
+      Start 48: ConnectionAdmin
+47/82 Test #48: ConnectionAdmin ...................   Passed    1.34 sec
+      Start 49: RkllmContextRefresh
+48/82 Test #49: RkllmContextRefresh ...............   Passed    0.02 sec
+      Start 50: MockExecutionUnifiedRuntime
+49/82 Test #50: MockExecutionUnifiedRuntime .......   Passed    1.77 sec
+      Start 51: ConnectivityConfig
+50/82 Test #51: ConnectivityConfig ................   Passed    0.50 sec
+      Start 52: HardwareBindings
+51/82 Test #47: AdminHttp .........................   Passed    5.72 sec
+      Start 53: DeviceStateLifecycle
+52/82 Test #53: DeviceStateLifecycle ..............   Passed    0.58 sec
+      Start 54: V1PrototypePipeline
+53/82 Test #52: HardwareBindings ..................   Passed    1.12 sec
+      Start 55: ConnectivityHttp
+54/82 Test #54: V1PrototypePipeline ...............   Passed    5.28 sec
+      Start 56: UnifiedHttp
+55/82 Test #55: ConnectivityHttp ..................   Passed    5.48 sec
+      Start 57: AdminNetworkSecurity
+56/82 Test #56: UnifiedHttp .......................   Passed    2.27 sec
+      Start 58: GeneralizedAdmin
+57/82 Test #58: GeneralizedAdmin ..................   Passed    2.17 sec
+      Start 59: AdminCopilot
+58/82 Test #59: AdminCopilot ......................   Passed    1.69 sec
+      Start 60: AdminTranscribe
+59/82 Test #60: AdminTranscribe ...................   Passed    2.24 sec
+      Start 61: AdminSuggestionRetry
+60/82 Test #57: AdminNetworkSecurity ..............   Passed    9.22 sec
+      Start 62: AdminDialogueContract
+61/82 Test #61: AdminSuggestionRetry ..............   Passed    2.08 sec
+      Start 63: TypedMockConfiguration
+62/82 Test #62: AdminDialogueContract .............   Passed    1.59 sec
+      Start 64: CompactActionDecoder
+63/82 Test #63: TypedMockConfiguration ............   Passed    1.18 sec
+      Start 65: LanguageIndex
+64/82 Test #64: CompactActionDecoder ..............   Passed    0.28 sec
+      Start 66: LanguageComposition
+65/82 Test #65: LanguageIndex .....................   Passed    0.32 sec
+      Start 67: GroundingAuthorizationHttp
+66/82 Test #66: LanguageComposition ...............   Passed    0.52 sec
+      Start 68: LanguageAdminProfile
+67/82 Test #68: LanguageAdminProfile ..............   Passed    1.05 sec
+      Start 69: DialogueSetup
+68/82 Test #69: DialogueSetup .....................   Passed    5.28 sec
+      Start 70: AdminV2Packaging
+69/82 Test #70: AdminV2Packaging ..................   Passed    0.15 sec
+      Start 71: AdminV2Chromium
+70/82 Test #71: AdminV2Chromium ...................   Passed   62.70 sec
+      Start 72: AdminGuardedCommand
+71/82 Test #72: AdminGuardedCommand ...............   Passed    0.13 sec
+      Start 73: AdminManualApi
+72/82 Test #73: AdminManualApi ....................   Passed    4.31 sec
+      Start 74: ProductionApiHardening
+73/82 Test #74: ProductionApiHardening ............   Passed    5.87 sec
+      Start 75: AdminManualChromium
+74/82 Test #75: AdminManualChromium ...............   Passed   49.31 sec
+      Start 76: AdminSetupV2Chromium
+75/82 Test #67: GroundingAuthorizationHttp ........   Passed  164.98 sec
+      Start 77: AdminSetupV2Api
+76/82 Test #77: AdminSetupV2Api ...................   Passed    2.31 sec
+      Start 78: AdminV2Migration
+77/82 Test #78: AdminV2Migration ..................   Passed    3.50 sec
+      Start 79: VoiceRecovery
+78/82 Test #79: VoiceRecovery .....................   Passed    0.13 sec
+      Start 80: ProductionStartup
+79/82 Test #76: AdminSetupV2Chromium ..............   Passed   44.36 sec
+      Start 81: WakeAcknowledgementOptions
+80/82 Test #80: ProductionStartup .................   Passed    5.66 sec
+      Start 82: VoiceRecoveryIntegration
+81/82 Test #81: WakeAcknowledgementOptions ........   Passed    5.75 sec
+82/82 Test #82: VoiceRecoveryIntegration ..........   Passed   18.32 sec
+
+100% tests passed, 0 tests failed out of 82
+
+Total Test time (real) = 291.24 sec

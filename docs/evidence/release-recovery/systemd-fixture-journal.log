@@ -1,0 +1,9 @@
+Oct 12 09:34:59.899332 firefly systemd[1]: Starting /usr/bin/python3 /run/firefly-recovery-fixture-20261012T093402Z/tests/ReleaseRecoveryTests.py fixture-worker /run/firefly-recovery-fixture-20261012T093402Z/state...
+Oct 12 09:34:59.901910 firefly systemd[1]: Started /usr/bin/python3 /run/firefly-recovery-fixture-20261012T093402Z/tests/ReleaseRecoveryTests.py fixture-worker /run/firefly-recovery-fixture-20261012T093402Z/state.
+Oct 12 09:35:00.291907 firefly systemd[1]: firefly-recovery-fixture-20261012T093402Z.service: Main process exited, code=exited, status=23/n/a
+Oct 12 09:35:00.292302 firefly systemd[1]: firefly-recovery-fixture-20261012T093402Z.service: Failed with result 'exit-code'.
+Oct 12 09:35:01.526367 firefly systemd[1]: firefly-recovery-fixture-20261012T093402Z.service: Scheduled restart job, restart counter is at 1.
+Oct 12 09:35:01.527488 firefly systemd[1]: Stopped /usr/bin/python3 /run/firefly-recovery-fixture-20261012T093402Z/tests/ReleaseRecoveryTests.py fixture-worker /run/firefly-recovery-fixture-20261012T093402Z/state.
+Oct 12 09:35:01.533372 firefly systemd[1]: Starting /usr/bin/python3 /run/firefly-recovery-fixture-20261012T093402Z/tests/ReleaseRecoveryTests.py fixture-worker /run/firefly-recovery-fixture-20261012T093402Z/state...
+Oct 12 09:35:01.535838 firefly systemd[1]: Started /usr/bin/python3 /run/firefly-recovery-fixture-20261012T093402Z/tests/ReleaseRecoveryTests.py fixture-worker /run/firefly-recovery-fixture-20261012T093402Z/state.
+Oct 12 09:35:02.230642 firefly systemd[1]: firefly-recovery-fixture-20261012T093402Z.service: Deactivated successfully.

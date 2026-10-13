@@ -156,7 +156,7 @@ int main(int argc, char** argv) {
     try {
         if (argc != 3) throw std::runtime_error("Repository root and loopback mock port required");
         const int port = std::stoi(argv[2]);
-        const auto base = Json::parse(config::ConfigLoader::fromFile(std::string(argv[1]) + "/tests/language/m19-live-semantic.json")->canonicalJson());
+        const auto base = Json::parse(config::ConfigLoader::fromFile(std::string(argv[1]) + "/tests/language/grounding-semantic.json")->canonicalJson());
         const std::vector<Case> cases{
             {"включи лампу в неизвестной комнате", false},
             {"включи лампу в кабинете", true}, {"выключи лампу в кабинете", true, "single", "device_lampa", Off},

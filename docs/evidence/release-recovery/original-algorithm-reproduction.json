@@ -1,0 +1,29 @@
+{
+  "scope": "offline simulated release delay, not reconstruction of the missing owner PID",
+  "original_attempts": [
+    {
+      "error": "AssertionError('NPU or microphone remains owned')",
+      "events": [
+        "stop"
+      ],
+      "clock": 0
+    },
+    {
+      "error": "AssertionError('NPU or microphone remains owned')",
+      "events": [
+        "stop",
+        "stop"
+      ],
+      "clock": 0
+    }
+  ],
+  "fixed": {
+    "ready": true,
+    "release": "old"
+  },
+  "fixed_events": [
+    "stop",
+    "start"
+  ],
+  "elapsed_seconds": 3.5
+}

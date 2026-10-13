@@ -1,0 +1,243 @@
+{
+  "original_root": "/home/firefly/firefly-safety-rollout-20261012T084111Z",
+  "original_ledger_sha256": "3de96bd07950fa4123c3302628966dcc795dd915233eb607c4b7ce7f8c7642a1",
+  "original_files_verified": 56,
+  "original_sources": {
+    "FINAL-ROLLOUT-REPORT.json": "0c7a925fa0dc08d8fd10dc3b412bb23ab7321b39e030ccedbc4045c3bb851fde",
+    "supervisor-final/controller.py": "4ba428416adb2f1dd1122e97d7a4ba8b2e4bc4582cf5a41ff0bcb9c96f521390",
+    "supervisor-final/plan.json": "cd305a9bd893c753e074d670f26cf354e6d92a4ec8668737c0f2b10e5c85b002",
+    "supervisor-final/evidence/commands.jsonl": "b2314028241cd87144ef41854b31d5ddbf9283b0a13fab766a532886e67df498",
+    "evidence/cutover-and-restore-journal.log": "ef32baf3ae808d40c5fd92d9a50b9b022b21e0869bbd1e09a41271e86402ede4",
+    "supervisor-final/evidence/rollback-result.json": "dbca59a106c132cc7afe44541c50d1525e95e478091694c5fccb67b02bdeeb66",
+    "supervisor-final/evidence/restore-independently-verified.json": "92f5d19da35568b9e8d0e36c6313f9be38c24673b87f98fffa9dd98af0528969"
+  },
+  "report_excerpts": {
+    "source": "FINAL-ROLLOUT-REPORT.json",
+    "pointers": [
+      "/first_error",
+      "/old_pid",
+      "/restored_pid",
+      "/actual_release_activation",
+      "/restore",
+      "/limits"
+    ],
+    "first_error": {
+      "utc": "2026-10-12T09:06:51.407465+00:00",
+      "error": "AssertionError('NPU or microphone remains owned')"
+    },
+    "old_pid": 380056,
+    "restored_pid": 421157,
+    "actual_release_activation": false,
+    "restore": {
+      "status": "PASS",
+      "runtime_ready": true,
+      "stt_ready": true,
+      "voice": "WAITING_WAKE",
+      "microphone": "connected",
+      "llm_ready": "ready",
+      "wake_ready": "ready",
+      "sole_npu_microphone_owner": 421157,
+      "active": {
+        "generation_id": 1,
+        "hash": "688690e892d2f59413cdc2f7d81f1e129ab9ac0dd247f84b2898d74c3c3cdd18",
+        "revision": 2
+      },
+      "stored": {
+        "hash": "688690e892d2f59413cdc2f7d81f1e129ab9ac0dd247f84b2898d74c3c3cdd18",
+        "revision": 2
+      },
+      "full_store_bytes_modes_owners_unchanged": true,
+      "store_timestamp_changes": [
+        ".",
+        "last_known_good.json",
+        "last_known_good_snapshot.json"
+      ],
+      "backup_unmodified": true,
+      "unit_and_argv_unchanged": true
+    },
+    "limits": [
+      "Production remains vulnerable because the hotfix was not activated.",
+      "The immediate resource check did not retain its offending PID, so transient release timing is a hypothesis, not a confirmed root cause.",
+      "Preflight fixture recovery tests did not cover delayed post-stop release; future preparation needs bounded observed ownership waits and failure telemetry before another authorized attempt.",
+      "No new acoustic/wake/STT or real-Qwen candidate acceptance occurred; Issue #18 not investigated.",
+      "First immediate automatic recovery failed its ownership check; restoration completed through agent-triggered re-entry of the independent supervisor."
+    ]
+  },
+  "commands": [
+    {
+      "source": "supervisor-final/evidence/commands.jsonl",
+      "line": 11,
+      "utc": "2026-10-12T09:06:51.327875+00:00",
+      "argv": [
+        "systemctl",
+        "stop",
+        "firefly-voice-assistant.service"
+      ],
+      "returncode": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "source": "supervisor-final/evidence/commands.jsonl",
+      "line": 12,
+      "utc": "2026-10-12T09:06:51.434983+00:00",
+      "argv": [
+        "systemctl",
+        "start",
+        "--no-block",
+        "firefly-safety-rollback-20261012T084111Z.service"
+      ],
+      "returncode": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "source": "supervisor-final/evidence/commands.jsonl",
+      "line": 13,
+      "utc": "2026-10-12T09:06:51.559679+00:00",
+      "argv": [
+        "systemctl",
+        "stop",
+        "firefly-safety-cutover-20261012T084111Z.service"
+      ],
+      "returncode": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "source": "supervisor-final/evidence/commands.jsonl",
+      "line": 14,
+      "utc": "2026-10-12T09:06:51.575531+00:00",
+      "argv": [
+        "systemctl",
+        "stop",
+        "firefly-voice-assistant.service"
+      ],
+      "returncode": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "source": "supervisor-final/evidence/commands.jsonl",
+      "line": 15,
+      "utc": "2026-10-12T09:08:24.706743+00:00",
+      "argv": [
+        "systemctl",
+        "stop",
+        "firefly-safety-cutover-20261012T084111Z.service"
+      ],
+      "returncode": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "source": "supervisor-final/evidence/commands.jsonl",
+      "line": 16,
+      "utc": "2026-10-12T09:08:24.720935+00:00",
+      "argv": [
+        "systemctl",
+        "stop",
+        "firefly-voice-assistant.service"
+      ],
+      "returncode": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "source": "supervisor-final/evidence/commands.jsonl",
+      "line": 19,
+      "utc": "2026-10-12T09:08:24.890441+00:00",
+      "argv": [
+        "systemctl",
+        "start",
+        "firefly-voice-assistant.service"
+      ],
+      "returncode": 0,
+      "stdout": "",
+      "stderr": ""
+    }
+  ],
+  "journal_excerpts": [
+    {
+      "realtime_usec": "1791796008202554",
+      "journal_pid": "380056",
+      "unit": "firefly-voice-assistant.service",
+      "message": "VOICE_STATE stopped monotonic_ms=88511014"
+    },
+    {
+      "realtime_usec": "1791796008438942",
+      "journal_pid": "380056",
+      "unit": "firefly-voice-assistant.service",
+      "message": "SHUTDOWN complete"
+    },
+    {
+      "realtime_usec": "1791796011075170",
+      "journal_pid": "380056",
+      "unit": "firefly-voice-assistant.service",
+      "message": "RKLLM destroyed"
+    },
+    {
+      "realtime_usec": "1791796011323223",
+      "journal_pid": "1",
+      "unit": "init.scope",
+      "message": "firefly-voice-assistant.service: Deactivated successfully."
+    },
+    {
+      "realtime_usec": "1791796011551673",
+      "journal_pid": "1",
+      "unit": "init.scope",
+      "message": "firefly-safety-cutover-20261012T084111Z.service: Main process exited, code=killed, status=15/TERM"
+    },
+    {
+      "realtime_usec": "1791796011699528",
+      "journal_pid": "420757",
+      "unit": "firefly-safety-rollback-20261012T084111Z.service",
+      "message": "    assert not self.owners(), 'NPU or microphone remains owned'"
+    },
+    {
+      "realtime_usec": "1791796011699528",
+      "journal_pid": "420757",
+      "unit": "firefly-safety-rollback-20261012T084111Z.service",
+      "message": "AssertionError: NPU or microphone remains owned"
+    },
+    {
+      "realtime_usec": "1791796011742429",
+      "journal_pid": "1",
+      "unit": "init.scope",
+      "message": "firefly-safety-rollback-20261012T084111Z.service: Main process exited, code=exited, status=1/FAILURE"
+    },
+    {
+      "realtime_usec": "1791796154371536",
+      "journal_pid": "421157",
+      "unit": "firefly-voice-assistant.service",
+      "message": "VOICE_STATE WAITING_WAKE monotonic_ms=88657189"
+    },
+    {
+      "realtime_usec": "1791796155046624",
+      "journal_pid": "1",
+      "unit": "init.scope",
+      "message": "firefly-safety-rollback-20261012T084111Z.service: Deactivated successfully."
+    }
+  ],
+  "journal_source": {
+    "path": "/home/firefly/firefly-recovery-remediation-20261012T093402Z/evidence/incident-journal.jsonl",
+    "sha256": "6f55c9010b10b02d7d66a08e69cf8a019758725ae64b3949a0c4345659743d37",
+    "locator": "__REALTIME_TIMESTAMP and MESSAGE in each original JSON line"
+  },
+  "proven_cause": "single-shot nonempty-owner assertion terminates both cutover and recovery; supervisor had no failure restart",
+  "unresolved": "Historical offending owner PID/device was not retained. Resource delay, escaped child or false positive cannot be distinguished. No new live reproduction allowed.",
+  "controller_excerpts": [
+    {
+      "source": "supervisor-final/controller.py",
+      "first_line": 71,
+      "last_line": 88,
+      "text": "        result = subprocess.run(['fuser', '/dev/dri/card1', '/dev/snd/pcmC3D0c'],\n                                capture_output=True, text=True, timeout=5)\n        assert result.returncode in (0, 1), result.stderr\n        return sorted({int(p) for p in result.stdout.split()})\n\n    def current(self):\n        link = os.readlink(self.prefix / 'current')\n        assert link in ('releases/' + self.plan['old'], 'releases/' + self.plan['new']), link\n        return Path(link).name\n\n    def stop(self):\n        self.run(['systemctl', 'stop', self.unit], timeout=65)\n        self.free()\n\n    def free(self):\n        assert not self.owners(), 'NPU or microphone remains owned'\n        assert self.run(['systemctl', 'show', self.unit, '-p', 'MainPID', '--value']) == '0'\n"
+    },
+    {
+      "source": "supervisor-final/controller.py",
+      "first_line": 185,
+      "last_line": 193,
+      "text": "\ndef recover(ops, old):\n    ops.stop()\n    ops.free()\n    if ops.current() != old:\n        ops.switch(old)\n    ops.start()\n    return ops.wait_ready(old, 90)\n"
+    }
+  ]
+}
