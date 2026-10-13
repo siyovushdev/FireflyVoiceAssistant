@@ -395,7 +395,8 @@ class Production:
         for text in ('какая погода', 'включи лампу в неизвестной комнате'):
             body = {'text': text, 'execute': False, 'production': False}
             request = urllib.request.Request('http://127.0.0.1:8080/api/test-command',
-                data=json.dumps(body, ensure_ascii=False).encode(), headers={'Content-Type': 'application/json'})
+                data=json.dumps(body, ensure_ascii=False).encode(),
+                headers={'Content-Type': 'application/json', 'X-Firefly-Admin': '1'})
             timeout = min(40, self.operation_deadline - time.monotonic())
             if timeout <= 0:
                 raise RecoveryTimeout('Armed diagnostic deadline expired')
