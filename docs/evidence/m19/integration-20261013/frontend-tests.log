@@ -1,0 +1,260 @@
+
+> firefly-admin-v2@0.1.0 test
+> tsc -p tsconfig.tests.json && node --test tests/*.test.mjs
+
+TAP version 13
+# Subtest: wire DTO retains rare fields and immutable data; zones are a projection
+ok 1 - wire DTO retains rare fields and immutable data; zones are a projection
+  ---
+  duration_ms: 4.956659
+  type: 'test'
+  ...
+# Subtest: initial and legacy values never become physical facts
+ok 2 - initial and legacy values never become physical facts
+  ---
+  duration_ms: 0.400757
+  type: 'test'
+  ...
+# Subtest: knowledge, stale and reachability stay separate; false/zero are retained
+ok 3 - knowledge, stale and reachability stay separate; false/zero are retained
+  ---
+  duration_ms: 1.168434
+  type: 'test'
+  ...
+# Subtest: evidence cannot cross generation, catalog identity or stored/active boundary
+ok 4 - evidence cannot cross generation, catalog identity or stored/active boundary
+  ---
+  duration_ms: 0.900972
+  type: 'test'
+  ...
+# Subtest: malformed responses fail closed and error envelopes never look successful
+ok 5 - malformed responses fail closed and error envelopes never look successful
+  ---
+  duration_ms: 0.866555
+  type: 'test'
+  ...
+# Subtest: read-only client cannot call a mutation or external endpoint
+ok 6 - read-only client cannot call a mutation or external endpoint
+  ---
+  duration_ms: 0.514216
+  type: 'test'
+  ...
+# Subtest: partial API failures keep catalog available, clear current evidence and expose errors
+ok 7 - partial API failures keep catalog available, clear current evidence and expose errors
+  ---
+  duration_ms: 24.298537
+  type: 'test'
+  ...
+# Subtest: no active runtime shows stored catalog with Unknown evidence
+ok 8 - no active runtime shows stored catalog with Unknown evidence
+  ---
+  duration_ms: 1.431814
+  type: 'test'
+  ...
+# Subtest: AI workflow locks immediately, suppresses duplicate, shows progress, clears on response/error
+ok 9 - AI workflow locks immediately, suppresses duplicate, shows progress, clears on response/error
+  ---
+  duration_ms: 569.188013
+  type: 'test'
+  ...
+# Subtest: fast completion cancels delayed display; exception also clears pending
+ok 10 - fast completion cancels delayed display; exception also clears pending
+  ---
+  duration_ms: 33.176714
+  type: 'test'
+  ...
+# Subtest: concurrent completion cannot hide another operation; sequential stages retain identity and visibility
+ok 11 - concurrent completion cannot hide another operation; sequential stages retain identity and visibility
+  ---
+  duration_ms: 16.972925
+  type: 'test'
+  ...
+# Subtest: background snapshot refresh never enters foreground registry, even when slow or failing
+ok 12 - background snapshot refresh never enters foreground registry, even when slow or failing
+  ---
+  duration_ms: 281.775588
+  type: 'test'
+  ...
+# Subtest: manual review/CAS Save/Apply/verify retain one operation and reject double submission on success and failure
+ok 13 - manual review/CAS Save/Apply/verify retain one operation and reject double submission on success and failure
+  ---
+  duration_ms: 571.89793
+  type: 'test'
+  ...
+# Subtest: offline runtime retains manual edits and validation while final Apply stays blocked
+ok 14 - offline runtime retains manual edits and validation while final Apply stays blocked
+  ---
+  duration_ms: 9.725482
+  type: 'test'
+  ...
+# Subtest: incomplete TaskBuffer stays isolated; Cancel retains previously staged task and unknown fields
+ok 15 - incomplete TaskBuffer stays isolated; Cancel retains previously staged task and unknown fields
+  ---
+  duration_ms: 11.345423
+  type: 'test'
+  ...
+# Subtest: whole review then explicit CAS Save/Apply uses saved identity; edit invalidates review
+ok 16 - whole review then explicit CAS Save/Apply uses saved identity; edit invalidates review
+  ---
+  duration_ms: 9.969319
+  type: 'test'
+  ...
+# Subtest: stale stored or active after review causes zero mutations
+ok 17 - stale stored or active after review causes zero mutations
+  ---
+  duration_ms: 2.676374
+  type: 'test'
+  ...
+# Subtest: saved-not-active and lost Save response reconcile with reads; never blind retry
+ok 18 - saved-not-active and lost Save response reconcile with reads; never blind retry
+  ---
+  duration_ms: 10.473618
+  type: 'test'
+  ...
+# Subtest: setup ownership blocks manual mutation without discarding local task
+ok 19 - setup ownership blocks manual mutation without discarding local task
+  ---
+  duration_ms: 4.250815
+  type: 'test'
+  ...
+# Subtest: shared consumers, typed values and rare mapping fields survive review projection
+ok 20 - shared consumers, typed values and rare mapping fields survive review projection
+  ---
+  duration_ms: 2.027406
+  type: 'test'
+  ...
+# Subtest: power-only template has exactly two actions; command intent pins target; door never synthesized
+ok 21 - power-only template has exactly two actions; command intent pins target; door never synthesized
+  ---
+  duration_ms: 1.152684
+  type: 'test'
+  ...
+# Subtest: unaccepted import invalidates review and blocks publication without replacing accepted candidate
+ok 22 - unaccepted import invalidates review and blocks publication without replacing accepted candidate
+  ---
+  duration_ms: 2.377995
+  type: 'test'
+  ...
+# Subtest: same hash but changed active generation requires another review
+ok 23 - same hash but changed active generation requires another review
+  ---
+  duration_ms: 2.089532
+  type: 'test'
+  ...
+# Subtest: zone examples never populate TaskBuffer; missing speech blocks validation without losing edits
+ok 24 - zone examples never populate TaskBuffer; missing speech blocks validation without losing edits
+  ---
+  duration_ms: 25.978855
+  type: 'test'
+  ...
+# Subtest: zone group keeps existing backend rule; whitespace is not an explicit speech value
+ok 25 - zone group keeps existing backend rule; whitespace is not an explicit speech value
+  ---
+  duration_ms: 7.229944
+  type: 'test'
+  ...
+# Subtest: backend zone errors have human presentation without changing technical details or other errors
+ok 26 - backend zone errors have human presentation without changing technical details or other errors
+  ---
+  duration_ms: 1.024933
+  type: 'test'
+  ...
+# Subtest: line editing preserves spaces/newlines until explicit blur normalization
+ok 27 - line editing preserves spaces/newlines until explicit blur normalization
+  ---
+  duration_ms: 0.644302
+  type: 'test'
+  ...
+# Subtest: wizard projection includes new and Observe-only consumers and removes detached consumers without writes
+ok 28 - wizard projection includes new and Observe-only consumers and removes detached consumers without writes
+  ---
+  duration_ms: 1.113601
+  type: 'test'
+  ...
+# Subtest: Simple review shows HTTP contract without internals; exact data and technical-only changes remain reviewable
+ok 29 - Simple review shows HTTP contract without internals; exact data and technical-only changes remain reviewable
+  ---
+  duration_ms: 3.867559
+  type: 'test'
+  ...
+# Subtest: opening final review clears obsolete task-staged status while preserving pending changes
+ok 30 - opening final review clears obsolete task-staged status while preserving pending changes
+  ---
+  duration_ms: 3.257383
+  type: 'test'
+  ...
+# Subtest: explicit facts accumulate without guesses; dotted IPv4 and JSON use physical lane intact
+ok 31 - explicit facts accumulate without guesses; dotted IPv4 and JSON use physical lane intact
+  ---
+  duration_ms: 8.155999
+  type: 'test'
+  ...
+# Subtest: explicit connectivity uses B2 defaults/projection, exact scalar contracts, and immutable semantic plan
+ok 32 - explicit connectivity uses B2 defaults/projection, exact scalar contracts, and immutable semantic plan
+  ---
+  duration_ms: 8.762383
+  type: 'test'
+  ...
+# Subtest: explicit shared/separate choice preserves other consumers including Observe-only; no-observe removes only selected reading
+ok 33 - explicit shared/separate choice preserves other consumers including Observe-only; no-observe removes only selected reading
+  ---
+  duration_ms: 1.538273
+  type: 'test'
+  ...
+# Subtest: no guesses: incomplete, non-power, ambiguous actions and unsupported HTTP use manual fallback
+ok 34 - no guesses: incomplete, non-power, ambiguous actions and unsupported HTTP use manual fallback
+  ---
+  duration_ms: 1.420146
+  type: 'test'
+  ...
+# Subtest: contextual AI gives editable values, preserves capabilities; checkpoint is immutable
+ok 35 - contextual AI gives editable values, preserves capabilities; checkpoint is immutable
+  ---
+  duration_ms: 1.550232
+  type: 'test'
+  ...
+# Subtest: coordinator opening is read-only; semantic proposal reject/accept never writes stored or executes
+ok 36 - coordinator opening is read-only; semantic proposal reject/accept never writes stored or executes
+  ---
+  duration_ms: 315.8034
+  type: 'test'
+  ...
+# Subtest: manual final review in owned setup uses setup Apply only; no direct CAS bypass
+ok 37 - manual final review in owned setup uses setup Apply only; no direct CAS bypass
+  ---
+  duration_ms: 3.008879
+  type: 'test'
+  ...
+# Subtest: physical coordinator validates before review and Accept, never calls AI; stale facts/version preserve accepted plan
+ok 38 - physical coordinator validates before review and Accept, never calls AI; stale facts/version preserve accepted plan
+  ---
+  duration_ms: 24.979589
+  type: 'test'
+  ...
+# Subtest: startup persists ownership during entering, restores same tab, and blocks competing actions
+ok 39 - startup persists ownership during entering, restores same tab, and blocks competing actions
+  ---
+  duration_ms: 10.52116
+  type: 'test'
+  ...
+# Subtest: manual plan carried into Start waits for entry and uses one CAS draft request after reload
+ok 40 - manual plan carried into Start waits for entry and uses one CAS draft request after reload
+  ---
+  duration_ms: 7.326779
+  type: 'test'
+  ...
+# Subtest: AI setup proposal exposes reviewed Russian object forms before accept without changing the input
+ok 41 - AI setup proposal exposes reviewed Russian object forms before accept without changing the input
+  ---
+  duration_ms: 3.452803
+  type: 'test'
+  ...
+1..41
+# tests 41
+# suites 0
+# pass 41
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1916.30389

@@ -1,5 +1,10 @@
 # M19 / #16: Russian device speech forms
 
+Historical alias remediation and provenance. For the current master-integrated
+candidate, test results and remaining physical gate see
+[the integration review](m19-integration-review.md). Historical genuine Qwen
+proposal evidence does not establish a fresh integrated live pass.
+
 Engineering fix in the existing Draft [PR #15](https://github.com/siyovushdev/FireflyVoiceAssistant/pull/15).
 Status: **READY_FOR_CHIEF_ENGINEER_REVIEW** after 83/83 serial CTest and
 41/41 frontend tests, typecheck and build/offline asset checks.

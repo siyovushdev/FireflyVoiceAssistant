@@ -1,5 +1,10 @@
 # M19 / Issue #17: original-request authorization
 
+Historical remediation report. The safety fix is now installed in production
+from master `818157ec` (rollout #7, 2026-10-13). M19 integrates that master
+without changing the gate; current proof is in [the integration review](m19-integration-review.md).
+The production-exposure discussion below describes the earlier `dc7b142e` release.
+
 The 2026-10-11 isolated live acceptance **failed**. Fresh genuine Qwen speech
 forms and isolated Test Apply passed, but physical voice ON/OFF was not recorded.
 An automated **text** negative caused unintended HTTP actuation. This remediation

@@ -51,12 +51,13 @@ ON, OFF и Observe. Допустимо заполнить их пошагово 
 После сборки из изолированного worktree:
 
 ```sh
-python3 scripts/m19-private-demo.py --build-dir build
+python3 scripts/m19-private-demo.py --build-dir build-m19-integrated --admin-port 0 --mock-port 0
 ```
 
 Скрипт запускает только `firefly-admin` и **test-only** `m19_test_worker`, Python
-HTTP mock и новый временный ConfigStore с правами 0700. Порты 18080 / 8765;
-при конфликте остановится, не трогая чужой процесс. Для свободных портов:
+HTTP mock и новый временный ConfigStore с правами 0700. В основной команде оба порта выбираются автоматически; production mock на 8765
+не используется. Если явно заданный порт занят, скрипт остановится, не трогая чужой
+процесс. Для другой сборки можно явно указать её каталог:
 
 ```sh
 python3 scripts/m19-private-demo.py --build-dir build --admin-port 0 --mock-port 0
@@ -82,15 +83,16 @@ production.
 npm --prefix src/admin/frontend run typecheck
 npm --prefix src/admin/frontend test
 npm --prefix src/admin/frontend run build
-cmake -S . -B build \
+cmake -S . -B build-m19-integrated \
   -DRKLLM_ROOT=/home/firefly/demo_Linux_aarch64 \
   -DFIREFLY_BUILD_CONFIG_TOOLS=ON -DFIREFLY_BUILD_VOICE=ON \
   -DSHERPA_ONNX_ROOT=/home/firefly/FireflyVoiceAssistantLinux/build/stt/sherpa-onnx-v1.13.7-linux-aarch64-shared-cpu \
   -DSHERPA_ONNX_INCLUDE_DIR=/home/firefly/FireflyVoiceAssistantLinux/build/stt/vad-ab \
-  -DFIREFLY_WAKE_PYTHON=/home/firefly/FireflyVoiceAssistantLinux/build/wake-venv/bin/python
-cmake --build build -j2
-ctest --test-dir build -R '^M19DemoVerticalSlice$' --output-on-failure
-ctest --test-dir build --output-on-failure
+  -DFIREFLY_WAKE_PYTHON=/home/firefly/FireflyVoiceAssistantLinux/build/wake-venv/bin/python \
+  -DFIREFLY_ADMIN_DIST_DIR="$PWD/src/admin/frontend/dist"
+cmake --build build-m19-integrated -j1
+ctest --test-dir build-m19-integrated -R '^M19DemoVerticalSlice$' --output-on-failure
+ctest --test-dir build-m19-integrated --output-on-failure
 ```
 
 Сборка real appliance разрешена; запуск `firefly-demo` / live benchmarks здесь
@@ -102,86 +104,76 @@ synthetic PCM, KWS/VAD и STT transcript, затем запускает наст
 BindingResolver → HttpHardwareExecutor`. HTTP-команды не инжектируются через
 `/api/test-command` или кнопки управления.
 
-Artifacts: `build/m19-acceptance/results.json`, `server.log`, PNG на каждом этапе
+Artifacts: `build-m19-integrated/m19-acceptance/results.json`, `server.log`, PNG на каждом этапе
 для 1280×800 и 390×844. В results есть binary SHA256, runtime source/build
 identity, HTTP журнал и видимые ошибки. Существующие API/browser suites отдельно
 проверяют ownership/CAS, отсутствующие факты, отмену, malformed proposals,
 activation failure, TCP probe, SSRF/HTTP validation и no blind retries.
 Инженерный результат и список известных ограничений: [отчёт](m19-engineering-report.md).
 
-## Отдельный owner gate: настоящие Qwen / голос / устройство
+## Один последующий owner gate: настоящий Qwen и reSpeaker
 
-**Не выполнен в M19 engineering run.** Production уже владеет NPU и микрофоном.
-Нужны отдельное разрешение владельца и эксклюзивное владение runtime на время
-проверки. Ни скрипт, ни агент не останавливают production и не переключают release.
+Текущий интегрированный кандидат — `dd1ffa2`, merge `818157ec` в существующую
+M19-ветку. Последующие docs-only commits не меняют его код. Для live-проверки
+нужен clean build этого интегрированного кода с обновлёнными Admin binary и
+Web Admin assets и записанной build identity. `d87d667`/`74850ba` не являются
+безопасными кандидатами: они предшествуют исправлению original-request grounding.
+Установленный `818157ec` содержит SafetyGate, но не M19 Admin language-profile/UI.
+Схема ConfigStore и протокол исполнения не изменены.
 
-1. Для этой проверки Chief Engineer выбирает кандидат `d87d667b05a2d8d9dc01b4311ea000b24f8ade66`.
-   Требуется его clean build с обновлёнными Admin binary и Web Admin assets;
-   записать build identity. Установленный старый production release не содержит
-   исправления и не подходит для этой приёмки. Владелец явно разрешает окно
-   эксклюзивного теста. Сохранить текущий release/store для rollback по существующей
-   M18.6 процедуре. Подтвердить, что нет второго RKLLM, STT или capture owner.
-2. В этом окне подготовить новый private 0700 store, независимый mock и live
-   appliance из принятого build, на другом Admin-порту, с существующими shared
-   models. Пример **только после разрешённого освобождения runtime**:
+Исторический настоящий AI gate и real-Qwen text evidence относятся к предыдущим
+кандидатам, а не к новому интегрированному прохождению. Offline fixture не
+доказывает новую генерацию Qwen или акустическое распознавание. Физический gate
+[Issue #18](https://github.com/siyovushdev/FireflyVoiceAssistant/issues/18)
+остаётся открытым/отложенным; исходники wake/STT не меняются и пороги не подбираются.
 
-   ```sh
-   umask 077
-   M19_LIVE_DIR=$(mktemp -d /tmp/firefly-m19-live-XXXXXX)
-   mkdir -m 700 "$M19_LIVE_DIR/store"
-   python3 scripts/mock-http-device.py --port 8765 --request-log "$M19_LIVE_DIR/http.jsonl"
-   ```
+После Chief Engineer review владелец отдельно разрешает **одно** эксклюзивное
+окно. Всё, кроме произнесения двух фраз, готовит и проверяет агент:
 
-   Mock оставить в отдельном терминале. В другом, с тем же записанным
-   `M19_LIVE_DIR`, запустить:
+1. До остановки сверить тогдашние PID, release, unit, argv, модели, ConfigStore,
+   SHA256/backup и владение NPU/микрофоном. Подготовить независимое автоматическое
+   восстановление именно тогдашнего production, не старого `dc7b142e`; проверить
+   его до остановки. Планируемый лимит: 6 минут испытания + 4 минуты восстановления.
+2. Подготовить свежий private 0700 store, localhost mock **127.0.0.1:18765** с
+   новым request log и Admin **127.0.0.1:18080**. Старый mock 8765 не трогать.
+   Не переключать release pointer и не изменять unit. Только после разрешения
+   штатно освободить production NPU/ALSA, затем запустить один test runtime с
+   настоящими Qwen, reSpeaker, KWS, VAD, STT и прежним BEEP.
+3. Через проверенный browser harness выполнить AI Setup: «Создай зону Кабинет
+   и лампу в кабинете, которую можно включать и выключать». Сохранить **исходное**
+   предложение до правок. `лампа`, `лампу`, `в кабинете`, boolean Питание и ON/OFF
+   должен предложить настоящий Qwen. Нет формы/она неверна — **AI gate FAIL**,
+   без Apply, сохранить evidence и восстановить production. Ручная коррекция
+   возможна как отдельный fallback, но не даёт AI gate PASS.
+4. При PASS принять в план, ввести явный contract: POST `/relay/1` с `on=true`
+   / `on=false`, GET `/relay/1` и `on → power`. Проверить общий Review, выполнить
+   **один** Apply только в test store. До Apply ноль HTTP; runtime/LanguageIndex READY.
+5. Владелец заранее подтверждает слышимость browser-приглашений в одном наушнике
+   и явно даёт СТАРТ. Два сигнала, только после реального READY: произнести слитно
+   **«Амина, включи лампу в кабинете»**. После проверки ON три сигнала: произнести
+   **«Амина» → окончание BEEP → пауза около 0,5 с → «выключи лампу в кабинете»**.
+   Вкладка остаётся подключённой; наблюдать терминал или настраивать Admin не нужно.
+6. Для каждой команды агент связывает настоящий wake/VAD/STT transcript с
+   `INDEX_EXACT`, SafetyGate PASS, `source=voice`, ровно одним POST и отдельным
+   GET → Confirmed. Программные отрицательные проверки обозначаются как текстовые,
+   а не как голос владельца. При wake/STT failure сохранить диагностику, пропустить
+   следующий сценарий, не менять модели/пороги и не повторять окно автоматически.
+7. При завершении, ошибке или timeout остановить только тестовые процессы,
+   штатно восстановить исходный production, проверить READY/WAITING_WAKE,
+   STT/LLM/wake, микрофон, sole ownership и ConfigStore SHA256/права. Сохранить
+   proposal, browser trace/screenshots, runtime log, HTTP log и итог с SHA256.
 
-   ```sh
-   build/firefly-demo --store "$M19_LIVE_DIR/store" \
-     --init-config config/empty-home.json --admin-port 18080 \
-     --model /opt/firefly/voice-assistant/models/runtime/Qwen3-4B_W8A8_RK3588_3core.rkllm \
-     --admin-model /opt/firefly/voice-assistant/models/admin/Qwen3-4B_W8A8_CTX4096_RK3588_3core.rkllm \
-     --voice --stt-model-dir /opt/firefly/voice-assistant/models/stt \
-     --vad-model /opt/firefly/voice-assistant/models/vad/silero_vad.onnx \
-     --audio-device plughw:CARD=Array,DEV=0 --wake-enabled true \
-     --wake-python /opt/firefly/voice-assistant/current/share/firefly/wake/python/bin/python \
-     --wake-model /opt/firefly/voice-assistant/current/share/firefly/wake/amina-v3.tflite \
-     --wake-cutoff 0.99 --wake-window 7 --playback-device plughw:CARD=rockchipes8388,DEV=0
-   ```
-
-3. Пройти таблицу выше с настоящим Qwen и сохранить исходное предложение до
-   любых ручных правок. Если Qwen самостоятельно предложил обе естественные
-   формы `лампа` и `лампу`, **AI gate PASS**; проверить также `в кабинете`, затем
-   продолжить через owner Review/Apply. Если любая форма отсутствует или неверна,
-   **AI gate FAIL**: записать evidence и остановить AI-first приёмку до Apply.
-   Возможность исправить форму вручную не меняет FAIL на PASS; ручная правка,
-   в том числе после `language_warning`, допустима только как отдельная
-   демонстрация fallback и не доказывает успешную генерацию Qwen.
-   После успешного AI gate и owner Apply дождаться runtime ready и `WAITING_WAKE`,
-   затем сказать ON/OFF.
-   Собрать исходный transcript, route `INDEX_EXACT`, SafetyGate PASS,
-   execution source `voice`, latency и точный HTTP журнал. При pause после wake
-   ожидается существующий BEEP; настройки frozen не менять.
-4. Проверить «Амина, не включай лампу в кабинете», «Амина, включи и выключи
-   лампу в кабинете», неизвестную зону и речь без wake: ноль команд. Проверить
-   POST → Predicted и явный GET → Confirmed. Повторить no-zone на отдельном
-   новом store. Malformed/type/HTTP-error Observe и LKG recovery уже покрыты
-   изолированным C++/Chromium E2E; они не требуют повторного захвата NPU.
-5. Перезапустить **только тестовый** процесс с тем же store. До GET — Unknown,
-   ноль команд; после явного GET — Confirmed. Закончить тест, сохранить evidence,
-   восстановить production исключительно по отдельному owner плану. Затем
-   удалить только записанный temporary каталог, после остановки его процессов.
-
-Live speech/model quality, реальный hardware API, физическая лампа и production
-reboot/cutover — отдельные acceptance gates; localhost mock их не заменяет.
-Ничего не правит записанную baseline ошибку двери «открытвер на входе».
+Никаких ручных SSH, настройки Admin, Apply или разбора логов от владельца не
+требуется. Настоящая лампа не используется: Confirmed подтверждает localhost mock.
+Без этого свежего физического gate MVP не объявляется voice-accepted.
 
 ## Rollout / rollback / cleanup — только после отдельного разрешения
 
 Commit `d87d667` меняет production Admin-код (`src/admin/AdminLanguage.cpp`)
 и Web Admin assets. Схема ConfigStore и протокол исполнения команд не изменены.
-Реальная проверка исправления требует clean build именно этого кандидата с
-новыми Admin binary/assets и проверенной build identity. Установленный старый
-production release не подтверждает это исправление.
+Реальная проверка M19 требует clean build интегрированного кандидата с
+новыми Admin binary/assets и проверенной build identity. Production `818157ec`
+подтверждает установку SafetyGate, но не M19 AI-first language-profile/UI.
 Если владелец отдельно разрешает новый release, использовать clean build
 выбранного кандидата и существующие `stage-release.py stage/verify/install/activate` из
 [M18.6 packaging](m18-relocatable-production-packaging.md). Проверить production

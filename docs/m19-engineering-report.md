@@ -1,10 +1,12 @@
 # M19 engineering review
 
-Current blocking follow-up: [Issue #17 grounding remediation](m19-grounding-safety.md).
-The isolated live run found unintended execution across an unknown requested
-room. Production was restored; live acceptance remains failed/pending. The
-offline authorization fix requires independent review and a new owner-authorized
-hardware gate. Earlier test outcomes below are historical.
+Current integration: M19 incorporates approved master `818157ec` through merge
+`dd1ffa2`, preserving PR #15 history. Production already runs the safety hotfix;
+original-request SafetyGate and voice/wake source remain byte-identical to master.
+The earlier reports below are historical. Current integration proof and the next
+physical gate are recorded in [the integrated report](m19-integration-review.md).
+No new deployment development, production Apply, restart or physical test is part
+of this integration.
 
 Prior follow-up: [Issue #16 correction and owner acceptance](m19-russian-device-profile.md).
 The owner live check of the initial M19 candidate failed on missing `лампу`;
