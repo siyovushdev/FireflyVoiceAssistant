@@ -5,7 +5,12 @@ const fs = require('node:fs'), os = require('node:os'), path = require('node:pat
 const http = require('node:http'), crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 const assert = require('node:assert/strict');
-const [app, worker, root, chromium, artifacts] = process.argv.slice(2);
+const remote = require('./M19Remote.js');
+const [app, worker, root, chromium, artifacts, mode = '', liveUrl, liveMockLog, liveMockUrl] = process.argv.slice(2);
+const controlled = mode === '--controlled-offline' || mode === '--controlled-live';
+const live = mode === '--controlled-live';
+const browserArgs = ['--ozone-platform=x11','--no-sandbox','--disable-gpu','--disable-dev-shm-usage','--disable-background-networking','--no-first-run','--remote-debugging-port=0'];
+const event = (phase, detail = {}) => { fs.appendFileSync(path.join(artifacts, 'controlled-events.jsonl'), JSON.stringify({utc:new Date().toISOString(),phase,...detail}) + '\n'); console.log(phase); };
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'firefly-m19-'));
 fs.mkdirSync(artifacts, { recursive: true });
 fs.rmSync(path.join(artifacts, 'results.json'), {force:true});
@@ -28,17 +33,17 @@ const mock = http.createServer((req, res) => {
     });
 });
 mock.on('connection', connection => { tcpConnections++; connection.on('data', bytes => tcpBytes += bytes.length); });
-async function until(check, label, timeout = 20000) {
-    const end = Date.now() + timeout;
-    while (Date.now() < end) { if (server && server.exitCode !== null) throw Error('C++ server exited: ' + server.exitCode); if (await check()) return; await delay(60); }
+async function until(check, label, timeout) {
+    const end = Date.now() + (timeout === undefined ? (live ? 90000 : 20000) : timeout);
+    while (Date.now() < end) { if (server && server.exitCode !== null) throw Error('C++ server exited: ' + server.exitCode); if (chrome && chrome.exitCode !== null) throw Error('Chromium exited: ' + chrome.exitCode); if (await check()) return; await delay(60); }
     throw Error('Timeout: ' + label);
 }
-function send(method, params = {}) { return new Promise((resolve, reject) => { const id = ++nextId; pending.set(id, { resolve, reject }); socket.send(JSON.stringify({ id, method, params })); }); }
+function send(method, params = {}) { return new Promise((resolve, reject) => { const id = ++nextId; const timer=setTimeout(()=>{pending.delete(id);reject(Error('CDP timeout: '+method));},10000); pending.set(id, { resolve:value=>{clearTimeout(timer);resolve(value)}, reject:error=>{clearTimeout(timer);reject(error)} }); socket.send(JSON.stringify({ id, method, params })); }); }
 async function js(expression) { const r = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }); if (r.exceptionDetails) throw Error(JSON.stringify(r.exceptionDetails)); return r.result.value; }
 async function text() { return js('document.body?.innerText ?? ""'); }
-async function click(label, scope = '') {
+async function click(label, scope = '', timeout = 20000) {
     const find = `const root = document.querySelector(${JSON.stringify(scope || 'dialog[open]')}) || document.querySelector('main'); const node = [...root.querySelectorAll('button,a')].find(n => n.textContent.trim() === ${JSON.stringify(label)} && n.getClientRects().length && !n.matches(':disabled'));`;
-    await until(() => js(`(() => { ${find} return !!node; })()`), 'enabled ' + label);
+    await until(() => js(`(() => { ${find} return !!node; })()`), 'enabled ' + label, timeout);
     await js(`(() => { ${find} node.scrollIntoView({block:'center'}); node.click(); })()`); await delay(80);
 }
 async function fill(label, value, scope = '') { await js(`(() => { const root = document.querySelector(${JSON.stringify(scope || 'dialog[open]')}) || document.querySelector('main'); const node = [...root.querySelectorAll('label')].find(n => n.textContent.trim().startsWith(${JSON.stringify(label)}) && n.getClientRects().length)?.querySelector('input,textarea'); if (!node) throw Error('Missing field'); node.value = ${JSON.stringify(value)}; node.dispatchEvent(new Event('input',{bubbles:true})); node.dispatchEvent(new Event('change',{bubbles:true})); })()`); }
@@ -46,7 +51,7 @@ async function select(label, option, scope = '') { await js(`(() => { const root
 async function api(endpoint, body, expected = 200) {
     const deadline = Date.now() + 5000;
     while (true) {
-        const r = await fetch(url + endpoint, { method: body ? 'POST' : 'GET', headers: { 'Content-Type':'application/json', 'Origin':url, 'X-Firefly-Admin':'1' }, body: body ? JSON.stringify(body) : undefined });
+        const r = await fetch(url + endpoint, { signal:AbortSignal.timeout(5000), method: body ? 'POST' : 'GET', headers: { 'Content-Type':'application/json', 'Origin':url, 'X-Firefly-Admin':'1' }, body: body ? JSON.stringify(body) : undefined });
         const data = await r.json();
         // Read-only diagnostics may race the browser's explicit Observe/refresh.
         // Retry ONLY the documented busy GET. Never retry an Apply/command/poll.
@@ -271,9 +276,119 @@ async function scenario(noZone) {
     console.log('PASS', name, 'empty → AI → accept/cancel/resume → explicit HTTP wizard → one Apply → wake/voice ON/OFF → Observe → failures → restart; POST=2 GET=7');
     await stop();
 }
+async function controlledScenario() {
+    const store = path.join(temp, 'controlled-store'), control = path.join(temp, 'controlled-voice');
+    if (!live && !remote.config) { fs.mkdirSync(store, {mode:0o700}); await start(store, control); }
+    const rows = async () => remote.config ? remote.call('rows') : live ? fs.readFileSync(liveMockLog,'utf8').trim().split('\n').filter(Boolean).map(line=>JSON.parse(line)) : hardware;
+    await until(async()=>{const s=await api('/api/status'); return s.runtime_ready && (live ? s.voice === 'WAITING_WAKE' : (await api('/api/dashboard')).advanced.voice === 'WAITING_WAKE');}, 'real runtime/voice READY', 120000);
+    const initial = await api('/api/status'); event('runtime_ready', {status:initial});
+    const original = await api('/api/config');
+    assert.equal(original.configuration.devices.length,0); assert.equal(original.configuration.rooms.length,0); assert.equal((await rows()).length,0);
+    await send('Page.navigate', {url:url + '/#/setup'});
+    await until(()=>js('[...document.querySelectorAll("main button")].some(n=>n.textContent.trim()==="Начать настройку"&&!n.disabled)'), 'Setup page ready');
+    const pcBrowser = {host:os.hostname(),pid:chrome.pid,pss:fs.readFileSync('/proc/'+chrome.pid+'/smaps_rollup','utf8')};
+    const backendMemory = remote.config ? await remote.call('memory') : {host:os.hostname(),meminfo:fs.readFileSync('/proc/meminfo','utf8')};
+    event('before_setup', {backendMemory,pcBrowser});
+    await click('Начать настройку'); event('setup_enter_sent_once');
+    await until(()=>js('!!document.querySelector(".setup-fields") && !document.querySelector(".setup-fields").disabled'), 'AI Setup admitted');
+    event('setup_admitted');
+    await ask('Создай зону Кабинет и лампу в кабинете, которую можно включать и выключать'); await proposal();
+    const raw = await api('/api/setup/status');
+    fs.writeFileSync(path.join(artifacts,'original-ai-proposal.json'),JSON.stringify(raw,null,2));
+    const semantic=raw.configuration;
+    assert.equal(semantic.devices.length,1);assert.equal(semantic.rooms.length,1);assert.equal(semantic.actions.length,2);
+    assert.equal(semantic.rooms[0].name.toLowerCase(),'кабинет');assert.equal(semantic.devices[0].name.toLowerCase(),'лампа');
+    assert.ok(semantic.rooms[0].speech.locations.includes('в кабинете'));
+    for(const word of ['лампа','лампу']) assert.ok(semantic.devices[0].spoken_aliases.includes(word),word);
+    assert.equal(semantic.devices[0].state[0].type,'boolean');
+    assert.deepEqual(semantic.actions.map(a=>a.assignments[0].value).sort(),[false,true]);
+    assert.equal((await rows()).length,0); event('AI_PASS',{semantic}); if (live && remote.config) await remote.call('ai-pass'); await screenshot('controlled-ai-proposal'); await accepted();
+    await click('Настроить подключение: Лампа');
+    await select('Общее подключение:', 'Создать отдельное подключение для выбранного устройства');
+    await ask('Подключи лампу');
+    const endpoint=remote.config?remote.config.mockUrl:live?liveMockUrl:`http://127.0.0.1:${mock.address().port}`;
+    await ask(endpoint);await ask('POST /relay/1 {"on":true}');await ask('POST /relay/1 {"on":false}');await ask('GET /relay/1, поле on');await proposal();
+    await click('Проверить доступность');await until(async()=>(await text()).includes('TCP доступен'),'TCP only probe');assert.equal((await rows()).length,0);
+    await click('Изменить: Подключение');await until(()=>js('!!document.querySelector("dialog .wizard")'),'wizard');
+    await click('HTTP / REST →');await click('Далее');await click('Далее');await click('Далее');await click('Сохранить и применить');
+    await until(()=>js('[...document.querySelectorAll("dialog button")].some(n=>n.textContent === "Подтвердить применение"&&!n.disabled)'),'review');
+    const reviewText=await js('document.querySelector("dialog").innerText');
+    for(const pattern of [/Лампа/,/лампа; лампу/,/POST http:\/\/127\.0\.0\.1:/,/on = Да/,/on = Нет/,/GET http:\/\/127\.0\.0\.1:/,/on → Питание/]) assert.match(reviewText,pattern);
+    assert.equal((await api('/api/config')).hash,original.hash);assert.equal((await rows()).length,0);await screenshot('controlled-review');event('review_pass');
+    await click('Подтвердить применение');event('apply_sent_once');
+    await until(async()=>(await api('/api/setup/status')).status==='applied','Apply');
+    await until(async()=>{const s=await api('/api/status');return s.runtime_ready && (live ? s.stt_ready && s.voice==='WAITING_WAKE' : (await api('/api/dashboard')).advanced.voice === 'WAITING_WAKE');},'restore voice',120000);
+    const applied=await api('/api/config'), active=(await api('/api/config/active')).active;
+    assert.equal(applied.hash,active.hash);assert.notEqual(applied.hash,original.hash);assert.equal((await rows()).length,0);event('restore_pass');
+    await click('Назад к плану');const device=applied.configuration.devices[0];await navigate('devices/'+device.id);
+    const stateOf=async()=>(await api('/api/devices/state')).devices.find(d=>d.targetId===device.id).properties.power;
+    let readinessExtraGets=0;
+    for(const on of [true,false]) {
+        let count=(await rows()).length;
+        const expectedText=(on?'включи':'выключи')+' лампу в кабинете';
+        const beforeExecutions=(await api('/api/executions')).executions.length;
+        if(live && remote.config.voiceMode === 'owner-live') {
+            const waiting=await remote.call('owner-voice-ready');
+            const timeoutSeconds=remote.ownerReadyTimeoutSeconds(waiting);
+            const readyFile=path.join(artifacts,'owner-'+(on?'on':'off')+'-ready.json');
+            assert.equal(fs.existsSync(readyFile),false,'no pre-created owner acknowledgement');
+            const requestId=crypto.randomUUID();
+            event('owner_waiting_ready',{on,command:expectedText,readyFile,requestId,timeoutSeconds});
+            await until(()=>remote.consumeOwnerReady(readyFile,requestId,on),'owner explicit readiness',timeoutSeconds*1000);
+            const ready=await remote.call('owner-voice-ready');
+            const readyRows=await rows();
+            const readinessReads=remote.verifyOwnerBaseline(readyRows,(await api('/api/executions')).executions,count,beforeExecutions);
+            if (readinessReads.length) {
+                readinessExtraGets+=readinessReads.length;
+                event('owner_readonly_activity',{on,rows:readinessReads});
+            }
+            count=readyRows.length;
+            event('owner_voice_ready',{on,command:expectedText,ready,
+                instruction:'Скажи Амина; после окончания BEEP подожди 0,5 секунды; скажи '+expectedText,
+                timeoutSeconds:90});
+            await until(async()=>(await rows()).length>count,'owner microphone/wake/STT command HTTP',90000);
+        } else if(live && remote.config) {
+            const playback = await remote.call('replay',{on});
+            event('synthetic_acoustic_replay',{host:remote.config.remoteHost,...playback});
+            await until(async()=>(await rows()).length>count,'acoustic wake/STT command HTTP',25000);
+        } else if(live) {
+            const wav='/home/firefly/firefly-m19-autonomous-20261012T030813Z/audio/synthetic-inline-'+(on?'on':'off')+'.wav';
+            event('synthetic_acoustic_replay',{wav,sha256:crypto.createHash('sha256').update(fs.readFileSync(wav)).digest('hex')});
+            const player=spawn('/usr/bin/aplay',['-q','-D','plughw:CARD=rockchipes8388,DEV=0',wav],{stdio:['ignore',log,log]});
+            await new Promise((resolve,reject)=>{const timeout=setTimeout(()=>{player.kill('SIGTERM');reject(Error('acoustic playback timeout'));},15000);player.once('exit',code=>{clearTimeout(timeout);code===0?resolve():reject(Error('playback exit '+code));});});
+            await until(async()=>(await rows()).length>count,'acoustic wake/STT command HTTP',25000);
+        } else {
+            const transcript='Амина, '+(on?'включи':'выключи')+' лампу в кабинете';
+            if (remote.config) {
+                const fixture=await remote.call('voice',{fixture:{id:++voiceId,text:transcript,wake:true}});
+                assert.equal(fixture.processed,1);assert.equal(fixture.emitted,1);
+                assert.ok(fixture.states.includes('WAKE_DETECTED'));assert.ok(fixture.states.includes('CONTINUATION_INLINE'));
+            } else await voice(control,transcript);
+        }
+        if(live) {
+            await until(async()=>{const s=await api('/api/status');return s.voice==='WAITING_WAKE' && s.last_voice?.command?.execution?.success;},'voice execution diagnostics',5000);
+            const status=await api('/api/status'), executions=(await api('/api/executions')).executions;
+            const actionId=applied.configuration.bindings.find(b=>b.target_id===device.id && b.http?.method==='POST' && b.http.body?.on===on)?.action_id;
+            const voice=remote.verifyVoiceEvidence(status,executions,beforeExecutions,expectedText,applied.hash,remote.config.voiceMode==='owner-live',device.id,actionId);
+            event('real_voice_evidence',{on,voice,executions});
+        }
+        assert.equal((await rows()).length,count+1);const post=(await rows()).at(-1);assert.equal(post.method,'POST');assert.equal(post.path,'/relay/1');assert.deepEqual(typeof post.body==='string'?JSON.parse(post.body):post.body,{on});
+        assert.equal((await stateOf()).knowledge,'predicted');assert.equal((await stateOf()).value,on);
+        await click('Прочитать состояние','.operational',live?15000:20000);await until(async()=>(await stateOf()).knowledge==='confirmed','separate GET confirms',live?15000:20000);
+        assert.equal((await rows()).length,count+2);assert.equal((await rows()).at(-1).method,'GET');assert.equal((await stateOf()).value,on);
+        event(on?'ON_PASS':'OFF_PASS',{rows:await rows(),dashboard:await api('/api/dashboard')});
+    }
+    results.push({controlled:true,live,AI:true,apply:true,posts:2,gets:2,voice:live?(remote.config.voiceMode==='owner-live'?'OWNER_LIVE_MICROPHONE':'SYNTHETIC_ACOUSTIC_REPLAY'):'OFFLINE_FIXTURE'});
+    if (live) results.at(-1).extraReadinessGets=readinessExtraGets;
+    event('controlled_pass');if(!live && !remote.config)await stop();
+}
+
 (async () => {
-    await new Promise(resolve => mock.listen(0,'127.0.0.1',resolve));
-    chrome = spawn(chromium, ['--ozone-platform=x11','--no-sandbox','--disable-gpu','--disable-dev-shm-usage','--disable-background-networking','--no-first-run','--remote-debugging-port=0','--user-data-dir=' + path.join(temp,'chrome'),'about:blank'], {stdio:['ignore',log,log]});
+    assert.ok(!live || remote.config, 'Controlled hardware browser must run on the PC with SSH transport');
+    if (!live && !remote.config) await new Promise(resolve => mock.listen(0,'127.0.0.1',resolve));
+    else { assert.match(liveUrl, /^http:\/\/127\.0\.0\.1:[0-9]+$/); assert.match(liveMockUrl, /^http:\/\/127\.0\.0\.1:[0-9]+$/); url = liveUrl; }
+    if (remote.config) {assert.equal(controlled,true);assert.equal(os.hostname() === remote.config.remoteHost,false);}
+    chrome = spawn(chromium, [...browserArgs,'--user-data-dir=' + path.join(temp,'chrome'),'about:blank'], {stdio:['ignore',log,log]});
     const portFile = path.join(temp,'chrome','DevToolsActivePort'); await until(() => fs.existsSync(portFile), 'Chromium CDP');
     const port = fs.readFileSync(portFile,'utf8').split('\n')[0], pages = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
     socket = new WebSocket(pages.find(p => p.type === 'page').webSocketDebuggerUrl); await new Promise((resolve,reject) => {socket.onopen=resolve;socket.onerror=reject;});
@@ -300,15 +415,18 @@ async function scenario(noZone) {
         }
     };
     await send('Runtime.enable'); await send('Page.enable'); await send('Fetch.enable',{patterns:[{urlPattern:'*'}]});
-    await rejectedOwnerProfile(); await scenario(false); await scenario(true);
+    if (controlled) await controlledScenario();
+    else { await rejectedOwnerProfile(); await scenario(false); await scenario(true); }
     assert.deepEqual(external,[]); assert.deepEqual(exceptions,[]);
-    proof = {passed:true,model:'scripted; no real Qwen/NPU',voice:'synthetic PCM/KWS/VAD/STT; real runWakeVoiceLoop/processVoice',appSha256:crypto.createHash('sha256').update(fs.readFileSync(app)).digest('hex'),workerSha256:crypto.createHash('sha256').update(fs.readFileSync(worker)).digest('hex'),tcpConnections,external,exceptions,diagnosticBusyReads,cancelledDiagnosticReads,results};
+    const applyCalls=requests.filter(r=>r.method==='POST'&&r.url.endsWith('/api/setup/apply')).length;
+    if (controlled) assert.equal(applyCalls,1,'one browser Apply');
+    proof = {passed:true,applyCalls,model:live?'REAL Qwen/NPU':'scripted; no real Qwen/NPU',liveVoiceMode:remote.config?.voiceMode || null,voice:live?(remote.config.voiceMode==='owner-live'?'owner voice through real microphone/KWS/VAD/STT':'synthetic speech acoustic replay into real microphone/KWS/VAD/STT'):'synthetic PCM/KWS/VAD/STT; real runWakeVoiceLoop/processVoice',controlled,live,uid:process.getuid(),browserArgs,display:process.env.DISPLAY,chromium,runnerSha256:crypto.createHash('sha256').update(fs.readFileSync(__filename)).digest('hex'),host:os.hostname(),transport:remote.config?remote.config.transport:null,remoteHost:remote.config?.remoteHost,remoteRoot:remote.config?.remoteRoot,adapterSha256:crypto.createHash('sha256').update(fs.readFileSync(path.join(__dirname,'M19Remote.js'))).digest('hex'),offlineHarnessAppSha256:remote.config?.appSha256 || crypto.createHash('sha256').update(fs.readFileSync(app)).digest('hex'),offlineHarnessWorkerSha256:remote.config?.workerSha256 || crypto.createHash('sha256').update(fs.readFileSync(worker)).digest('hex'),tcpConnections,external,exceptions,diagnosticBusyReads,cancelledDiagnosticReads,results};
 })().catch(async error => {
-    console.error(error); if(socket?.readyState===1){try{await screenshot('failure');fs.writeFileSync(path.join(artifacts,'failure.txt'),await text());}catch{}}
+    console.error(error); if (controlled) event('FAIL', {error:String(error)}); if(socket?.readyState===1){try{await screenshot('failure');fs.writeFileSync(path.join(artifacts,'failure.txt'),await text());}catch{}}
     process.exitCode=1;
 }).finally(async () => {
-    socket?.close(); if(server)await stop(); if(chrome){chrome.kill('SIGTERM');await new Promise(resolve=>chrome.once('exit',resolve));}
-    await new Promise(resolve=>mock.close(resolve));fs.closeSync(log);
+    socket?.close(); if(server)await stop(); if(chrome && chrome.exitCode === null){chrome.kill('SIGTERM');await new Promise(resolve=>chrome.once('exit',resolve));}
+    if (!live && !remote.config) await new Promise(resolve=>mock.close(resolve));fs.closeSync(log);
     await fs.promises.rm(temp,{recursive:true,force:true,maxRetries:10,retryDelay:100});
     if (proof && !process.exitCode) {
         fs.writeFileSync(path.join(artifacts,'results.json'),JSON.stringify(proof,null,2));
