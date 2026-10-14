@@ -23,14 +23,19 @@ REMOTE_REPO = '/home/firefly/FireflyVoiceAssistantLinux-m19'
 BRIDGE = REMOTE_REPO + '/scripts/m19-pc-bridge.py'
 
 class Transport:
-    def __init__(self, host, control_path):
+    def __init__(self, host, control_path, remote_repo=REMOTE_REPO):
         self.host = host
+        root = Path(remote_repo)
+        if not root.is_absolute() or '..' in root.parts or str(root) != remote_repo:
+            raise ValueError('remote repository must be an absolute normalized path')
+        self.remote_repo = remote_repo
+        self.bridge = remote_repo + '/scripts/m19-pc-bridge.py'
         self.options = ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5']
         if control_path: self.options += ['-S', control_path]
 
     def call(self, action, timeout=30, **detail):
         result = subprocess.run(['/usr/bin/ssh', *self.options, self.host,
-            'sudo -n /usr/bin/python3 -B ' + shlex.quote(BRIDGE)],
+            'sudo -n /usr/bin/python3 -B ' + shlex.quote(self.bridge)],
             input=json.dumps({'action':action, **detail}), capture_output=True,
             text=True, timeout=timeout)
         if result.returncode: raise RuntimeError(result.stderr or result.stdout)
@@ -46,6 +51,7 @@ class Transport:
 def browser_profile(args):
     chrome = Path(args.chromium).resolve()
     return {'host':args.host, 'local_bind':'127.0.0.1:18089', 'remote_bind':'127.0.0.1',
+            'remote_repo':args.remote_repo,
             'ssh_options':['BatchMode=yes','ConnectTimeout=5'],
             'chromium':str(chrome), 'chromium_sha256':hashlib.sha256(chrome.read_bytes()).hexdigest(),
             'chromium_version':subprocess.check_output([str(chrome),'--version'],text=True).strip(),
@@ -133,7 +139,7 @@ def relay_owner_cues(path, stopped, emit=None):
 def run_browser(args, transport, root, data, profile, live=False, offline_proof=None):
     artifacts = root / ('browser-live' if live else 'browser-offline')
     artifacts.mkdir(mode=0o700)
-    config = {'host':args.host,'controlPath':args.control_path,'bridge':BRIDGE,
+    config = {'host':args.host,'controlPath':args.control_path,'bridge':transport.bridge,
               'remoteRoot':data['root'],'remoteHost':'firefly','mockUrl':data['mock_url'],
               'appSha256':data['app_sha256'],'workerSha256':data['worker_sha256'],
               'transport':profile}
@@ -153,8 +159,8 @@ def run_browser(args, transport, root, data, profile, live=False, offline_proof=
         cue_thread = threading.Thread(target=relay,daemon=True); cue_thread.start()
     try:
         command = [args.node, str(REPO / 'tests/admin/v2/M19ChromiumTests.js'),
-            REMOTE_REPO + '/build/firefly-admin', REMOTE_REPO + '/build/src/admin/m19_test_worker',
-            REMOTE_REPO, args.chromium, str(artifacts),
+            transport.remote_repo + '/build/firefly-admin', transport.remote_repo + '/build/src/admin/m19_test_worker',
+            transport.remote_repo, args.chromium, str(artifacts),
             '--controlled-live' if live else '--controlled-offline',
             'http://127.0.0.1:18089', data['mock_log'], data['mock_url']]
         env = {**os.environ, 'FIREFLY_M19_REMOTE_PLAN':str(config_path)}
@@ -179,19 +185,23 @@ def main():
     parser.add_argument('mode', choices=('offline-gate','prepare-only','trial'))
     parser.add_argument('--host', default='firefly@192.168.68.111')
     parser.add_argument('--control-path', default='/tmp/m19-firefly-control-%u')
+    parser.add_argument('--remote-repo', default=REMOTE_REPO,
+                        help='Explicit clean candidate source for offline-gate only')
     parser.add_argument('--chromium', default=shutil.which('chromium') or shutil.which('google-chrome'))
     parser.add_argument('--node', default=shutil.which('node'))
     parser.add_argument('--artifacts', type=Path, required=True)
     parser.add_argument('--owner-start', choices=('СТАРТ',))
     parser.add_argument('--voice-mode', choices=('synthetic-acoustic','owner-live'), default='synthetic-acoustic')
     args = parser.parse_args()
+    if args.remote_repo != REMOTE_REPO and args.mode != 'offline-gate':
+        parser.error('alternate clean source is permitted only for offline-gate')
     if args.mode == 'trial' and args.owner_start != 'СТАРТ':
         parser.error('trial requires a NEW explicit owner СТАРТ; preparation never authorizes trial')
     if socket.gethostname() == 'firefly' or not args.chromium or not args.node or not os.environ.get('DISPLAY'):
         parser.error('Run on the PC with its X11 Chromium environment')
     args.artifacts.mkdir(parents=True, exist_ok=True)
     root = Path(tempfile.mkdtemp(prefix='pc-window-', dir=args.artifacts)).resolve()
-    transport = Transport(args.host, args.control_path)
+    transport = Transport(args.host, args.control_path, args.remote_repo)
     profile = browser_profile(args)
     offline = transport.call('offline-start')
     (root / 'offline-backend.json').write_text(json.dumps(offline, indent=2))

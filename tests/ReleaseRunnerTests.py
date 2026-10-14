@@ -18,6 +18,14 @@ runner = importlib.util.module_from_spec(spec); spec.loader.exec_module(runner)
 
 
 class RunnerTests(unittest.TestCase):
+    def test_new_assets_require_exact_approved_and_rebuilt_fingerprint(self):
+        old, new = 'a' * 64, 'b' * 64
+        self.assertEqual(runner.approved_assets(new, old, new, new), new)
+        self.assertEqual(runner.approved_assets(old, old, None, None), old)
+        for pin, built in [(None, new), ('invalid', new), (old, new), (new, old)]:
+            with self.subTest(pin=pin, built=built), self.assertRaises(RuntimeError):
+                runner.approved_assets(new, old, pin, built)
+
     def test_offline_child_never_receives_inherited_owner_permission(self):
         probe = ['/usr/bin/python3', '-c',
                  'import os; print(repr(os.environ.get("FIREFLY_OWNER_ACCEPTED")))']

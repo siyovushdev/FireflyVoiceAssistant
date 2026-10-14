@@ -68,6 +68,7 @@ PRODUCTION_SHA256 = {
 ADMIN_MODEL_BYTES = 4848176220
 AMINA_SHA256 = "bc42cb869d2aace69c5bdf9333c502b96dedfa85df97676be85f5c289dc057d1"
 AMINA_BYTES = 60912
+WAKE_MODEL = "share/firefly/wake/amina-v3.tflite"
 PINNED_PYTHON_PACKAGES = {
     "numpy": "2.2.6",
     "ai-edge-litert": "1.2.0",
@@ -115,6 +116,8 @@ class StageRequest:
     build_source: str = ""
     build_time: str = ""
     build_matches: bool = False
+    reuse_installed_models: bool = False
+    wake_reference_release: str = ""
 
 
 def _within(path: Path, root: Path) -> bool:
@@ -534,6 +537,9 @@ def _chmod_tree(root: Path) -> None:
         os.chmod(directory, 0o755)
         for name in files:
             path = Path(directory) / name
+            if path.is_symlink():
+                wake_reference(root, path)  # Never chmod the protected model target.
+                continue
             executable = ".so" in path.name or name in {"firefly-demo", "firefly-config", "python"} or os.access(path, os.X_OK)
             os.chmod(path, 0o755 if executable else 0o644)
 
@@ -545,6 +551,10 @@ def _rel_files(root: Path) -> list[str]:
         for name in dirs + names:
             path = Path(directory) / name
             info = path.lstat()
+            if stat.S_ISLNK(info.st_mode):
+                wake_reference(root, path)
+                files.append(str(path.relative_to(root)))
+                continue
             if not (stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode)):
                 raise ReleaseError(f"unexpected filesystem entry: {path}")
             if stat.S_ISREG(info.st_mode):
@@ -554,13 +564,76 @@ def _rel_files(root: Path) -> list[str]:
     return sorted(files)
 
 
+def require_root_owned(path: Path, root: Path) -> None:
+    for entry in [path, *path.parents]:
+        info = entry.lstat()
+        if info.st_uid != 0 or info.st_mode & 0o022:
+            raise ReleaseError(f"reference must be root-owned and read-only to service user: {entry}")
+        if entry == root:
+            break
+
+
+def installed_model_paths() -> dict:
+    """Only the fixed, root-owned on-device model set; never arbitrary aliases."""
+    root = assert_real_path(Path(PRODUCTION_PREFIX))
+    result = {}
+    for relative in ALLOWED_SHARED_MODELS:
+        path = model_path(root, relative)
+        require_regular_file(path, relative)
+        require_root_owned(path, root)
+        if path.stat().st_nlink != 1:
+            raise ReleaseError(f"refusing hardlinked installed model: {path}")
+        _expect(path, PRODUCTION_SHA256[relative], ADMIN_MODEL_BYTES if relative == ADMIN_MODEL else None)
+        result[relative] = path
+    return result
+
+
+def wake_reference(root: Path, path: Path) -> Path:
+    """The sole permitted release symlink is a pinned immutable Amina model."""
+    if str(path.relative_to(root)) != WAKE_MODEL or not path.is_symlink():
+        raise ReleaseError(f"unexpected release symlink: {path}")
+    target = Path(os.readlink(path))
+    releases = Path(PRODUCTION_PREFIX) / "releases"
+    try:
+        relative = target.relative_to(releases)
+    except ValueError as error:
+        raise ReleaseError("wake model reference must use the installed releases") from error
+    if (len(relative.parts) != 5 or not RELEASE_ID_RE.fullmatch(relative.parts[0])
+            or relative.parts[1:] != Path(WAKE_MODEL).parts or target.resolve() != target):
+        raise ReleaseError("wake reference must name an exact immutable release model")
+    require_regular_file(target, "referenced Amina model")
+    require_root_owned(target, Path(PRODUCTION_PREFIX))
+    if target.stat().st_nlink != 1:
+        raise ReleaseError("refusing hardlinked wake reference target")
+    _expect(target, AMINA_SHA256, AMINA_BYTES)
+    return target
+
+
+def artifact_path(release: Path, relative: str) -> Path:
+    path = release / relative
+    return wake_reference(release, path) if path.is_symlink() else path
+
+
+def manifest_model_paths(document: dict, prefix: Path) -> dict:
+    marker = document.get("installed_model_reference")
+    if marker is None:
+        if document.get("wake_model_reference") is not None:
+            raise ReleaseError("wake reference requires the installed model contract")
+        return {name: model_path(prefix, name) for name in ALLOWED_SHARED_MODELS}
+    if (marker != {"prefix": PRODUCTION_PREFIX, "mode": "installed-read-only"}
+            or document.get("runtime_prefix") != PRODUCTION_PREFIX
+            or document.get("production_identity_checked") is not True):
+        raise ReleaseError("invalid installed model reference contract")
+    return installed_model_paths()
+
+
 def _manifest_document(request: StageRequest, release: Path, model_paths: dict, python_version: str) -> dict:
     binary_identity = build_identity(release / "bin/firefly-demo")
     artifacts = []
     for relative in _rel_files(release):
         if relative in {"manifest.json", "manifest.sha256"}:
             continue
-        path = release / relative
+        path = artifact_path(release, relative)
         if path.name in SECRET_NAMES:
             raise ReleaseError(f"refusing to package {relative}")
         artifacts.append({
@@ -578,7 +651,7 @@ def _manifest_document(request: StageRequest, release: Path, model_paths: dict, 
             "shared": True,
             "distribution": "same-device-only" if relative in (RUNTIME_MODEL, ADMIN_MODEL) else "device-local",
         })
-    return {
+    document = {
         "format": 1,
         "milestone": "M18.6",
         "release_id": request.release_id,
@@ -638,6 +711,10 @@ def _manifest_document(request: StageRequest, release: Path, model_paths: dict, 
         },
         "activation": {"creates_current_symlink": False},
     }
+    if request.reuse_installed_models:
+        document["installed_model_reference"] = {"prefix": PRODUCTION_PREFIX, "mode": "installed-read-only"}
+        document["wake_model_reference"] = str(wake_reference(release, release / WAKE_MODEL))
+    return document
 
 
 def _write_manifest(release: Path, document: dict) -> None:
@@ -774,8 +851,18 @@ def assert_production_ownership(prefix: Path) -> None:
     for root in (prefix / "releases", prefix / "models"):
         for directory, dirs, files in os.walk(root, followlinks=False):
             for name in dirs + files:
-                info = (Path(directory) / name).lstat()
-                if info.st_uid != 0 or info.st_mode & 0o022:
+                path = Path(directory) / name
+                info = path.lstat()
+                if stat.S_ISLNK(info.st_mode):
+                    parts = path.relative_to(prefix / "releases").parts if root == prefix / "releases" else ()
+                    if not parts:
+                        raise ReleaseError("shared model symlinks are forbidden")
+                    release = prefix / "releases" / parts[0]
+                    document = load_manifest(release)
+                    if (document.get("installed_model_reference") != {"prefix": PRODUCTION_PREFIX, "mode": "installed-read-only"}
+                            or document.get("wake_model_reference") != str(wake_reference(release, path))):
+                        raise ReleaseError("production symlink requires the pinned wake contract")
+                if info.st_uid != 0 or (not stat.S_ISLNK(info.st_mode) and info.st_mode & 0o022):
                     raise ReleaseError("production artifacts must be root-owned without group/other write")
 
 
@@ -902,6 +989,14 @@ def verify_tree(prefix: Path, release_id: str, *, check_python: bool = True,
     if is_production_prefix(prefix):
         assert_production_ownership(prefix)
     document = load_manifest(release)
+    resolved_models = manifest_model_paths(document, prefix)
+    wake = release / WAKE_MODEL
+    if wake.is_symlink():
+        if (document.get("installed_model_reference") is None
+                or document.get("wake_model_reference") != str(wake_reference(release, wake))):
+            raise ReleaseError("unrecorded or mismatched wake reference")
+    elif document.get("wake_model_reference") is not None:
+        raise ReleaseError("wake reference manifest requires its exact symlink")
     assert_shared_model_manifest(document.get("shared_models"))
     expected = assert_artifact_manifest(document.get("artifacts"))
     present = set(_rel_files(release))
@@ -919,14 +1014,14 @@ def verify_tree(prefix: Path, release_id: str, *, check_python: bool = True,
             if relative not in allowed_dirs:
                 raise ReleaseError(f"unexpected release directory: {relative}")
     for relative, item in expected.items():
-        path = release / relative
+        path = artifact_path(release, relative)
         if path.name in SECRET_NAMES:
             raise ReleaseError(f"release contains {relative}")
         if sha256_file(path) != item["sha256"] or path.stat().st_size != item["bytes"]:
             raise ReleaseError(f"checksum mismatch: {relative}")
     for item in document["shared_models"]:
         relative = item["path"]
-        path = (model_paths or {}).get(relative, model_path(prefix, relative))
+        path = resolved_models[relative] if document.get("installed_model_reference") else (model_paths or {}).get(relative, resolved_models[relative])
         require_regular_file(path, item["path"])
         if sha256_file(path) != item["sha256"] or path.stat().st_size != item["bytes"]:
             raise ReleaseError(f"shared model checksum mismatch: {item['path']}")
@@ -952,7 +1047,7 @@ def verify_tree(prefix: Path, release_id: str, *, check_python: bool = True,
     for name in ("rooms", "devices", "actions", "bindings", "connections", "observations"):
         if seed.get(name, []) != []:
             raise ReleaseError(f"empty init-config contains {name}")
-    amina = release / "share/firefly/wake/amina-v3.tflite"
+    amina = artifact_path(release, WAKE_MODEL)
     if amina.stat().st_size != AMINA_BYTES or sha256_file(amina) != AMINA_SHA256:
         raise ReleaseError("Amina model bytes do not match the frozen artifact")
     if check_python:
@@ -1084,8 +1179,11 @@ def _model_inputs(request: StageRequest) -> dict:
     }
 
 
-def _path_bytes(path: Path) -> int:
+def _path_bytes(path: Path, *, release_root: Optional[Path] = None) -> int:
     if path.is_symlink():
+        if release_root is not None:
+            wake_reference(release_root, path)
+            return 0
         raise ReleaseError(f"refusing to size a symlink: {path}")
     if path.is_file():
         return path.stat().st_size
@@ -1093,6 +1191,9 @@ def _path_bytes(path: Path) -> int:
         total = 0
         for item in path.rglob("*"):
             if item.is_symlink():
+                if release_root is not None:
+                    wake_reference(release_root, item)
+                    continue
                 raise ReleaseError(f"refusing to size a symlink: {item}")
             if item.is_file():
                 total += item.stat().st_size
@@ -1166,7 +1267,17 @@ def stage_release(request: StageRequest) -> dict:
         raise ReleaseError("staging requires aarch64")
     _preflight(request)
     assert_model_tree(destination)
-    reused = _reused_models(request, destination)
+    if request.reuse_installed_models:
+        if (not request.production or request.runtime_prefix != PRODUCTION_PREFIX
+                or not RELEASE_ID_RE.fullmatch(request.wake_reference_release)):
+            raise ReleaseError("installed model reuse requires production prefix and an immutable wake release")
+        reused = installed_model_paths()
+        if _model_inputs(request) != reused:
+            raise ReleaseError("reuse inputs must be the exact installed model paths")
+    else:
+        if request.wake_reference_release:
+            raise ReleaseError("wake reference requires --reuse-installed-models")
+        reused = _reused_models(request, destination)
     target = assert_real_path(destination / "releases" / request.release_id)
     if target.exists():
         raise ReleaseError(f"release {request.release_id} already exists and will not be modified")
@@ -1193,6 +1304,17 @@ def stage_release(request: StageRequest) -> dict:
         release.mkdir(parents=True)
         subprocess.check_call(
             ["cmake", "--install", str(request.build_dir), "--prefix", str(release), "--component", "firefly-runtime"])
+        wake = release / WAKE_MODEL
+        if request.reuse_installed_models:
+            # The build must also avoid copying Amina; do not silently remove a copy.
+            if wake.exists() or wake.is_symlink():
+                raise ReleaseError("configure FIREFLY_WAKE_MODEL_REFERENCE before no-copy production staging")
+            reference = Path(PRODUCTION_PREFIX) / "releases" / request.wake_reference_release / WAKE_MODEL
+            wake.symlink_to(reference)
+            wake_reference(release, wake)
+        elif not wake.exists():
+            # Legacy/fixture staging from a reference-configured build remains relocatable.
+            _copy_regular(request.source_root / "assets/wake/amina-v3.tflite", wake)
         binary = release / "bin/firefly-demo"
         build_binary = request.build_dir / "firefly-demo"
         if not binary.is_file():
@@ -1252,7 +1374,8 @@ def stage_release(request: StageRequest) -> dict:
                     source_tree_fingerprint(request.source_root) != request.build_source or
                     admin_assets_fingerprint(request.build_dir) != document["build"]["admin_assets_sha256"]):
                 raise ReleaseError("production build inputs changed during staging; no release was published")
-        created_models = publish_shared_models(prefix, destination)
+        if not request.reuse_installed_models:
+            created_models = publish_shared_models(prefix, destination)
         target = destination / "releases" / request.release_id
         if target.exists():
             raise ReleaseError(f"release {request.release_id} appeared during staging")
@@ -1576,15 +1699,22 @@ def install_release(source_prefix: Path, destination: Path, release_id: str) -> 
     if is_production_prefix(destination):
         require_production_identity(document, source_prefix / "releases" / release_id)
     model_names = assert_shared_model_manifest(document.get("shared_models"))
+    sources = manifest_model_paths(document, source_prefix)
+    external = document.get("installed_model_reference") is not None
+    if external and destination != Path(PRODUCTION_PREFIX):
+        raise ReleaseError("installed model reference can only be installed into the fixed production prefix")
     assert_model_tree(destination)
-    needed = _path_bytes(source_prefix / "releases" / release_id)
+    needed = _path_bytes(source_prefix / "releases" / release_id,
+                         release_root=source_prefix / "releases" / release_id if external else None)
     for relative in model_names:
         existing = model_path(destination, relative)
-        source = model_path(source_prefix, relative)
+        source = sources[relative]
         if existing.exists() or existing.is_symlink():
             if existing.is_symlink() or not existing.is_file() or sha256_file(existing) != sha256_file(source):
                 raise ReleaseError(f"refusing to overwrite existing {existing}")
             continue
+        if external:
+            raise ReleaseError("installed shared model disappeared; refusing a replacement copy")
         needed += source.stat().st_size
     anchor = destination if destination.exists() else destination.parent
     _require_space(anchor, needed)
@@ -1596,16 +1726,19 @@ def install_release(source_prefix: Path, destination: Path, release_id: str) -> 
     try:
         incoming = Path(tempfile.mkdtemp(prefix=f".incoming-{release_id}-", dir=destination))
         release_copy = incoming / "releases" / release_id
-        shutil.copytree(source_prefix / "releases" / release_id, release_copy, symlinks=False)
+        shutil.copytree(source_prefix / "releases" / release_id, release_copy, symlinks=external)
         for relative in model_names:
             existing = model_path(destination, relative)
             if existing.is_file() and not existing.is_symlink():
                 continue
-            _copy_regular(model_path(source_prefix, relative), model_path(incoming, relative))
+            if external:
+                raise ReleaseError("installed shared model disappeared during install")
+            _copy_regular(sources[relative], model_path(incoming, relative))
         (destination / "releases").mkdir(parents=True, exist_ok=True)
         _publish_directory(release_copy, target)
         published_release = target
-        created_models = publish_shared_models(incoming, destination)
+        if not external:
+            created_models = publish_shared_models(incoming, destination)
         if install_after_models is not None:
             install_after_models(created_models)
         verify_tree(destination, release_id, check_python=False)
@@ -1714,6 +1847,8 @@ def _request_from_args(args: argparse.Namespace) -> StageRequest:
         commit=args.commit or "",
         runtime_prefix=args.runtime_prefix or "",
         production=args.production,
+        reuse_installed_models=args.reuse_installed_models,
+        wake_reference_release=args.wake_reference_release,
     )
 
 
@@ -1730,6 +1865,8 @@ def main(argv: list[str]) -> int:
     stage.add_argument("--commit", default="")
     stage.add_argument("--runtime-prefix", default="")
     stage.add_argument("--production", action="store_true")
+    stage.add_argument("--reuse-installed-models", action="store_true")
+    stage.add_argument("--wake-reference-release", default="")
     verify = sub.add_parser("verify")
     verify.add_argument("--destination", required=True)
     verify.add_argument("--release-id", required=True)
