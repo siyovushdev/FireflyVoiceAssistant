@@ -1,0 +1,794 @@
+{
+  "canonical_root": "/home/firefly/FireflyVoiceAssistantLinux-m19",
+  "source_sha256": "c04ce42abacfe771eaa480c694d751177720817cc8e3085a4d9fbe01bb1480f5",
+  "files": [
+    {
+      "path": "CMakeLists.txt",
+      "sha256": "ad2e6f6809eaef8bfeb3b51720cde92880765fcb0c673198c0bd32c260278666"
+    },
+    {
+      "path": "config/admin-templates.json",
+      "sha256": "eda2fdddf60676646aa1a2428baba546298916c4070187f8801705d13b1a82f2"
+    },
+    {
+      "path": "config/current-m4.json",
+      "sha256": "110e92d62e677eba03caec2bdc131bfec0203d7c462971af5c07636ccc4e1133"
+    },
+    {
+      "path": "config/demo/v1-kitchen.json",
+      "sha256": "fc371ce52fa04e3eee430637dbc989be51bd2539f0e70202f33b3e7025ecdec5"
+    },
+    {
+      "path": "config/empty-home.json",
+      "sha256": "36e6c9c3ffe311a2d0b84de69ce48cc0d84051ce1a424b37397de925c06af0be"
+    },
+    {
+      "path": "config/examples/esp32-http-binding.example.json",
+      "sha256": "06626db3e80663985f05e18a4c783f9ca8d9a51cbc3e7261874fe337fe9fc820"
+    },
+    {
+      "path": "config/schema-v1.json",
+      "sha256": "46a2127845607b906195eb986c050693ea10a153b1d41764ce2ed1bddc219f79"
+    },
+    {
+      "path": "config/schema-v2.json",
+      "sha256": "1e095444dafa6718138de60c1fa52ed4179d386006ceee5674d6926b976f985e"
+    },
+    {
+      "path": "include/firefly/CommandEngine.h",
+      "sha256": "daf76152681b818c499fe28d8f90cfb9277e1ddfcbb802df5c09512751dc73c9"
+    },
+    {
+      "path": "include/firefly/DeterministicParser.h",
+      "sha256": "6e753360fb6314ff58d3e0f06c25abbf0893102efc70e1988127db3f61ea44fd"
+    },
+    {
+      "path": "include/firefly/InputPolicy.h",
+      "sha256": "2173f3de31bc8c24ef8f8b44127d9d4ee0996b30c7e7790c32004d128c3c2e7a"
+    },
+    {
+      "path": "include/firefly/LlmEngine.h",
+      "sha256": "55b700c55b654fc1a8cf0a22cb89658840c0a88d474aafdde41e0736e164f365"
+    },
+    {
+      "path": "include/firefly/ParserRoomDomain.h",
+      "sha256": "a98427fad454c8e42cd88857769a441ca9973c8aaf27a81def57f556a98d64af"
+    },
+    {
+      "path": "include/firefly/RkllmEngine.h",
+      "sha256": "2c61b756a323ce1e95e143fa8cdadf2c8329026db3a18e8513d912df116df4e6"
+    },
+    {
+      "path": "include/firefly/SafetyGate.h",
+      "sha256": "1bc01f6459054c1a0afac605ea25d1e15dc9453e778967b7f22203e5c1f18603"
+    },
+    {
+      "path": "include/firefly/SetupResources.h",
+      "sha256": "ccaa89579857ddadadd58ce8c482a1b4ca4af0de11555851e881da4e4cd8e092"
+    },
+    {
+      "path": "include/firefly/actions/CompactV1Adapter.h",
+      "sha256": "b2bb9923116f3a8d4af37753cd87a7822a5a70e63d1cda4abebd15a7db4f7a85"
+    },
+    {
+      "path": "include/firefly/actions/GenericAction.h",
+      "sha256": "df29e6a0eaf1959a041976ae1bea624fa4b62e9867f9cbac446d3ba034f83eeb"
+    },
+    {
+      "path": "include/firefly/actions/ScalarJson.h",
+      "sha256": "06b84d365ce9372f2736b7d598411196f36e5da788750b62dc9dd9ebacc3d2ab"
+    },
+    {
+      "path": "include/firefly/admin/AdminCopilot.h",
+      "sha256": "5e4dd87c607f89f825fc3bc67ff37fbf820b37968bff653d773191fd4dcfc532"
+    },
+    {
+      "path": "include/firefly/admin/AdminDraft.h",
+      "sha256": "d9f491c3bf00728b03dc37fe9792a827b8de1e0167cd5aa67b6f064dc92fa0ab"
+    },
+    {
+      "path": "include/firefly/admin/AdminRequestPolicy.h",
+      "sha256": "63b022faff8c89226f465d975870f0783140f26d54c32bc830f60b87c1799f0a"
+    },
+    {
+      "path": "include/firefly/admin/AdminTranscriber.h",
+      "sha256": "155c88319d81a8d52f9df07483cd53c65462bea0eacec41cdab31ec9024346ab"
+    },
+    {
+      "path": "include/firefly/admin/Api.h",
+      "sha256": "8c2a27f75bd5156598d67b4bf0eae8fe1c886546c160d765e28df5ebac222193"
+    },
+    {
+      "path": "include/firefly/admin/HealthModel.h",
+      "sha256": "13b7dbfb5064a915ec0415a6abf60a21507a18744765892d90ae53e4256de70d"
+    },
+    {
+      "path": "include/firefly/admin/NetworkPolicy.h",
+      "sha256": "8c7683093629fae078bd7ad0bfa1f6baa993ddfc341330e59b325d68d01cac8e"
+    },
+    {
+      "path": "include/firefly/admin/RuntimeGeneration.h",
+      "sha256": "f1e636965382057e43e55402a2f3f53be36b41119ab1dc7771015527c9aa04c5"
+    },
+    {
+      "path": "include/firefly/admin/RuntimeWorker.h",
+      "sha256": "e8940165f6bec8003a6b358160fae4c9c281826b28a5e075bae90f9b37aeed3d"
+    },
+    {
+      "path": "include/firefly/config/ConfigLoader.h",
+      "sha256": "8de75ef6d687c971c467031752fe19abf2b179332c0aff285108b8ebf9a327a1"
+    },
+    {
+      "path": "include/firefly/config/ConfigStore.h",
+      "sha256": "1ee349337dfb7dc68d4bd32d318f7017fcbe0121126806dfdcf714012b3366c1"
+    },
+    {
+      "path": "include/firefly/config/ConfigValidator.h",
+      "sha256": "1f85b3a5a05b7037b619a1d8bca02dc337da1d029dac9fee1fbab7d54b78cc4c"
+    },
+    {
+      "path": "include/firefly/config/Configuration.h",
+      "sha256": "f78c728700b0ed967388c0525135fd3d8f6f4e404009961cb93c86a47a37a558"
+    },
+    {
+      "path": "include/firefly/config/Connectivity.h",
+      "sha256": "ce2c0c04513d2f7ea7d013b13dd443a8ce90dd0e69484943f5244a535f609d8d"
+    },
+    {
+      "path": "include/firefly/config/LanguageProfile.h",
+      "sha256": "7dee3aa80885291ea3a89c7469c2948e2190e7e1a319833dc2dfbce10da4b235"
+    },
+    {
+      "path": "include/firefly/execution/ActionExecutor.h",
+      "sha256": "c7c4335b8af76a5274c7fd5abe2c7b162ead01ce7f58217730c46a36fde53744"
+    },
+    {
+      "path": "include/firefly/execution/DeviceStateStore.h",
+      "sha256": "45d2d4295888aa5c0ddadd627ea023bcbc56c864053ae981fb3180b0ef2aadce"
+    },
+    {
+      "path": "include/firefly/execution/HardwareExecutor.h",
+      "sha256": "890912de5d78c420669f2871b8a526b3e8220a01bfcbfe3f39cec19542b5b820"
+    },
+    {
+      "path": "include/firefly/execution/HttpHardwareExecutor.h",
+      "sha256": "727b238b03903f536788e246f357543fc2388dc9024c83ffee99452d06a2dfce"
+    },
+    {
+      "path": "include/firefly/language/Integer.h",
+      "sha256": "22f7d5575ee56e6a91851f8110bf550effa4af2f6afe1c241935c5699dedace7"
+    },
+    {
+      "path": "include/firefly/language/LanguageIndex.h",
+      "sha256": "7ec634120b12080d052d2f49af08c4c377d4a62f56845ffe1c6c4c529b5b7d94"
+    },
+    {
+      "path": "include/firefly/legacy/Action.h",
+      "sha256": "b16b7784edf917eaa1e7190dd769ae17f7bb7d94706d87de18e0caa01c814c8c"
+    },
+    {
+      "path": "include/firefly/legacy/ActionValidator.h",
+      "sha256": "aec795dd9e0272806f844b997059dfcb61cf64400c90c1294e496c8e87e547ac"
+    },
+    {
+      "path": "include/firefly/llm/CompactActionDecoder.h",
+      "sha256": "780436ba7f0667068ffbe65cb8b2b00ee5ecda0a291b329ca0cf232f757afed4"
+    },
+    {
+      "path": "include/firefly/llm/LlmContext.h",
+      "sha256": "e25dbe32130824c07f959512fbd84dbe88c553bfef11bed9e143e3ff18f19df9"
+    },
+    {
+      "path": "include/firefly/llm/StructuredOutput.h",
+      "sha256": "3fa9afdd4879794029d1a02415d3a6b5b9ee147ec9230bfc857153785894782c"
+    },
+    {
+      "path": "include/firefly/runtime/DomainView.h",
+      "sha256": "37fd25dc34c89d23f86c352f76f9f3be462df72509c546a96a38e8cbd4722d6d"
+    },
+    {
+      "path": "include/firefly/runtime/RuntimeConfig.h",
+      "sha256": "f650ec9ec17d47e0ecb97edfbb81e4e92efd0bab8571412eb0cf8e643b196926"
+    },
+    {
+      "path": "include/firefly/voice/AlsaAudioSource.h",
+      "sha256": "8e36108dc6b7fa8d2aef3c3751ae076b4af188dfc7cc2ece240d12457e989b70"
+    },
+    {
+      "path": "include/firefly/voice/AminaWakeDetector.h",
+      "sha256": "b0b522a5446a926a2bad924d2a93e5df2105eade41dda3eb4cab0b89119311b0"
+    },
+    {
+      "path": "include/firefly/voice/PcmAudio.h",
+      "sha256": "d4b60409d582e970ea59e54a6af3ef9d30aaaf7c2927817a0315cf98471def55"
+    },
+    {
+      "path": "include/firefly/voice/SherpaSpeech.h",
+      "sha256": "c4b1d04ff67071621d806d16d8b338e4fa836bedd4af652ca7aeb84828ff785a"
+    },
+    {
+      "path": "include/firefly/voice/Speech.h",
+      "sha256": "01ca7f17851e19425d52a4ee7dc759cba9d00cb72f5e0eff4f029bda0f49a6c9"
+    },
+    {
+      "path": "include/firefly/voice/VoiceLoop.h",
+      "sha256": "76896b20a158261ee5ddfc1e392ebf16c0d7268e0883f8180510eef2c952a3fb"
+    },
+    {
+      "path": "include/firefly/voice/VoiceProcessor.h",
+      "sha256": "9d0ae11557ba37539281d30f605e7568b83771249b26ec6fe919bfc58bc57a4b"
+    },
+    {
+      "path": "include/firefly/voice/VoiceRecovery.h",
+      "sha256": "0e451f38127559ab5d027fb13f67208f177e9b1577d823a9b8ec06756e9de3d4"
+    },
+    {
+      "path": "include/firefly/voice/VoiceSegmenter.h",
+      "sha256": "73fe04ca21847a142898f62fee061336efd3d5722c2b3947469dd95a13eee98e"
+    },
+    {
+      "path": "include/firefly/voice/WakeAcknowledgement.h",
+      "sha256": "d45023aaf31f3d78df9f3dc35608a3decf428402878df65b2ba8d011e17841c1"
+    },
+    {
+      "path": "include/firefly/voice/WakeDetector.h",
+      "sha256": "defc4726ed42222b1e5cb931ec70dc013e4969c6d3472b4c3b1af467b50cb8ae"
+    },
+    {
+      "path": "include/firefly/voice/WakePcmRing.h",
+      "sha256": "86ae05459da151ab928012bfa702e23713b1bc90277665eeab844ee718fb3f04"
+    },
+    {
+      "path": "include/firefly/voice/WakeVoiceLoop.h",
+      "sha256": "15322e50876af36d55460caef738a2c06f8905932463a25c7220167f2c5b9b26"
+    },
+    {
+      "path": "scripts/package-admin-v2.py",
+      "sha256": "602a8f7381963350696e4286c46c6919c159a332473f92153abf770de19f4080"
+    },
+    {
+      "path": "src/AlsaAudioSource.cpp",
+      "sha256": "fcde9f560dbca8a0a289cdd3393a5f7f48bf4cb845cc0012793834466840cd0f"
+    },
+    {
+      "path": "src/AlsaWakeAcknowledgement.cpp",
+      "sha256": "bc18a8526e870d4f961c3b909ba231f44eccee2fb01529d109335dfec801c588"
+    },
+    {
+      "path": "src/AminaWakeDetector.cpp",
+      "sha256": "bf69d35ef782d06fec759f704850aa847a4892a245866cd7963f36c26f2f0819"
+    },
+    {
+      "path": "src/CliSupport.h",
+      "sha256": "12150db78611ca332367b6e07b3852bbb9a0f2518831566579faa4ddcb62a2c7"
+    },
+    {
+      "path": "src/CommandEngine.cpp",
+      "sha256": "a2f2fba7a03cb61a05b84d3c862227f6eb3cfaf56b9d5d08d1fa055810e0a7ac"
+    },
+    {
+      "path": "src/DeterministicParser.cpp",
+      "sha256": "c422f0aada4abf454467beef90a95b4c94e432450139bcad20b7a13064a0ae2b"
+    },
+    {
+      "path": "src/InputPolicy.cpp",
+      "sha256": "10f8eba395f80ed52a5500d6085102191fa9a500e18922c5bb6ee623079a4b6f"
+    },
+    {
+      "path": "src/PcmAudio.cpp",
+      "sha256": "934d15481caba0f9a32ba84b4478e7150d0daed22d68997319aef70decd92ce0"
+    },
+    {
+      "path": "src/RegressionMain.cpp",
+      "sha256": "838b0f9e34a2da89427b13938084711877f8921673e6bc35a2c6ce54df9c7516"
+    },
+    {
+      "path": "src/RkllmEngine.cpp",
+      "sha256": "970e799ef5d2909b22d4f3ed428b60078485de112b8fef6bf111da0289aced3f"
+    },
+    {
+      "path": "src/SafetyGate.cpp",
+      "sha256": "15b9d57aa18809b745decdf641342d1f66a167b52573f85b14e9b50a69ca6a50"
+    },
+    {
+      "path": "src/SetupResources.cpp",
+      "sha256": "77b8cefee5de0c520617df6134e0c0386657a8adc7963e5e309bc1944d409f50"
+    },
+    {
+      "path": "src/SherpaSpeech.cpp",
+      "sha256": "e58412f3c8cbf9b7ea4f85c06aa31d06ed079c941ea42cb6bc5923dd98553d97"
+    },
+    {
+      "path": "src/Text.cpp",
+      "sha256": "000369774761c8b078eb883bb9b8f03acd3233323f8e67b5fdd133717f827513"
+    },
+    {
+      "path": "src/Text.h",
+      "sha256": "1542fefbc697456726e868be3f8cb6593a04a74d650e64f45a1b17b2a8324b7b"
+    },
+    {
+      "path": "src/VoiceLoop.cpp",
+      "sha256": "25c443d50dac65d08fb969cab23ebb3b8e69ee8854636489a01eb6805a04dbe0"
+    },
+    {
+      "path": "src/VoiceMode.cpp",
+      "sha256": "6ecdea8de650151a9e7e0fad9dd15328bc6b9558a4c38a3975465f36014bc72d"
+    },
+    {
+      "path": "src/VoiceMode.h",
+      "sha256": "e4f83dd6698c74b93e50a6f5f5d7b2732f3667a9ab87d898656481e4d7e7a89e"
+    },
+    {
+      "path": "src/VoiceProcessor.cpp",
+      "sha256": "b6259bf0bfaee5d1e9a61125bdb767a2fbcfa5ef292f93f7147cea1496589880"
+    },
+    {
+      "path": "src/VoiceRecovery.cpp",
+      "sha256": "8eb86bf54517873480d6205a571bd2f3a3b9a63a222de75c6da18c73733d9f53"
+    },
+    {
+      "path": "src/VoiceSegmenter.cpp",
+      "sha256": "2bb3ea35985242d623585021d9dc8dbc6764589d6289d185287ee554d0763e1a"
+    },
+    {
+      "path": "src/WakeAcknowledgement.cpp",
+      "sha256": "7bfdcaf70b6f6a00cfab4784f6d4889fe223c9c4122ddc20ffe3601a4e812f43"
+    },
+    {
+      "path": "src/WakeVoiceLoop.cpp",
+      "sha256": "55942ee233bdbdfd4fe7bd20f228c67c29c8b3c34d379206ff4de886c78b5620"
+    },
+    {
+      "path": "src/actions/CMakeLists.txt",
+      "sha256": "c39ed2d8a9c082489a61bad22fcdd4c3f0e735e4f6087648808bc6025cc1918b"
+    },
+    {
+      "path": "src/actions/CompactV1Adapter.cpp",
+      "sha256": "6f8242962e3ad10d350933ae0ad6ed0736c231d52cac3a31ed5a2889c78cb3f8"
+    },
+    {
+      "path": "src/actions/GenericAction.cpp",
+      "sha256": "a2c775a7324575d3ac655185e4628ee9185fdde59816b882dc0794c6cfaeda05"
+    },
+    {
+      "path": "src/admin/AdminBuild.h.in",
+      "sha256": "8c73a6c4d93faf724d5d9750dea5412fb3c086ed22d06a5641cbfb7a3e1ddf06"
+    },
+    {
+      "path": "src/admin/AdminCopilot.cpp",
+      "sha256": "5d42592eafdedb2a60506e39ddc32ba1698b812a005b450be60a84ee0028a48b"
+    },
+    {
+      "path": "src/admin/AdminDraft.cpp",
+      "sha256": "61001e28b936dcc8f683e00630f579e45ce013606c2da5036bfcbc89a38239d0"
+    },
+    {
+      "path": "src/admin/AdminLanguage.cpp",
+      "sha256": "5092b319c74d294e2c97cb13129be8b5fcb7b8335d00e36d0dabff4da267c8f2"
+    },
+    {
+      "path": "src/admin/AdminPlan.cpp",
+      "sha256": "e398fd0aeb11a1e8ba1379d1c7319efec92c6710f34acb8689cea3e0dc5725f1"
+    },
+    {
+      "path": "src/admin/AdminTemplates.h.in",
+      "sha256": "aa986aa196ae1dd34ffbf171ebdd509322790e8377228866e04b9fd41ed813be"
+    },
+    {
+      "path": "src/admin/AdminTranscriber.cpp",
+      "sha256": "80bfc171a975cf7d7d7530c55b1c09c1e2df024356d65ff785da353fd9dca15e"
+    },
+    {
+      "path": "src/admin/Api.cpp",
+      "sha256": "8aa64446d864505b58ef1131fb38fe702ab28e1fcc3db4bc9c427ba917b9c2bb"
+    },
+    {
+      "path": "src/admin/CMakeLists.txt",
+      "sha256": "8a2501ee4fb740784ed3520ecdf444eaa334c2d8938538b5065810f5f0356949"
+    },
+    {
+      "path": "src/admin/DemoMain.cpp",
+      "sha256": "1f2cb3751f15e2a473ad77606de042e0be31add8ac217fbd7ee3b2b73becda54"
+    },
+    {
+      "path": "src/admin/DialogueOperations.h",
+      "sha256": "3cc27d68067dc904f0cfad4cedecf6db390a5b0d21f29ea4324419c7573e9ba3"
+    },
+    {
+      "path": "src/admin/HealthModel.cpp",
+      "sha256": "9b214d0272e5cc2985f6574fd49abec4d0d459d8545c73adbcefafcd4568c963"
+    },
+    {
+      "path": "src/admin/HttpServer.cpp",
+      "sha256": "fddd3a45a9cc88485b478b4e775539aa2a2b266cd56a2688bb4a422cdaaca369"
+    },
+    {
+      "path": "src/admin/HttpServer.h",
+      "sha256": "7858ff7aa8b6dac45d28fe810030edd4b2508c0e1be44fcf21d3a31506839083"
+    },
+    {
+      "path": "src/admin/Ipc.cpp",
+      "sha256": "7393c67a78f6ab1138e2d4cfe77e7e00de649b5fbd3f031606b0d32e0b2aa87c"
+    },
+    {
+      "path": "src/admin/Ipc.h",
+      "sha256": "2a5d422ee2e2a71c02fbbdda047c1f87281b19889780028da72f063c9136ad7d"
+    },
+    {
+      "path": "src/admin/Json.h",
+      "sha256": "33079c0185163c9381e3092b5bde2a9067193c3222cb333cabed955164042990"
+    },
+    {
+      "path": "src/admin/Main.cpp",
+      "sha256": "fb5ecc4dbd8bfcd81aa95171f4491685a66ea6600b42dbce74361f280b3c008a"
+    },
+    {
+      "path": "src/admin/NetworkPolicy.cpp",
+      "sha256": "50ff60e3ab7485914b7174eb6066118a58195e369a33f045d551655db6011dc9"
+    },
+    {
+      "path": "src/admin/RuntimeGeneration.cpp",
+      "sha256": "291bb3673b9e46c5fedcdf50c8753bb370997f45b57ac5e20b8eadbc27839e35"
+    },
+    {
+      "path": "src/admin/RuntimeModel.h",
+      "sha256": "7f4f4f6d5dfbb745779a9df94a12415b1b7f747bed2221cf4d6cb65207d8a971"
+    },
+    {
+      "path": "src/admin/RuntimeWorker.cpp",
+      "sha256": "bbe033a01b4363c3ecdbca670f84912686bb7691a1db2a23818e194238f0a93c"
+    },
+    {
+      "path": "src/admin/SetupSession.h",
+      "sha256": "cec48c3c8d1067f84b571ca143935355ec60b32dcf7d3e329146f286129aa375"
+    },
+    {
+      "path": "src/admin/WorkerMain.cpp",
+      "sha256": "fe40594c81df054f7e2933e1ed3f9f4a2db062c1d858f6285155b303fb91e8ae"
+    },
+    {
+      "path": "src/admin/frontend/index.html",
+      "sha256": "dc329557cfe61344884bd051751f5f0b6aa1050500a3479532bff94a6c801b90"
+    },
+    {
+      "path": "src/admin/frontend/package-lock.json",
+      "sha256": "b5333890f89cc8324bfd4abfc6b19124c32a1b79a9ac3d13c8538259238ff864"
+    },
+    {
+      "path": "src/admin/frontend/package.json",
+      "sha256": "47fd9d0507be2827486187e5467139d2359bd717959e9850ba1f68493fa699d1"
+    },
+    {
+      "path": "src/admin/frontend/src/App.vue",
+      "sha256": "39f79abe178aca346cdd9245dda126d8fe586d3ca4f07b1e05c4d1728885ce32"
+    },
+    {
+      "path": "src/admin/frontend/src/adapters/catalog.ts",
+      "sha256": "bae922f6d43a3052f1431ed3db13bbd0ca1edfc10e8e9a9e007d78da8624d2ee"
+    },
+    {
+      "path": "src/admin/frontend/src/adapters/commands.ts",
+      "sha256": "e5a7ef107b17efddccbdd00a246e9ce8993390bff7561d3e42119eb58210e764"
+    },
+    {
+      "path": "src/admin/frontend/src/adapters/editing.ts",
+      "sha256": "e9a919a107f0be6a2194dc2ea8dd12be070c6d98d2870b3d294cd4bd833b4b5f"
+    },
+    {
+      "path": "src/admin/frontend/src/adapters/manualValidation.ts",
+      "sha256": "532fde031ba8f0f308112a2a5d941295868bcc9441801faae49fe8fae3e670a3"
+    },
+    {
+      "path": "src/admin/frontend/src/adapters/setup.ts",
+      "sha256": "8f36b1e6eb195fc7a1eb175b480a2573611499718785ceae652d291e3b948530"
+    },
+    {
+      "path": "src/admin/frontend/src/api/admin.ts",
+      "sha256": "d7c207c96242363a631e27bb8399edc444516b0b6ab28bf38c2974038d677238"
+    },
+    {
+      "path": "src/admin/frontend/src/api/client.ts",
+      "sha256": "fd95b1f3b7a35c95cf6b1594d4a14bcdb599e7b1e4b9b02e4be18266da7b7c53"
+    },
+    {
+      "path": "src/admin/frontend/src/api/setup.ts",
+      "sha256": "4d56b1efb7d723f45eb44b114183e1370c3559a95c4a8830e3dea3a31d8a14ea"
+    },
+    {
+      "path": "src/admin/frontend/src/api/transport.ts",
+      "sha256": "33ce4223973b3d6ebe3f68ffa20a385c784f57392d2bd8e2a2bfe809803d7a45"
+    },
+    {
+      "path": "src/admin/frontend/src/components/AdminVoice.vue",
+      "sha256": "7904cc9c01ddc5b20eadee51244e8f96f781547d639f0d4d449ae05768842bab"
+    },
+    {
+      "path": "src/admin/frontend/src/components/ConnectionWizard.vue",
+      "sha256": "356fd7b9a736556c7c71a485adb9106b4dda7ab138d175291b9c20392e7073f5"
+    },
+    {
+      "path": "src/admin/frontend/src/components/ContextualAssist.vue",
+      "sha256": "a96ebbf6e7d773f2684caed6687388e7a32afc5a305dd8bca293c0439fe7a4e2"
+    },
+    {
+      "path": "src/admin/frontend/src/components/DeviceCard.vue",
+      "sha256": "4a57a05126aa097fa1c2c03a64d4a3efa72738a4bbd0e61c2a40d10c4334f585"
+    },
+    {
+      "path": "src/admin/frontend/src/components/DeviceControls.vue",
+      "sha256": "8c3cdfc3e7580eaebfede64686046ff828a5a6fcd15bd06a6a866b0ad2e2f741"
+    },
+    {
+      "path": "src/admin/frontend/src/components/EntityEditor.vue",
+      "sha256": "5a61776542523f83d7472e9fb54fc7ab0031cc3a698db2798b27412ae414d63e"
+    },
+    {
+      "path": "src/admin/frontend/src/components/ForegroundStatus.vue",
+      "sha256": "f09f48a4e14255b68edc58dcd07790afb9356c991af0c26604ee6a70c4455abe"
+    },
+    {
+      "path": "src/admin/frontend/src/components/HttpMappingEditor.vue",
+      "sha256": "2a00973d7eb99a589e284eb5e30f31483ea114d4d0b344890dad31b00723a33a"
+    },
+    {
+      "path": "src/admin/frontend/src/components/PropertyEvidence.vue",
+      "sha256": "a24dc069630d9df0d6cfe739af976b885f844e5101b07387f8410935d59f19dd"
+    },
+    {
+      "path": "src/admin/frontend/src/components/TaskPanel.vue",
+      "sha256": "888c559835f9e7da158a597c84c3c26c8ea96745116b7b88b679b7152907cbe0"
+    },
+    {
+      "path": "src/admin/frontend/src/components/forms/FieldSchema.vue",
+      "sha256": "a851c78ef2d0040a8994ba2c6ab36b2422bbc6a39b1e287cab974fbddf15f13c"
+    },
+    {
+      "path": "src/admin/frontend/src/components/forms/LineListInput.vue",
+      "sha256": "8b24770e2b938fef1cf1049f56f93a662cac79ab75e95f291e2600c3006e24a1"
+    },
+    {
+      "path": "src/admin/frontend/src/components/forms/ScalarInput.vue",
+      "sha256": "0793233165069c3ce85b9b2773b0505fe0f6925bd01aed875714069fb87439f4"
+    },
+    {
+      "path": "src/admin/frontend/src/components/forms/TaskErrors.vue",
+      "sha256": "32fd333b5caae43534882c12dd5532ea321576b2b53c42b8aa78245cdfb572a5"
+    },
+    {
+      "path": "src/admin/frontend/src/composables/useRefresh.ts",
+      "sha256": "53b188b4dcf5a60b9d6ec8121dec55719808b2275222818266abe660395c8ef6"
+    },
+    {
+      "path": "src/admin/frontend/src/main.ts",
+      "sha256": "2145bd2e39af5c9e45245a2995cc42e650f042aa7cb3be86927bae494edb6c19"
+    },
+    {
+      "path": "src/admin/frontend/src/router/index.ts",
+      "sha256": "e11b1a0a4e682883a908d4def2236b233921e10513209c4b94cb3141ed14330e"
+    },
+    {
+      "path": "src/admin/frontend/src/stores/foreground.ts",
+      "sha256": "8ecfc2e8d094608612478641d9bcb94e19cd12d6d47cecab9d4276892fa912cd"
+    },
+    {
+      "path": "src/admin/frontend/src/stores/manual.ts",
+      "sha256": "d83c55626a01f2dddc7134359e5e217b7cedc48bb19e31e6326e0e266ca9b0ed"
+    },
+    {
+      "path": "src/admin/frontend/src/stores/setup.ts",
+      "sha256": "05703decf29c85e2538240b1bdcd632ea0d7977d47ecff6ab89566781a3f92c5"
+    },
+    {
+      "path": "src/admin/frontend/src/stores/system.ts",
+      "sha256": "3ab3c06f24d9ce122e3a8e6658443ce448f0bb5e3b7d8ec071d208b1c2ec401e"
+    },
+    {
+      "path": "src/admin/frontend/src/styles/base.css",
+      "sha256": "041064b35a35aed847ac171d10faae1e48ff8b7f7b7548ba735eec08975a179b"
+    },
+    {
+      "path": "src/admin/frontend/src/styles/mark.svg",
+      "sha256": "a36875b017cf7c9b3d306b916fd0b7ed15936f3f4daf65d8fc403a2a44e8f0ba"
+    },
+    {
+      "path": "src/admin/frontend/src/types/wire.ts",
+      "sha256": "ae33d00c15f737680b9a6ff7ee915f5978627af63f459e95ca90de3d8f1a80ed"
+    },
+    {
+      "path": "src/admin/frontend/src/views/AdvancedView.vue",
+      "sha256": "f0345908fc7344a65fa533e57d43c74e368d9a772c89b24244c3dea17e5d419a"
+    },
+    {
+      "path": "src/admin/frontend/src/views/ConnectionsView.vue",
+      "sha256": "3c969b5261ba028162300c091d3cdd078c2c3440d2266ee00298bff28a88060f"
+    },
+    {
+      "path": "src/admin/frontend/src/views/DeviceDetailView.vue",
+      "sha256": "c1f88ffe01574caa5c15b0d707ef1158ce53e23389b84c6ed3adcd38d9109dad"
+    },
+    {
+      "path": "src/admin/frontend/src/views/DevicesView.vue",
+      "sha256": "697c54c52cce05ac6bd5eb7a6f6282a285440d45dd759aaf890fc1b5e574295f"
+    },
+    {
+      "path": "src/admin/frontend/src/views/DiagnosticsView.vue",
+      "sha256": "b990c6e9940e6146f3d7a9bb6243044455cd9b22754193080e7f68ded2755cb2"
+    },
+    {
+      "path": "src/admin/frontend/src/views/OverviewView.vue",
+      "sha256": "19b455a4ae855f36f9af52374ce34077d2aa76cc198dcbf5a6fa2d4fbe0a6708"
+    },
+    {
+      "path": "src/admin/frontend/src/views/PlaygroundView.vue",
+      "sha256": "0505ef634a528e6b193096efccb5c4d9d2cecf7d56f219bf7c19a3a4cb6172f4"
+    },
+    {
+      "path": "src/admin/frontend/src/views/SetupView.vue",
+      "sha256": "3f0b3b359a96566aa06938cb54743f9e6956940757f379d54acdfdf96e39b79f"
+    },
+    {
+      "path": "src/admin/frontend/src/views/StatesView.vue",
+      "sha256": "952b35bdd0e486e5abdc6686bc678c777a36ec01ee6518828eb969f7a38b9e92"
+    },
+    {
+      "path": "src/admin/frontend/src/views/ZonesView.vue",
+      "sha256": "4f7be7bde6266aa3ecbc8a423f6a5b2fc31d2af2c2aa7da59d7d72a5f38aba04"
+    },
+    {
+      "path": "src/admin/frontend/tsconfig.json",
+      "sha256": "bb2442008a471aa0c4be6bb21bf7e62cf698a3168cbf06e8d6d83ef4448cc479"
+    },
+    {
+      "path": "src/admin/frontend/tsconfig.tests.json",
+      "sha256": "dcc4408310437f614e3a2ac1c2ecd3824b76505f7934e883f0df9e3bb1b7fab4"
+    },
+    {
+      "path": "src/admin/frontend/vite.config.ts",
+      "sha256": "9b304adc29a9e37146a1087c0b407c87b8f687ee882b31d5d9ad2aab17606fe7"
+    },
+    {
+      "path": "src/config/CMakeLists.txt",
+      "sha256": "88d773f2d4735ca0478cce1c365cc947c183329d38da28b232ba904c95f170ba"
+    },
+    {
+      "path": "src/config/ConfigLoader.cpp",
+      "sha256": "d1f1015cf4ac0e1853c285040bcf1e24ba126c496e7c69e3ad394704b07c165b"
+    },
+    {
+      "path": "src/config/ConfigMain.cpp",
+      "sha256": "434b2db981c504719e0182f82cce0c4ee92a03df5ddb36546f38d570ebe14f8f"
+    },
+    {
+      "path": "src/config/ConfigSchema.h.in",
+      "sha256": "fae24439f6fcf6af5353d6940a1cc2af60a505ace1040d00c905db4ae3f8d1b6"
+    },
+    {
+      "path": "src/config/ConfigStore.cpp",
+      "sha256": "781a8fb7a66a0768e1f721536fb0d358e79a13a4a7925015e7d6086b232db57b"
+    },
+    {
+      "path": "src/config/ConfigValidator.cpp",
+      "sha256": "a1241f2c1a6bd96b3617bae249b44ed5845a50cfcbb8f30405a4584d880f7060"
+    },
+    {
+      "path": "src/config/Connectivity.cpp",
+      "sha256": "7a660aaa643dcf636fb56294082c67c592c52e2ef77d73ddf3db9c33b8fdfabd"
+    },
+    {
+      "path": "src/config/JsonInternal.h",
+      "sha256": "539db5c12b3af4f274009df61df0031e366dd3ea37774dabd9caeb0735e8e5a3"
+    },
+    {
+      "path": "src/config/LanguageProfile.cpp",
+      "sha256": "ba1016921656bdc2b2e881314c3719ca6b5fc20727a177c5fff0fbad94f22a4f"
+    },
+    {
+      "path": "src/config/Platform.cpp",
+      "sha256": "ae36c713dbb23ff0ed96946084b81ba51089bc2c7bb94c5360c8ae7c591b8979"
+    },
+    {
+      "path": "src/config/Platform.h",
+      "sha256": "0566682f95014b2f2d9343a6b8d4172b188146551030d18737636fb3386e7813"
+    },
+    {
+      "path": "src/config/TypedSchema.cpp",
+      "sha256": "0f3537d9b5cb4511856b209d53809345c228c22d11fff2f1b5dcbe423a8776e1"
+    },
+    {
+      "path": "src/execution/BindingResolver.cpp",
+      "sha256": "41cd0cc9b0f1f27f34e0e90b98794d936f6efd386b0beb427f1729c49cb7f7bb"
+    },
+    {
+      "path": "src/execution/BoundDeviceExecutor.cpp",
+      "sha256": "8cd7ebb1c9d0741ad7bd4fb42ab35f70ab347e9dc253dc835e2cb1f4dfce107e"
+    },
+    {
+      "path": "src/execution/DeviceStateStore.cpp",
+      "sha256": "b60c506d393f3993aac2e85371ca504ef489d4dd7401c942a78e38341ebb4d8f"
+    },
+    {
+      "path": "src/execution/HttpHardwareExecutor.cpp",
+      "sha256": "de1225df1067ca8ba52571a2b066e064897c87f67375ecf2d1df3ea6ae1bf4e0"
+    },
+    {
+      "path": "src/execution/MockDeviceExecutor.cpp",
+      "sha256": "fd7ae58d69d8b11c396d3f927ec1ea5008225d8a69122104ff0722bf8d3425a7"
+    },
+    {
+      "path": "src/language/Integer.cpp",
+      "sha256": "905aa3433c83528ec71962555f5108d5d95a950a62e58cf86ce6aee4f60edbd9"
+    },
+    {
+      "path": "src/language/LanguageIndex.cpp",
+      "sha256": "635f3b85765a5775f073e7faa2406816c5eee043dc97e993179c6ab5fd2c4422"
+    },
+    {
+      "path": "src/legacy/Action.cpp",
+      "sha256": "6d63969a89b80c4b3a91f0d64b823eaaa90fb31e5dddc7d535028f1a34c46a01"
+    },
+    {
+      "path": "src/legacy/ActionValidator.cpp",
+      "sha256": "55996a3eae4a0fae22b22647a66e3cf3ed8f4b1ae4cf6fb69ac17c7654b47f68"
+    },
+    {
+      "path": "src/llm/CMakeLists.txt",
+      "sha256": "b965bc5c6891c0333a2803fec6a45d1cc9069e39bbd72dcfa6c92191097259da"
+    },
+    {
+      "path": "src/llm/CompactActionDecoder.cpp",
+      "sha256": "4cfd504577fc2f7a00c9c8c204512d6f67ac165ce33433ac0e5d0a7080bbd8a4"
+    },
+    {
+      "path": "src/llm/ContextMain.cpp",
+      "sha256": "becea04d1b0cea6c1e4b3fe44f155eeee12c36b54b3e051919d4a06ee72c9405"
+    },
+    {
+      "path": "src/llm/LlmContext.cpp",
+      "sha256": "d39c34614723a27a3bf45f30a2bc3c5f3773524013fdea578d1949c72923076a"
+    },
+    {
+      "path": "src/llm/StructuredOutput.cpp",
+      "sha256": "dae02bfe2d0e632e67026a9659bef36baefbbbebd3999f739836326653b4370f"
+    },
+    {
+      "path": "src/main.cpp",
+      "sha256": "6466bf0afa006690ac1fa6184622ea4fc566a0ff8b8e88668523761bda20e149"
+    },
+    {
+      "path": "src/runtime/CMakeLists.txt",
+      "sha256": "4c90ef5c4375d0cf9f5508791ae827761733dd03ba734047d99f576e34fb967b"
+    },
+    {
+      "path": "src/runtime/DomainView.cpp",
+      "sha256": "575a853477ad45ea6ec2c565f4137dd18ebbadfa67805969ccfb5da82eaa4574"
+    },
+    {
+      "path": "src/runtime/EntityResolver.cpp",
+      "sha256": "024dc921d21623de1bb99aba845a39d4b4761ec31b93aca0df99eb3dc8cd27f0"
+    },
+    {
+      "path": "src/runtime/RuntimeConfig.cpp",
+      "sha256": "eac18b3ab335845bd3c0c41809e816a72a486685e7f278d2275c826659bcb709"
+    },
+    {
+      "path": "src/runtime/RuntimeConfigDefaults.h.in",
+      "sha256": "b9a2f39db673997b46900e874e29a527e87ee7f243e556fc0de6dd507a4d81a9"
+    },
+    {
+      "path": "third_party/nlohmann/LICENSE.MIT",
+      "sha256": "46a65cffd1ea955132d95a8dd921640714a8d6b537d2e4e482d31145ae95b603"
+    },
+    {
+      "path": "third_party/nlohmann/README.md",
+      "sha256": "be220398dba524c4e907d2bd765ee56d8af9199614184a6d915b36a71c7c2498"
+    },
+    {
+      "path": "third_party/nlohmann/json.hpp",
+      "sha256": "aaf127c04cb31c406e5b04a63f1ae89369fccde6d8fa7cdda1ed4f32dfc5de63"
+    },
+    {
+      "path": "third_party/nlohmann/provenance.json",
+      "sha256": "18e33675214ee2b21e8637bcadacc1f7b55234f7c8b12c8f502145755daf334a"
+    }
+  ]
+}

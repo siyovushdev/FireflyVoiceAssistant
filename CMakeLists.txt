@@ -31,7 +31,7 @@ add_library(firefly_domain src/runtime/DomainView.cpp src/runtime/EntityResolver
 target_link_libraries(firefly_domain PUBLIC firefly_config firefly_generic_action)
 target_compile_options(firefly_domain PRIVATE -Wall -Wextra -Wpedantic)
 add_subdirectory(src/llm)
-add_library(firefly_core src/InputPolicy.cpp src/CommandEngine.cpp src/DeterministicParser.cpp src/SafetyGate.cpp)
+add_library(firefly_core src/InputPolicy.cpp src/CommandEngine.cpp src/DeterministicParser.cpp src/SafetyGate.cpp src/SetupResources.cpp)
 target_link_libraries(firefly_core PUBLIC firefly_domain firefly_llm_protocol)
 target_include_directories(firefly_core PUBLIC include)
 target_compile_features(firefly_core PUBLIC cxx_std_17)

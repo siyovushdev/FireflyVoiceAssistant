@@ -1,0 +1,6 @@
+{"method": "POST", "path": "/relay/1", "body": "{\"on\":true}"}
+{"method": "GET", "path": "/relay/1", "body": ""}
+{"method": "POST", "path": "/relay/1", "body": "{\"on\":false}"}
+{"method": "GET", "path": "/relay/1", "body": ""}
+{"method": "POST", "path": "/relay/1", "body": "{\"on\":true}"}
+{"method": "GET", "path": "/relay/1", "body": ""}

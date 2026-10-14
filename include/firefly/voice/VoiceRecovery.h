@@ -29,7 +29,8 @@ public:
     void run(const Hooks& hooks);
     // Caller closes setup admission BEFORE drain. The same mutex protects the
     // blocked check + audioActive transition, so setup cannot miss a new owner.
-    void drain();
+    void drain(const std::function<void()>& releaseIdleResources = {},
+               Milliseconds timeout = std::chrono::seconds(45));
 private:
     void releaseAudio();
     Timing timing_;

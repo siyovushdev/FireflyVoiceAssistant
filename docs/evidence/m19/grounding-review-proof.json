@@ -1,0 +1,113 @@
+{
+  "issue": 17,
+  "base_candidate": "74850bac13acd25805ab9271ad0ae7f9a2a5b8c1",
+  "scope": "Offline authorization remediation; scripted adversarial inference and synthetic voice recognition; real C++ command processing and loopback HTTP. No new hardware acceptance.",
+  "original_evidence": {
+    "directory": "/home/firefly/firefly-m19-live-final-20261011T181251Z/evidence",
+    "sha256_manifest": "5bb4ad5465f9ff999c8b5bcb3b1949c8d18063fbeeb41e0e8620597284ae622a",
+    "verified_unchanged_files": 1089,
+    "fixture_matches_reviewed_configuration_except_network_arrays": true,
+    "fixture_sha256": "b0a5974e08b4eca93453ede3ed9b6c7fd04539060deaccc8557bc7279de887c9"
+  },
+  "validation": {
+    "ctest": {
+      "passed": 84,
+      "total": 84,
+      "elapsed_seconds": 659.34
+    },
+    "frontend": {
+      "passed": 41,
+      "total": 41,
+      "typecheck": "PASS",
+      "build_and_offline_assets": "PASS"
+    },
+    "authorization": {
+      "passed": 450,
+      "total": 450,
+      "allowed_single_correct_post": 164,
+      "rejected_zero_outbound_http": 286,
+      "rejected_outbound_http_count": 0,
+      "unsafe_index_exact_rejected": 32,
+      "entry_points": {
+        "api-text": 75,
+        "api-device": 75,
+        "worker-text": 75,
+        "voice-seam": 75,
+        "engine-no-index": 75,
+        "gate-injected": 75
+      },
+      "protocols": {
+        "stable_compact": 222,
+        "structured": 228
+      }
+    }
+  },
+  "pre_fix_reproduction": {
+    "exact_original_request": "включи лампу в неизвестной комнате",
+    "accepted": true,
+    "post_count": 1,
+    "model": "scripted []",
+    "actual_production_inference": false
+  },
+  "installed_production": {
+    "release": "/opt/firefly/voice-assistant/releases/wake-beep-dc7b142e-20261011",
+    "head": "dc7b142e4acae74d178a2583cdc1568ec4de8ee8",
+    "source_comparison_before_fix": {
+      "src/runtime/EntityResolver.cpp": {
+        "production_git_blob": "ef4ee49d0aedbf54d07bf9b1ea6fec07887c30b0",
+        "candidate_git_blob": "ef4ee49d0aedbf54d07bf9b1ea6fec07887c30b0"
+      },
+      "src/SafetyGate.cpp": {
+        "production_git_blob": "e7e20a7464be224063c308b9901926c413ffef99",
+        "candidate_git_blob": "e7e20a7464be224063c308b9901926c413ffef99"
+      },
+      "src/CommandEngine.cpp": {
+        "production_git_blob": "7cb531e1530dd57f109545d20f845f11472c5c48",
+        "candidate_git_blob": "7cb531e1530dd57f109545d20f845f11472c5c48"
+      },
+      "src/llm/CompactActionDecoder.cpp": {
+        "production_git_blob": "c6752b5aa65366e5d82067aecb1e7e87a44d405a",
+        "candidate_git_blob": "c6752b5aa65366e5d82067aecb1e7e87a44d405a"
+      },
+      "src/admin/RuntimeGeneration.cpp": {
+        "production_git_blob": "24410ee4f8e2a9d62ed83fe68171e06598465fc0",
+        "candidate_git_blob": "24410ee4f8e2a9d62ed83fe68171e06598465fc0"
+      },
+      "src/admin/RuntimeWorker.cpp": {
+        "production_git_blob": "960a287a6c2bbed8b76a16a4d573336c8f40c9e3",
+        "candidate_git_blob": "960a287a6c2bbed8b76a16a4d573336c8f40c9e3"
+      }
+    },
+    "unchanged_and_ready_checks": {
+      "pid_unchanged": true,
+      "release_unchanged": true,
+      "unit_unchanged": true,
+      "store_all_files_sha256_unchanged": true,
+      "active_and_stored_unchanged": true,
+      "runtime_stt_ready": true,
+      "microphone_connected_waiting_wake": true,
+      "health_ready": true,
+      "exclusive_npu_microphone_owner": true,
+      "systemd_active": true,
+      "original_1089_evidence_digests_unchanged": true
+    },
+    "fix_deployed": false,
+    "exposure": "Shared pre-fix command source. Offline current semantic configuration replay with nominative лампа and scripted [] reproduced one localhost POST. Added unrelated comparison room and replaced network contracts; no production inference/device test. Safety cannot be asserted."
+  },
+  "private_evidence_directory": "/home/firefly/firefly-m19-safety-20261011/evidence",
+  "artifact_sha256": {
+    "baseline-reproduction.json": "a964aa984e01ae056f99eedd9613500afe38b91a5340401db718025e852730b1",
+    "production-source-offline-reproduction.json": "a4636f978ccd23ad0f6f2b2f8eceae8c0b163d8a96b738f8fa0a00a8922362fe",
+    "final-matrix.json": "68761803e8b9906dab31d011174109c919ca9c28de65804d0400c8a2233189d4",
+    "full-ctest.log": "530dea3ea7dec493d5c6063bfa3f1d315f77371ac9fd6786bb4b9dca1c2d6bb9",
+    "frontend-typecheck.log": "e4f009cb9005e812a89d60a39d0f126fca8eeabee4760239ce7c657a76dd293a",
+    "frontend-test.log": "121c64aff0d8bcf3b57a4849eb8c87dc1c809efce9e6f0648b63b76af66e4d3f",
+    "frontend-build.log": "13e2b3ba9d832b936408e64143dc5724a941a4a9a7e036f58e82d83c16a5488d",
+    "production-read-only-final.json": "fbc74a73d8f77a835bdfde3ebb0350cb08a029d51bdafd7bda9de1915c28ff21"
+  },
+  "remaining_gates": [
+    "Independent Chief Engineer code/raw-evidence review",
+    "Fresh separate owner authorization and clean new candidate/harness identity for genuine Qwen and reSpeaker ON/OFF with independent GET/Confirmed"
+  ],
+  "risk": "Conservative false rejects for unsupported paraphrases or unaccounted constraints; no relaxation or guessing. Installed production still runs the old code."
+}

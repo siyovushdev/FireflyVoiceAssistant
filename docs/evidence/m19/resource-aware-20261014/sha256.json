@@ -1,0 +1,15 @@
+{
+  "README.md": "c53af78211db1a6a3ee3c3bea6f6f1e256f2a1ce2da0f9005558af234a683b8b",
+  "acceptance.json": "169d47b2ce7d261e02b7616d8eb5a9167ee41a3faf32b09a69d07e335787d8f7",
+  "build-identity.json": "d8fb02b640d4731601fd9f1b9b16f4623dd2492c4015c303e21e526bda3b7774",
+  "closure-preservation.json": "abe2e2ea37f6208a15d0dd128f87598e7b1d25c689d4549470fe762c12eb7086",
+  "independent-review.json": "dcd270feb286277635f6464ed4522626cc37b0438d2ce662cd70c8a5f5f8ec9a",
+  "memory-phases.json": "c75559bf922c0f77955f9018f7c98106bddfbf39a673af4e84c5d450ced51953",
+  "mock-requests.jsonl": "a0f3279fe39b2ed8994f14a0d62a34f2e9e66184e409624ef63dc4d515efc55b",
+  "offline-browser.json": "fcd21c818e476be715610b4f9d08774ca63f50a6e1ea1a81c7276761ae4e88d5",
+  "offline-validation.json": "fcb2562dcb9c604ed794f8d9c7279fb4dc2f5764f361c5058cb6fc44e3dceaba",
+  "original-ai-proposal.json": "d38dc9821d39afb22a408d320ecf2e8731c2a0df2e4b98b0b4a68e1d2735a588",
+  "recovery.json": "aeec29926ee4f78dbcbd9a9b8b057e6e29a16a37a04324d583a8086a23528e93",
+  "source-manifest.json": "32fb2cc47378b06fbb539b0e160c9a568f33067acb4b7333479ec394b77600ae",
+  "voice-on.json": "70060a0e75112f9bccaf28ba841e79b0d7005849069836524f8ed76c0bc8eb08"
+}

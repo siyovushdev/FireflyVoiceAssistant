@@ -1,0 +1,3 @@
+{"method": "POST", "path": "/relay/1", "body": "{\"on\":true}"}
+{"method": "GET", "path": "/relay/1", "body": ""}
+{"method": "GET", "path": "/relay/1", "body": ""}

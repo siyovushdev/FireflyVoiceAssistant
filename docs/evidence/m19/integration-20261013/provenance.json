@@ -1,0 +1,126 @@
+{
+  "cabinet-desktop-06b-http-review.png": [
+    {
+      "original": "/home/firefly/firefly-m19-integrated-20261013T052104Z/chromium-evidence/cabinet-desktop-06b-http-review.png",
+      "sha256": "9438c0d8f641eed107d6461bdfe31a69ac61f1ef00a60df3232c5ee89a116468",
+      "selector": "whole file"
+    }
+  ],
+  "no-zone-mobile-08-on-confirmed.png": [
+    {
+      "original": "/home/firefly/firefly-m19-integrated-20261013T052104Z/chromium-evidence/no-zone-mobile-08-on-confirmed.png",
+      "sha256": "ddf5290a715c3fdb21c0633334aafb898bb12a87b1f87ca48423dcca507f92d0",
+      "selector": "whole file"
+    }
+  ],
+  "integration-proof.json": [
+    {
+      "original": "/home/firefly/firefly-m19-integrated-20261013T052104Z/integration-proof.json",
+      "sha256": "d241ad549244b8f356671ae4359a0cad4c043f25cf4597e1fbd99021347551f7",
+      "selector": "whole file"
+    }
+  ],
+  "chromium-results.json.gz": [
+    {
+      "original": "/home/firefly/firefly-m19-integrated-20261013T052104Z/chromium-evidence/results.json",
+      "sha256": "75330aecfdf9f59c44ae70742186eafa13062c79967c832c3000fb38eac6b2e1",
+      "selector": "lossless gzip, JSON selectors /results/index or /cases/index"
+    }
+  ],
+  "cabinet-desktop-02-proposal.png": [
+    {
+      "original": "/home/firefly/firefly-m19-integrated-20261013T052104Z/chromium-evidence/cabinet-desktop-02-proposal.png",
+      "sha256": "369219e5e2e39164af02afd6e90e7010650ce73690a8c79120d5461bab4d066d",
+      "selector": "whole file"
+    }
+  ],
+  "cabinet-desktop-10-off-confirmed.png": [
+    {
+      "original": "/home/firefly/firefly-m19-integrated-20261013T052104Z/chromium-evidence/cabinet-desktop-10-off-confirmed.png",
+      "sha256": "f736d9d33db5d8a5d3e70fab3cc59da255cdd0dc656ffaa932e3a32b3973ac41",
+      "selector": "whole file"
+    }
+  ],
+  "frontend-tests.log": [
+    {
+      "original": "/home/firefly/firefly-m19-integrated-20261013T052104Z/frontend-tests.log",
+      "sha256": "5b888297b0ca94445a1788a28d54a1e777ff6863e25abc742871bd1d69645358",
+      "selector": "whole file"
+    }
+  ],
+  "ctest.log": [
+    {
+      "original": "/home/firefly/firefly-m19-integrated-20261013T052104Z/ctest.log",
+      "sha256": "77e8fb5707f50f702838579c907e9201d8e18d2d621cd6b35f05d2adc0b0f691",
+      "selector": "whole file"
+    }
+  ],
+  "cabinet-desktop-08-on-confirmed.png": [
+    {
+      "original": "/home/firefly/firefly-m19-integrated-20261013T052104Z/chromium-evidence/cabinet-desktop-08-on-confirmed.png",
+      "sha256": "1d2edbcc274c601c255436316707099bae7f1c6167394fd553ed64b0408ab111",
+      "selector": "whole file"
+    }
+  ],
+  "worker-ldd.log": [
+    {
+      "original": "/home/firefly/firefly-m19-integrated-20261013T052104Z/worker-ldd.log",
+      "sha256": "cfeefcd50960320d59403c0ca4f3d4667819a13be175de51e62fb8a4842344bd",
+      "selector": "whole file"
+    }
+  ],
+  "grounding-matrix.json.gz": [
+    {
+      "original": "/home/firefly/firefly-m19-integrated-20261013T052104Z/grounding-matrix.json",
+      "sha256": "74c4d464cd7bb4f2313bf8041f96ef702d49bb3c274beef794057c9ef60cec61",
+      "selector": "lossless gzip, JSON selectors /results/index or /cases/index"
+    }
+  ],
+  "supporting_private_originals": [
+    {
+      "original": "/home/firefly/firefly-m19-integrated-20261013T052104Z/production-before.json",
+      "sha256": "5e9ce6c87ed72f49174b3f4e77f688cecb65189402870029c92826075989b4b0",
+      "selector": "hash only; private contents not published"
+    },
+    {
+      "original": "/home/firefly/firefly-m19-integrated-20261013T052104Z/production-after.json",
+      "sha256": "e42ead4142a631ae64d345e02bf34f5496263514ffc1b3d474ab8040328fe6a2",
+      "selector": "hash only; private contents not published"
+    },
+    {
+      "original": "/home/firefly/firefly-m19-integrated-20261013T052104Z/build-identity.json",
+      "sha256": "aca6e24f0ea9cfa626b5b540ce13c0101001f89c1e36c716a1d84893d147fdf1",
+      "selector": "whole file, private original"
+    },
+    {
+      "original": "/home/firefly/firefly-m19-integrated-20261013T052104Z/production-invariance.json",
+      "sha256": "275d53d09205e36d0247081eaad8ade6fcd276038e88dbc042fd1fd9a928fed9",
+      "selector": "whole file, private original"
+    },
+    {
+      "original": "/home/firefly/firefly-m19-integrated-20261013T052104Z/frontend-typecheck.log",
+      "sha256": "e4f009cb9005e812a89d60a39d0f126fca8eeabee4760239ce7c657a76dd293a",
+      "selector": "whole file, private original"
+    },
+    {
+      "original": "/home/firefly/firefly-m19-integrated-20261013T052104Z/frontend-build.log",
+      "sha256": "7ecb7b171026c2835fce4a92c5703a4ce25d5a638317aa2cf5fec4a6bd7a9bba",
+      "selector": "whole file, private original"
+    },
+    {
+      "original": "/home/firefly/firefly-m19-integrated-20261013T052104Z/configure.log",
+      "sha256": "c22170755f702f5547f77004301cd73faead93668b672c05917ea56fe5ecc79a",
+      "selector": "whole file, private original"
+    },
+    {
+      "original": "/home/firefly/firefly-m19-integrated-20261013T052104Z/build.log",
+      "sha256": "2f392231f2c3ebe3acbdeab3a95f4067c0f0ae040b9cc0c15fedc166afb9bf55",
+      "selector": "whole file, private original"
+    },
+    {
+      "original": "/home/firefly/firefly-m19-integrated-20261013T052104Z/previous-build-compare.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "selector": "whole file, private original"
+    }
+  ]
+}

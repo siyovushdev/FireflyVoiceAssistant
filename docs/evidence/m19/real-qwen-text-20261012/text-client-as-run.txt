@@ -1,0 +1,89 @@
+"""Prepared only. Requires a separately authorized running independent guard.
+No model mocks, process launches, systemctl calls, production endpoint or store.
+"""
+import copy,json,time,urllib.error,urllib.request
+from pathlib import Path
+ROOT=Path(__file__).resolve().parent
+E=ROOT/'evidence';URL='http://127.0.0.1:18080';HEAD='8a6eb084dba4aecb19af2894f5b26c6cf3ca69e0'
+report={'scope':'REAL QWEN candidate TEXT ONLY. Prior reviewed genuine semantic forms reused; not new AI Setup or acoustic acceptance.','cases':[]}
+
+def heartbeat():(ROOT/'agent-heartbeat').touch()
+def save():(E/'real-text-report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n')
+def api(path,body=None,method=None):
+    heartbeat()
+    request=urllib.request.Request(URL+path,data=None if body is None else json.dumps(body,ensure_ascii=False).encode(),method=method,headers={'Content-Type':'application/json','X-Firefly-Admin':'1'})
+    try:
+        with urllib.request.urlopen(request,timeout=35) as response:status,value=response.status,json.load(response)
+    except urllib.error.HTTPError as error:status,value=error.code,json.load(error)
+    assert status==200,(path,status,value)
+    return value
+
+def requests():
+    p=E/'http.jsonl';return [] if not p.exists() else [json.loads(line) for line in p.read_text().splitlines() if line]
+
+def state():return next(d for d in api('/api/devices/state')['devices'] if d['targetId']=='device_lampa')['properties']['power']
+def test(text,on=None,route=None):
+    count=len(requests());history=len(api('/api/executions')['executions'])
+    response=api('/api/test-command',{'text':text,'execute':True,'production':True})
+    if response.get('raw_rkllm') is not None:
+        report.setdefault('all_fallback_calls',[]).append({'input':text,'raw_output':response['raw_rkllm'],'metrics':response['llm'],'safety':response['safety'],'result':response['result'],'context':response.get('llm_context')})
+    delta=requests()[count:];row={'input':text,'expected_on':on,'response':response,'command_requests':delta};report['cases'].append(row);save()
+    if on is None:
+        assert response['result']=={'unsupported':True} and response['execution'] is None,response
+        assert delta==[] and len(api('/api/executions')['executions'])==history,row
+    else:
+        action='action_lampa_vklyuchit' if on else 'action_lampa_vyklyuchit'
+        assert response['result']=={'targetId':'device_lampa','actionId':action,'arguments':{}},response
+        assert response['language_route']==route and response['safety']=='PASS' and response['execution']['success'],response
+        assert len(delta)==1 and delta[0]['method']=='POST' and delta[0]['path']=='/relay/1' and json.loads(delta[0]['body'])=={'on':on},row
+        assert state()['knowledge']=='predicted'
+        poll=api('/api/devices/poll',{'target_id':'device_lampa','expected_hash':api('/api/config/active')['active']['hash']})
+        confirmed=state();row.update(poll=poll,confirmed=confirmed,requests_after_poll=requests()[count:]);save()
+        assert confirmed['knowledge']=='confirmed' and confirmed['value']==on,row
+        assert len(row['requests_after_poll'])==2 and row['requests_after_poll'][1]['method']=='GET',row
+        h=api('/api/executions')['executions'];assert len(h)==history+1 and h[-1]['source']=='admin-production',h
+        if route=='LLM_FALLBACK':
+            assert response.get('raw_rkllm') is not None,'No real model result'
+            assert response['route']=='rkllm' and response['llm']['output_tokens']>0 and response['llm']['generation_ms']>0,('No actual inference metrics',response)
+            report.setdefault('real_model_calls',[]).append({'input':text,'raw_output':response['raw_rkllm'],'metrics':response['llm'],'context':response.get('llm_context')})
+        else:
+            assert response['route']=='deterministic' and response['llm']['output_tokens']==0,response
+    row['pass']=True;save()
+
+def apply(c):
+    stored=api('/api/config');identity=lambda x:{k:x[k] for k in ('revision','hash')}
+    api('/api/config/validate',{'configuration':c});saved=api('/api/config',{'configuration':c,'expected':identity(stored)},'PUT');api('/api/config/apply',{'expected':identity(saved)})
+
+try:
+    assert (ROOT/'OWNER_AUTHORIZED_WINDOW').exists(),'Separate owner authorization is absent'
+    assert (ROOT/'GO').exists(),'Independent supervisor is not permitted to stop production'
+    owned=json.loads((E/'owned-processes.json').read_text());pid=owned['candidate_pid']
+    command=(Path('/proc')/str(pid)/'cmdline').read_bytes().split(b'\0')
+    assert str(ROOT/'store').encode() in command and b'18080' in command
+    assert b'/opt/firefly/voice-assistant/models/runtime/Qwen3-4B_W8A8_RK3588_3core.rkllm' in command
+    deadline=time.monotonic()+120
+    while True:
+        heartbeat()
+        try:
+            status=api('/api/status')
+            assert status['worker_pid']==pid and status['build']['head']==HEAD,status
+            if status['runtime_ready']:break
+        except (OSError,urllib.error.URLError):pass
+        assert time.monotonic()<deadline,'Real candidate readiness timed out'
+        time.sleep(.1)
+    config=api('/api/config/active')['active']['configuration']
+    assert config['connections'][0]['http']['base_url']=='http://127.0.0.1:18765'
+    assert config['devices'][0]['spoken_aliases']==['лампа','лампу']
+    assert 'librkllmrt.so' in (Path('/proc')/str(pid)/'maps').read_text(),'Real vendor runtime is not loaded'
+    report.update(runtime_status=status,owned_candidate_pid=pid,semantic_source=str(ROOT/'test-semantic.json'))
+    test('включи лампу в кабинете',True,'INDEX_EXACT');test('выключи лампу в кабинете',False,'INDEX_EXACT')
+    for text in ['включи лампу в неизвестной комнате','включи лампу в спальне','включи лампу в кабинете и в спальне','не включай лампу в кабинете','какая погода']:test(text)
+    test('будь добр включи лампу в кабинете',True,'LLM_FALLBACK')
+    two=copy.deepcopy(config);second=copy.deepcopy(two['devices'][0]);second.update(id='device_second',room_id='location_bedroom');two['devices'].append(second);apply(two)
+    test('включи лампу');test('включи лампу в неизвестной комнате')
+    two['devices'][1]['room_id']='location_kabinet';apply(two);test('включи лампу в кабинете')
+    report['status']='PASS';report['http_requests']=requests();save()
+except Exception as error:
+    report.update(status='FAIL',error=repr(error));save();raise
+finally:
+    (ROOT/'RESTORE').touch()

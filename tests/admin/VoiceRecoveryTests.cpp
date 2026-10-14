@@ -96,13 +96,16 @@ void actualSetupDrain(const std::string& root) {
         void enterSetup() override { check(owners == 0, "model switching before audio teardown"); }
         void leaveSetup(const std::string& prompt) override { useContext(prompt); }
     };
-    std::atomic<int> owners{0}, attempts{0}, failures{0};
+    std::atomic<int> owners{0}, attempts{0}, failures{0}, resourceReleases{0};
     std::atomic<bool> stopping{false}, releaseCleanup{false}, cleanupEntered{false};
     Model model(owners);
     firefly::admin::RuntimeGenerations runtime(model);
     runtime.apply(admin_test::catalog(admin_test::base(root)));
     VoiceRecovery recovery;
-    runtime.setAudioDrain([&] { recovery.drain(); });
+    runtime.setAudioDrain([&] { recovery.drain([&] {
+        check(owners == 0, "STT/VAD cleanup with active resource users");
+        ++resourceReleases;
+    }); });
     auto services = std::async(std::launch::async, [&] {
         recovery.run({[&] { return stopping.load(); }, [&] { return runtime.setupBlocked(); }, [] {},
             [&](const auto& ready) {
@@ -128,10 +131,14 @@ void actualSetupDrain(const std::string& root) {
     struct Release { std::atomic<bool>& flag; ~Release() { flag = true; } } release{releaseCleanup};
     waitUntil([&] { return cleanupEntered.load(); });
     check(setup.wait_for(0ms) == std::future_status::timeout, "drain waits until teardown completed");
+    bool timedOut = false;
+    try { recovery.drain([&] { ++resourceReleases; }, 1ms); }
+    catch (const std::exception& e) { timedOut = std::string(e.what()) == "audio_drain_timeout"; }
+    check(timedOut && resourceReleases == 0, "drain timeout never destroys resources still in use");
     releaseCleanup = true;
     check(setup.wait_for(2s) == std::future_status::ready, "setup drain completes");
     setup.get();
-    check(owners == 0 && attempts == 1, "no audio while setup active");
+    check(owners == 0 && attempts == 1 && resourceReleases == 1, "idle resources released before Setup");
     recovery.drain();
     runtime.prepareRestore();
     check(attempts == 1, "no reopen during model restore");

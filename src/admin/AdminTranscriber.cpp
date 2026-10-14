@@ -3,8 +3,9 @@
 #include "Json.h"
 
 namespace firefly::admin {
-AdminTranscriber::AdminTranscriber(std::unique_ptr<voice::SpeechRecognizer> recognizer)
-    : recognizer_(std::move(recognizer)) {
+AdminTranscriber::AdminTranscriber(std::unique_ptr<voice::SpeechRecognizer> recognizer,
+                                 std::shared_ptr<SetupResources> resources)
+    : recognizer_(std::move(recognizer)), resources_(std::move(resources)) {
     if (!recognizer_) throw std::invalid_argument("AdminTranscriber requires a recognizer");
 }
 bool AdminTranscriber::ready() const { return recognizer_ != nullptr; }
@@ -15,6 +16,12 @@ std::string AdminTranscriber::transcribe(std::string_view wavBytes, int maximumS
         return failure("stt_busy", "", "Speech recognition is already running. Wait and retry.").dump();
     if (!recognizer_)
         return failure("stt_unavailable", "", "Local speech recognition is not available on this Firefly.").dump();
+
+    std::unique_lock<std::timed_mutex> resources;
+    if (resources_) {
+        try { resources = resources_->acquire(std::chrono::milliseconds(0)); }
+        catch (...) { return failure("stt_busy", "", "Model resources are changing. Wait and retry.").dump(); }
+    }
 
     voice::DecodedPcm decoded;
     try {

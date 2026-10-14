@@ -6,6 +6,7 @@ export interface Session extends SetupStatus {
     readonly session_id?: string;
     readonly configuration?: ConfigurationDto;
     readonly questions?: readonly string[];
+    readonly language_warning?: string;
     readonly message_incomplete?: boolean;
 }
 export interface Proposal extends WireObject { readonly configuration: ConfigurationDto; readonly operations: readonly WireObject[]; readonly rejected?: boolean }

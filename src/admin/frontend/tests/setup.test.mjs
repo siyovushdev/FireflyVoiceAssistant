@@ -221,3 +221,13 @@ test('manual plan carried into Start waits for entry and uses one CAS draft requ
         assert.equal(calls.some(p=>/apply|command|probe|poll|execute/.test(p)),false);
     } finally {globalThis.fetch=originalFetch;setupAuth.token='';s.session.value=null;s.proposal.value=null;}
 });
+
+test('AI setup proposal exposes reviewed Russian object forms before accept without changing the input', async () => {
+    const { setupChanges } = await import('../.test-build/adapters/setup.js');
+    const after = fixture(); after.devices[0].name = 'Сетевая розетка 2';
+    after.devices[0].spoken_aliases = ['сетевая розетка 2', 'сетевую розетку 2'];
+    const snapshot = clone(after);
+    const changes = setupChanges(base, after);
+    assert.match(changes.find(c => c.title.includes('Устройство')).afterText, /Речевые формы: сетевая розетка 2, сетевую розетку 2/);
+    assert.deepEqual(after, snapshot);
+});

@@ -1,0 +1,49 @@
+{
+  "result": "PARTIAL_PASS",
+  "closure_readiness": "READY_TO_CLOSE_M19 within retained PARTIAL_PASS",
+  "scope": "Owner accepted M19 with manual ON/OFF confirmation; instrumentation gap stays explicit",
+  "real_admin4096": {
+    "initialization": "PASS",
+    "inference_calls": 5,
+    "scripted_live_AI": false
+  },
+  "original_ai": "PASS Cabinet/Lamp/aliases/boolean ON-OFF",
+  "review": "PASS",
+  "private_apply_calls": 1,
+  "runtime_restore": "PASS",
+  "instrumented_ON": "REAL_MICROPHONE_WAKE_VAD_STT_RUNTIME_SAFETY_PRIVATE_POST_GET_PASS",
+  "instrumented_OFF": "NOT_TESTED: extra harmless GET caused readiness oracle abort before OFF cue",
+  "owner_confirmation": {
+    "ON": "PASS reported by owner",
+    "OFF": "PASS reported by owner",
+    "source": "Owner message 2026-10-14, retained separately; not a substitute for instrumented trace"
+  },
+  "last_harness_abort": "Additional GET /relay/1 with empty body, not a mutation. Fixed afterward and verified offline; no new hardware trial.",
+  "memory": {
+    "admission_gib": 6.364261627197266,
+    "min_available_gib": 1.6842994689941406,
+    "peak_pss_gib": 5.098435401916504,
+    "peak_cgroup_gib": 6.026630401611328,
+    "samples": 325,
+    "oom": {
+      "max": 0,
+      "oom": 0,
+      "oom_kill": 0
+    },
+    "limits": "Small workload,1Hz; not full4096 stress"
+  },
+  "recovery": "PASS",
+  "offline": "14 native / 36 Python / 450 grounding cases / fresh full browser gate PASS",
+  "limits": [
+    "No instrumented OFF in the same private candidate window",
+    "No full4096-context stress qualification",
+    "1Hz memory samples may miss transient peaks",
+    "No model/prompt/RAM/swap changes and no rollout authorized"
+  ],
+  "source_artifacts": {
+    "original_proposal_sha256": "1991ffab6357614f03646bacc1bf1f4b9c132d9ea39b42e09e498675f92a762f",
+    "controller_events_sha256": "8db829264abe64dcd87cbca6013b8dff73c2508999f9a7b8827d3c4559b3b0e3",
+    "test_log_sha256": "28bad9ef87a4838f8dc32cfa4cf64b405fd06ae137d69b9222df9258f90521ec",
+    "full_hardware_result_sha256": "ef36fab5b723d20845c28387b18cc38c74b516506061b3c78eb1a344c713cfe7"
+  }
+}

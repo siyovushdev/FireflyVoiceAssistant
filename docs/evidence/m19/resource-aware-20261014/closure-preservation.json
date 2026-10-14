@@ -1,0 +1,20 @@
+{
+  "utc": "2026-10-14T12:20:59.662164+00:00",
+  "production_state": "READY / WAITING_WAKE",
+  "production_pid": 1108203,
+  "pid_unchanged_during_closure": true,
+  "source_build_match_files": 197,
+  "production_store_release_unit_bytes_owners_modes_preserved": true,
+  "remote_git_head_status_and_all_source_bytes_preserved": true,
+  "swap_total_kib": 0,
+  "thresholds_gib": [
+    6,
+    1
+  ],
+  "median_memavailable_gib_with_production_loaded": 2.2908363342285156,
+  "npu_microphone_sole_owner": 1108203,
+  "temporary_hardware_units": [],
+  "original_production_mock_pid": 82150,
+  "mock_port": 8765,
+  "new_hardware_trials_during_closure": 0
+}

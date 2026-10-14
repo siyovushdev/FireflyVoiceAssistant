@@ -1,0 +1,1083 @@
+{
+  "status": "READY_FOR_CHIEF_ENGINEER_REVIEW",
+  "tested_code": {
+    "head": "dd1ffa204a5757f32a13c7943a6ed05df68b0f49",
+    "source_sha256": "bb3af516c871f4e63db00d127fdad1de3a74265e9b6edcd330b499c23a0a7c79",
+    "built_utc": "2026-10-13T05:25:01Z",
+    "dirty": false,
+    "admin_assets_sha256": "fd3cbf4dd6403204f35a8759c8678282d37958854d7654117c5cdc29a01110f9"
+  },
+  "master_base": "818157ec0eef7eb7cb458983db2022af7f7c78ea",
+  "CTest": "87/87 PASS; 362.24 s",
+  "frontend": "41/41 PASS; typecheck/build PASS",
+  "M19_chromium": "PASS; 97.47 s",
+  "app_sha256": "60c2747f85ec33e56023763f9343581c8e8a6ab67b9e23aa1cb161e7c8620a76",
+  "worker_sha256": "76e65fc88344676890449ac6347933bc18d169e7d4054d4ac84dbc0669f09499",
+  "model": "scripted; no real Qwen/NPU",
+  "voice": "synthetic PCM/KWS/VAD/STT; real runWakeVoiceLoop/processVoice",
+  "scenarios": [
+    {
+      "name": "rejected-owner-profile",
+      "aliases": [
+        "лампа"
+      ],
+      "warning": "Часть языковых предложений отклонена проверкой; сохранены исходные формы. Проверьте речевые формы через «Изменить» перед принятием плана.",
+      "applied": false,
+      "posts": 0,
+      "gets": 0
+    },
+    {
+      "scenario": "cabinet-desktop",
+      "posts": 2,
+      "gets": 7,
+      "one_final_apply_count": 1,
+      "zero_io_before_apply": true,
+      "tcp_probe_zero_http_bytes": true,
+      "hardware": [
+        {
+          "method": "POST",
+          "path": "/relay/1",
+          "body": "{\"on\":true}"
+        },
+        {
+          "method": "GET",
+          "path": "/relay/1",
+          "body": ""
+        },
+        {
+          "method": "POST",
+          "path": "/relay/1",
+          "body": "{\"on\":false}"
+        },
+        {
+          "method": "GET",
+          "path": "/relay/1",
+          "body": ""
+        },
+        {
+          "method": "GET",
+          "path": "/relay/1",
+          "body": ""
+        },
+        {
+          "method": "GET",
+          "path": "/relay/1",
+          "body": ""
+        },
+        {
+          "method": "GET",
+          "path": "/relay/1",
+          "body": ""
+        },
+        {
+          "method": "GET",
+          "path": "/relay/1",
+          "body": ""
+        },
+        {
+          "method": "GET",
+          "path": "/relay/1",
+          "body": ""
+        }
+      ],
+      "knowledge": [
+        {
+          "step": "ON POST",
+          "state": {
+            "knowledge": "predicted",
+            "observed_at_ms": null,
+            "stale": false,
+            "updated_at_ms": 1791870215113,
+            "value": true
+          }
+        },
+        {
+          "step": "ON GET",
+          "state": {
+            "knowledge": "confirmed",
+            "observed_at_ms": 1791870216190,
+            "stale": false,
+            "updated_at_ms": 1791870216190,
+            "value": true
+          }
+        },
+        {
+          "step": "OFF POST",
+          "state": {
+            "knowledge": "predicted",
+            "observed_at_ms": 1791870216190,
+            "stale": false,
+            "updated_at_ms": 1791870217298,
+            "value": false
+          }
+        },
+        {
+          "step": "OFF GET",
+          "state": {
+            "knowledge": "confirmed",
+            "observed_at_ms": 1791870218295,
+            "stale": false,
+            "updated_at_ms": 1791870218295,
+            "value": false
+          }
+        },
+        {
+          "step": "contradictory GET",
+          "state": {
+            "knowledge": "confirmed",
+            "observed_at_ms": 1791870220504,
+            "stale": false,
+            "updated_at_ms": 1791870220504,
+            "value": true
+          }
+        },
+        {
+          "step": "restart before GET",
+          "state": {
+            "knowledge": "unknown",
+            "observed_at_ms": null,
+            "stale": false,
+            "updated_at_ms": 0,
+            "value": null
+          }
+        },
+        {
+          "step": "restart GET",
+          "state": {
+            "knowledge": "confirmed",
+            "observed_at_ms": 1791870225030,
+            "stale": false,
+            "updated_at_ms": 1791870225030,
+            "value": true
+          }
+        }
+      ],
+      "voices": [
+        {
+          "id": 1,
+          "states": [
+            "WAITING_WAKE",
+            "WAKE_DETECTED",
+            "CHECKING_CONTINUATION",
+            "CONTINUATION_INLINE",
+            "SPEECH_START",
+            "CAPTURING_INLINE_COMMAND",
+            "SPEECH_END",
+            "PROCESSING",
+            "WAITING_WAKE",
+            "stopping",
+            "stopped"
+          ],
+          "speech": {},
+          "command": {
+            "result": null,
+            "execution": null,
+            "index_status": null,
+            "language_route": null,
+            "safety": null,
+            "rejection_stage": null
+          },
+          "history_sources": []
+        },
+        {
+          "id": 2,
+          "states": [
+            "WAITING_WAKE",
+            "WAKE_DETECTED",
+            "CHECKING_CONTINUATION",
+            "CONTINUATION_INLINE",
+            "SPEECH_START",
+            "CAPTURING_INLINE_COMMAND",
+            "SPEECH_END",
+            "PROCESSING",
+            "WAITING_WAKE",
+            "stopping",
+            "stopped"
+          ],
+          "speech": {
+            "audio_detected": true,
+            "command_text": "включи лампу в кабинете",
+            "duration_seconds": 1.472,
+            "error": "",
+            "inline": true,
+            "processing_ms": 40.930319,
+            "speech_seconds": 1.472,
+            "stt_ms": 0,
+            "transcript": "Амина, включи лампу в кабинете",
+            "wake_prefix_removed": true
+          },
+          "command": {
+            "result": {
+              "actionId": "action_lampa_vklyuchit",
+              "arguments": {},
+              "targetId": "device_lampa"
+            },
+            "execution": {
+              "actionId": "action_lampa_vklyuchit",
+              "current": {
+                "power": true
+              },
+              "error": "",
+              "previous": {
+                "power": false
+              },
+              "status": "accepted",
+              "success": true,
+              "targetId": "device_lampa",
+              "timestamp_ms": 1791870215113
+            },
+            "index_status": "INDEX_EXACT",
+            "language_route": "INDEX_EXACT",
+            "safety": "PASS",
+            "rejection_stage": ""
+          },
+          "history_sources": [
+            "voice"
+          ]
+        },
+        {
+          "id": 3,
+          "states": [
+            "WAITING_WAKE",
+            "WAKE_DETECTED",
+            "CHECKING_CONTINUATION",
+            "CONTINUATION_INLINE",
+            "SPEECH_START",
+            "CAPTURING_INLINE_COMMAND",
+            "SPEECH_END",
+            "PROCESSING",
+            "WAITING_WAKE",
+            "stopping",
+            "stopped"
+          ],
+          "speech": {
+            "audio_detected": true,
+            "command_text": "выключи лампу в кабинете",
+            "duration_seconds": 1.472,
+            "error": "",
+            "inline": true,
+            "processing_ms": 8.933365,
+            "speech_seconds": 1.472,
+            "stt_ms": 0,
+            "transcript": "Амина, выключи лампу в кабинете",
+            "wake_prefix_removed": true
+          },
+          "command": {
+            "result": {
+              "actionId": "action_lampa_vyklyuchit",
+              "arguments": {},
+              "targetId": "device_lampa"
+            },
+            "execution": {
+              "actionId": "action_lampa_vyklyuchit",
+              "current": {
+                "power": false
+              },
+              "error": "",
+              "previous": {
+                "power": false
+              },
+              "status": "accepted",
+              "success": true,
+              "targetId": "device_lampa",
+              "timestamp_ms": 1791870217298
+            },
+            "index_status": "INDEX_EXACT",
+            "language_route": "INDEX_EXACT",
+            "safety": "PASS",
+            "rejection_stage": ""
+          },
+          "history_sources": [
+            "voice",
+            "voice"
+          ]
+        },
+        {
+          "id": 4,
+          "states": [
+            "WAITING_WAKE",
+            "WAKE_DETECTED",
+            "CHECKING_CONTINUATION",
+            "CONTINUATION_INLINE",
+            "SPEECH_START",
+            "CAPTURING_INLINE_COMMAND",
+            "SPEECH_END",
+            "PROCESSING",
+            "WAITING_WAKE",
+            "stopping",
+            "stopped"
+          ],
+          "speech": {
+            "audio_detected": true,
+            "command_text": "не включай лампу в кабинете",
+            "duration_seconds": 1.472,
+            "error": "target_not_grounded: An exact configured action phrase is required",
+            "inline": true,
+            "processing_ms": 2.269196,
+            "speech_seconds": 1.472,
+            "stt_ms": 0,
+            "transcript": "Амина, не включай лампу в кабинете",
+            "wake_prefix_removed": true
+          },
+          "command": {
+            "result": {
+              "unsupported": true
+            },
+            "execution": null,
+            "index_status": "INDEX_MISS",
+            "language_route": "GROUNDING_REJECTED",
+            "safety": "NO_ACTION",
+            "rejection_stage": "grounding"
+          },
+          "history_sources": [
+            "voice",
+            "voice"
+          ]
+        },
+        {
+          "id": 5,
+          "states": [
+            "WAITING_WAKE",
+            "WAKE_DETECTED",
+            "CHECKING_CONTINUATION",
+            "CONTINUATION_INLINE",
+            "SPEECH_START",
+            "CAPTURING_INLINE_COMMAND",
+            "SPEECH_END",
+            "PROCESSING",
+            "WAITING_WAKE",
+            "stopping",
+            "stopped"
+          ],
+          "speech": {
+            "audio_detected": true,
+            "command_text": "включи и выключи лампу в кабинете",
+            "duration_seconds": 1.472,
+            "error": "",
+            "inline": true,
+            "processing_ms": 1.402935,
+            "speech_seconds": 1.472,
+            "stt_ms": 0,
+            "transcript": "Амина, включи и выключи лампу в кабинете",
+            "wake_prefix_removed": true
+          },
+          "command": {
+            "result": {
+              "unsupported": true
+            },
+            "execution": null,
+            "index_status": "INDEX_AMBIGUOUS",
+            "language_route": "INDEX_AMBIGUOUS",
+            "safety": "NO_ACTION",
+            "rejection_stage": "grounding"
+          },
+          "history_sources": [
+            "voice",
+            "voice"
+          ]
+        },
+        {
+          "id": 6,
+          "states": [
+            "WAITING_WAKE",
+            "WAKE_DETECTED",
+            "CHECKING_CONTINUATION",
+            "CONTINUATION_INLINE",
+            "SPEECH_START",
+            "CAPTURING_INLINE_COMMAND",
+            "SPEECH_END",
+            "PROCESSING",
+            "WAITING_WAKE",
+            "stopping",
+            "stopped"
+          ],
+          "speech": {
+            "audio_detected": true,
+            "command_text": "какая погода",
+            "duration_seconds": 1.472,
+            "error": "target_not_grounded: No unambiguous configured device mention",
+            "inline": true,
+            "processing_ms": 3.843341,
+            "speech_seconds": 1.472,
+            "stt_ms": 0,
+            "transcript": "Амина, какая погода",
+            "wake_prefix_removed": true
+          },
+          "command": {
+            "result": {
+              "unsupported": true
+            },
+            "execution": null,
+            "index_status": "INDEX_MISS",
+            "language_route": "GROUNDING_REJECTED",
+            "safety": "NO_ACTION",
+            "rejection_stage": "grounding"
+          },
+          "history_sources": [
+            "voice",
+            "voice"
+          ]
+        },
+        {
+          "id": 7,
+          "states": [
+            "WAITING_WAKE",
+            "WAKE_DETECTED",
+            "CHECKING_CONTINUATION",
+            "CONTINUATION_INLINE",
+            "SPEECH_START",
+            "CAPTURING_INLINE_COMMAND",
+            "SPEECH_END",
+            "PROCESSING",
+            "WAITING_WAKE",
+            "stopping",
+            "stopped"
+          ],
+          "speech": {
+            "audio_detected": true,
+            "command_text": "включи лампу в неизвестной комнате",
+            "duration_seconds": 1.472,
+            "error": "",
+            "inline": true,
+            "processing_ms": 2.492033,
+            "speech_seconds": 1.472,
+            "stt_ms": 0,
+            "transcript": "Амина, включи лампу в неизвестной комнате",
+            "wake_prefix_removed": true
+          },
+          "command": {
+            "result": {
+              "unsupported": true
+            },
+            "execution": null,
+            "index_status": "INDEX_MISS",
+            "language_route": "LLM_FALLBACK",
+            "safety": "NO_ACTION",
+            "rejection_stage": "model_unsupported"
+          },
+          "history_sources": [
+            "voice",
+            "voice"
+          ]
+        },
+        {
+          "id": 8,
+          "states": [
+            "WAITING_WAKE",
+            "stopping",
+            "stopped"
+          ],
+          "speech": {
+            "audio_detected": true,
+            "command_text": "включи лампу в неизвестной комнате",
+            "duration_seconds": 1.472,
+            "error": "",
+            "inline": true,
+            "processing_ms": 2.492033,
+            "speech_seconds": 1.472,
+            "stt_ms": 0,
+            "transcript": "Амина, включи лампу в неизвестной комнате",
+            "wake_prefix_removed": true
+          },
+          "command": {
+            "result": {
+              "unsupported": true
+            },
+            "execution": null,
+            "index_status": "INDEX_MISS",
+            "language_route": "LLM_FALLBACK",
+            "safety": "NO_ACTION",
+            "rejection_stage": "model_unsupported"
+          },
+          "history_sources": [
+            "voice",
+            "voice"
+          ]
+        }
+      ],
+      "conflicts": [
+        "second-owner",
+        "wrong-owner",
+        "stale-draft-version",
+        "stale-observe-hash"
+      ],
+      "observation_failures": [
+        {
+          "mode": "malformed",
+          "message": "Действия\nВключить\n\nБудет проверена команда: «включи лампа в кабинете»\n\nВключить\nВыключить\n\nБудет проверена команда: «выключи лампа в кабинете»\n\nВыключить\nПрочитать состояние\n\nЧтение не подтвердило состояние. Последние свидетельства и их время сохранены.\n\nЗадача требует внимания\nHTTP readback failed; state was not confirmed.\n\nВведённые данные сохранены в этой вкладке."
+        },
+        {
+          "mode": "wrong_type",
+          "message": "Действия\nВключить\n\nБудет проверена команда: «включи лампа в кабинете»\n\nВключить\nВыключить\n\nБудет проверена команда: «выключи лампа в кабинете»\n\nВыключить\nПрочитать состояние\n\nЧтение не подтвердило состояние. Последние свидетельства и их время сохранены.\n\nЗадача требует внимания\nHTTP readback failed; state was not confirmed.\n\nВведённые данные сохранены в этой вкладке."
+        },
+        {
+          "mode": "unavailable",
+          "message": "Действия\nВключить\n\nБудет проверена команда: «включи лампа в кабинете»\n\nВключить\nВыключить\n\nБудет проверена команда: «выключи лампа в кабинете»\n\nВыключить\nПрочитать состояние\n\nЧтение не подтвердило состояние. Последние свидетельства и их время сохранены.\n\nЗадача требует внимания\nHTTP readback failed; state was not confirmed.\n\nВведённые данные сохранены в этой вкладке."
+        }
+      ]
+    },
+    {
+      "scenario": "no-zone-mobile",
+      "posts": 2,
+      "gets": 7,
+      "one_final_apply_count": 1,
+      "zero_io_before_apply": true,
+      "tcp_probe_zero_http_bytes": true,
+      "hardware": [
+        {
+          "method": "POST",
+          "path": "/relay/1",
+          "body": "{\"on\":true}"
+        },
+        {
+          "method": "GET",
+          "path": "/relay/1",
+          "body": ""
+        },
+        {
+          "method": "POST",
+          "path": "/relay/1",
+          "body": "{\"on\":false}"
+        },
+        {
+          "method": "GET",
+          "path": "/relay/1",
+          "body": ""
+        },
+        {
+          "method": "GET",
+          "path": "/relay/1",
+          "body": ""
+        },
+        {
+          "method": "GET",
+          "path": "/relay/1",
+          "body": ""
+        },
+        {
+          "method": "GET",
+          "path": "/relay/1",
+          "body": ""
+        },
+        {
+          "method": "GET",
+          "path": "/relay/1",
+          "body": ""
+        },
+        {
+          "method": "GET",
+          "path": "/relay/1",
+          "body": ""
+        }
+      ],
+      "knowledge": [
+        {
+          "step": "ON POST",
+          "state": {
+            "knowledge": "predicted",
+            "observed_at_ms": null,
+            "stale": false,
+            "updated_at_ms": 1791870253645,
+            "value": true
+          }
+        },
+        {
+          "step": "ON GET",
+          "state": {
+            "knowledge": "confirmed",
+            "observed_at_ms": 1791870254497,
+            "stale": false,
+            "updated_at_ms": 1791870254497,
+            "value": true
+          }
+        },
+        {
+          "step": "OFF POST",
+          "state": {
+            "knowledge": "predicted",
+            "observed_at_ms": 1791870254497,
+            "stale": false,
+            "updated_at_ms": 1791870255397,
+            "value": false
+          }
+        },
+        {
+          "step": "OFF GET",
+          "state": {
+            "knowledge": "confirmed",
+            "observed_at_ms": 1791870256245,
+            "stale": false,
+            "updated_at_ms": 1791870256245,
+            "value": false
+          }
+        },
+        {
+          "step": "contradictory GET",
+          "state": {
+            "knowledge": "confirmed",
+            "observed_at_ms": 1791870258321,
+            "stale": false,
+            "updated_at_ms": 1791870258321,
+            "value": true
+          }
+        },
+        {
+          "step": "restart before GET",
+          "state": {
+            "knowledge": "unknown",
+            "observed_at_ms": null,
+            "stale": false,
+            "updated_at_ms": 0,
+            "value": null
+          }
+        },
+        {
+          "step": "restart GET",
+          "state": {
+            "knowledge": "confirmed",
+            "observed_at_ms": 1791870261967,
+            "stale": false,
+            "updated_at_ms": 1791870261967,
+            "value": true
+          }
+        }
+      ],
+      "voices": [
+        {
+          "id": 9,
+          "states": [
+            "WAITING_WAKE",
+            "WAKE_DETECTED",
+            "CHECKING_CONTINUATION",
+            "CONTINUATION_INLINE",
+            "SPEECH_START",
+            "CAPTURING_INLINE_COMMAND",
+            "SPEECH_END",
+            "PROCESSING",
+            "WAITING_WAKE",
+            "stopping",
+            "stopped"
+          ],
+          "speech": {},
+          "command": {
+            "result": null,
+            "execution": null,
+            "index_status": null,
+            "language_route": null,
+            "safety": null,
+            "rejection_stage": null
+          },
+          "history_sources": []
+        },
+        {
+          "id": 10,
+          "states": [
+            "WAITING_WAKE",
+            "WAKE_DETECTED",
+            "CHECKING_CONTINUATION",
+            "CONTINUATION_INLINE",
+            "SPEECH_START",
+            "CAPTURING_INLINE_COMMAND",
+            "SPEECH_END",
+            "PROCESSING",
+            "WAITING_WAKE",
+            "stopping",
+            "stopped"
+          ],
+          "speech": {
+            "audio_detected": true,
+            "command_text": "включи лампу",
+            "duration_seconds": 1.472,
+            "error": "",
+            "inline": true,
+            "processing_ms": 20.559934,
+            "speech_seconds": 1.472,
+            "stt_ms": 0,
+            "transcript": "Амина, включи лампу",
+            "wake_prefix_removed": true
+          },
+          "command": {
+            "result": {
+              "actionId": "action_lampa_vklyuchit",
+              "arguments": {},
+              "targetId": "device_lampa"
+            },
+            "execution": {
+              "actionId": "action_lampa_vklyuchit",
+              "current": {
+                "power": true
+              },
+              "error": "",
+              "previous": {
+                "power": false
+              },
+              "status": "accepted",
+              "success": true,
+              "targetId": "device_lampa",
+              "timestamp_ms": 1791870253645
+            },
+            "index_status": "INDEX_EXACT",
+            "language_route": "INDEX_EXACT",
+            "safety": "PASS",
+            "rejection_stage": ""
+          },
+          "history_sources": [
+            "voice"
+          ]
+        },
+        {
+          "id": 11,
+          "states": [
+            "WAITING_WAKE",
+            "WAKE_DETECTED",
+            "CHECKING_CONTINUATION",
+            "CONTINUATION_INLINE",
+            "SPEECH_START",
+            "CAPTURING_INLINE_COMMAND",
+            "SPEECH_END",
+            "PROCESSING",
+            "WAITING_WAKE",
+            "stopping",
+            "stopped"
+          ],
+          "speech": {
+            "audio_detected": true,
+            "command_text": "выключи лампу",
+            "duration_seconds": 1.472,
+            "error": "",
+            "inline": true,
+            "processing_ms": 9.10816,
+            "speech_seconds": 1.472,
+            "stt_ms": 0,
+            "transcript": "Амина, выключи лампу",
+            "wake_prefix_removed": true
+          },
+          "command": {
+            "result": {
+              "actionId": "action_lampa_vyklyuchit",
+              "arguments": {},
+              "targetId": "device_lampa"
+            },
+            "execution": {
+              "actionId": "action_lampa_vyklyuchit",
+              "current": {
+                "power": false
+              },
+              "error": "",
+              "previous": {
+                "power": false
+              },
+              "status": "accepted",
+              "success": true,
+              "targetId": "device_lampa",
+              "timestamp_ms": 1791870255397
+            },
+            "index_status": "INDEX_EXACT",
+            "language_route": "INDEX_EXACT",
+            "safety": "PASS",
+            "rejection_stage": ""
+          },
+          "history_sources": [
+            "voice",
+            "voice"
+          ]
+        },
+        {
+          "id": 12,
+          "states": [
+            "WAITING_WAKE",
+            "WAKE_DETECTED",
+            "CHECKING_CONTINUATION",
+            "CONTINUATION_INLINE",
+            "SPEECH_START",
+            "CAPTURING_INLINE_COMMAND",
+            "SPEECH_END",
+            "PROCESSING",
+            "WAITING_WAKE",
+            "stopping",
+            "stopped"
+          ],
+          "speech": {
+            "audio_detected": true,
+            "command_text": "не включай лампу",
+            "duration_seconds": 1.472,
+            "error": "target_not_grounded: An exact configured action phrase is required",
+            "inline": true,
+            "processing_ms": 4.907939,
+            "speech_seconds": 1.472,
+            "stt_ms": 0,
+            "transcript": "Амина, не включай лампу",
+            "wake_prefix_removed": true
+          },
+          "command": {
+            "result": {
+              "unsupported": true
+            },
+            "execution": null,
+            "index_status": "INDEX_MISS",
+            "language_route": "GROUNDING_REJECTED",
+            "safety": "NO_ACTION",
+            "rejection_stage": "grounding"
+          },
+          "history_sources": [
+            "voice",
+            "voice"
+          ]
+        },
+        {
+          "id": 13,
+          "states": [
+            "WAITING_WAKE",
+            "WAKE_DETECTED",
+            "CHECKING_CONTINUATION",
+            "CONTINUATION_INLINE",
+            "SPEECH_START",
+            "CAPTURING_INLINE_COMMAND",
+            "SPEECH_END",
+            "PROCESSING",
+            "WAITING_WAKE",
+            "stopping",
+            "stopped"
+          ],
+          "speech": {
+            "audio_detected": true,
+            "command_text": "включи и выключи лампу",
+            "duration_seconds": 1.472,
+            "error": "",
+            "inline": true,
+            "processing_ms": 3.93901,
+            "speech_seconds": 1.472,
+            "stt_ms": 0,
+            "transcript": "Амина, включи и выключи лампу",
+            "wake_prefix_removed": true
+          },
+          "command": {
+            "result": {
+              "unsupported": true
+            },
+            "execution": null,
+            "index_status": "INDEX_AMBIGUOUS",
+            "language_route": "INDEX_AMBIGUOUS",
+            "safety": "NO_ACTION",
+            "rejection_stage": "grounding"
+          },
+          "history_sources": [
+            "voice",
+            "voice"
+          ]
+        },
+        {
+          "id": 14,
+          "states": [
+            "WAITING_WAKE",
+            "WAKE_DETECTED",
+            "CHECKING_CONTINUATION",
+            "CONTINUATION_INLINE",
+            "SPEECH_START",
+            "CAPTURING_INLINE_COMMAND",
+            "SPEECH_END",
+            "PROCESSING",
+            "WAITING_WAKE",
+            "stopping",
+            "stopped"
+          ],
+          "speech": {
+            "audio_detected": true,
+            "command_text": "какая погода",
+            "duration_seconds": 1.472,
+            "error": "target_not_grounded: No unambiguous configured device mention",
+            "inline": true,
+            "processing_ms": 3.347793,
+            "speech_seconds": 1.472,
+            "stt_ms": 0,
+            "transcript": "Амина, какая погода",
+            "wake_prefix_removed": true
+          },
+          "command": {
+            "result": {
+              "unsupported": true
+            },
+            "execution": null,
+            "index_status": "INDEX_MISS",
+            "language_route": "GROUNDING_REJECTED",
+            "safety": "NO_ACTION",
+            "rejection_stage": "grounding"
+          },
+          "history_sources": [
+            "voice",
+            "voice"
+          ]
+        },
+        {
+          "id": 15,
+          "states": [
+            "WAITING_WAKE",
+            "WAKE_DETECTED",
+            "CHECKING_CONTINUATION",
+            "CONTINUATION_INLINE",
+            "SPEECH_START",
+            "CAPTURING_INLINE_COMMAND",
+            "SPEECH_END",
+            "PROCESSING",
+            "WAITING_WAKE",
+            "stopping",
+            "stopped"
+          ],
+          "speech": {
+            "audio_detected": true,
+            "command_text": "включи лампу в неизвестной комнате",
+            "duration_seconds": 1.472,
+            "error": "",
+            "inline": true,
+            "processing_ms": 7.617849,
+            "speech_seconds": 1.472,
+            "stt_ms": 0,
+            "transcript": "Амина, включи лампу в неизвестной комнате",
+            "wake_prefix_removed": true
+          },
+          "command": {
+            "result": {
+              "unsupported": true
+            },
+            "execution": null,
+            "index_status": "INDEX_MISS",
+            "language_route": "LLM_FALLBACK",
+            "safety": "NO_ACTION",
+            "rejection_stage": "model_unsupported"
+          },
+          "history_sources": [
+            "voice",
+            "voice"
+          ]
+        },
+        {
+          "id": 16,
+          "states": [
+            "WAITING_WAKE",
+            "stopping",
+            "stopped"
+          ],
+          "speech": {
+            "audio_detected": true,
+            "command_text": "включи лампу в неизвестной комнате",
+            "duration_seconds": 1.472,
+            "error": "",
+            "inline": true,
+            "processing_ms": 7.617849,
+            "speech_seconds": 1.472,
+            "stt_ms": 0,
+            "transcript": "Амина, включи лампу в неизвестной комнате",
+            "wake_prefix_removed": true
+          },
+          "command": {
+            "result": {
+              "unsupported": true
+            },
+            "execution": null,
+            "index_status": "INDEX_MISS",
+            "language_route": "LLM_FALLBACK",
+            "safety": "NO_ACTION",
+            "rejection_stage": "model_unsupported"
+          },
+          "history_sources": [
+            "voice",
+            "voice"
+          ]
+        }
+      ],
+      "conflicts": [
+        "second-owner",
+        "wrong-owner",
+        "stale-draft-version",
+        "stale-observe-hash"
+      ],
+      "observation_failures": [
+        {
+          "mode": "malformed",
+          "message": "Действия\nВключить\n\nБудет проверена команда: «включи лампа»\n\nВключить\nВыключить\n\nБудет проверена команда: «выключи лампа»\n\nВыключить\nПрочитать состояние\n\nЧтение не подтвердило состояние. Последние свидетельства и их время сохранены.\n\nЗадача требует внимания\nHTTP readback failed; state was not confirmed.\n\nВведённые данные сохранены в этой вкладке."
+        },
+        {
+          "mode": "wrong_type",
+          "message": "Действия\nВключить\n\nБудет проверена команда: «включи лампа»\n\nВключить\nВыключить\n\nБудет проверена команда: «выключи лампа»\n\nВыключить\nПрочитать состояние\n\nЧтение не подтвердило состояние. Последние свидетельства и их время сохранены.\n\nЗадача требует внимания\nHTTP readback failed; state was not confirmed.\n\nВведённые данные сохранены в этой вкладке."
+        },
+        {
+          "mode": "unavailable",
+          "message": "Действия\nВключить\n\nБудет проверена команда: «включи лампа»\n\nВключить\nВыключить\n\nБудет проверена команда: «выключи лампа»\n\nВыключить\nПрочитать состояние\n\nЧтение не подтвердило состояние. Последние свидетельства и их время сохранены.\n\nЗадача требует внимания\nHTTP readback failed; state was not confirmed.\n\nВведённые данные сохранены в этой вкладке."
+        }
+      ]
+    }
+  ],
+  "grounding": {
+    "cases": 450,
+    "pass": 450,
+    "accepted": 164,
+    "rejected": 286,
+    "total_observed_POST": 164,
+    "rejected_http_count": 0
+  },
+  "external_browser_requests": [],
+  "browser_exceptions": [],
+  "production": {
+    "store_exact": true,
+    "unit_unchanged": true,
+    "pid_start_release_unchanged": true,
+    "pid": 715461,
+    "owners": {
+      "/dev/dri/card1": [
+        715461
+      ],
+      "/dev/snd/pcmC3D0c": [
+        715461
+      ]
+    },
+    "active_unchanged": true,
+    "active": {
+      "generation_id": 1,
+      "hash": "688690e892d2f59413cdc2f7d81f1e129ab9ac0dd247f84b2898d74c3c3cdd18",
+      "revision": 2
+    },
+    "runtime_ready": true,
+    "voice": "WAITING_WAKE",
+    "microphone": "connected",
+    "critical_sources": {
+      "src/SafetyGate.cpp": {
+        "equal_to_master": true,
+        "sha256": "15b9d57aa18809b745decdf641342d1f66a167b52573f85b14e9b50a69ca6a50"
+      },
+      "src/CommandEngine.cpp": {
+        "equal_to_master": true,
+        "sha256": "a2f2fba7a03cb61a05b84d3c862227f6eb3cfaf56b9d5d08d1fa055810e0a7ac"
+      },
+      "src/WakeVoiceLoop.cpp": {
+        "equal_to_master": true,
+        "sha256": "55942ee233bdbdfd4fe7bd20f228c67c29c8b3c34d379206ff4de886c78b5620"
+      },
+      "src/VoiceLoop.cpp": {
+        "equal_to_master": true,
+        "sha256": "25c443d50dac65d08fb969cab23ebb3b8e69ee8854636489a01eb6805a04dbe0"
+      },
+      "src/VoiceProcessor.cpp": {
+        "equal_to_master": true,
+        "sha256": "b6259bf0bfaee5d1e9a61125bdb767a2fbcfa5ef292f93f7147cea1496589880"
+      },
+      "packaging/wake-python": {
+        "equal_to_master": true,
+        "sha256": "459f09b19668f2b033ab95d77c7ad88666a0a064e7e070a7193d373528d40f4c"
+      },
+      "scripts/release-runner.py": {
+        "equal_to_master": true,
+        "sha256": "376fd8bad59fe8cbb395bc03529e4c49e5b8475483558ddc44cc7c7b0d6d0162"
+      },
+      "scripts/production-rollout.py": {
+        "equal_to_master": true,
+        "sha256": "a9ef2d874ce8cc722f855bac30550736df245004a3533211748855e29a630f28"
+      },
+      "packaging/firefly_recovery.py": {
+        "equal_to_master": true,
+        "sha256": "cf9d3983660788ec54bc32ae14d321cae812ef734de5b2ee8da566ca32e00182"
+      }
+    },
+    "no_production_apply_restart_or_deployment": true
+  },
+  "historical_evidence_note": "Prior genuine Qwen and failed physical wake evidence preserved. This is not a new real-Qwen/recorded-voice/hardware PASS."
+}

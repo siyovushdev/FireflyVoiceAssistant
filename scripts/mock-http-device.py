@@ -20,6 +20,7 @@ class MockDevice(ThreadingHTTPServer):
         self.requests = []
         self.mode = ''
         self.lock = threading.Lock()
+        self.request_log = None
 
     def snapshot(self):
         with self.lock:
@@ -40,6 +41,10 @@ class Handler(BaseHTTPRequestHandler):
         raw = self.rfile.read(length)
         with self.server.lock:
             self.server.requests.append((self.command, self.path, raw.decode()))
+            if self.server.request_log is not None:
+                self.server.request_log.write(json.dumps({'method': self.command,
+                    'path': self.path, 'body': raw.decode()}) + '\n')
+                self.server.request_log.flush()
             mode = self.server.mode
         if mode == 'timeout':
             time.sleep(.3)
@@ -92,8 +97,11 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--port', type=int, default=8765)
+    parser.add_argument('--request-log', help='New JSONL file for exact HTTP counts; TCP-only probes create no entry')
     args = parser.parse_args()
     server = MockDevice(('127.0.0.1', args.port))
+    if args.request_log:
+        server.request_log = open(args.request_log, 'x', encoding='utf-8')
     print(f'MOCK_LISTEN http://127.0.0.1:{server.server_port}/relay/1', flush=True)
     try:
         server.serve_forever()
@@ -101,3 +109,5 @@ if __name__ == '__main__':
         pass
     finally:
         server.server_close()
+        if server.request_log is not None:
+            server.request_log.close()

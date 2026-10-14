@@ -482,8 +482,12 @@ power_device означает ровно включение и выключен�
         const std::string reason=error.what();
         const std::set<std::string> publicReasons={"setup_required","setup_in_progress","restart_required",
             "admin_model_not_configured","admin_model_unavailable_or_wrong_size","admin_model_verification_failed","admin_model_sha256_mismatch",
-            "admin_memory_reserve_unavailable","memory_status_unavailable"};
-        reply = failure(publicReasons.count(reason)?reason:"runtime_rejected", "", "Runtime context or request rejected. The previous generation was not replaced.");
+            "admin_memory_reserve_unavailable","memory_status_unavailable","admin_resource_timeout",
+            "audio_drain_timeout","model_release_timeout","runtime_restore_failed","rkllm_owner_busy"};
+        const auto code = publicReasons.count(reason) ? reason :
+            reason.find("RKLLM deadline exceeded") != std::string::npos ? "rkllm_timeout" :
+            (reason.find("rkllm_") != std::string::npos || reason.find("RKLLM") != std::string::npos) ? "rkllm_failed" : "runtime_rejected";
+        reply = failure(code, "", "Runtime context or request rejected. The previous generation was not replaced.");
     }
     if (const auto active = generations_.current()) {
         const auto& catalog = active->domain.snapshot();

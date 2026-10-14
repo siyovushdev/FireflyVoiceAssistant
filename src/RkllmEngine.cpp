@@ -16,6 +16,9 @@
 namespace firefly {
 namespace {
 using Clock = std::chrono::steady_clock;
+// One physical NPU model owner in this process, including partially initialized
+// handles. A failed destroy retains the lease: recovery requires process restart.
+std::atomic<bool> runtimeOwned{false};
 long long elapsed(Clock::time_point start) {
     return std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - start).count();
 }
@@ -64,14 +67,18 @@ struct RkllmEngine::Impl {
         if (config.adminProfile) responseTokens = 768;
     }
     ~Impl() {
+        if (destroyFailed) return; // Ownership is uncertain; never retry this handle.
         if (handle) {
             const int result = rkllm_destroy(handle);
-            if (result != 0) std::cerr << "rkllm_destroy failed: " << result << '\n';
-            else if (config.verbose) std::cerr << "RKLLM destroyed\n";
+            if (result != 0) { std::cerr << "rkllm_destroy failed: " << result << '\n'; return; }
+            if (config.verbose) std::cerr << "RKLLM destroyed\n";
         }
+        if (ownsRuntime) runtimeOwned = false;
     }
     RkllmConfig config;
     LLMHandle handle = nullptr;
+    bool ownsRuntime = false;
+    bool destroyFailed = false;
     std::string systemChat;
     RKLLMCallback callbacks{};
     std::mutex requestMutex;
@@ -118,6 +125,8 @@ struct RkllmEngine::Impl {
     std::string run(std::string_view original, const char* label, int requestReserve = 0) {
         if (original.find('\0') != std::string_view::npos)
             throw std::invalid_argument("Input contains a NUL byte");
+        const bool bootstrap = !ready;
+        if (config.resourcePhase) config.resourcePhase(bootstrap ? "before_bootstrap" : "before_inference");
         std::string prompt(original);
         RKLLMInput input{};
         input.input_type = RKLLM_INPUT_PROMPT;
@@ -138,6 +147,7 @@ struct RkllmEngine::Impl {
         if (deadline.expired())
             throw std::runtime_error("RKLLM deadline exceeded; abort status=" + std::to_string(deadline.abortResult()));
         requireSuccess(status, "rkllm_run");
+        if (config.resourcePhase) config.resourcePhase(bootstrap ? "after_bootstrap" : "after_inference");
         std::lock_guard<std::mutex> lock(outputMutex);
         if (callbackFailed || !finished) throw std::runtime_error("RKLLM callback failed or did not finish");
         // The public API has no internal-tokenizer preflight. Admit actual runtime
@@ -201,8 +211,13 @@ struct RkllmEngine::Impl {
         callbacks.result_callback = callback;
         callbacks.result_userdata = this;
         progress("Loading model...");
+        if (config.resourcePhase) config.resourcePhase("before_init");
+        bool expected = false;
+        if (!runtimeOwned.compare_exchange_strong(expected, true)) throw std::runtime_error("rkllm_owner_busy");
+        ownsRuntime = true;
         const auto initStart = Clock::now();
         requireSuccess(rkllm_init(&handle, &param, &callbacks), "rkllm_init");
+        if (config.resourcePhase) config.resourcePhase("after_init");
         if (config.verbose) std::cerr << "init_ms=" << elapsed(initStart) << '\n';
         systemChat = "<|im_start|>system\n" + config.systemPrompt + "<|im_end|>\n";
         requireSuccess(rkllm_set_chat_template(handle, systemChat.c_str(),
@@ -237,9 +252,14 @@ std::string RkllmEngine::infer(std::string_view original) {
 void RkllmEngine::close() {
     std::lock_guard<std::mutex> lock(impl_->requestMutex);
     impl_->ready = false;
+    if (impl_->destroyFailed) throw std::runtime_error("rkllm_destroy; restart_required");
     if (!impl_->handle) return;
-    requireSuccess(rkllm_destroy(impl_->handle), "rkllm_destroy; restart_required");
+    const int status = rkllm_destroy(impl_->handle);
+    if (status != 0) impl_->destroyFailed = true;
+    requireSuccess(status, "rkllm_destroy; restart_required");
     impl_->handle = nullptr;
+    impl_->ownsRuntime = false;
+    runtimeOwned = false;
 }
 std::string RkllmEngine::inferAdmin(std::string_view step) {
     admin::validateMessage(step);
