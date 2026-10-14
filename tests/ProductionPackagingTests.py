@@ -148,6 +148,51 @@ class ProductionPackaging(unittest.TestCase):
         cls.temp.cleanup()
         os.umask(cls.previous_umask)
 
+    def test_installed_models_stage_install_failure_cleanup_and_legacy_verify(self):
+        if not re.search(r'^FIREFLY_WAKE_MODEL_REFERENCE:FILEPATH=.+$',
+                         (Path(ARGS['build'])/'CMakeCache.txt').read_text(), re.M):
+            self.skipTest('requires explicitly reference-configured build; mandatory for no-copy candidate')
+        installed = self.prefix
+        inputs={name:installed/name for name in release.ALLOWED_SHARED_MODELS}
+        frozen={**PRODUCTION_SHA256, **{name:release.sha256_file(path) for name,path in inputs.items()}}
+        protected = {str(p):p.stat() for p in [*inputs.values(),self.release/release.WAKE_MODEL]}
+        current = installed/'current';current.symlink_to('releases/'+self.release_id)
+        marker=installed/'previous-release';marker.write_text(self.release_id+'\n')
+        new_id='installed-reference-e2e'
+        with tempfile.TemporaryDirectory(prefix='firefly-reference-') as tmp, \
+             patch.object(release,'PRODUCTION_PREFIX',str(installed)), \
+             patch.object(release,'PRODUCTION_SHA256',frozen), \
+             patch.object(release,'ADMIN_MODEL_BYTES',inputs[ADMIN_MODEL].stat().st_size), \
+             patch.object(release,'require_root_owned'), \
+             patch.object(release,'assert_production_ownership'), \
+             patch.dict(os.environ, {'FIREFLY_OWNER_ACCEPTED':'1'}):
+            req=request(Path(tmp),new_id,production=True,runtime_prefix=str(installed),
+                        runtime_model=inputs[RUNTIME_MODEL],admin_model=inputs[ADMIN_MODEL],
+                        vad_model=inputs[VAD_MODEL],stt_dir=installed/STT_DIR,
+                        reuse_installed_models=True,wake_reference_release=self.release_id)
+            with patch.object(release,'_copy_regular',wraps=release._copy_regular) as copies:
+                document=stage_release(req)
+                self.assertFalse((req.destination/'models').exists())
+                self.assertTrue((req.destination/'releases'/new_id/release.WAKE_MODEL).is_symlink())
+                self.assertFalse(any(call.args[0] in inputs.values() for call in copies.call_args_list))
+                # A failure after publication cleans only the new app release, never shared models.
+                with patch.object(release,'install_after_models',side_effect=RuntimeError('fixture fault')):
+                    with self.assertRaises(ReleaseError): install_release(req.destination,installed,new_id)
+                self.assertFalse((installed/'releases'/new_id).exists())
+                install_release(req.destination,installed,new_id)
+                self.assertFalse(any(call.args[0] in inputs.values() for call in copies.call_args_list))
+            verify_tree(installed,new_id,check_python=True)
+            self.assertEqual(os.readlink(current),'releases/'+self.release_id)
+            self.assertEqual(marker.read_text(),self.release_id+'\n')
+            self.assertEqual(document['installed_model_reference']['mode'],'installed-read-only')
+            for name,before in protected.items():
+                after=Path(name).stat()
+                self.assertEqual((after.st_ino,after.st_nlink,after.st_mode,after.st_mtime_ns,after.st_ctime_ns),
+                                 (before.st_ino,before.st_nlink,before.st_mode,before.st_mtime_ns,before.st_ctime_ns))
+            shutil.rmtree(installed/'releases'/new_id)
+        verify_tree(installed,self.release_id,check_python=True)
+        current.unlink();marker.unlink()
+
     def test_manifest_layout_and_shared_models(self):
         self.assertEqual(self.manifest["release_id"], self.release_id)
         self.assertEqual(self.manifest["architecture"], "aarch64")

@@ -93,7 +93,18 @@ def application_checks(root, source):
                        str(source / 'src/admin/frontend'), 'run', name], timeout=120)
 
 
-def prepare(root, source, commit, release):
+def approved_assets(candidate, previous, approved, built_assets):
+    if approved is None:
+        if candidate != previous:
+            raise RuntimeError('Candidate assets mismatch; an explicit reviewed SHA256 is required')
+        return previous
+    if (len(approved) != 64 or any(c not in '0123456789abcdef' for c in approved)
+            or candidate != approved or built_assets != approved):
+        raise RuntimeError('Candidate assets mismatch with approved source/build SHA256')
+    return approved
+
+
+def prepare(root, source, commit, release, approved_admin_assets_sha256=None):
     # Build, full application tests and immutable staging/install use the existing
     # packaging runbook before this non-disruptive preparation entry point.
     if (root.parent != Path('/run') or root.exists() or source.resolve() != source
@@ -116,9 +127,11 @@ def prepare(root, source, commit, release):
     identities = {target: package.build_identity(prefix / 'releases' / target / 'bin/firefly-demo')
                   for target in [old, release]}
     if (old == release or identities[release]['head'] != commit or identities[release]['dirty']
-            or identities[release]['source_sha256'] != package.source_tree_fingerprint(source)
-            or identities[release]['admin_assets_sha256'] != identities[old]['admin_assets_sha256']):
+            or identities[release]['source_sha256'] != package.source_tree_fingerprint(source)):
         raise RuntimeError('Candidate identity/source/assets mismatch')
+    assets_pin = approved_assets(identities[release]['admin_assets_sha256'],
+                                 identities[old]['admin_assets_sha256'], approved_admin_assets_sha256,
+                                 package.admin_assets_fingerprint(source / 'build') if approved_admin_assets_sha256 else None)
     documents = {target: json.loads((prefix / 'releases' / target / 'manifest.json').read_bytes())
                  for target in [old, release]}
     def preserved(document):
@@ -135,6 +148,7 @@ def prepare(root, source, commit, release):
     write(root / 'production-before.json', before)
     now = time.monotonic()
     plan = dict(old=old, new=release, backup_store=str(root / 'backup-store'), identities=identities,
+                approved_admin_assets_sha256=assets_pin,
                 binary_sha256={target: m.sha(prefix / 'releases' / target / 'bin/firefly-demo') for target in [old, release]},
                 worker_unit=root.name + '-forward.service', rollback_unit=root.name + '-rollback.service',
                 rollback_timer=root.name + '-rollback.timer', verification_budget_seconds=240, recovery_budget_seconds=360,
@@ -261,13 +275,14 @@ def main():
     prep.add_argument('--approved-commit', required=True)
     prep.add_argument('--new-release', required=True)
     prep.add_argument('--root', type=Path, required=True)
+    prep.add_argument('--approved-admin-assets-sha256')
     execute = sub.add_parser('run')
     execute.add_argument('root', type=Path)
     execute.add_argument('--owner-authorization', required=True)
     args = parser.parse_args()
     if args.mode == 'prepare':
         try:
-            prepare(args.root, args.source, args.approved_commit, args.new_release)
+            prepare(args.root, args.source, args.approved_commit, args.new_release, args.approved_admin_assets_sha256)
         except Exception as error:
             print(json.dumps({'result': 'ABORTED_BEFORE_CUTOVER', 'phase': 'prepare', 'error': repr(error)}))
             return 1

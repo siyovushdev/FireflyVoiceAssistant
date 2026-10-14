@@ -14,6 +14,27 @@ spec = importlib.util.spec_from_file_location('pc', Path(__file__).resolve().par
 pc = importlib.util.module_from_spec(spec); spec.loader.exec_module(pc)
 
 class PcTransportTests(unittest.TestCase):
+    def test_clean_candidate_bridge_is_explicit_and_shell_quoted(self):
+        import json
+        clean = '/home/firefly/FireflyVoiceAssistantLinux-m19-rollout'
+        transport = pc.Transport('firefly@host', '/control', clean)
+        with patch.object(pc.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, '{}', '')) as run:
+            transport.call('offline-start')
+            self.assertIn(clean + '/scripts/m19-pc-bridge.py', run.call_args.args[0][-1])
+            self.assertEqual(json.loads(run.call_args.kwargs['input']), {'action':'offline-start'})
+        for path in ['relative', '/home/../tmp', '/home//firefly']:
+            with self.assertRaises(ValueError): pc.Transport('host', None, path)
+
+    def test_default_profile_is_stable_for_pre_window_live_recheck(self):
+        from types import SimpleNamespace
+        args=SimpleNamespace(chromium='/bin/true', node='/bin/true', host='firefly@host',
+                             voice_mode='owner-live', remote_repo=pc.REMOTE_REPO)
+        with patch.dict(os.environ, {'DISPLAY':':1'}), \
+             patch.object(pc.subprocess,'check_output',return_value='fixture-version'):
+            profile=pc.browser_profile(args)
+            self.assertEqual(profile['remote_repo'], pc.REMOTE_REPO)
+            self.assertEqual(pc.browser_profile(args), profile)
+
     def test_owner_cues_are_forwarded_once_without_reading_partial_json(self):
         import json
         with tempfile.TemporaryDirectory() as tmp:
