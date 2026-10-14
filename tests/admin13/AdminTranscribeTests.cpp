@@ -7,6 +7,7 @@
 #include <cstring>
 #include <iostream>
 #include <thread>
+#include <future>
 
 using namespace admin_test;
 namespace {
@@ -162,6 +163,25 @@ int main(int argc, char** argv) {
         const auto busy = Json::parse(busyStt.transcribe(wavMonoS16(16000, 1600)));
         first.join();
         check(busy.at("ok") == false && busy.at("errors")[0].at("code") == "stt_busy", "concurrent reject");
+
+        // The same resource lease is used by RuntimeModel init/bootstrap/inference.
+        auto resources = std::make_shared<firefly::SetupResources>();
+        auto guarded = std::make_unique<SlowRecognizer>();
+        auto* guardedPtr = guarded.get();
+        firefly::admin::AdminTranscriber guardedStt(std::move(guarded), resources);
+        auto transcription = std::async(std::launch::async, [&] { return guardedStt.transcribe(wavMonoS16(16000, 1600)); });
+        while (!guardedPtr->entered) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        bool resourceTimeout = false;
+        try { resources->acquire(std::chrono::milliseconds(1)); }
+        catch (const std::exception& e) { resourceTimeout = std::string(e.what()) == "admin_resource_timeout"; }
+        check(resourceTimeout, "active Admin STT excludes model switching/inference");
+        check(Json::parse(transcription.get()).at("ok"), "Admin STT releases lease after recognition");
+        {
+            auto modelLease = resources->acquire();
+            auto blocked = std::async(std::launch::async, [&] { return guardedStt.transcribe(wavMonoS16(16000, 1600)); });
+            const auto response = Json::parse(blocked.get());
+            check(response.at("errors")[0].at("code") == "stt_busy", "model transition rejects a new Admin STT user");
+        }
 
         std::cout << "AdminTranscribe: " << checks << " checks passed\n";
         return 0;

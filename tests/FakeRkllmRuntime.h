@@ -4,6 +4,7 @@
 #include <atomic>
 #include <string>
 #include <vector>
+#include <functional>
 namespace firefly_test {
 enum class Fault { None, Run, Clear, State, Error, MissingFinish, NullText, Overflow, Timeout, AbortFailure,
                    Context, OutputLimit, CacheRead, CacheSize, MissingPerf };
@@ -12,6 +13,10 @@ struct Stub {
     Fault fault = Fault::None;
     std::atomic<bool> running{false}, aborted{false};
     int init = 0, run = 0, clear = 0, destroy = 0, abort = 0;
+    int activeHandles = 0, peakHandles = 0;
+    int destroyAttempts = 0;
+    bool failInit = false, failDestroy = false;
+    std::function<void()> onInit, onDestroy, onRun;
     bool settings = false, bootstrap = false, independent = true;
     // Explicit refresh-test controls; original fault suites keep defaults.
     std::string system, rejectTemplate, lastPrompt;

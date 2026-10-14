@@ -1,6 +1,7 @@
 #include "FakeRkllmRuntime.h"
 #include "firefly/RkllmEngine.h"
 #include <chrono>
+#include <algorithm>
 #include <thread>
 #include <string>
 #include <cstdlib>
@@ -11,12 +12,14 @@ extern "C" {
 RKLLMParam rkllm_createDefaultParam() { return {}; }
 int rkllm_init(LLMHandle* handle, RKLLMParam* param, RKLLMCallback* callback) {
     ++stub.init;
-    if (std::getenv("FIREFLY_TEST_INIT_FAIL")) return -9;
+    if (stub.failInit || std::getenv("FIREFLY_TEST_INIT_FAIL")) return -9;
     stub.callbacks = *callback;
     stub.settings = param->top_k == 1 && param->top_p == 1 && param->temperature == 0.1f &&
         param->max_new_tokens == firefly::RkllmResponseTokens && param->max_context_len == 1024 && param->repeat_penalty == 1 &&
         param->frequency_penalty == 0 && param->presence_penalty == 0 && param->skip_special_token;
     *handle = &stub;
+    stub.peakHandles = std::max(stub.peakHandles, ++stub.activeHandles);
+    if (stub.onInit) stub.onInit();
     return 0;
 }
 int rkllm_set_chat_template(LLMHandle, const char* system, const char* prefix, const char* postfix) {
@@ -38,7 +41,13 @@ int rkllm_get_kv_cache_size(LLMHandle, int* sizes) {
     *sizes = stub.fault == Fault::CacheSize ? 1025 : 600;
     return stub.fault == Fault::CacheRead ? -4 : 0;
 }
-int rkllm_destroy(LLMHandle) { ++stub.destroy; std::cerr << "stub destroyed\n"; return 0; }
+int rkllm_destroy(LLMHandle) {
+    ++stub.destroyAttempts;
+    if (stub.failDestroy) return -8;
+    ++stub.destroy; --stub.activeHandles;
+    if (stub.onDestroy) stub.onDestroy();
+    std::cerr << "stub destroyed\n"; return 0;
+}
 int rkllm_is_running(LLMHandle) { return stub.running ? 1 : 0; }
 int rkllm_abort(LLMHandle) {
     ++stub.abort;
@@ -81,6 +90,7 @@ int rkllm_run(LLMHandle, RKLLMInput* input, RKLLMInferParam* infer, void* userda
     if (stub.fault == Fault::Error) emit(RKLLM_RUN_ERROR);
     if (stub.fault != Fault::MissingFinish) emit(RKLLM_RUN_FINISH);
     stub.running = false;
+    if (stub.onRun) stub.onRun();
     return stub.fault == Fault::Run ? -1 : 0;
 }
 }

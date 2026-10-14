@@ -8,6 +8,7 @@ import sys
 import tempfile
 import time
 import urllib.request
+import urllib.error
 
 app, root = map(lambda value: Path(value).resolve(), sys.argv[1:])
 with tempfile.TemporaryDirectory(prefix='firefly-voice-recovery-') as directory:
@@ -35,7 +36,7 @@ with tempfile.TemporaryDirectory(prefix='firefly-voice-recovery-') as directory:
         try:
             original_pid = process.pid
 
-            def wait_for(predicate, timeout=8):
+            def wait_for(predicate, timeout=12):
                 deadline = time.monotonic() + timeout
                 while time.monotonic() < deadline:
                     assert process.poll() is None, log.read_text()
@@ -75,6 +76,28 @@ with tempfile.TemporaryDirectory(prefix='firefly-voice-recovery-') as directory:
             mode('healthy')
             wait_for(lambda: state('WAITING_WAKE', 'ready'))
             wait_for(lambda: 'VOICE_RECOVERY recovered' in log.read_text())
+            mode('stt-failure')
+            # Real Setup barrier/resource teardown/restoration. No Admin file is
+            # configured: entry fails safely before any real model verification.
+            request = urllib.request.Request(url + '/api/setup/start', data=b'{}',
+                headers={'Content-Type': 'application/json', 'Origin': url, 'X-Firefly-Admin': '1'}, method='POST')
+            try:
+                urllib.request.urlopen(request, timeout=5)
+                raise AssertionError('unconfigured Admin must not enter Setup')
+            except urllib.error.HTTPError as error:
+                assert error.code == 409
+            wait_for(lambda: 'fixture STT load failure' in log.read_text())
+            wait_for(lambda: state('unavailable', 'degraded'))
+            mode('healthy')
+            wait_for(lambda: log.read_text().count('FIXTURE STT loaded profile=command') == 2)
+            wait_for(lambda: state('WAITING_WAKE', 'ready'))
+            transition = log.read_text()
+            assert transition.index('FIXTURE STT released profile=command') < transition.index('MODEL_RELEASED profile=runtime1024')
+            assert transition.index('FIXTURE VAD released') < transition.index('MODEL_RELEASED profile=runtime1024')
+            assert 'SETUP_MEMORY phase=after_restore' in transition
+            assert 'FIXTURE STT released profile=admin' not in transition
+            assert (store / 'configuration.json').read_bytes() == before
+            assert get('/api/executions')['executions'] == []
             mode(failure)
             wait_for(lambda: state('unavailable', 'degraded'))
             if failure == 'stall':
@@ -94,15 +117,18 @@ with tempfile.TemporaryDirectory(prefix='firefly-voice-recovery-') as directory:
             assert process.wait(timeout=3) == 0, log.read_text()
             assert time.monotonic() - began < 2, 'shutdown delayed by retry backoff'
             text = log.read_text()
+            assert 'TEST_ONLY synthetic setup memory' in text, 'fixture must not depend on host RAM'
             assert 'SHUTDOWN complete' in text and 'stub destroyed' in text, text
-            assert text.count('FIXTURE STT loaded profile=command') == 1, text
+            assert text.count('FIXTURE STT loaded profile=command') == 2, text
             assert text.count('FIXTURE STT loaded profile=admin') == 1, text
-            assert text.count('FIXTURE VAD loaded') == 1, text
+            assert text.count('FIXTURE VAD loaded') == 2, text
+            assert text.count('FIXTURE STT released profile=command') == 2, text
+            assert text.count('FIXTURE VAD released') == 2, text
             assert text.count('FIXTURE capture opened owners=1') == text.count('FIXTURE capture closed owners=0'), text
             assert text.count('FIXTURE wake created') == text.count('FIXTURE wake destroyed'), text
             assert 'Concurrent capture owner' not in text
             assert 'Wake initialization while capture is already running' not in text
-            assert text.count('stub destroyed') == 1, 'recovery must not reload RKLLM'
+            assert text.count('stub destroyed') == 2, 'only Setup reloads RKLLM; microphone retries retain it'
             print('PASS', failure, 'same PID; health recovery; retained CPU models; clean shutdown')
         finally:
             if process.poll() is None:

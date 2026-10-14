@@ -5,6 +5,7 @@
 #include "Json.h"
 #include "../Text.h"
 #include <algorithm>
+#include <iostream>
 
 namespace firefly::admin {
 namespace {
@@ -283,30 +284,42 @@ void RuntimeGenerations::enterSetup() {
         throw std::runtime_error("setup_busy");
     ++setupEpoch_;
     // Admission closes before waiting for the current lease. No queued commands.
+    bool drained = false;
     try {
         if (audioDrain_) audioDrain_();
+        drained = true;
         auto lock = lockOperation(); Busy busy(busy_);
         ready_ = false;
         model_.enterSetup();
         setupMode_ = SetupMode::Active;
     } catch (...) {
         const auto failure = std::current_exception();
+        if (!drained) {
+            setupMode_ = SetupMode::Degraded;
+            ready_ = false;
+            std::rethrow_exception(failure);
+        }
         try { prepareRestore(); finishRestore(); }
         catch (...) { setupMode_ = SetupMode::Degraded; ready_ = false; }
         std::rethrow_exception(failure);
     }
 }
 void RuntimeGenerations::prepareRestore() {
-    auto lock = lockOperation(); Busy busy(busy_);
     setupMode_ = SetupMode::Restoring;
     ready_ = false;
     try {
+        if (audioDrain_) audioDrain_();
+        auto lock = lockOperation(); Busy busy(busy_);
         const auto active = current();
         if (!active) throw std::runtime_error("No confirmed runtime generation");
         model_.leaveSetup(active->defaultPrompt());
         if (!model_.ready()) throw std::runtime_error("runtime_restore_failed");
         admittedContexts_.clear();
-    } catch (...) { setupMode_ = SetupMode::Degraded; throw; }
+    } catch (const std::exception& error) {
+        setupMode_ = SetupMode::Degraded;
+        std::cerr << "Runtime restore: " << error.what() << '\n';
+        throw std::runtime_error("runtime_restore_failed");
+    }
 }
 void RuntimeGenerations::finishRestore() {
     auto lock = lockOperation();
@@ -422,6 +435,13 @@ GenerationResult RuntimeGenerations::Request::process(std::string_view input, ex
     GenerationResult result{generation, engine.process(input), std::nullopt, {}};
     result.command.llmTimings = bound.timings;
     owner_.ready_ = !owner_.setupBlocked() && owner_.model_.ready();
+    // A voice request admitted before Setup may finish STT after drain timed
+    // out. Its lease protects resources, but must not authorize late hardware
+    // execution once the transition has failed closed.
+    if (execution != execution::ExecutionIntent::None && owner_.setupMode() == SetupMode::Degraded) {
+        result.guardError = "restart_required";
+        return result;
+    }
     if (guard) {
         const auto* action = std::get_if<actions::GenericAction>(&result.command.action);
         const auto* door = generation->domain.entranceTarget();

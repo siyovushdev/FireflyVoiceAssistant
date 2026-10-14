@@ -15,6 +15,9 @@
 #include "firefly/voice/WakeDetector.h"
 #include "firefly/voice/WakeAcknowledgement.h"
 #include "firefly/voice/VoiceRecovery.h"
+#ifdef FIREFLY_TEST_SETUP_RESOURCES
+#include "FakeSetupResources.h"
+#endif
 #include <charconv>
 #include <csignal>
 #include <filesystem>
@@ -149,7 +152,12 @@ int main(int argc, char** argv) {
                 std::filesystem::path(storePath) / "configuration.json")))
             store.initialize(firefly::config::ConfigLoader::fromFile(initial));
         // RuntimeModel defers RKLLM load until Apply/useContext — after Admin listens below.
-        firefly::admin::RuntimeModel model(modelPath, adminModel);
+#ifdef FIREFLY_TEST_SETUP_RESOURCES
+        auto resources = fakeSetupResources();
+#else
+        auto resources = std::make_shared<firefly::SetupResources>();
+#endif
+        firefly::admin::RuntimeModel model(modelPath, adminModel, resources);
         firefly::admin::RuntimeWorker runtime(model);
         firefly::admin::LocalRuntimeClient client(runtime);
         firefly::admin::Api api(store, client, nullptr);
@@ -170,7 +178,7 @@ int main(int argc, char** argv) {
         if (!stt.empty()) {
             try {
                 transcriber = std::make_unique<firefly::admin::AdminTranscriber>(
-                    std::make_unique<firefly::voice::SherpaRecognizer>(stt, firefly::voice::RecognitionProfile::AdminSetup));
+                    std::make_unique<firefly::voice::SherpaRecognizer>(stt, firefly::voice::RecognitionProfile::AdminSetup), resources);
                 api.attachTranscriber(transcriber.get());
                 api.noteStt(true);
                 std::cerr << "STARTUP Admin Copilot STT ready\n";
@@ -182,15 +190,27 @@ int main(int argc, char** argv) {
 #endif
 
         firefly::voice::VoiceRecovery recovery;
-        runtime.setAudioDrain([&] { recovery.drain(); });
+#ifdef FIREFLY_WITH_VOICE
+        // Access only inside the recovery audio lease, or its idle cleanup lock.
+        std::unique_ptr<firefly::voice::SherpaVad> detector;
+        std::unique_ptr<firefly::voice::SherpaRecognizer> recognizer;
+#endif
+        runtime.setAudioDrain([&] {
+            recovery.drain([&] {
+                auto lease = resources->acquire();
+                resources->note("before_voice_release");
+#ifdef FIREFLY_WITH_VOICE
+                recognizer.reset();
+                detector.reset();
+#endif
+                resources->note("after_voice_release");
+            });
+        });
         std::thread services([&] {
             // RKLLM admission happens here (Apply), with Admin already listening.
             api.initializeRuntime();
 #ifdef FIREFLY_WITH_VOICE
-            // CPU models survive device retries. VAD state is reset for every
-            // attempt; recognition streams are already local to each request.
-            std::unique_ptr<firefly::voice::SherpaVad> detector;
-            std::unique_ptr<firefly::voice::SherpaRecognizer> recognizer;
+            // CPU models survive device retries, but are released for Setup.
             const auto interrupted = [&] { return stopping != 0 || runtime.setupBlocked(); };
             if (voice) recovery.run({
                 [&] { return stopping != 0; },
@@ -202,9 +222,24 @@ int main(int argc, char** argv) {
                 },
                 [&](const std::function<void()>& ready) {
                     if (interrupted()) return;
-                    if (!detector) detector = std::make_unique<firefly::voice::SherpaVad>(vad);
-                    if (interrupted()) return;
-                    if (!recognizer) recognizer = std::make_unique<firefly::voice::SherpaRecognizer>(stt);
+                    {
+                        auto lease = resources->acquire();
+                        if (interrupted()) return;
+                        const bool loading = !detector || !recognizer;
+                        if (loading) resources->checkpoint("before_voice_load", firefly::SetupResources::GiBKiB);
+                        if (!detector) detector = std::make_unique<firefly::voice::SherpaVad>(vad);
+                        if (interrupted()) return;
+                        if (!recognizer) recognizer = std::make_unique<firefly::voice::SherpaRecognizer>(stt);
+                        if (loading) {
+                            try { resources->checkpoint("after_voice_load", firefly::SetupResources::GiBKiB); }
+                            catch (...) {
+                                recognizer.reset(); detector.reset();
+                                resources->note("voice_load_rejected");
+                                throw;
+                            }
+                        }
+                        api.noteStt(true);
+                    }
                     if (interrupted()) return;
                     firefly::voice::VoiceSegmenter segmenter(*detector);
                     segmenter.startSession();

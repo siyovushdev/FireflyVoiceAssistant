@@ -22,6 +22,8 @@ struct RkllmConfig {
     int contextLimit = RkllmContextTokens;
     bool adminProfile = false;
     std::function<void(std::string_view)> progress;
+    // Synchronous resource admission/diagnostics, invoked outside vendor callbacks.
+    std::function<void(std::string_view)> resourcePhase;
 };
 struct InferenceMetrics {
     int contextTokens = 0, inputTokens = 0, outputTokens = 0, outputBudget = 128;

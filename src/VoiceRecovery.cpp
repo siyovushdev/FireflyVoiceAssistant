@@ -10,10 +10,13 @@ VoiceRecovery::VoiceRecovery() : VoiceRecovery(Timing{}) {}
 VoiceRecovery::VoiceRecovery(Timing timing) : timing_(std::move(timing)) {
     if (!timing_.wait) timing_.wait = [](Milliseconds delay) { std::this_thread::sleep_for(delay); };
 }
-void VoiceRecovery::drain() {
+void VoiceRecovery::drain(const std::function<void()>& releaseIdleResources, Milliseconds timeout) {
     std::unique_lock<std::mutex> lock(audioMutex_);
-    if (!audioChanged_.wait_for(lock, std::chrono::seconds(45), [&] { return !audioActive_; }))
+    if (!audioChanged_.wait_for(lock, timeout, [&] { return !audioActive_; }))
         throw std::runtime_error("audio_drain_timeout");
+    // Also covers setup entered during backoff: no new attempt can acquire the
+    // audio lease while idle CPU models are destroyed under this mutex.
+    if (releaseIdleResources) releaseIdleResources();
 }
 void VoiceRecovery::releaseAudio() {
     { std::lock_guard<std::mutex> lock(audioMutex_); audioActive_ = false; }
@@ -59,6 +62,7 @@ void VoiceRecovery::run(const Hooks& hooks) {
                 failure = error.what();
                 if (failure.empty()) failure = "Voice infrastructure exception";
             }
+            if (!failure.empty() && !hooks.stopped() && !hooks.setupBlocked()) hooks.failed(failure);
         } // attempt locals/async workers are gone BEFORE audioActive becomes false.
         if (hooks.stopped()) break;
         if (healthySince && timing_.now() - *healthySince >= stableSession) {
@@ -69,7 +73,6 @@ void VoiceRecovery::run(const Hooks& hooks) {
         // setup releases its block, and an existing retry deadline is preserved.
         if (hooks.setupBlocked()) continue;
         if (failure.empty()) continue;
-        hooks.failed(failure);
         hooks.journal("failure reason=" + failure);
         recovering = true;
         retryAt = timing_.now() + delay;

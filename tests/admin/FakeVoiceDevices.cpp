@@ -26,14 +26,18 @@ struct SherpaVad::Impl {};
 SherpaVad::SherpaVad(const std::string&) : impl_(std::make_unique<Impl>()) {
     std::cerr << "FIXTURE VAD loaded\n";
 }
-SherpaVad::~SherpaVad() = default;
+SherpaVad::~SherpaVad() { std::cerr << "FIXTURE VAD released\n"; }
 Detection SherpaVad::accept(const float*, int) { return {}; }
 void SherpaVad::reset() { std::cerr << "FIXTURE VAD reset\n"; }
-struct SherpaRecognizer::Impl {};
+struct SherpaRecognizer::Impl { RecognitionProfile profile = RecognitionProfile::Command; };
 SherpaRecognizer::SherpaRecognizer(const std::string&, RecognitionProfile profile) : impl_(std::make_unique<Impl>()) {
+    if (profile == RecognitionProfile::Command && mode() == "stt-failure") throw std::runtime_error("fixture STT load failure");
+    impl_->profile = profile;
     std::cerr << "FIXTURE STT loaded profile=" << (profile == RecognitionProfile::Command ? "command" : "admin") << '\n';
 }
-SherpaRecognizer::~SherpaRecognizer() = default;
+SherpaRecognizer::~SherpaRecognizer() {
+    std::cerr << "FIXTURE STT released profile=" << (impl_->profile == RecognitionProfile::Command ? "command" : "admin") << '\n';
+}
 RecognitionResult SherpaRecognizer::recognize(const std::vector<float>&) { return {}; }
 struct AlsaAudioSource::Impl {};
 AlsaAudioSource::AlsaAudioSource(const std::string&, unsigned, unsigned) {
