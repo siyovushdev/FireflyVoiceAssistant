@@ -1,0 +1,13 @@
+{
+  "source_sha256": "c04ce42abacfe771eaa480c694d751177720817cc8e3085a4d9fbe01bb1480f5",
+  "admin_assets_sha256": "fd3cbf4dd6403204f35a8759c8678282d37958854d7654117c5cdc29a01110f9",
+  "binary_sha256": "4f35d9ae2c47d077c4d7e3a8aeb764481d60991b65b5295c203672c32d126abc",
+  "build_identity": {
+    "head": "428db2870352e13d43b10ecf97438c78db5aeafb",
+    "source_sha256": "c04ce42abacfe771eaa480c694d751177720817cc8e3085a4d9fbe01bb1480f5",
+    "built_utc": "2026-10-13T17:17:37Z",
+    "dirty": true,
+    "admin_assets_sha256": "fd3cbf4dd6403204f35a8759c8678282d37958854d7654117c5cdc29a01110f9"
+  },
+  "candidate_path": "/home/firefly/FireflyVoiceAssistantLinux-m19/build/m19-resource-hw-20261013T172025Z/candidate/bin/firefly-demo"
+}

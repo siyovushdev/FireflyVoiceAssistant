@@ -1,0 +1,15 @@
+{
+  "result": "RECOVERY_CHECK_PASS",
+  "utc": "2026-10-14T10:51:05.331801+00:00",
+  "production_pid": 1108203,
+  "production_state": "READY / WAITING_WAKE",
+  "release": "/opt/firefly/voice-assistant/releases/grounding-818157ec-20261013T040322Z",
+  "store_hash": "688690e892d2f59413cdc2f7d81f1e129ab9ac0dd247f84b2898d74c3c3cdd18",
+  "store_revision": 2,
+  "unit_file_sha256": "77334f69759d06ae07c9b052511544c6ceefbaa5e7e1e2434ac749e839045b39",
+  "store_bytes_owners_modes_preserved": true,
+  "sole_production_npu_mic_owner": true,
+  "all_test_units_timer_mock_inactive": true,
+  "production_mock8765_preserved": true,
+  "cleanup_source_sha256": "05a49cc6298e23c1a340dead11e2a83ce15b9b4992ab157cb31b28cee02be078"
+}

@@ -1,0 +1,39 @@
+{
+  "passed": true,
+  "controlled": true,
+  "live": false,
+  "model": "scripted; no real Qwen/NPU",
+  "voice": "synthetic PCM/KWS/VAD/STT; real runWakeVoiceLoop/processVoice",
+  "applyCalls": 1,
+  "browserArgs": [
+    "--ozone-platform=x11",
+    "--no-sandbox",
+    "--disable-gpu",
+    "--disable-dev-shm-usage",
+    "--disable-background-networking",
+    "--no-first-run",
+    "--remote-debugging-port=0"
+  ],
+  "liveVoiceMode": "owner-live",
+  "runnerSha256": "3d8de997f00670c9cbeed69c64b9afa054365dd6825f50b8ec98da9566924197",
+  "adapterSha256": "d5762e45aadec1d55c7fb71fc60a8de8c561e1a2e8e80d9b6f3ff7589ec9e28e",
+  "offlineHarnessAppSha256": "0bd109fa03a9eb8452ab808b43de0f82e58b51a64c85a2099e0ee5d9695d288b",
+  "offlineHarnessWorkerSha256": "05e8f0b4ad275c9d34d5fd1f99da89c078f4a9a0e2dc522b015ad7d2e049a3bb",
+  "external": [],
+  "exceptions": [],
+  "results": [
+    {
+      "controlled": true,
+      "live": false,
+      "AI": true,
+      "apply": true,
+      "posts": 2,
+      "gets": 2,
+      "voice": "OFFLINE_FIXTURE"
+    }
+  ],
+  "orchestrator_sha256": "758db3485fa03384f3ffa682e9346deaf6ad509bb59c44c78b55326003730e39",
+  "chromium_version": "Google Chrome 154.0.8037.57",
+  "chromium_binary_sha256": "4d2512ae84986bf987e6ea8ef14ca1af555ae574fbaff5b5a8c78a8dd73fa36f",
+  "node_version": "v24.12.0"
+}

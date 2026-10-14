@@ -1,0 +1,57 @@
+{
+  "native_passed": [
+    "RkllmEngineFailures",
+    "RkllmContextRefresh",
+    "DeviceStateLifecycle",
+    "ResourceAwareSetup",
+    "ConnectivityHttp",
+    "UnifiedHttp",
+    "GroundingAuthorizationHttp",
+    "M19RussianDeviceProfile",
+    "DialogueSetup",
+    "AdminGuardedCommand",
+    "M19PrivateDemoHarness",
+    "AdminSetupV2Api",
+    "VoiceRecovery",
+    "VoiceRecoveryIntegration"
+  ],
+  "native_count": 14,
+  "native_scope": "Targeted subset, not full88; 10 passed before offline group timer expired; remaining4 passed in second group",
+  "python": [
+    {
+      "suite": "M19HardwareStartTests.py",
+      "passed": 10
+    },
+    {
+      "suite": "M19HardwareRecoveryTests.py",
+      "passed": 16
+    },
+    {
+      "suite": "M19PcTransportTests.py",
+      "passed": 10
+    }
+  ],
+  "python_count": 36,
+  "grounding_http": {
+    "cases": 450,
+    "validated_posts": 164,
+    "rejections_zero_http": 286
+  },
+  "extra_get_regression": {
+    "result": "RECORDED_EXTRA_GET_REGRESSION_PASS",
+    "extraReads": [
+      {
+        "method": "GET",
+        "path": "/relay/1",
+        "body": ""
+      }
+    ],
+    "postRejected": true
+  },
+  "python_script_sha256": {
+    "M19HardwareStartTests.py": "b4f492c401ad8bc48a27480db7601ced2e210992a9b938dba267743eac3c10c6",
+    "M19HardwareRecoveryTests.py": "029211e37ca0b61c5428fa2aeaeaa592e4a6ebc54f3f690ab09e1f1cf9d5767d",
+    "M19PcTransportTests.py": "857beb2c23e955c0ac4302d5133de1f2ad7984b3b50e4715ac6e0aa108f607d1"
+  },
+  "scope": "Existing successful targeted runs, unchanged product/harness source. No repeat trial during closure."
+}

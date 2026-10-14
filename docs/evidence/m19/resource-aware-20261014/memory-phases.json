@@ -1,0 +1,533 @@
+[
+  {
+    "phase": "runtime_before_load",
+    "available_kib": 6915860,
+    "pss_kib": 235203,
+    "dma_bytes": 0,
+    "cgroup_current_bytes": 226570240,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 0
+  },
+  {
+    "phase": "runtime_before_init",
+    "available_kib": 6915860,
+    "pss_kib": 235241,
+    "dma_bytes": 0,
+    "cgroup_current_bytes": 226119680,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "runtime_after_init",
+    "available_kib": 2631204,
+    "pss_kib": 4510213,
+    "dma_bytes": 4126679040,
+    "cgroup_current_bytes": 6053851136,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "runtime_before_bootstrap",
+    "available_kib": 2631204,
+    "pss_kib": 4510213,
+    "dma_bytes": 4126679040,
+    "cgroup_current_bytes": 6053851136,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "runtime_after_bootstrap",
+    "available_kib": 2619628,
+    "pss_kib": 4520592,
+    "dma_bytes": 4126679040,
+    "cgroup_current_bytes": 6046150656,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "before_voice_load",
+    "available_kib": 2616680,
+    "pss_kib": 4520587,
+    "dma_bytes": 4126679040,
+    "cgroup_current_bytes": 6043865088,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "after_voice_load",
+    "available_kib": 2404240,
+    "pss_kib": 393449,
+    "dma_bytes": 4126679040,
+    "cgroup_current_bytes": 6064742400,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "before_voice_release",
+    "available_kib": 2404460,
+    "pss_kib": 4723856,
+    "dma_bytes": 4126679040,
+    "cgroup_current_bytes": 6035894272,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 0
+  },
+  {
+    "phase": "after_voice_release",
+    "available_kib": 2415908,
+    "pss_kib": 4721332,
+    "dma_bytes": 4126679040,
+    "cgroup_current_bytes": 6033612800,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 0
+  },
+  {
+    "phase": "before_destroy",
+    "available_kib": 2415908,
+    "pss_kib": 4721332,
+    "dma_bytes": 4126679040,
+    "cgroup_current_bytes": 6033612800,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 0
+  },
+  {
+    "phase": "after_destroy",
+    "available_kib": 6663948,
+    "pss_kib": 491908,
+    "dma_bytes": 0,
+    "cgroup_current_bytes": 1685852160,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 0
+  },
+  {
+    "phase": "release_confirmed",
+    "available_kib": 6673412,
+    "pss_kib": 491940,
+    "dma_bytes": 0,
+    "cgroup_current_bytes": 1685053440,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 0
+  },
+  {
+    "phase": "admin_admission_wait",
+    "available_kib": 6673412,
+    "pss_kib": 491940,
+    "dma_bytes": 0,
+    "cgroup_current_bytes": 1685053440,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 0
+  },
+  {
+    "phase": "admin_admission",
+    "available_kib": 6673412,
+    "pss_kib": 491940,
+    "dma_bytes": 0,
+    "cgroup_current_bytes": 1685053440,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 6291456
+  },
+  {
+    "phase": "admin_before_verify",
+    "available_kib": 6673412,
+    "pss_kib": 491940,
+    "dma_bytes": 0,
+    "cgroup_current_bytes": 1684873216,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 6291456
+  },
+  {
+    "phase": "admin_before_load",
+    "available_kib": 6660108,
+    "pss_kib": 491948,
+    "dma_bytes": 0,
+    "cgroup_current_bytes": 6021996544,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 6291456
+  },
+  {
+    "phase": "admin_before_init",
+    "available_kib": 6660108,
+    "pss_kib": 491948,
+    "dma_bytes": 0,
+    "cgroup_current_bytes": 6021996544,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 6291456
+  },
+  {
+    "phase": "admin_after_init",
+    "available_kib": 1803672,
+    "pss_kib": 5335629,
+    "dma_bytes": 4261666816,
+    "cgroup_current_bytes": 6261141504,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "admin_before_bootstrap",
+    "available_kib": 1803628,
+    "pss_kib": 5335637,
+    "dma_bytes": 4261666816,
+    "cgroup_current_bytes": 6261141504,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "admin_after_bootstrap",
+    "available_kib": 1792324,
+    "pss_kib": 5342385,
+    "dma_bytes": 4261666816,
+    "cgroup_current_bytes": 6247497728,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "admin_before_context",
+    "available_kib": 1768936,
+    "pss_kib": 5340715,
+    "dma_bytes": 4261666816,
+    "cgroup_current_bytes": 6181224448,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "admin_before_bootstrap",
+    "available_kib": 1775052,
+    "pss_kib": 5340740,
+    "dma_bytes": 4261666816,
+    "cgroup_current_bytes": 6181216256,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "admin_after_bootstrap",
+    "available_kib": 1786080,
+    "pss_kib": 5345156,
+    "dma_bytes": 4261666816,
+    "cgroup_current_bytes": 6129086464,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "admin_before_inference",
+    "available_kib": 1786544,
+    "pss_kib": 5345156,
+    "dma_bytes": 4261666816,
+    "cgroup_current_bytes": 6129086464,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "admin_after_inference",
+    "available_kib": 1781824,
+    "pss_kib": 5345396,
+    "dma_bytes": 4261666816,
+    "cgroup_current_bytes": 6109638656,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "admin_before_context",
+    "available_kib": 1781792,
+    "pss_kib": 5346096,
+    "dma_bytes": 4261666816,
+    "cgroup_current_bytes": 6110388224,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "admin_before_bootstrap",
+    "available_kib": 1781744,
+    "pss_kib": 5346096,
+    "dma_bytes": 4261666816,
+    "cgroup_current_bytes": 6110384128,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "admin_after_bootstrap",
+    "available_kib": 1787368,
+    "pss_kib": 5346096,
+    "dma_bytes": 4261666816,
+    "cgroup_current_bytes": 6092697600,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "admin_before_inference",
+    "available_kib": 1787368,
+    "pss_kib": 5346096,
+    "dma_bytes": 4261666816,
+    "cgroup_current_bytes": 6092697600,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "admin_after_inference",
+    "available_kib": 1787032,
+    "pss_kib": 5346096,
+    "dma_bytes": 4261666816,
+    "cgroup_current_bytes": 6054432768,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "admin_before_context",
+    "available_kib": 1787032,
+    "pss_kib": 5346096,
+    "dma_bytes": 4261666816,
+    "cgroup_current_bytes": 6054404096,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "admin_before_bootstrap",
+    "available_kib": 1786904,
+    "pss_kib": 5346096,
+    "dma_bytes": 4261666816,
+    "cgroup_current_bytes": 6054400000,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "admin_after_bootstrap",
+    "available_kib": 1778348,
+    "pss_kib": 5345924,
+    "dma_bytes": 4261666816,
+    "cgroup_current_bytes": 6040322048,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "admin_before_inference",
+    "available_kib": 1786468,
+    "pss_kib": 5345924,
+    "dma_bytes": 4261666816,
+    "cgroup_current_bytes": 6040322048,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "admin_after_inference",
+    "available_kib": 1786676,
+    "pss_kib": 5345925,
+    "dma_bytes": 4261666816,
+    "cgroup_current_bytes": 6027960320,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "admin_before_context",
+    "available_kib": 1786676,
+    "pss_kib": 5345925,
+    "dma_bytes": 4261666816,
+    "cgroup_current_bytes": 6027935744,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "admin_before_bootstrap",
+    "available_kib": 1786676,
+    "pss_kib": 5345924,
+    "dma_bytes": 4261666816,
+    "cgroup_current_bytes": 6027927552,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "admin_after_bootstrap",
+    "available_kib": 1787288,
+    "pss_kib": 5345924,
+    "dma_bytes": 4261666816,
+    "cgroup_current_bytes": 6020489216,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "admin_before_inference",
+    "available_kib": 1787288,
+    "pss_kib": 5345900,
+    "dma_bytes": 4261666816,
+    "cgroup_current_bytes": 6017814528,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "admin_after_inference",
+    "available_kib": 1785692,
+    "pss_kib": 5345924,
+    "dma_bytes": 4261666816,
+    "cgroup_current_bytes": 6004973568,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "admin_before_context",
+    "available_kib": 1785944,
+    "pss_kib": 5345924,
+    "dma_bytes": 4261666816,
+    "cgroup_current_bytes": 6004965376,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "admin_before_bootstrap",
+    "available_kib": 1785944,
+    "pss_kib": 5345924,
+    "dma_bytes": 4261666816,
+    "cgroup_current_bytes": 6004965376,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "admin_after_bootstrap",
+    "available_kib": 1773108,
+    "pss_kib": 5345924,
+    "dma_bytes": 4261666816,
+    "cgroup_current_bytes": 5989527552,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "admin_before_inference",
+    "available_kib": 1773108,
+    "pss_kib": 5345924,
+    "dma_bytes": 4261666816,
+    "cgroup_current_bytes": 5989527552,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "admin_after_inference",
+    "available_kib": 1781040,
+    "pss_kib": 5345924,
+    "dma_bytes": 4261666816,
+    "cgroup_current_bytes": 5979021312,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "before_voice_release",
+    "available_kib": 1784700,
+    "pss_kib": 5346214,
+    "dma_bytes": 4261666816,
+    "cgroup_current_bytes": 5949779968,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 0
+  },
+  {
+    "phase": "after_voice_release",
+    "available_kib": 1785028,
+    "pss_kib": 5346218,
+    "dma_bytes": 4261666816,
+    "cgroup_current_bytes": 5947269120,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 0
+  },
+  {
+    "phase": "before_restore",
+    "available_kib": 1785116,
+    "pss_kib": 5346219,
+    "dma_bytes": 4261666816,
+    "cgroup_current_bytes": 5947478016,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 0
+  },
+  {
+    "phase": "before_destroy",
+    "available_kib": 1785084,
+    "pss_kib": 5346219,
+    "dma_bytes": 4261666816,
+    "cgroup_current_bytes": 5947412480,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 0
+  },
+  {
+    "phase": "after_destroy",
+    "available_kib": 6601104,
+    "pss_kib": 562915,
+    "dma_bytes": 0,
+    "cgroup_current_bytes": 1030111232,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 0
+  },
+  {
+    "phase": "release_confirmed",
+    "available_kib": 6601216,
+    "pss_kib": 562915,
+    "dma_bytes": 0,
+    "cgroup_current_bytes": 1030045696,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 0
+  },
+  {
+    "phase": "runtime_before_load",
+    "available_kib": 6600976,
+    "pss_kib": 562915,
+    "dma_bytes": 0,
+    "cgroup_current_bytes": 1030029312,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 0
+  },
+  {
+    "phase": "runtime_before_init",
+    "available_kib": 6600976,
+    "pss_kib": 562915,
+    "dma_bytes": 0,
+    "cgroup_current_bytes": 1030029312,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "runtime_after_init",
+    "available_kib": 2304944,
+    "pss_kib": 4833738,
+    "dma_bytes": 4126679040,
+    "cgroup_current_bytes": 6473064448,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "runtime_before_bootstrap",
+    "available_kib": 2304256,
+    "pss_kib": 4833738,
+    "dma_bytes": 4126679040,
+    "cgroup_current_bytes": 6472982528,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "runtime_after_bootstrap",
+    "available_kib": 2283792,
+    "pss_kib": 4844078,
+    "dma_bytes": 4126679040,
+    "cgroup_current_bytes": 6450507776,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "after_restore",
+    "available_kib": 2290524,
+    "pss_kib": 4844079,
+    "dma_bytes": 4126679040,
+    "cgroup_current_bytes": 6450765824,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 0
+  },
+  {
+    "phase": "before_voice_load",
+    "available_kib": 2286044,
+    "pss_kib": 4844027,
+    "dma_bytes": 4126679040,
+    "cgroup_current_bytes": 6442442752,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  },
+  {
+    "phase": "after_voice_load",
+    "available_kib": 2281684,
+    "pss_kib": 4854674,
+    "dma_bytes": 4126679040,
+    "cgroup_current_bytes": 6437089280,
+    "cgroup_headroom_kib": 18446744073709551615,
+    "required_kib": 1048576
+  }
+]

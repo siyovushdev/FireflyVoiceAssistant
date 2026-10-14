@@ -1,0 +1,131 @@
+{
+  "utc": "2026-10-14T10:49:19.703Z",
+  "phase": "real_voice_evidence",
+  "on": true,
+  "voice": {
+    "audio_detected": true,
+    "command": {
+      "ambiguous": false,
+      "candidate": {
+        "actionId": "action_lampa_vklyuchit",
+        "arguments": {},
+        "targetId": "device_lampa"
+      },
+      "decode": "not_attempted",
+      "domain": "PASS",
+      "execution": {
+        "actionId": "action_lampa_vklyuchit",
+        "current": {
+          "power": true
+        },
+        "error": "",
+        "previous": {
+          "power": false
+        },
+        "status": "accepted",
+        "success": true,
+        "targetId": "device_lampa",
+        "timestamp_ms": 1791974959219
+      },
+      "generation_id": 2,
+      "hash": "59604449382f161c67d7da32ff9b37addaba916a36c92b169c1a5e32830e6caf",
+      "index_match": {
+        "action_id": "action_lampa_vklyuchit",
+        "reason": "",
+        "stage": "complete",
+        "target_id": "device_lampa",
+        "uncovered": []
+      },
+      "index_status": "INDEX_EXACT",
+      "input": "включи лампу в кабинете",
+      "language_index": {
+        "compiler": "language_atoms_v2_location_grammar",
+        "fingerprint": "3fa7a90f6cddc6b69b3ba11cd0851f30f689fb14ad228a32002199670bb1e182",
+        "hash": "59604449382f161c67d7da32ff9b37addaba916a36c92b169c1a5e32830e6caf",
+        "revision": 2
+      },
+      "language_route": "INDEX_EXACT",
+      "latency_ms": 0.58976,
+      "llm": {
+        "context_ms": 0,
+        "generation_ms": 0,
+        "output_tokens": 0,
+        "prefill_ms": 0
+      },
+      "matching_evidence": [
+        {
+          "alias": "в кабинете",
+          "begin": 24,
+          "catalog_hash": "59604449382f161c67d7da32ff9b37addaba916a36c92b169c1a5e32830e6caf",
+          "category": "location",
+          "distance": 0,
+          "end": 43,
+          "entity_id": "location_kabinet",
+          "generation_id": 2,
+          "method": "exact",
+          "span": "в кабинете"
+        },
+        {
+          "alias": "лампу",
+          "begin": 13,
+          "catalog_hash": "59604449382f161c67d7da32ff9b37addaba916a36c92b169c1a5e32830e6caf",
+          "category": "device",
+          "distance": 0,
+          "end": 23,
+          "entity_id": "device_lampa",
+          "generation_id": 2,
+          "method": "exact",
+          "span": "лампу"
+        }
+      ],
+      "ok": true,
+      "predicted_execution": null,
+      "reason": "",
+      "rejection_stage": "",
+      "result": {
+        "actionId": "action_lampa_vklyuchit",
+        "arguments": {},
+        "targetId": "device_lampa"
+      },
+      "revision": 2,
+      "route": "deterministic",
+      "safety": "PASS",
+      "safety_result": {
+        "actionId": "action_lampa_vklyuchit",
+        "arguments": {},
+        "targetId": "device_lampa"
+      }
+    },
+    "command_text": "включи лампу в кабинете",
+    "duration_seconds": 2.43,
+    "error": "",
+    "inline": false,
+    "processing_ms": 538.374708,
+    "speech_seconds": 1.83,
+    "stt_ms": 532.763824,
+    "transcript": "включи лампу в кабинете",
+    "wake_prefix_removed": false
+  },
+  "executions": [
+    {
+      "execution": {
+        "actionId": "action_lampa_vklyuchit",
+        "current": {
+          "power": true
+        },
+        "error": "",
+        "previous": {
+          "power": false
+        },
+        "status": "accepted",
+        "success": true,
+        "targetId": "device_lampa",
+        "timestamp_ms": 1791974959219
+      },
+      "generation_id": 2,
+      "sequence": 1,
+      "source": "voice",
+      "timestamp_ms": 1791974959223
+    }
+  ]
+}
