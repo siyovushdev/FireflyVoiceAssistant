@@ -247,9 +247,9 @@ def main():
     parser.add_argument('--diagnostic-candidate-sha256')
     args = parser.parse_args()
     if args.diagnostic_candidate:
-        if not args.admin_stress or args.remote_repo != '/home/firefly/FireflyVoiceAssistantLinux-m19-single-json' or not args.diagnostic_candidate_sha256:
+        if not args.admin_stress or args.remote_repo != '/home/firefly/FireflyVoiceAssistantLinux-m19-brightness-route' or not args.diagnostic_candidate_sha256:
             parser.error('diagnostic requires admin-stress, exact diagnostic source and descriptor SHA256')
-    if args.admin_stress and (args.voice_mode != 'owner-live' or args.remote_repo != ('/home/firefly/FireflyVoiceAssistantLinux-m19-single-json' if args.diagnostic_candidate else '/home/firefly/FireflyVoiceAssistantLinux-m19-rollout')):
+    if args.admin_stress and (args.voice_mode != 'owner-live' or args.remote_repo != ('/home/firefly/FireflyVoiceAssistantLinux-m19-brightness-route' if args.diagnostic_candidate else '/home/firefly/FireflyVoiceAssistantLinux-m19-rollout')):
         parser.error('stress requires owner-live (no playback) and the exact clean rollout source')
     if args.remote_repo != REMOTE_REPO and args.mode != 'offline-gate' and not args.admin_stress:
         parser.error('alternate clean source is permitted only for offline-gate')
