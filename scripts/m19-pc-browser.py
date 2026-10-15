@@ -123,6 +123,25 @@ def diagnostic_outcome(report, returncode):
     case = cycles[0]['cases'][0]
     if case.get('case') != 'long' or case.get('input_bytes') != 1606: return None
     if not returncode and report.get('passed') is True and cycles[0].get('restored') is True and not report.get('http_error'):
+        # A valid clarification is not the requested proposal. Check after the
+        # client has restored Runtime, without another inference or Apply.
+        try:
+            state = case['state']; config = state['configuration']
+            if state['status'] != 'editing' or state['message_incomplete'] is not False or state.get('questions'): return None
+            if [len(config[key]) for key in ('rooms','devices','actions')] != [1,1,2] or config['bindings']: return None
+            room = config['rooms'][0]; device = config['devices'][0]
+            if room['name'] != 'Кабинет' or device['name'] != 'Лампа' or device['room_id'] != room['id']: return None
+            if not isinstance(report.get('initial_system'),dict) or config['system'] != report['initial_system']: return None
+            if device['kind'] != 'generic' or len(device['state']) != 1: return None
+            if device['state'][0]['id'] != 'power' or device['state'][0]['type'] != 'boolean': return None
+            actions = config['actions']
+            if set(device['action_ids']) != {a['id'] for a in actions}: return None
+            for action in actions:
+                if not action['enabled'] or action['parameters'] or len(action['assignments']) != 1: return None
+                assignment = action['assignments'][0]
+                if assignment['field'] != 'power' or type(assignment['value']) is not bool: return None
+            if {a['assignments'][0]['value'] for a in actions} != {False,True}: return None
+        except (KeyError, TypeError, IndexError): return None
         return 'AI_REJECTION_NOT_REPRODUCED'
     error = report.get('http_error', {})
     if (not returncode or report.get('passed') is not False or error.get('status') != 409 or
@@ -228,9 +247,9 @@ def main():
     parser.add_argument('--diagnostic-candidate-sha256')
     args = parser.parse_args()
     if args.diagnostic_candidate:
-        if not args.admin_stress or args.remote_repo != '/home/firefly/FireflyVoiceAssistantLinux-m19-diag' or not args.diagnostic_candidate_sha256:
+        if not args.admin_stress or args.remote_repo != '/home/firefly/FireflyVoiceAssistantLinux-m19-format' or not args.diagnostic_candidate_sha256:
             parser.error('diagnostic requires admin-stress, exact diagnostic source and descriptor SHA256')
-    if args.admin_stress and (args.voice_mode != 'owner-live' or args.remote_repo != ('/home/firefly/FireflyVoiceAssistantLinux-m19-diag' if args.diagnostic_candidate else '/home/firefly/FireflyVoiceAssistantLinux-m19-rollout')):
+    if args.admin_stress and (args.voice_mode != 'owner-live' or args.remote_repo != ('/home/firefly/FireflyVoiceAssistantLinux-m19-format' if args.diagnostic_candidate else '/home/firefly/FireflyVoiceAssistantLinux-m19-rollout')):
         parser.error('stress requires owner-live (no playback) and the exact clean rollout source')
     if args.remote_repo != REMOTE_REPO and args.mode != 'offline-gate' and not args.admin_stress:
         parser.error('alternate clean source is permitted only for offline-gate')

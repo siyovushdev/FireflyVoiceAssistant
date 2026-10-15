@@ -121,3 +121,23 @@ or proof that the historical Qwen failure was fixed.
 Preparation never arms recovery or stops production. After new owner START the
 same harness creates a fresh one-use plan and repeats the required short-lived
 gates. It does not reuse an expired prepared root or authorize another attempt.
+
+## Format-fix candidate qualification
+
+The next private candidate is built from clean `0e458dd`, in a separate
+`FireflyVoiceAssistantLinux-m19-format` checkout. The operator pins that exact
+commit, source fingerprint, ELF identity and the hashes of all three product files
+differing from installed `320b80a6`: `SetupSession.h`, `RuntimeGeneration.cpp` and
+`RuntimeWorker.cpp`. The historical `9945f59` candidate and evidence are retained.
+Only test/operator files are overlaid after the clean product build; they do not
+change the product fingerprint or installed release.
+
+For this check, an accepted clarification alone is insufficient. After the client
+has completed its normal cancel/Runtime restore, the PC success classifier
+requires an editing, complete proposal: one Кабинет, one Лампа in that room, one
+boolean power field and the two parameter-free ON/OFF effects, no bindings and no
+change to the original system identity. Other outcomes remain failures without
+another inference. The scripted offline worker now explicitly handles the exact
+long input so this gate exercises proposal creation and restore, not just its
+previous clarification fallback. This remains scripted transport/contract proof,
+not evidence that real Qwen has accepted the changed instructions.

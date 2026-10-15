@@ -35,10 +35,31 @@ class PcTransportTests(unittest.TestCase):
         self.assertIsNone(pc.diagnostic_outcome(bad,1))
 
     def test_diagnostic_success_does_not_claim_stress_acceptance(self):
+        system={'name':'Firefly'}
+        config={'system':system,'rooms':[{'id':'room','name':'Кабинет'}],
+            'devices':[{'name':'Лампа','room_id':'room','kind':'generic','action_ids':['on','off'],
+                'state':[{'id':'power','type':'boolean'}]}],
+            'actions':[{'id':name,'enabled':True,'parameters':[],
+                'assignments':[{'field':'power','value':value}]} for name,value in [('on',True),('off',False)]],
+            'bindings':[]}
+        state={'status':'editing','message_incomplete':False,'questions':[],'configuration':config}
         report={'profile':'ADMIN4096_DIAGNOSTIC','real_rkllm':True,'passed':True,
-                'cycles':[{'restored':True,'cases':[{'case':'long','input_bytes':1606}]}]}
+                'initial_system':system,
+                'cycles':[{'restored':True,'cases':[{'case':'long','input_bytes':1606,'state':state}]}]}
         self.assertEqual(pc.diagnostic_outcome(report,0),'AI_REJECTION_NOT_REPRODUCED')
         self.assertIsNone(pc.diagnostic_outcome(report,1))
+        for field,value in [('status','clarification_required'),('message_incomplete',True),('configuration',{})]:
+            bad=copy.deepcopy(report);bad['cycles'][0]['cases'][0]['state'][field]=value
+            self.assertIsNone(pc.diagnostic_outcome(bad,0))
+        for key,value in [('rooms',[]),('system',{'name':'Кабинет'}),('actions',config['actions'][:1])]:
+            bad=copy.deepcopy(report);bad['cycles'][0]['cases'][0]['state']['configuration'][key]=value
+            self.assertIsNone(pc.diagnostic_outcome(bad,0))
+        for field,value in [('room_id','wrong'),('name','Чужое устройство'),('state',[{'id':'power','type':'integer'}])]:
+            bad=copy.deepcopy(report);bad['cycles'][0]['cases'][0]['state']['configuration']['devices'][0][field]=value
+            self.assertIsNone(pc.diagnostic_outcome(bad,0))
+        for value in [1,True]:
+            bad=copy.deepcopy(report);bad['cycles'][0]['cases'][0]['state']['configuration']['actions'][1]['assignments'][0]['value']=value
+            self.assertIsNone(pc.diagnostic_outcome(bad,0))
 
     def test_clean_candidate_bridge_is_explicit_and_shell_quoted(self):
         import json

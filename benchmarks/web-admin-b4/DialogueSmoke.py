@@ -159,6 +159,7 @@ def external_stress():
     try:
         wait_ready()
         original = call('/api/config'); active = call('/api/config/active')['active']
+        report['initial_system'] = original['configuration'].get('system')
         report['initial_resources'] = resources()
         for cycle in range(1 if args.diagnostic_only else 2):
             if deadline - time.monotonic() < next_operation_reserve:

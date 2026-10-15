@@ -160,14 +160,19 @@ def verify_diagnostic_candidate(reference):
                      path.suffix == '.json' and path.resolve() == path and path.stat().st_uid == 0 and
                      not path.stat().st_mode & 0o077 and recovery.rollout.sha(path) == reference['sha256'], 'Untrusted diagnostic descriptor')
     data = json.loads(path.read_text())
-    recovery.require(REPO == Path('/home/firefly/FireflyVoiceAssistantLinux-m19-diag') and data['source_root'] == str(REPO),
+    recovery.require(REPO == Path('/home/firefly/FireflyVoiceAssistantLinux-m19-format') and data['source_root'] == str(REPO),
                      'Wrong diagnostic source')
-    recovery.require(data['identity']['head'] == '9945f59f0b195b10b3aefb9715e2b54e8201369f' and not data['identity']['dirty'] and
+    recovery.require(data['identity']['head'] == '0e458dd5988cc9f155b512a139526d26088075a4' and not data['identity']['dirty'] and
                      data['identity']['source_sha256'] == source_tree_fingerprint(REPO), 'Diagnostic source/build mismatch')
-    recovery.require(recovery.rollout.sha(REPO / 'src/admin/SetupSession.h') ==
-                     '5a7d7439d434529c89458b495aa02e9ee94a1eeaa58c9dd589db7848c3285b4a', 'Unreviewed diagnostic product change')
+    reviewed = {
+        'src/admin/RuntimeGeneration.cpp': '89e330c99814cdc1ff666b0c8ea1b9dc90a0eb758e667e82226a6ec5d010e11e',
+        'src/admin/RuntimeWorker.cpp': '51979ffe1c7303c7f8ede3c2b7d34b6f89ecac8305911e9f9a0068fbef873a25',
+        'src/admin/SetupSession.h': '5a7d7439d434529c89458b495aa02e9ee94a1eeaa58c9dd589db7848c3285b4a',
+    }
+    recovery.require(all(recovery.rollout.sha(REPO / name) == digest for name,digest in reviewed.items()),
+                     'Unreviewed diagnostic product change')
     recovery.require(run(['git','-C',REPO,'diff','--name-only','320b80a6d5a73d9638e4bc386129248ba3d65b8e','--',
-                         'src','include','config','runtime','third_party','CMakeLists.txt']) == 'src/admin/SetupSession.h',
+                         'src','include','config','runtime','third_party','CMakeLists.txt']) == '\n'.join(reviewed),
                      'Unexpected diagnostic product diff')
     binary = Path(data['binary'])
     recovery.require(binary == REPO / 'build/diagnostic-candidate/bin/firefly-demo' and binary.resolve() == binary and
