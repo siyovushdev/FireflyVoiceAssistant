@@ -317,10 +317,47 @@ private:
     }
     Json invoke(const Json& request) {
         auto result=call_(request);
+        // Bound extra diagnostic payload across the session, not just each
+        // attempt. Metadata-only omissions must not fill the private draft.
+        constexpr std::size_t diagnosticBudget=32768;
+        std::size_t diagnosticUsed=0;
+        for(const auto& previous:data_["trace"]) {
+            if(previous.contains("error"))diagnosticUsed+=previous.at("error").dump().size();
+            if(previous.contains("rejected_raw_hex"))diagnosticUsed+=previous.at("rejected_raw_hex").get_ref<const std::string&>().size();
+        }
         for(const auto& trace:result.value("trace",Json::array())) {
             Json record=Json::object();
-            for(const auto* key:{"attempt","group","stage","metrics","error_code"})
+            for(const auto* key:{"attempt","group","stage","metrics","error_code","rejection_stage"})
                 if(trace.contains(key))record[key]=trace.at(key);
+            if(trace.contains("error") && trace.at("error").is_string()) {
+                const auto& error=trace.at("error").get_ref<const std::string&>();
+                const auto remaining=diagnosticBudget>diagnosticUsed?diagnosticBudget-diagnosticUsed:0;
+                // JSON escaping costs at most six bytes per source byte.
+                auto count=std::min({error.size(),std::size_t(512),remaining>2?(remaining-2)/6:0});
+                while(count>0 && count<error.size() && (static_cast<unsigned char>(error[count])&0xc0)==0x80)--count;
+                if(count>0) {record["error"]=error.substr(0,count);diagnosticUsed+=record.at("error").dump().size();}
+                if(count<error.size())record["error_truncated"]=true;
+            }
+            // Keep failed decoder evidence in the existing private 0600 draft,
+            // never the public view. Hex preserves bytes without introducing
+            // broken UTF-8; cap each attempt within the existing storage limit.
+            if(trace.value("stage",std::string())=="decode" && trace.contains("error_code") &&
+               trace.contains("raw") && trace.at("raw").is_string()) {
+                const auto& raw=trace.at("raw").get_ref<const std::string&>();
+                constexpr std::size_t limit=4096;
+                const auto remaining=diagnosticBudget>diagnosticUsed?diagnosticBudget-diagnosticUsed:0;
+                const auto count=std::min({raw.size(),limit,remaining/2});
+                std::string hex;hex.reserve(count*2);
+                for(std::size_t i=0;i<count;++i) {
+                    const auto byte=static_cast<unsigned char>(raw[i]);
+                    hex.push_back("0123456789abcdef"[byte>>4]);hex.push_back("0123456789abcdef"[byte&15]);
+                }
+                record["rejected_raw_hex"]=hex;
+                record["rejected_raw_bytes"]=raw.size();
+                record["rejected_raw_truncated"]=raw.size()>count;
+                if(count<std::min(raw.size(),limit))record["diagnostic_budget_exhausted"]=true;
+                diagnosticUsed+=hex.size();
+            }
             data_["trace"].push_back(record);
         }
         if(result.contains("trace"))persist();

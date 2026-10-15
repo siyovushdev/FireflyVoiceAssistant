@@ -90,6 +90,13 @@ with tempfile.TemporaryDirectory(prefix='firefly-b3-api-') as temp:
         checkpoint = state['configuration']
         call('/api/setup/message', {'session_id':token,'version':state['version'],'request_id':'malformed','atomic_message':True,'text':'сломанный запрос'},409)
         state = call('/api/setup/status'); assert state['message_incomplete'] and state['configuration'] == checkpoint
+        assert 'trace' not in state and 'rejected_raw_hex' not in json.dumps(state)
+        private = json.loads((pathlib.Path(temp)/'store/setup-draft.json').read_text())
+        for entry in private['trace'][-2:]:
+            assert entry['error_code'] == 'invalid_ai_response' and entry['error']
+            assert bytes.fromhex(entry['rejected_raw_hex']) == b'{broken'
+            assert entry['rejected_raw_bytes'] == 7 and not entry['rejected_raw_truncated']
+        assert (pathlib.Path(temp)/'store/setup-draft.json').stat().st_mode & 0o777 == 0o600
         call('/api/setup/draft', {'session_id':token,'version':state['version'],'configuration':checkpoint},409)
         call('/api/setup/apply', {'session_id':token,'version':state['version']},409)
         call('/api/setup/cancel', {'session_id':token})

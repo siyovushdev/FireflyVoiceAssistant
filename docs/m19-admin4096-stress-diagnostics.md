@@ -1,0 +1,63 @@
+# M19 Admin4096 failure diagnostics
+
+The real 2026-10-15 bounded stress window failed on the 1606-byte input after
+the short request passed. The long request reached inference (275 vendor input
+tokens), then both built-in attempts returned `invalid_ai_response` at `decode`.
+The API returned HTTP 409 and the draft stayed `planning_failed` and incomplete.
+The original production was independently restored. This remains **FAIL**, with
+recovery **PASS**; no second hardware attempt was made.
+
+The 205 watchdog samples had no cgroup OOM/max events and a minimum available
+RAM of 1.675 GiB. The maximum observed context + input + output was 954 tokens,
+with reservation 1310, so this does not verify a full 4096-token workload.
+Neither memory exhaustion nor a particular JSON/schema defect is established.
+
+Two evidence gaps prevented a more precise diagnosis:
+
+- The stress CLI discarded the HTTP error response and did not append the
+  failing case before sending the request.
+- `SetupSession::invoke` intentionally retained only trace metadata. The setup
+  API also wraps the failure as a generic `setup_failed` response. Capturing
+  that HTTP body alone cannot recover the rejected vendor response.
+
+The new diagnostics preserve HTTP status before reading the response, capture
+up to 64 KiB as exact base64, and label incomplete reads, truncation and JSON
+parse failures. Failed cases retain elapsed time and private trace independently
+of the request result. Mutations are never retried by the client. Reports are
+mode 0600; malformed Unicode/JSON diagnostics must not mask the original status.
+
+The existing private mode-0600 draft now retains a bounded rejection reason,
+parser stage when available, and a hex prefix of failed decode responses.
+Successful response text, prompts and inputs are not added to trace. Each raw
+prefix is at most 4096 bytes; error prefixes are at most 512 bytes. Combined
+serialized error strings and raw hex payload have a session-wide 32768-byte
+budget. Byte counts, truncation and exhausted-budget markers distinguish partial
+evidence. Public setup views do not expose these fields. The evidence originates
+from the worker's IPC trace, whose existing JSON serialization can replace invalid
+UTF-8: it is not claimed to preserve pre-IPC vendor bytes.
+
+No decoder, prompt, model, context/RAM threshold, retry policy, Apply or execution
+rule was relaxed. This is an evidence correction, **not a demonstrated fix for
+the real Qwen failure**. Its missing historical raw response cannot be restored.
+
+Targeted validation:
+
+- `python3 -B tests/M19AdminStressTests.py`: PC offline HTTP fixture, error
+  retention, read/reset/parse/Unicode failures, limits and no mutation retries.
+- `AdminDialogueContract`: the exact long input with a scripted valid response
+  checks the real request/decoder contract only. Rejected outputs check exact
+  private prefixes, UTF-8 boundaries, public-view exclusion, and 32 failed
+  requests followed by successful cancel/restore within the diagnostic budget.
+- `DialogueSetup`, `AdminSuggestionRetry`, `AdminSetupV2Api`: targeted lifecycle,
+  fail-closed Apply and private HTTP/API diagnostics regressions.
+
+Offline executables are built on the PC with the real aarch64 compiler, static
+linking, `FIREFLY_BUILD_ASSISTANT=OFF`, `FIREFLY_BUILD_VOICE=OFF`, and the existing
+CMake targets. They are CPU-only test binaries, not a production artifact. Their
+Firefly execution is isolated with `DevicePolicy=closed`, 512 MiB MemoryMax,
+one CPU, private temporary files and localhost networking. Production stays up.
+These checks cannot establish real RKLLM correctness or stress acceptance.
+
+The installed production remains the accepted `320b80a6` release. These source
+changes are not installed. Further hardware testing requires a separately built,
+reviewed candidate, fresh admission/recovery preparation and new owner START.

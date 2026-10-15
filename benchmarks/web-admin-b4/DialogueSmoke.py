@@ -4,6 +4,7 @@ Uses the actual rebuilt firefly-demo and a fresh private store. No fake inferenc
 Accept, Save, Apply, commands, probe or poll. Raw generation diagnosis is separate.
 """
 import argparse
+import base64
 import json
 from pathlib import Path
 import subprocess
@@ -63,7 +64,10 @@ def external_stress():
     allowed_post = {'/api/setup/start', '/api/setup/heartbeat', '/api/setup/draft', '/api/setup/message', '/api/setup/cancel'}
 
     def save():
-        args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n')
+        # Error JSON may contain escaped lone surrogates; do not lose the
+        # original HTTP failure while serializing its diagnostic response.
+        args.output.write_text(json.dumps(report, ensure_ascii=True, indent=2) + '\n')
+        args.output.chmod(0o600)
 
     def call(path, body=None):
         assert path in (allowed_get if body is None else allowed_post)
@@ -75,8 +79,53 @@ def external_stress():
             data=None if body is None else json.dumps(body, ensure_ascii=False).encode(),
             headers={'Origin': args.stress_url, 'Content-Type': 'application/json', 'X-Firefly-Admin': '1'})
         # A mutation is sent once. No automatic retries, including on timeout.
-        with urllib.request.urlopen(request, timeout=min(150, remaining)) as response:
-            return json.load(response)
+        try:
+            with urllib.request.urlopen(request, timeout=min(150, remaining)) as response:
+                return json.load(response)
+        except urllib.error.HTTPError as error:
+            # Preserve the actual error response once, without retrying a mutation.
+            # The setup API may itself omit raw vendor output; never invent it.
+            limit = 64 * 1024
+            failure = {'path': path, 'method': request.get_method(), 'status': error.code,
+                       'content_type': error.headers.get('Content-Type', ''),
+                       'body_base64': '', 'captured_bytes': 0, 'truncated': True,
+                       'capture_complete': False}
+            report['http_error'] = failure
+            save()  # Status survives even if reading/decoding the body fails.
+            raw = b''
+            try:
+                raw = error.read(limit + 1)
+                failure['truncated'] = len(raw) > limit
+                failure['capture_complete'] = not failure['truncated']
+                length = error.headers.get('Content-Length', '')
+                if length.isdigit() and len(raw) < min(int(length), limit + 1):
+                    failure['body_capture_error'] = 'IncompleteBody: response ended before Content-Length'
+                    failure['capture_complete'] = False
+                    failure['truncated'] = True
+            except Exception as capture_error:
+                partial = getattr(capture_error, 'partial', b'')
+                raw = partial if isinstance(partial, bytes) else b''
+                failure['body_capture_error'] = type(capture_error).__name__ + ': ' + str(capture_error)
+            finally:
+                try: error.close()
+                except Exception as close_error:
+                    failure['body_close_error'] = type(close_error).__name__ + ': ' + str(close_error)
+            captured = raw[:limit]
+            failure['body_base64'] = base64.b64encode(captured).decode('ascii')
+            failure['captured_bytes'] = len(captured)
+            try:
+                parsed_body = json.loads(captured)
+                pending = [(parsed_body, 0)]
+                while pending:
+                    value, depth = pending.pop()
+                    if depth > 32: raise ValueError('Diagnostic JSON nesting exceeds 32')
+                    if isinstance(value, dict): pending.extend((x, depth + 1) for x in value.values())
+                    elif isinstance(value, list): pending.extend((x, depth + 1) for x in value)
+                failure['body_json'] = parsed_body
+            except (ValueError, UnicodeError, RecursionError) as parse_error:
+                failure['body_parse_error'] = type(parse_error).__name__
+            save()
+            raise
 
     def ready():
         value = call('/api/status')
@@ -127,11 +176,23 @@ def external_stress():
                 checkpoint = json.loads((store / 'setup-draft.json').read_text()); offset = len(checkpoint['trace'])
                 assert checkpoint['focus'] == [] and not checkpoint['unresolved_text']
                 started = time.monotonic()
-                state = call('/api/setup/message', {'session_id': token, 'version': state['version'],
-                    'request_id': f'stress-{cycle}-{label}', 'atomic_message': True, 'text': text})
-                trace = json.loads((store / 'setup-draft.json').read_text())['trace'][offset:]
-                case = {'case': label, 'input_bytes': len(text.encode()), 'wall_seconds': time.monotonic() - started,
-                        'state': state, 'trace': trace}; record['cases'].append(case); save()
+                case = {'case': label, 'input_bytes': len(text.encode()), 'state': None, 'trace': []}
+                record['cases'].append(case); save()
+                try:
+                    state = call('/api/setup/message', {'session_id': token, 'version': state['version'],
+                        'request_id': f'stress-{cycle}-{label}', 'atomic_message': True, 'text': text})
+                    case['state'] = state
+                finally:
+                    case['wall_seconds'] = time.monotonic() - started
+                    try:
+                        snapshot = json.loads((store / 'setup-draft.json').read_text())
+                        case['trace'] = snapshot['trace'][offset:]
+                        case['private_status'] = snapshot.get('status')
+                        case['message_incomplete'] = snapshot.get('message_incomplete')
+                    except (OSError, ValueError, KeyError) as error:
+                        case['trace_capture_error'] = type(error).__name__ + ': ' + str(error)
+                    save()
+                trace = case['trace']
                 assert state['status'] in ('editing', 'clarification_required') and not state.get('message_incomplete')
                 if label == 'control':
                     assert state['status'] == 'editing' and len(state['configuration']['devices']) == 1

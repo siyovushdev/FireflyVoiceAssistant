@@ -2,6 +2,7 @@
 #include "DialogueOperations.h"
 #include "SetupSession.h"
 #include <iostream>
+#include <sys/stat.h>
 
 using namespace firefly::admin;
 using admin_test::Json;
@@ -80,8 +81,20 @@ int main(int argc, char** argv) {
             require(state.at("status") == "editing", "named new device with same-message pronoun reaches decoder");
             powerDevice(state.at("configuration"), "Цех", "Вентилятор");
             require(lastDialogue.at("trace").size() == 1, "one validated generation");
+            std::ifstream saved(directory.path+"/setup-draft.json");
+            const auto disk=Json::parse(saved);
+            for(const auto& entry:disk.at("trace"))if(!entry.contains("error_code"))
+                require(!entry.contains("rejected_raw_hex"), "successful raw responses remain excluded from the private trace");
             unchanged(); reset();
         }
+        // Exact long stress input, with an explicitly scripted VALID response:
+        // checks the real request/decoder contract, not Qwen acceptance.
+        std::string longRequest="Создай зону Кабинет и лампу в кабинете, которую можно включать и выключать";
+        const std::string detail=" Требуется только питание лампы в кабинете, включение и выключение, без яркости, каналов и других возможностей, без подключения к сети";
+        while(longRequest.size()+detail.size()<=1800)longRequest+=detail;
+        require(longRequest.size()==1606,"same long UTF-8 stress input");
+        model.script({R"({"ops":[["location","Кабинет"],["power_device","Кабинет","Лампа"]]})"});
+        message(longRequest);powerDevice(state.at("configuration"),"Кабинет","Лампа");unchanged();reset();
         // Same meaning with different entities: no special case for owner wording.
         model.script({R"({"ops":[["location","Лаборатория"],["power_device","Лаборатория","Насос"]]})"});
         message("В лаборатории есть насос, его можно включать и выключать.");
@@ -98,7 +111,8 @@ int main(int argc, char** argv) {
             "{broken", valid + "}", trailing, valid + " пояснение", "```json\n" + valid + "\n```",
             R"({"ops":[["invent_operation","Цех"]]})",
             R"({"ops":[["power_device","Цех","Вентилятор","extra"]]})",
-            R"({"ops":[["location","Цех"],["location","Цех"]]})"
+            R"({"ops":[["location","Цех"],["location","Цех"]]})",
+            std::string(4095,'x')+"Ж" // The 4096-byte capture boundary splits UTF-8.
         };
         for (const auto& raw : invalid) {
             // Keep a good manual pending task while the AI request fails.
@@ -112,10 +126,53 @@ int main(int argc, char** argv) {
             require(state.at("configuration") == manual, "failed AI preserves good manual pending task");
             require(lastDialogue.at("trace").size() == 2 && !lastDialogue.value("ok", true), "exactly one retry, no permissive parse");
             require(lastDialogue.at("trace")[0].at("raw") == raw && lastDialogue.at("trace")[1].at("raw") == raw, "raw bytes never repaired");
+            std::ifstream saved(directory.path+"/setup-draft.json");
+            const auto disk=Json::parse(saved);
+            const auto& traces=disk.at("trace");
+            std::string expectedHex;
+            for(std::size_t i=0;i<std::min(raw.size(),std::size_t(4096));++i) {
+                const auto byte=static_cast<unsigned char>(raw[i]);
+                expectedHex.push_back("0123456789abcdef"[byte>>4]);expectedHex.push_back("0123456789abcdef"[byte&15]);
+            }
+            for(std::size_t i=traces.size()-2;i<traces.size();++i) {
+                const auto& entry=traces.at(i);
+                require(entry.at("error_code")=="invalid_ai_response" && !entry.at("error").get<std::string>().empty(), "private trace retains concrete rejection reason");
+                require(entry.at("rejected_raw_hex")==expectedHex && entry.at("rejected_raw_bytes")==raw.size() &&
+                        entry.at("rejected_raw_truncated")==bool(raw.size()>4096), "failed raw prefix is exact, bounded and explicitly labelled");
+                if(lastDialogue.at("trace").at(i-(traces.size()-2)).contains("rejection_stage"))
+                    require(entry.at("rejection_stage")=="json_parse", "parser stage retained");
+            }
+            struct stat info{};
+            require(::stat((directory.path+"/setup-draft.json").c_str(),&info)==0 && (info.st_mode&0777)==0600, "diagnostic draft stays private");
+            require(!state.contains("trace") && state.dump().find("rejected_raw_hex")==std::string::npos, "diagnostics never enter public setup status");
             unchanged();
             session.handle("cancel", {{"session_id", token}});
             state = session.handle("start", {}); token = state.at("session_id");
         }
+        // Repeated failed requests must not exhaust storage and block restore.
+        for(int i=0;i<32;++i) {
+            model.script({std::string(5000,'x'),std::string(5000,'x')});
+            bool rejected=false;
+            try {message(ownerPhrase);}catch(const std::exception& error) {
+                rejected=true;
+                require(std::string(error.what()).find("setup_private_storage_limit")==std::string::npos,"diagnostics do not replace decode error with storage failure");
+            }
+            state=session.handle("status",{});
+            require(rejected && state.at("status")=="planning_failed","repeated failed planning stays fail-closed");
+        }
+        {
+            std::ifstream saved(directory.path+"/setup-draft.json");const auto disk=Json::parse(saved);
+            std::size_t used=0;bool omitted=false;
+            for(const auto& entry:disk.at("trace")) {
+                if(entry.contains("error"))used+=entry.at("error").dump().size();
+                if(entry.contains("rejected_raw_hex"))used+=entry.at("rejected_raw_hex").get_ref<const std::string&>().size();
+                omitted=omitted||entry.value("diagnostic_budget_exhausted",false);
+            }
+            require(used<=32768 && omitted,"session-wide diagnostics budget is enforced and omissions labelled");
+        }
+        session.handle("cancel",{{"session_id",token}});
+        require(!session.handle("status",{}).at("active").get<bool>(),"diagnostics never prevent cancel/restore");
+        unchanged();state=session.handle("start",{});token=state.at("session_id");
         model.script({trailing, valid}); message(ownerPhrase);
         powerDevice(state.at("configuration"), "Цех", "Вентилятор");
         require(lastDialogue.at("retry_count") == 1 && lastDialogue.at("trace")[0].contains("error") && lastDialogue.at("trace")[1].contains("decoded"), "only valid second output becomes proposal");
