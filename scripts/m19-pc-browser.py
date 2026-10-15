@@ -50,7 +50,7 @@ class Transport:
 
 def browser_profile(args):
     chrome = Path(args.chromium).resolve()
-    return {'host':args.host, 'local_bind':'127.0.0.1:18089', 'remote_bind':'127.0.0.1',
+    profile = {'host':args.host, 'local_bind':'127.0.0.1:18089', 'remote_bind':'127.0.0.1',
             'remote_repo':args.remote_repo,
             'ssh_options':['BatchMode=yes','ConnectTimeout=5'],
             'chromium':str(chrome), 'chromium_sha256':hashlib.sha256(chrome.read_bytes()).hexdigest(),
@@ -63,6 +63,10 @@ def browser_profile(args):
             'orchestrator_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
             'node_sha256':hashlib.sha256(Path(args.node).resolve().read_bytes()).hexdigest(),
             'chromium_binary_sha256':hashlib.sha256((chrome.parent/'chrome' if (chrome.parent/'chrome').is_file() else chrome).read_bytes()).hexdigest()}
+    if getattr(args, 'admin_stress', False):
+        profile['admin_stress'] = True
+        profile['stress_client_sha256'] = hashlib.sha256((REPO/'benchmarks/web-admin-b4/DialogueSmoke.py').read_bytes()).hexdigest()
+    return profile
 
 def run_driver(command, env, log, timeout):
     # This session/group contains only the driver and its own Chromium children.
@@ -192,8 +196,11 @@ def main():
     parser.add_argument('--artifacts', type=Path, required=True)
     parser.add_argument('--owner-start', choices=('СТАРТ',))
     parser.add_argument('--voice-mode', choices=('synthetic-acoustic','owner-live'), default='synthetic-acoustic')
+    parser.add_argument('--admin-stress', action='store_true', help='Two private Admin4096 cycles using the installed immutable ELF; no voice/Apply')
     args = parser.parse_args()
-    if args.remote_repo != REMOTE_REPO and args.mode != 'offline-gate':
+    if args.admin_stress and (args.voice_mode != 'owner-live' or args.remote_repo != '/home/firefly/FireflyVoiceAssistantLinux-m19-rollout'):
+        parser.error('stress requires owner-live (no playback) and the exact clean rollout source')
+    if args.remote_repo != REMOTE_REPO and args.mode != 'offline-gate' and not args.admin_stress:
         parser.error('alternate clean source is permitted only for offline-gate')
     if args.mode == 'trial' and args.owner_start != 'СТАРТ':
         parser.error('trial requires a NEW explicit owner СТАРТ; preparation never authorizes trial')
@@ -206,7 +213,13 @@ def main():
     offline = transport.call('offline-start')
     (root / 'offline-backend.json').write_text(json.dumps(offline, indent=2))
     try:
+        if args.admin_stress:
+            stress_proof = transport.call('offline-stress', timeout=110, root=offline['root'])
+            if not stress_proof.get('passed') or stress_proof.get('real_rkllm'):
+                raise RuntimeError('Offline stress transport gate failed or mislabelled inference')
+            (root / 'offline-stress.json').write_text(json.dumps(stress_proof, indent=2))
         proof = run_browser(args, transport, root, offline, profile)
+        if args.admin_stress: proof['admin_stress_gate'] = stress_proof['gate']
         gate = transport.call('record-gate', proof=proof)
         (root / 'gate.json').write_text(json.dumps(gate, indent=2))
     finally:
@@ -214,7 +227,8 @@ def main():
         (root / 'offline-stopped.json').write_text(json.dumps(stopped))
     if args.mode == 'offline-gate':
         print(json.dumps({'result':'OFFLINE_BROWSER_GATE_PASS','artifacts':str(root)})); return
-    prepared = transport.call('prepare', timeout=120, gate_path=gate['gate_path'], voice_mode=args.voice_mode)
+    prepared = transport.call('prepare', timeout=120, gate_path=gate['gate_path'], voice_mode=args.voice_mode,
+                              profile='admin-stress' if args.admin_stress else 'voice')
     (root / 'prepared.json').write_text(json.dumps(prepared, indent=2))
     if args.mode == 'prepare-only':
         transport.call('stop-prepared-mock', root=prepared['root'])
@@ -234,7 +248,29 @@ def main():
         transport.call('start-window', timeout=120, root=prepared['root'])
         wait_test_ready(transport, prepared['root'], root)
         live = {**prepared,'app_sha256':offline['app_sha256'],'worker_sha256':offline['worker_sha256']}
-        run_browser(args, transport, root, live, profile, live=True, offline_proof=proof)
+        if args.admin_stress:
+            # Same exclusive window, original deadline, heartbeat and recovery.
+            # Direct Admin API is deliberate for load testing, not a browser-E2E claim.
+            remote_root = Path(prepared['root'])
+            # Firefly monotonic and the armed deadline come from Firefly,
+            # never from the PC clock.
+            arm = transport.call('test-status', root=prepared['root'])['arm']
+            command = ('sudo -n /usr/bin/python3 -B ' + shlex.quote(str(remote_root / 'scripts/admin-stress-client.py')) +
+                ' --stress-url ' + shlex.quote('http://127.0.0.1:' + str(prepared['admin_port'])) +
+                ' --store ' + shlex.quote(str(Path(prepared['plan']['test_log']).parent.parent / 'store')) +
+                ' --mock-log ' + shlex.quote(prepared['plan']['mock_log']) +
+                ' --output ' + shlex.quote(str(remote_root / 'evidence/admin-stress.json')) +
+                ' --deadline-monotonic ' + shlex.quote(str(arm['deadline'] - 30)))
+            completed = subprocess.run(['/usr/bin/ssh', *transport.options, transport.host, command],
+                capture_output=True, text=True, timeout=600)
+            (root / 'stress-client.stdout').write_text(completed.stdout)
+            (root / 'stress-client.stderr').write_text(completed.stderr)
+            if completed.returncode: raise RuntimeError('Admin stress client failed: ' + completed.stderr[-1500:])
+            actual_rows = transport.call('rows', root=prepared['root'])
+            (root / 'stress-mock-rows.json').write_text(json.dumps(actual_rows, indent=2))
+            if actual_rows: raise RuntimeError('Unexpected HTTP mock traffic during Admin stress')
+        else:
+            run_browser(args, transport, root, live, profile, live=True, offline_proof=proof)
         if errors: raise RuntimeError('SSH heartbeat failed: ' + errors[0])
     finally:
         stopped.set(); thread.join(timeout=10)
@@ -244,6 +280,6 @@ def main():
                 wait_recovery(transport, prepared['root'], root)
         finally:
             collect_evidence(transport, prepared, root)
-    print(json.dumps({'result':'BROWSER_TRIAL_AND_RECOVERY_PASS','artifacts':str(root)}))
+    print(json.dumps({'result':'ADMIN_STRESS_AND_RECOVERY_PASS' if args.admin_stress else 'BROWSER_TRIAL_AND_RECOVERY_PASS','artifacts':str(root)}))
 
 if __name__ == '__main__': main()

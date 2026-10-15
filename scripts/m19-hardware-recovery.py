@@ -115,6 +115,25 @@ class Window(rollout.Production):
         return rollout.wait_quiescent(probe, self.record, min(self.operation_deadline, time.monotonic() + 30))
 
     def pc_browser_gate(self):
+        if self.plan.get('profile') == 'ADMIN4096_BOUNDED_STRESS':
+            gate = self.plan['stress_gate']
+            require(gate['boot_id'] == self.plan['boot_id'] and
+                    0 <= time.monotonic() - gate['checked_monotonic'] < 300,
+                    'Stress gate expired before cutover')
+            browser_proof = json.loads(Path(self.plan['browser_gate']['proof_path']).read_text())
+            require(gate['offline_root'] == browser_proof['remoteRoot'], 'Stress/browser backend mismatch')
+            proof_path = Path(gate['proof_path'])
+            require(proof_path == self.root / 'evidence/admin-stress-offline.json' and
+                    proof_path.resolve() == proof_path and proof_path.stat().st_uid == 0 and
+                    not proof_path.stat().st_mode & 0o077 and rollout.sha(proof_path) == gate['proof_sha256'],
+                    'Frozen offline stress proof changed')
+            require(rollout.sha(self.root / 'scripts/admin-stress-client.py') == gate['client_sha256'] ==
+                    self.plan['supervisor_files']['scripts/admin-stress-client.py'], 'Stress client not offline-qualified')
+            proof = json.loads(proof_path.read_text())
+            require(proof['passed'] is True and proof['real_rkllm'] is False and len(proof['cycles']) == 2 and
+                    all(c['restored'] is True and [(x['case'],x['input_bytes']) for x in c['cases']] ==
+                        [(x['case'],x['bytes']) for x in gate['workload']] for c in proof['cycles']),
+                    'Incomplete frozen stress proof')
         if not self.plan.get('pc_lease_token'):
             return
         gate = self.plan['browser_gate']

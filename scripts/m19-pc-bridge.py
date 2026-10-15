@@ -158,7 +158,10 @@ def dispatch(request):
         return {'gate_path':str(root / 'gate.json'), 'gate':gate}
     if action == 'prepare':
         launch = load_module('pc_launch','m19-hardware-start.py')
-        root = launch.prepare(Path(request['gate_path']), request.get('voice_mode','synthetic-acoustic'))
+        profile = request.get('profile', 'voice')
+        if profile not in ('voice', 'admin-stress'): raise RuntimeError('Unknown M19 test profile')
+        root = (launch.prepare(Path(request['gate_path']), 'owner-live', True) if profile == 'admin-stress' else
+                launch.prepare(Path(request['gate_path']), request.get('voice_mode','synthetic-acoustic')))
         plan = json.loads((root / 'plan.json').read_text())
         return {'root':str(root),'admin_port':plan['admin_port'],'mock_url':plan['mock_url'],
                 'mock_log':plan['mock_log'],'lease_token':plan['pc_lease_token'],'plan':plan}
@@ -167,6 +170,31 @@ def dispatch(request):
         data = fixture(root)
         for unit in (data['backend_unit'], data['mock_unit']): run(['systemctl','stop',unit])
         return {'stopped':True, 'backend_exit':run(['systemctl','show',data['backend_unit'],'-p','ExecMainStatus','--value'])}
+    if action == 'offline-stress':
+        data = fixture(root)
+        work = Path(data['work'])
+        (work / 'offline-test-marker').write_text('offline scripted transport gate only\n')
+        output = work / 'admin-stress-offline.json'
+        client = REPO / 'benchmarks/web-admin-b4/DialogueSmoke.py'
+        client_sha = sha(client)
+        workload = json.loads(run(['/usr/bin/python3', '-B', client, '--validate-workload']))
+        run(['/usr/bin/python3', '-B', REPO / 'benchmarks/web-admin-b4/DialogueSmoke.py',
+             '--stress-url', data['admin_url'], '--store', data['store'], '--output', output,
+             '--mock-log', data['mock_log'],
+             '--deadline-monotonic', str(time.monotonic() + 90), '--offline'], timeout=100)
+        proof = json.loads(output.read_text())
+        if sha(client) != client_sha or not proof['passed'] or proof['real_rkllm']:
+            raise RuntimeError('Offline stress client changed or proof invalid')
+        proof_path = root / 'admin-stress-offline.json'
+        proof_path.write_bytes(output.read_bytes()); proof_path.chmod(0o600)
+        gate = {'proof_path': str(proof_path), 'proof_sha256': sha(proof_path),
+                'client_sha256': client_sha, 'workload': workload,
+                'workload_sha256': hashlib.sha256(json.dumps(workload, sort_keys=True, ensure_ascii=False).encode()).hexdigest(),
+                'boot_id': data['boot_id'], 'offline_root': str(root),
+                'checked_monotonic': time.monotonic()}
+        receipt = root / 'admin-stress-gate.json'
+        receipt.write_text(json.dumps(gate)); receipt.chmod(0o600)
+        return {**proof, 'gate': {'path': str(receipt), 'sha256': sha(receipt)}}
     if action == 'memory': return memory(root)
     if action == 'rows':
         log = fixture(root)['mock_log'] if (root / 'offline.json').exists() else hardware(root).plan['mock_log']
@@ -210,7 +238,7 @@ def dispatch(request):
         pid = int(run(['systemctl','show',window.plan['test_unit'],'-p','MainPID','--value']))
         if pid <= 0 or status.get('worker_pid') != pid or (Path('/proc')/str(pid)/'exe').resolve() != Path(window.plan['candidate_binary']):
             raise RuntimeError('Test readiness executable/PID mismatch')
-        return {'ready':True,'status':status}
+        return {'ready':True,'status':status,'arm':arm}
     if action == 'ai-pass': hardware(root); (root / 'AI_PASS').open('x').close(); return {'ok':True}
     if action == 'owner-voice-ready':
         window = hardware(root)
