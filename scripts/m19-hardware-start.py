@@ -160,13 +160,13 @@ def verify_diagnostic_candidate(reference):
                      path.suffix == '.json' and path.resolve() == path and path.stat().st_uid == 0 and
                      not path.stat().st_mode & 0o077 and recovery.rollout.sha(path) == reference['sha256'], 'Untrusted diagnostic descriptor')
     data = json.loads(path.read_text())
-    recovery.require(REPO == Path('/home/firefly/FireflyVoiceAssistantLinux-m19-format') and data['source_root'] == str(REPO),
+    recovery.require(REPO == Path('/home/firefly/FireflyVoiceAssistantLinux-m19-single-json') and data['source_root'] == str(REPO),
                      'Wrong diagnostic source')
-    recovery.require(data['identity']['head'] == '0e458dd5988cc9f155b512a139526d26088075a4' and not data['identity']['dirty'] and
+    recovery.require(data['identity']['head'] == '874036b2abb4db1d2be75501936cac345759dd3c' and not data['identity']['dirty'] and
                      data['identity']['source_sha256'] == source_tree_fingerprint(REPO), 'Diagnostic source/build mismatch')
     reviewed = {
-        'src/admin/RuntimeGeneration.cpp': '89e330c99814cdc1ff666b0c8ea1b9dc90a0eb758e667e82226a6ec5d010e11e',
-        'src/admin/RuntimeWorker.cpp': '51979ffe1c7303c7f8ede3c2b7d34b6f89ecac8305911e9f9a0068fbef873a25',
+        'src/admin/RuntimeGeneration.cpp': '459dface26ff1f807cbf9f8728dabb926dbd592adaed969ec8e864d1c97e6d05',
+        'src/admin/RuntimeWorker.cpp': '6557a94d858de06250c18e78f5320d75ec51110a02569079e253ba3eec3dcb36',
         'src/admin/SetupSession.h': '5a7d7439d434529c89458b495aa02e9ee94a1eeaa58c9dd589db7848c3285b4a',
     }
     recovery.require(all(recovery.rollout.sha(REPO / name) == digest for name,digest in reviewed.items()),
