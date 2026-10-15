@@ -1,5 +1,43 @@
 # M19 Admin4096 failure diagnostics
 
+## Current result — 2026-10-15
+
+**BOUNDED_TWO_CYCLE_PASS / RECOVERY_PASS** on the clean native aarch64
+`c7fa14906f8ae15f4c8fb488e9c9d7628eb8154f` product candidate, with operator
+`b98714fcbc6d24e0d19c9c415d1a6e6a401a80f6`. The first authorized window completed
+two real Runtime → Admin4096 → Runtime cycles. Each cycle sent the same 1606-byte
+long request and produced a complete strict Cabinet/Lamp proposal, unchanged
+system identity, expected Russian forms, boolean ON/OFF and no bindings. Request
+times were 73.970 and 72.677 seconds. Both internal Runtime restores passed.
+The 10 reported main/language inference trace entries all used attempt 1; that
+count excludes SDK bootstrap inference.
+
+There was exactly one original-production stop/start. Independent recovery
+returned installed `m19-320b80a6-20261014T173500Z` to READY / WAITING_WAKE in
+53.044 seconds, with sole NPU/microphone ownership. Production ConfigStore bytes,
+owners and modes, model metadata, release, unit and arguments were preserved.
+All seven temporary units were inactive afterward. No Apply, device commands or
+voice replay occurred; the private active ConfigStore remained empty revision 1.
+
+Across 382 watchdog samples, minimum MemAvailable was 1.577 GiB and peak test
+process PSS was 5.160 GiB; cgroup max/OOM/OOM-kill counters remained zero.
+The maximum observed context was 1211 tokens, with 1571 reserved: **full 4096-token
+saturation, long-running soak and universal model reliability are NOT_VERIFIED**.
+Previously accepted owner voice ON/OFF results are unchanged; this window did
+not add instrumented OFF evidence. The candidate was not installed by this test.
+
+Independent evidence review passed. Private evidence is retained on the control
+PC at `evidence/m19-repeatability-prep-20261015T124327Z/live/attempt-1/` (outside
+the repository). The final supervisor/private-store archive SHA256 is
+`35ad2a16b4cee8bde005ca9e60bcba180749320cbcb41a2e635b03f19613287b`, verified
+against the Firefly stream. Raw private stores, device endpoints and audio are
+not published. The relocated test ELF SHA256 is
+`566342b4708c9d9b569c9a425b0e918083ad2cdee48b814d2d84b9882b73aa9e`.
+
+The sections below record preparation and earlier failures chronologically in
+reverse order. Historical UNVERIFIED statements are scoped to their own stage;
+they do not override the bounded result above or imply full-context acceptance.
+
 ## Bounded repeatability on the verified c7fa149 candidate
 
 The real single-long check of `c7fa149` passed: one strict Cabinet/Lamp proposal
@@ -64,8 +102,8 @@ proposal adding excluded brightness still fails validation.
 Offline regressions check the exact long input, normal creation, case/whitespace,
 positive and mixed brightness, negation, editing, malformed boundaries, original
 input preservation, room ambiguity, and rejection of excluded brightness. Their
-scripted model verifies routing and safety contracts only. Whether the real Qwen
-returns valid JSON with these instructions remains **UNVERIFIED**. No new
+scripted model verifies routing and safety contracts only. At this offline-preparation stage, whether real Qwen
+would return valid JSON remained **UNVERIFIED**. No new
 hardware window or production activation is authorized by offline preparation.
 
 ## Single-document instruction correction
@@ -185,9 +223,9 @@ The installed production remains the accepted `320b80a6` release. These source
 changes are not installed. Further hardware testing requires a separately built,
 reviewed candidate, fresh admission/recovery preparation and new owner START.
 
-## Single-request diagnostic window
+## Historical single-request diagnostic window
 
-The existing PC harness now accepts a root-private diagnostic descriptor and its
+At that stage, the PC harness accepted a root-private diagnostic descriptor and its
 explicit SHA256. This profile uses a clean native `9945f59` candidate, whose only
 product source difference from installed `320b80a6` is `SetupSession.h`. The
 descriptor pins source/header/ELF identity; the copied ELF is checked against the
