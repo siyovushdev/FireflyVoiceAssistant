@@ -96,6 +96,61 @@ int main(int argc, char** argv) {
         const std::string detail=" Требуется только питание лампы в кабинете, включение и выключение, без яркости, каналов и других возможностей, без подключения к сети";
         while(longRequest.size()+detail.size()<=1800)longRequest+=detail;
         require(longRequest.size()==1606,"same long UTF-8 stress input");
+        // Exercise the actual instruction boundary, not model quality. Excluding
+        // brightness must not select the full editing schema; all other mentions
+        // and editing/negative requests retain the general instructions.
+        const std::string create = "Создай зону Кабинет и лампу в кабинете, которую можно включать и выключать";
+        const std::vector<std::pair<std::string, bool>> promptCases = {
+            {create, true}, {longRequest, true},
+            {create + ", без яркости.", true},
+            {"В лаборатории есть насос, включение и выключение, БЕЗ ЯРКОСТИ.", true},
+            {create + ", без\tяркости, без подключения к сети.", true},
+            {create + ", без\nяркости.", true},
+            {create + " и добавь регулировку яркости.", false},
+            {create + ", без яркости. Ещё добавь яркость.", false},
+            {create + ", без яркости, но с регулировкой яркости.", false},
+            {create + ", без регулировки яркости.", false},
+            {create + ", без, яркости.", false},
+            {create + ", без. Яркости добавь.", false},
+            {create + ", небез яркости.", false},
+            {create + ", без яркости123.", false},
+            {create + ", без яркости-каналов.", false},
+            {create + ", не добавляй яркость.", false},
+            {create + ", без яркости; не добавляй насос.", false},
+            {create + ", без яркости;не добавляй насос.", false},
+            {create + ", без яркости, не\tдобавляй насос.", false},
+            {create + ", без яркости; переименуй систему.", false},
+            {create + ", без яркости; измени диапазон.", false}
+        };
+        for (const auto& [text, creation] : promptCases) {
+            model.script({R"({"unsupported":"Этот запрос требует уточнения возможностей."})"});
+            const auto response = call({{"method", "dialogue"}, {"configuration", empty},
+                {"focus", Json::array()}, {"text", text}});
+            require(response.value("ok", false) && response.at("trace").size() == 1,
+                "routing fixture reaches exactly one strict generation");
+            const auto& entry = response.at("trace")[0];
+            const bool selectedCreation = entry.at("prompt").get<std::string>().find("Разбери просьбу о создании") != std::string::npos;
+            require(selectedCreation == creation, "only explicit brightness exclusion changes instruction selection");
+            require(entry.at("input") == text, "routing never removes restrictions from the original inference input");
+            unchanged();
+        }
+        const auto twoRooms = Json::parse(decodeCopilotProposal(expandDialogueOperations(
+            R"({"ops":[["location","Кабинет"],["location","Спальня"]]})").dump(), baseline)).at("configuration");
+        model.script({R"({"ops":[["power_device","Кабинет","Лампа"]]})"});
+        const auto unclearRoom = call({{"method", "dialogue"}, {"configuration", twoRooms},
+            {"focus", Json::array()}, {"text", "Создай лампу в зоне Кабинет или зоне Спальня, без яркости."}});
+        require(unclearRoom.at("suggestion").at("status") == "ambiguous" && model.next == 0,
+            "instruction correction does not bypass existing multiple-room ambiguity before inference");
+        unchanged();
+        const std::string excludedBrightness = R"({"ops":[["location","Кабинет"],["power_device","Кабинет","Лампа"],["add_brightness","Кабинет","Лампа"]]})";
+        model.script({excludedBrightness, excludedBrightness});
+        const auto overreach = call({{"method", "dialogue"}, {"configuration", empty},
+            {"focus", Json::array()}, {"text", create + ", без яркости."}});
+        require(!overreach.value("ok", true) && overreach.at("trace").size() == 2 &&
+            overreach.at("trace")[0].at("error") == "Brightness was not explicitly requested" &&
+            overreach.at("trace")[1].at("error") == "Brightness was not explicitly requested",
+            "creation instructions cannot authorize model-invented excluded brightness");
+        unchanged();
         model.script({R"({"ops":[["location","Кабинет"],["power_device","Кабинет","Лампа"]]})"});
         message(longRequest);powerDevice(state.at("configuration"),"Кабинет","Лампа");unchanged();reset();
         // Exact raw responses captured from the real 2026-10-15 diagnostic

@@ -1,5 +1,34 @@
 # M19 Admin4096 failure diagnostics
 
+## Offline brightness-exclusion instruction routing
+
+The `874036b` real single-request check still failed: both full 87-byte replies
+ended with an extra closing brace. Strict parsing rejected both replies, no
+Apply occurred, and external production recovery passed. This is not a model
+quality fix or a full ctx4096 stress PASS.
+
+The long request repeats `без яркости`, which the old substring check treated
+like an affirmative brightness request when selecting the dialogue instructions.
+Instruction selection now recognizes only the complete `без яркости` phrase,
+with whitespace between its words. Every brightness mention must be excluded;
+another affirmative/ambiguous mention, an editing verb, or a standalone `не`
+keeps the general instructions for this newly recognized case. Punctuation
+between `без` and `яркости` does not extend the exclusion across clauses.
+Other negative formulations conservatively keep the general instructions.
+
+Only instruction selection changes. The original inference input, existing
+scope/grounding/ambiguity decisions, strict whole-document decoder, semantic
+guards, model, sampling, retry count and resource limits are preserved. In
+particular, a multiple-room request still asks before inference, and an AI
+proposal adding excluded brightness still fails validation.
+
+Offline regressions check the exact long input, normal creation, case/whitespace,
+positive and mixed brightness, negation, editing, malformed boundaries, original
+input preservation, room ambiguity, and rejection of excluded brightness. Their
+scripted model verifies routing and safety contracts only. Whether the real Qwen
+returns valid JSON with these instructions remains **UNVERIFIED**. No new
+hardware window or production activation is authorized by offline preparation.
+
 ## Single-document instruction correction
 
 The real format-fix check of `0e458dd` still failed: the two complete replies
