@@ -1,5 +1,26 @@
 # M19 Admin4096 failure diagnostics
 
+## Single-document instruction correction
+
+The real format-fix check of `0e458dd` still failed: the two complete replies
+contained the requested operation arrays followed by either a second JSON object
+with the literal question placeholder or an extra closing brace. The complete
+replies were rejected at bytes 89 and 87, without extracting or executing a prefix.
+Production recovery passed. Neither an OOM nor full ctx4096 coverage was observed.
+
+The dialogue prompts now describe mutually exclusive `ops`, `question` and
+`unsupported` branches in prose and retain one complete positive JSON example.
+Literal alternative JSON documents and duplicate full-plan examples are removed.
+The shared retry remains schema-neutral because it also serves entity/language
+drafts: generate a complete single object, close each open construct once and end
+the response. The bounded validator reason remains; rejected raw is not inserted.
+
+Both complete real responses are offline negative fixtures on the exact long
+input and in manual-checkpoint/diagnostic tests. Strict whole-document parsing,
+the existing one-format-retry allowance, routing, semantic guards, models, context
+and memory limits are unchanged. Valid question/unsupported responses remain
+supported. These fixtures establish fail-closed behavior, not real Qwen quality.
+
 ## Captured failure and offline instruction correction
 
 The subsequent single-request diagnostic window captured both complete rejected
@@ -122,9 +143,9 @@ Preparation never arms recovery or stops production. After new owner START the
 same harness creates a fresh one-use plan and repeats the required short-lived
 gates. It does not reuse an expired prepared root or authorize another attempt.
 
-## Format-fix candidate qualification
+## Historical 0e458dd format-fix candidate qualification
 
-The next private candidate is built from clean `0e458dd`, in a separate
+That private candidate was built from clean `0e458dd`, in a separate
 `FireflyVoiceAssistantLinux-m19-format` checkout. The operator pins that exact
 commit, source fingerprint, ELF identity and the hashes of all three product files
 differing from installed `320b80a6`: `SetupSession.h`, `RuntimeGeneration.cpp` and

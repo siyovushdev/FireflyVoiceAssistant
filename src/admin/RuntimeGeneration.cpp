@@ -16,13 +16,12 @@ std::optional<Json> suggestionAttempts(ContextModel& model, const std::string& p
         Json& trace, int& retries, const std::atomic<bool>& stopping, const std::string& group = {}) {
     for (int attempt = 1; attempt <= 2; ++attempt) {
         if (stopping) throw std::runtime_error("Runtime stopping");
-        std::string retryHint = "\nПредыдущий ответ отклонён. Повтори ПОЛНЫЙ корректный JSON строго по указанной схеме. Проверь ключи, кавычки, запятые и скобки. Без markdown и пояснений.";
+        std::string retryHint = "\nПредыдущий ответ отклонён.";
         if (attempt > 1 && !trace.empty() && trace.back().contains("error") && trace.back().at("error").is_string()) {
             const auto& reason = trace.back().at("error").get_ref<const std::string&>();
-            if (!reason.empty() && reason.size() <= 240) retryHint = "\nПредыдущий ответ отклонён (" + reason + "). Повтори ПОЛНЫЙ корректный JSON строго по указанной схеме. Проверь ключи, кавычки, запятые и скобки. Без markdown и пояснений.";
+            if (!reason.empty() && reason.size() <= 240) retryHint = "\nПредыдущий ответ отклонён (" + reason + ").";
         }
-        retryHint += " Ответ должен содержать ровно один JSON-объект. Не добавляй второй объект или лишние закрывающие скобки. Заверши ответ сразу после закрытия единственного объекта.";
-        retryHint += " В JSON-объекте ключ и значение разделены двоеточием. Упорядоченные элементы массива заключены в квадратные скобки [...], а не фигурные {...}. Следуй исходной схеме; не копируй ошибочный ответ.";
+        retryHint += " Сформируй заново ПОЛНЫЙ корректный JSON по исходной схеме: один завершённый JSON-объект. Весь ответ — этот объект. Ключ и значение разделяет двоеточие, элементы массива заключены в квадратные скобки. Закрой каждую открытую конструкцию ровно один раз. После завершения внешнего объекта сразу заверши генерацию.";
         const auto instructions = prompt + (attempt == 1 ? "" : retryHint);
         Json entry{{"attempt",attempt},{"group",group},{"prompt",instructions},{"input",input},
             {"raw",""},{"metrics",nullptr},{"stage","context_admission"}};
