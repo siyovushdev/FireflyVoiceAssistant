@@ -22,6 +22,7 @@ std::optional<Json> suggestionAttempts(ContextModel& model, const std::string& p
             if (!reason.empty() && reason.size() <= 240) retryHint = "\nПредыдущий ответ отклонён (" + reason + "). Повтори ПОЛНЫЙ корректный JSON строго по указанной схеме. Проверь ключи, кавычки, запятые и скобки. Без markdown и пояснений.";
         }
         retryHint += " Ответ должен содержать ровно один JSON-объект. Не добавляй второй объект или лишние закрывающие скобки. Заверши ответ сразу после закрытия единственного объекта.";
+        retryHint += " В JSON-объекте ключ и значение разделены двоеточием. Упорядоченные элементы массива заключены в квадратные скобки [...], а не фигурные {...}. Следуй исходной схеме; не копируй ошибочный ответ.";
         const auto instructions = prompt + (attempt == 1 ? "" : retryHint);
         Json entry{{"attempt",attempt},{"group",group},{"prompt",instructions},{"input",input},
             {"raw",""},{"metrics",nullptr},{"stage","context_admission"}};

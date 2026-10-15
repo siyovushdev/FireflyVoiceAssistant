@@ -1,5 +1,39 @@
 # M19 Admin4096 failure diagnostics
 
+## Captured failure and offline instruction correction
+
+The subsequent single-request diagnostic window captured both complete rejected
+Qwen responses (139 and 106 bytes). Both use object braces for ordered operation
+tuples, for example `{"location","Кабинет"}`, instead of JSON arrays. They are
+syntactically invalid JSON; the strict decoder rejects them before semantic
+validation. The first response also requests a system name absent from the user
+request. `system_name` itself is a supported operation, not an unknown opcode.
+
+The exact 1606-byte request takes the general dialogue prompt because its explicit
+constraints mention brightness. Routing is preserved. That prompt previously
+introduced `ops` with a non-JSON placeholder rather than a complete example.
+It now shows a complete valid nested-array response, explains array brackets,
+and distinguishes naming a system from creating a zone. Optional arguments are
+described outside syntactically valid JSON examples. The creation-only prompt
+also states the array rule. The existing single format retry gains a static JSON
+syntax reminder; no rejected output is copied into it or repaired.
+
+The offline contract regression replays both captured malformed responses against
+the exact long input: both must fail, preserve configuration and keep the message
+incomplete. Only a separately generated valid second response can form a proposal.
+These scripted fixtures do **not** prove that Qwen will now generate valid JSON.
+No decoder, retry count, model, RAM limit, context size or routing changes.
+The runtime compact prompt and execution/SafetyGate are unchanged.
+
+That diagnostic window recovered the installed `320b80a6` production release to
+READY / WAITING_WAKE in 52.675 seconds. All temporary units were stopped. Its 163
+memory samples had a minimum MemAvailable of 1.655 GiB and no OOM events. The
+full ctx4096 stress/soak remains unverified. These source corrections are local
+and uninstalled; a new real Qwen check requires a reviewed native candidate,
+fresh preflight/recovery and separate owner authorization.
+
+## Historical first bounded stress and evidence gap
+
 The real 2026-10-15 bounded stress window failed on the 1606-byte input after
 the short request passed. The long request reached inference (275 vendor input
 tokens), then both built-in attempts returned `invalid_ai_response` at `decode`.

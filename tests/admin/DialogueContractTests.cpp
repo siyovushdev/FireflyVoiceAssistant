@@ -95,6 +95,38 @@ int main(int argc, char** argv) {
         require(longRequest.size()==1606,"same long UTF-8 stress input");
         model.script({R"({"ops":[["location","Кабинет"],["power_device","Кабинет","Лампа"]]})"});
         message(longRequest);powerDevice(state.at("configuration"),"Кабинет","Лампа");unchanged();reset();
+        // Exact raw responses captured from the real 2026-10-15 diagnostic
+        // request. Offline fixtures verify rejection/retry, not Qwen quality.
+        const std::string malformedFirst=R"({"ops":[{"system_name","Кабинет"},{"location","Кабинет"},{"power_device","Кабинет","Лампа в кабинете"}]})";
+        const std::string malformedSecond=R"({"ops":[{"location","Кабинет"},{"power_device","Кабинет","Лампа в кабинете"}]})";
+        model.script({malformedFirst,malformedSecond});
+        bool malformedRejected=false;
+        try {message(longRequest);}catch(const std::exception&){malformedRejected=true;}
+        state=session.handle("status",{});
+        require(malformedRejected && state.at("status")=="planning_failed" && state.at("message_incomplete")==true,
+            "captured invalid tuples fail closed on exact long input");
+        require(state.at("configuration")==empty && lastDialogue.at("trace").size()==2 && model.next==2,
+            "invalid tuples never become a proposal or trigger extra retries");
+        require(lastDialogue.at("trace")[0].at("raw")==malformedFirst && lastDialogue.at("trace")[1].at("raw")==malformedSecond,
+            "captured Qwen bytes are rejected without repair");
+        for(const auto& entry:lastDialogue.at("trace")) {
+            require(entry.at("rejection_stage")=="json_parse","captured tuples fail syntax before semantic decode");
+            const auto instructions=entry.at("prompt").get<std::string>();
+            const auto begin=instructions.find("{\"ops\":");
+            require(begin!=std::string::npos,"dialogue instructions contain a complete plan example");
+            const auto end=instructions.find('}',begin);
+            const auto example=expandDialogueOperations(instructions.substr(begin,end-begin+1));
+            require(example.at("operations").size()==2,"instruction example is valid JSON with typed operation arrays");
+        }
+        require(lastDialogue.at("trace")[1].at("prompt").get<std::string>().find("квадратные скобки")!=std::string::npos,
+            "format retry explains JSON array brackets");
+        unchanged();session.handle("cancel",{{"session_id",token}});
+        state=session.handle("start",{});token=state.at("session_id");
+        model.script({malformedSecond,R"({"ops":[["location","Кабинет"],["power_device","Кабинет","Лампа"]]})"});
+        message(longRequest);powerDevice(state.at("configuration"),"Кабинет","Лампа");
+        require(lastDialogue.at("retry_count")==1 && lastDialogue.at("trace")[0].at("raw")==malformedSecond &&
+            lastDialogue.at("trace")[1].contains("decoded"),"only a separately generated valid array response succeeds");
+        unchanged();reset();
         // Same meaning with different entities: no special case for owner wording.
         model.script({R"({"ops":[["location","Лаборатория"],["power_device","Лаборатория","Насос"]]})"});
         message("В лаборатории есть насос, его можно включать и выключать.");
