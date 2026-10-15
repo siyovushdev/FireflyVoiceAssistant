@@ -2,6 +2,7 @@
 #include "DialogueOperations.h"
 #include "SetupSession.h"
 #include <iostream>
+#include <sys/stat.h>
 
 using namespace firefly::admin;
 using admin_test::Json;
@@ -80,8 +81,119 @@ int main(int argc, char** argv) {
             require(state.at("status") == "editing", "named new device with same-message pronoun reaches decoder");
             powerDevice(state.at("configuration"), "Цех", "Вентилятор");
             require(lastDialogue.at("trace").size() == 1, "one validated generation");
+            const auto instructions=lastDialogue.at("trace")[0].at("prompt").get<std::string>();
+            require(instructions.find("{\"question\":")==std::string::npos && instructions.find("{\"unsupported\":")==std::string::npos,
+                "creation instructions do not teach concatenated alternative JSON documents");
+            std::ifstream saved(directory.path+"/setup-draft.json");
+            const auto disk=Json::parse(saved);
+            for(const auto& entry:disk.at("trace"))if(!entry.contains("error_code"))
+                require(!entry.contains("rejected_raw_hex"), "successful raw responses remain excluded from the private trace");
             unchanged(); reset();
         }
+        // Exact long stress input, with an explicitly scripted VALID response:
+        // checks the real request/decoder contract, not Qwen acceptance.
+        std::string longRequest="Создай зону Кабинет и лампу в кабинете, которую можно включать и выключать";
+        const std::string detail=" Требуется только питание лампы в кабинете, включение и выключение, без яркости, каналов и других возможностей, без подключения к сети";
+        while(longRequest.size()+detail.size()<=1800)longRequest+=detail;
+        require(longRequest.size()==1606,"same long UTF-8 stress input");
+        // Exercise the actual instruction boundary, not model quality. Excluding
+        // brightness must not select the full editing schema; all other mentions
+        // and editing/negative requests retain the general instructions.
+        const std::string create = "Создай зону Кабинет и лампу в кабинете, которую можно включать и выключать";
+        const std::vector<std::pair<std::string, bool>> promptCases = {
+            {create, true}, {longRequest, true},
+            {create + ", без яркости.", true},
+            {"В лаборатории есть насос, включение и выключение, БЕЗ ЯРКОСТИ.", true},
+            {create + ", без\tяркости, без подключения к сети.", true},
+            {create + ", без\nяркости.", true},
+            {create + " и добавь регулировку яркости.", false},
+            {create + ", без яркости. Ещё добавь яркость.", false},
+            {create + ", без яркости, но с регулировкой яркости.", false},
+            {create + ", без регулировки яркости.", false},
+            {create + ", без, яркости.", false},
+            {create + ", без. Яркости добавь.", false},
+            {create + ", небез яркости.", false},
+            {create + ", без яркости123.", false},
+            {create + ", без яркости-каналов.", false},
+            {create + ", не добавляй яркость.", false},
+            {create + ", без яркости; не добавляй насос.", false},
+            {create + ", без яркости;не добавляй насос.", false},
+            {create + ", без яркости, не\tдобавляй насос.", false},
+            {create + ", без яркости; переименуй систему.", false},
+            {create + ", без яркости; измени диапазон.", false}
+        };
+        for (const auto& [text, creation] : promptCases) {
+            model.script({R"({"unsupported":"Этот запрос требует уточнения возможностей."})"});
+            const auto response = call({{"method", "dialogue"}, {"configuration", empty},
+                {"focus", Json::array()}, {"text", text}});
+            require(response.value("ok", false) && response.at("trace").size() == 1,
+                "routing fixture reaches exactly one strict generation");
+            const auto& entry = response.at("trace")[0];
+            const bool selectedCreation = entry.at("prompt").get<std::string>().find("Разбери просьбу о создании") != std::string::npos;
+            require(selectedCreation == creation, "only explicit brightness exclusion changes instruction selection");
+            require(entry.at("input") == text, "routing never removes restrictions from the original inference input");
+            unchanged();
+        }
+        const auto twoRooms = Json::parse(decodeCopilotProposal(expandDialogueOperations(
+            R"({"ops":[["location","Кабинет"],["location","Спальня"]]})").dump(), baseline)).at("configuration");
+        model.script({R"({"ops":[["power_device","Кабинет","Лампа"]]})"});
+        const auto unclearRoom = call({{"method", "dialogue"}, {"configuration", twoRooms},
+            {"focus", Json::array()}, {"text", "Создай лампу в зоне Кабинет или зоне Спальня, без яркости."}});
+        require(unclearRoom.at("suggestion").at("status") == "ambiguous" && model.next == 0,
+            "instruction correction does not bypass existing multiple-room ambiguity before inference");
+        unchanged();
+        const std::string excludedBrightness = R"({"ops":[["location","Кабинет"],["power_device","Кабинет","Лампа"],["add_brightness","Кабинет","Лампа"]]})";
+        model.script({excludedBrightness, excludedBrightness});
+        const auto overreach = call({{"method", "dialogue"}, {"configuration", empty},
+            {"focus", Json::array()}, {"text", create + ", без яркости."}});
+        require(!overreach.value("ok", true) && overreach.at("trace").size() == 2 &&
+            overreach.at("trace")[0].at("error") == "Brightness was not explicitly requested" &&
+            overreach.at("trace")[1].at("error") == "Brightness was not explicitly requested",
+            "creation instructions cannot authorize model-invented excluded brightness");
+        unchanged();
+        model.script({R"({"ops":[["location","Кабинет"],["power_device","Кабинет","Лампа"]]})"});
+        message(longRequest);powerDevice(state.at("configuration"),"Кабинет","Лампа");unchanged();reset();
+        // Exact raw responses captured from the real 2026-10-15 diagnostic
+        // request. Offline fixtures verify rejection/retry, not Qwen quality.
+        const std::string malformedFirst=R"({"ops":[{"system_name","Кабинет"},{"location","Кабинет"},{"power_device","Кабинет","Лампа в кабинете"}]})";
+        const std::string malformedSecond=R"({"ops":[{"location","Кабинет"},{"power_device","Кабинет","Лампа в кабинете"}]})";
+        const std::string validOffice=R"({"ops":[["location","Кабинет"],["power_device","Кабинет","Лампа"]]})";
+        const std::string extraObject=validOffice+"\n\n"+R"({"question":"конкретный вопрос"})";
+        const std::string extraBrace=validOffice+"}";
+        require(extraObject.size()==136 && extraBrace.size()==87,"exact second-window raw byte sizes");
+        for(const auto& rejectedReplies:std::vector<std::pair<std::string,std::string>>{
+                {malformedFirst,malformedSecond},{extraObject,extraBrace}}) {
+            model.script({rejectedReplies.first,rejectedReplies.second});
+            bool malformedRejected=false;
+            try {message(longRequest);}catch(const std::exception&){malformedRejected=true;}
+            state=session.handle("status",{});
+            require(malformedRejected && state.at("status")=="planning_failed" && state.at("message_incomplete")==true,
+                "captured invalid documents fail closed on exact long input");
+            require(state.at("configuration")==empty && lastDialogue.at("trace").size()==2 && model.next==2,
+                "invalid documents never become a proposal or trigger extra retries");
+            require(lastDialogue.at("trace")[0].at("raw")==rejectedReplies.first && lastDialogue.at("trace")[1].at("raw")==rejectedReplies.second,
+                "captured Qwen bytes are rejected without repair");
+            for(const auto& entry:lastDialogue.at("trace")) {
+                require(entry.at("rejection_stage")=="json_parse","captured documents fail syntax before semantic decode");
+                const auto instructions=entry.at("prompt").get<std::string>();
+                require(instructions.find("{\"question\":")==std::string::npos && instructions.find("{\"unsupported\":")==std::string::npos,
+                    "alternative branches are described without competing complete JSON examples");
+                const auto begin=instructions.find("{\"ops\":");
+                require(begin!=std::string::npos,"dialogue instructions contain a complete plan example");
+                const auto end=instructions.find('}',begin);
+                const auto example=expandDialogueOperations(instructions.substr(begin,end-begin+1));
+                require(example.at("operations").size()==2,"instruction example is valid JSON with typed operation arrays");
+            }
+            require(lastDialogue.at("trace")[1].at("prompt").get<std::string>().find("квадратные скобки")!=std::string::npos,
+                "format retry explains JSON array brackets");
+            unchanged();session.handle("cancel",{{"session_id",token}});
+            state=session.handle("start",{});token=state.at("session_id");
+        }
+        model.script({malformedSecond,R"({"ops":[["location","Кабинет"],["power_device","Кабинет","Лампа"]]})"});
+        message(longRequest);powerDevice(state.at("configuration"),"Кабинет","Лампа");
+        require(lastDialogue.at("retry_count")==1 && lastDialogue.at("trace")[0].at("raw")==malformedSecond &&
+            lastDialogue.at("trace")[1].contains("decoded"),"only a separately generated valid array response succeeds");
+        unchanged();reset();
         // Same meaning with different entities: no special case for owner wording.
         model.script({R"({"ops":[["location","Лаборатория"],["power_device","Лаборатория","Насос"]]})"});
         message("В лаборатории есть насос, его можно включать и выключать.");
@@ -92,13 +204,22 @@ int main(int argc, char** argv) {
         require(noZone.at("rooms").empty() && noZone.at("devices").size() == 1 && noZone.at("devices")[0].at("room_id").is_null(), "explicit no-zone without fake zone");
         require(noZone.at("actions").empty() && noZone.at("devices")[0].at("state").empty(), "unspecified capabilities not invented");
         unchanged(); reset();
+        for(const auto& reply:{R"({"question":"Какую зону выбрать для устройства?"})",
+                               R"({"unsupported":"Такие возможности не поддерживаются."})"}) {
+            model.script({reply});message(ownerPhrase);
+            require(state.at("status")=="clarification_required" && state.at("configuration")==empty,
+                "question and unsupported remain valid exclusive branches without a proposal");
+            unchanged();session.handle("cancel",{{"session_id",token}});
+            state=session.handle("start",{});token=state.at("session_id");
+        }
 
         const auto trailing = valid + "\n\n" + R"({"unsupported":"лишнее"})";
         const std::vector<std::string> invalid = {
-            "{broken", valid + "}", trailing, valid + " пояснение", "```json\n" + valid + "\n```",
+            extraObject, extraBrace, "{broken", valid + "}", trailing, valid + " пояснение", "```json\n" + valid + "\n```",
             R"({"ops":[["invent_operation","Цех"]]})",
             R"({"ops":[["power_device","Цех","Вентилятор","extra"]]})",
-            R"({"ops":[["location","Цех"],["location","Цех"]]})"
+            R"({"ops":[["location","Цех"],["location","Цех"]]})",
+            std::string(4095,'x')+"Ж" // The 4096-byte capture boundary splits UTF-8.
         };
         for (const auto& raw : invalid) {
             // Keep a good manual pending task while the AI request fails.
@@ -112,10 +233,53 @@ int main(int argc, char** argv) {
             require(state.at("configuration") == manual, "failed AI preserves good manual pending task");
             require(lastDialogue.at("trace").size() == 2 && !lastDialogue.value("ok", true), "exactly one retry, no permissive parse");
             require(lastDialogue.at("trace")[0].at("raw") == raw && lastDialogue.at("trace")[1].at("raw") == raw, "raw bytes never repaired");
+            std::ifstream saved(directory.path+"/setup-draft.json");
+            const auto disk=Json::parse(saved);
+            const auto& traces=disk.at("trace");
+            std::string expectedHex;
+            for(std::size_t i=0;i<std::min(raw.size(),std::size_t(4096));++i) {
+                const auto byte=static_cast<unsigned char>(raw[i]);
+                expectedHex.push_back("0123456789abcdef"[byte>>4]);expectedHex.push_back("0123456789abcdef"[byte&15]);
+            }
+            for(std::size_t i=traces.size()-2;i<traces.size();++i) {
+                const auto& entry=traces.at(i);
+                require(entry.at("error_code")=="invalid_ai_response" && !entry.at("error").get<std::string>().empty(), "private trace retains concrete rejection reason");
+                require(entry.at("rejected_raw_hex")==expectedHex && entry.at("rejected_raw_bytes")==raw.size() &&
+                        entry.at("rejected_raw_truncated")==bool(raw.size()>4096), "failed raw prefix is exact, bounded and explicitly labelled");
+                if(lastDialogue.at("trace").at(i-(traces.size()-2)).contains("rejection_stage"))
+                    require(entry.at("rejection_stage")=="json_parse", "parser stage retained");
+            }
+            struct stat info{};
+            require(::stat((directory.path+"/setup-draft.json").c_str(),&info)==0 && (info.st_mode&0777)==0600, "diagnostic draft stays private");
+            require(!state.contains("trace") && state.dump().find("rejected_raw_hex")==std::string::npos, "diagnostics never enter public setup status");
             unchanged();
             session.handle("cancel", {{"session_id", token}});
             state = session.handle("start", {}); token = state.at("session_id");
         }
+        // Repeated failed requests must not exhaust storage and block restore.
+        for(int i=0;i<32;++i) {
+            model.script({std::string(5000,'x'),std::string(5000,'x')});
+            bool rejected=false;
+            try {message(ownerPhrase);}catch(const std::exception& error) {
+                rejected=true;
+                require(std::string(error.what()).find("setup_private_storage_limit")==std::string::npos,"diagnostics do not replace decode error with storage failure");
+            }
+            state=session.handle("status",{});
+            require(rejected && state.at("status")=="planning_failed","repeated failed planning stays fail-closed");
+        }
+        {
+            std::ifstream saved(directory.path+"/setup-draft.json");const auto disk=Json::parse(saved);
+            std::size_t used=0;bool omitted=false;
+            for(const auto& entry:disk.at("trace")) {
+                if(entry.contains("error"))used+=entry.at("error").dump().size();
+                if(entry.contains("rejected_raw_hex"))used+=entry.at("rejected_raw_hex").get_ref<const std::string&>().size();
+                omitted=omitted||entry.value("diagnostic_budget_exhausted",false);
+            }
+            require(used<=32768 && omitted,"session-wide diagnostics budget is enforced and omissions labelled");
+        }
+        session.handle("cancel",{{"session_id",token}});
+        require(!session.handle("status",{}).at("active").get<bool>(),"diagnostics never prevent cancel/restore");
+        unchanged();state=session.handle("start",{});token=state.at("session_id");
         model.script({trailing, valid}); message(ownerPhrase);
         powerDevice(state.at("configuration"), "Цех", "Вентилятор");
         require(lastDialogue.at("retry_count") == 1 && lastDialogue.at("trace")[0].contains("error") && lastDialogue.at("trace")[1].contains("decoded"), "only valid second output becomes proposal");

@@ -93,7 +93,11 @@ public:
         }
         if(request.value("method",std::string())=="action_draft")return Json{{"description","Питание устройства"},{"aliases",Json::array({"включи"})},{"assignments",Json::array({{{"field","power"},{"value",true}}})}}.dump();
         if(prompt.find("Извлеки НОВОЕ имя")!=std::string::npos)return R"({"name":"Вытяжка"})";
-        if(text=="Создай зону Кабинет и лампу в кабинете, которую можно включать и выключать")
+        const std::string shortRequest="Создай зону Кабинет и лампу в кабинете, которую можно включать и выключать";
+        const std::string detail=" Требуется только питание лампы в кабинете, включение и выключение, без яркости, каналов и других возможностей, без подключения к сети";
+        auto longRequest=shortRequest;
+        while(longRequest.size()+detail.size()<=1800)longRequest+=detail;
+        if(text==shortRequest || text==longRequest)
             return R"({"ops":[["location","Кабинет"],["power_device","Кабинет","Лампа"]]})";
         if(text=="Добавь лампу без зоны, которую можно включать и выключать")
             return R"({"ops":[["power_device",null,"Лампа"]]})";
