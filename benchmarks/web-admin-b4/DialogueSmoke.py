@@ -14,7 +14,7 @@ import urllib.error
 import urllib.request
 
 
-def stress_workload(diagnostic_only=False):
+def stress_workload(diagnostic_only=False, repeatability_only=False):
     short = 'Создай зону Кабинет и лампу в кабинете, которую можно включать и выключать'
     detail = (' Требуется только питание лампы в кабинете, включение и выключение, '
               'без яркости, каналов и других возможностей, без подключения к сети')
@@ -22,7 +22,24 @@ def stress_workload(diagnostic_only=False):
     while len((long + detail).encode()) <= 1800:
         long += detail
     # Spaces are deliberately not used to manufacture a claimed token load.
-    return [('long', long)] if diagnostic_only else [('control', short), ('long', long)]
+    return [('long', long)] if diagnostic_only or repeatability_only else [('control', short), ('long', long)]
+
+
+def require_power_proposal(state, initial_system):
+    assert state['status'] == 'editing' and state['message_incomplete'] is False and not state.get('questions')
+    config = state['configuration']
+    assert isinstance(initial_system, dict) and config['system'] == initial_system
+    assert [len(config[k]) for k in ('rooms', 'devices', 'actions', 'bindings')] == [1, 1, 2, 0]
+    room, device = config['rooms'][0], config['devices'][0]
+    assert room['name'] == 'Кабинет' and device['name'] == 'Лампа' and device['room_id'] == room['id']
+    assert device['kind'] == 'generic' and len(device['state']) == 1
+    assert device['state'][0]['id'] == 'power' and device['state'][0]['type'] == 'boolean'
+    assert set(device['action_ids']) == {a['id'] for a in config['actions']}
+    for action in config['actions']:
+        assert action['enabled'] and not action['parameters'] and len(action['assignments']) == 1
+        assignment = action['assignments'][0]
+        assert assignment['field'] == 'power' and type(assignment['value']) is bool
+    assert {a['assignments'][0]['value'] for a in config['actions']} == {False, True}
 
 
 def external_stress():
@@ -39,9 +56,11 @@ def external_stress():
     parser.add_argument('--deadline-monotonic', type=float)
     parser.add_argument('--offline', action='store_true')
     parser.add_argument('--validate-workload', action='store_true')
-    parser.add_argument('--diagnostic-only', action='store_true', help='One long request; evidence collection, not stress acceptance')
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--diagnostic-only', action='store_true', help='One long request; evidence collection, not stress acceptance')
+    mode.add_argument('--repeatability-only', action='store_true', help='Two complete cycles, one strict long proposal per cycle; no saturation claim')
     args = parser.parse_args()
-    workload = stress_workload(args.diagnostic_only)
+    workload = stress_workload(args.diagnostic_only, args.repeatability_only)
     if args.validate_workload:
         print(json.dumps([{'case': k, 'bytes': len(v.encode()), 'text': v} for k, v in workload], ensure_ascii=False))
         return
@@ -58,10 +77,18 @@ def external_stress():
     assert args.deadline_monotonic and 0 < args.deadline_monotonic - time.monotonic() <= 600
     report = {'profile': 'ADMIN4096_DIAGNOSTIC' if args.diagnostic_only else 'ADMIN4096_BOUNDED_STRESS', 'real_rkllm': not args.offline,
               'diagnostic_only': args.diagnostic_only,
+              'repeatability_only': args.repeatability_only,
               'cycles': [], 'passed': False, 'full_4096_context_verified': False,
               'voice': 'NOT_TESTED', 'requests': [], 'apply_calls': None, 'device_requests': None}
     deadline = args.deadline_monotonic
     next_operation_reserve = 5 if args.offline else 120
+    # The fixed repeatability profile budgets a 120s message and 100s restore.
+    # A delayed first cycle can make the second INCOMPLETE; never extend time.
+    cycle_reserve = 300 if args.repeatability_only and not args.offline else next_operation_reserve
+    message_reserve = 220 if args.repeatability_only and not args.offline else next_operation_reserve
+    report['budget'] = {'cycle_reserve_seconds': cycle_reserve, 'message_reserve_seconds': message_reserve,
+                        'message_timeout_seconds': 120 if args.repeatability_only else 150,
+                        'restore_timeout_seconds': 100}
     allowed_get = {'/api/status', '/api/config', '/api/config/active', '/api/executions'}
     allowed_post = {'/api/setup/start', '/api/setup/heartbeat', '/api/setup/draft', '/api/setup/message', '/api/setup/cancel'}
 
@@ -82,7 +109,8 @@ def external_stress():
             headers={'Origin': args.stress_url, 'Content-Type': 'application/json', 'X-Firefly-Admin': '1'})
         # A mutation is sent once. No automatic retries, including on timeout.
         try:
-            with urllib.request.urlopen(request, timeout=min(150, remaining)) as response:
+            timeout = 120 if args.repeatability_only and path == '/api/setup/message' else 150
+            with urllib.request.urlopen(request, timeout=min(timeout, remaining)) as response:
                 return json.load(response)
         except urllib.error.HTTPError as error:
             # Preserve the actual error response once, without retrying a mutation.
@@ -162,9 +190,11 @@ def external_stress():
         report['initial_system'] = original['configuration'].get('system')
         report['initial_resources'] = resources()
         for cycle in range(1 if args.diagnostic_only else 2):
-            if deadline - time.monotonic() < next_operation_reserve:
+            if deadline - time.monotonic() < cycle_reserve:
                 raise TimeoutError('insufficient original window for next cycle; no additional model launch')
             baseline = resources()
+            if deadline - time.monotonic() < cycle_reserve:
+                raise TimeoutError('insufficient original window after resources; no setup start')
             state = call('/api/setup/start', {'async_enter': True}); token = state['session_id']
             record = {'cycle': cycle + 1, 'cases': [], 'restored': False}; report['cycles'].append(record); save()
             record['resources_before'] = baseline
@@ -173,7 +203,7 @@ def external_stress():
             assert state['status'] == 'editing'
             if not args.offline: assert call('/api/status')['context_limit'] == 4096
             for label, text in workload:
-                if deadline - time.monotonic() < next_operation_reserve:
+                if deadline - time.monotonic() < message_reserve:
                     raise TimeoutError('insufficient original window for next request')
                 state = call('/api/setup/draft', {'session_id': token, 'version': state['version'], 'configuration': original['configuration']})
                 checkpoint = json.loads((store / 'setup-draft.json').read_text()); offset = len(checkpoint['trace'])
@@ -182,6 +212,8 @@ def external_stress():
                 case = {'case': label, 'input_bytes': len(text.encode()), 'state': None, 'trace': []}
                 record['cases'].append(case); save()
                 try:
+                    if deadline - time.monotonic() < message_reserve:
+                        raise TimeoutError('insufficient original window after draft; no message sent')
                     state = call('/api/setup/message', {'session_id': token, 'version': state['version'],
                         'request_id': f'stress-{cycle}-{label}', 'atomic_message': True, 'text': text})
                     case['state'] = state
@@ -197,6 +229,8 @@ def external_stress():
                     save()
                 trace = case['trace']
                 assert state['status'] in ('editing', 'clarification_required') and not state.get('message_incomplete')
+                if args.repeatability_only:
+                    require_power_proposal(state, report['initial_system'])
                 if label == 'control':
                     assert state['status'] == 'editing' and len(state['configuration']['devices']) == 1
                     assert len(state['configuration']['rooms']) == 1 and len(state['configuration']['actions']) == 2
@@ -214,6 +248,7 @@ def external_stress():
         report['passed'] = True
         report['coverage_note'] = ('Scripted offline API/transport only; no real token or NPU coverage.' if args.offline else
             'One diagnostic long request; not a stress acceptance result.' if args.diagnostic_only else
+            'Two complete repeatability cycles with one strict long proposal each; actual token counts recorded; full4096 saturation and soak NOT_VERIFIED.' if args.repeatability_only else
             'Two complete profile cycles; actual token counts recorded. This is not a claim of filling every slot of the 4096-token KV or a long-term soak.')
     except Exception as error:
         report['error'] = type(error).__name__ + ': ' + str(error)

@@ -155,4 +155,120 @@ class StressEvidenceTests(unittest.TestCase):
         self.assertEqual(len(report['cycles'][0]['cases']),1)
 
 
+class RepeatabilityTests(unittest.TestCase):
+    @staticmethod
+    def proposal():
+        return {'status': 'editing', 'message_incomplete': False, 'questions': [], 'version': 3,
+            'configuration': {'system': {'name': 'Firefly'}, 'rooms': [{'id': 'room', 'name': 'Кабинет'}],
+                'devices': [{'name': 'Лампа', 'room_id': 'room', 'kind': 'generic',
+                    'state': [{'id': 'power', 'type': 'boolean'}], 'action_ids': ['on', 'off']}],
+                'actions': [{'id': name, 'enabled': True, 'parameters': [],
+                    'assignments': [{'field': 'power', 'value': value}]} for name, value in [('on', True), ('off', False)]],
+                'bindings': []}}
+
+    def run_profile(self, mutate=None, restore_failure=False, tight_deadline=False, stage_delay=None):
+        with tempfile.TemporaryDirectory(prefix='m19-repeatability-offline-') as temp:
+            root = Path(temp); (root/'offline-test-marker').touch()
+            store = root/'store'; store.mkdir(); mock = root/'mock.jsonl'; mock.touch()
+            output = root/'report.json'; calls = []; cancelled = []
+            state = self.proposal()
+            if mutate: mutate(state)
+            class Handler(http.server.BaseHTTPRequestHandler):
+                def log_message(self, *_): pass
+                def send(self, value, status=200):
+                    raw = json.dumps(value).encode(); self.send_response(status)
+                    self.send_header('Content-Length', str(len(raw))); self.end_headers(); self.wfile.write(raw)
+                def do_GET(self):
+                    calls.append(('GET', self.path))
+                    if stage_delay == 'resources' and self.path == '/api/status' and calls.count(('GET', '/api/status')) == 3:
+                        time.sleep(1.6)
+                    if self.path == '/api/status' and cancelled and restore_failure:
+                        self.send({'error': 'restore failed'}, 503); return
+                    self.send({'/api/status': {'runtime_ready': True, 'worker_pid': os.getpid()},
+                        '/api/config': {'hash': 'offline', 'configuration': {'system': {'name': 'Firefly'}}},
+                        '/api/config/active': {'active': {'hash': 'offline'}},
+                        '/api/executions': {'executions': []}}[self.path])
+                def do_POST(self):
+                    calls.append(('POST', self.path)); body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+                    if self.path == '/api/setup/start': self.send({'status': 'editing', 'session_id': 'private', 'version': 1})
+                    elif self.path == '/api/setup/draft':
+                        if stage_delay == 'draft': time.sleep(1.6)
+                        (store/'setup-draft.json').write_text(json.dumps({'focus': [], 'unresolved_text': '', 'trace': []}))
+                        self.send({'status': 'editing', 'version': 2})
+                    elif self.path == '/api/setup/message':
+                        assert len(body['text'].encode()) == 1606
+                        if tight_deadline: time.sleep(1.6)
+                        (store/'setup-draft.json').write_text(json.dumps({'trace': [], 'status': state['status'], 'message_incomplete': state['message_incomplete']}))
+                        self.send(state)
+                    elif self.path == '/api/setup/cancel': cancelled.append(True); self.send({'active': False})
+                    else: self.send({'unexpected_mutation': self.path}, 500)
+            server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+            try:
+                result = subprocess.run([sys.executable, '-B', str(CLIENT), '--repeatability-only', '--offline',
+                    '--stress-url', f'http://127.0.0.1:{server.server_port}', '--store', str(store),
+                    '--mock-log', str(mock), '--output', str(output), '--deadline-monotonic',
+                    str(time.monotonic() + (6 if tight_deadline or stage_delay else 30))], capture_output=True, text=True, timeout=10)
+            finally: server.shutdown(); server.server_close(); thread.join(timeout=2)
+            report = json.loads(output.read_text())
+            self.assertFalse(report['real_rkllm']); self.assertFalse(report['full_4096_context_verified'])
+            self.assertTrue(report['repeatability_only']); self.assertFalse(report['diagnostic_only'])
+            self.assertEqual(mock.read_bytes(), b'')
+            self.assertFalse(any(p in ('/api/setup/apply', '/api/config/apply', '/api/test/command') for _, p in calls))
+            return result, report, calls
+
+    def test_two_strict_proposals_and_two_runtime_restores(self):
+        result, report, calls = self.run_profile()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(report['passed']); self.assertEqual(len(report['cycles']), 2)
+        self.assertTrue(all(c['restored'] and len(c['cases']) == 1 for c in report['cycles']))
+        for path in ('/api/setup/start', '/api/setup/message', '/api/setup/cancel'):
+            self.assertEqual(calls.count(('POST', path)), 2)
+        self.assertEqual(report['apply_calls'], 0); self.assertEqual(report['device_requests'], 0)
+
+    def test_clarification_is_not_a_repeatability_pass(self):
+        result, report, calls = self.run_profile(lambda s: s.update(status='clarification_required'))
+        self.assertNotEqual(result.returncode, 0); self.assertFalse(report['passed'])
+        self.assertEqual(calls.count(('POST', '/api/setup/message')), 1)
+        self.assertEqual(calls.count(('POST', '/api/setup/start')), 1)
+
+    def test_wrong_capability_and_system_are_not_proposals(self):
+        for mutate in [lambda s: s['configuration']['devices'][0]['state'][0].update(type='integer'),
+                       lambda s: s['configuration']['system'].update(name='Кабинет')]:
+            result, report, calls = self.run_profile(mutate)
+            self.assertNotEqual(result.returncode, 0); self.assertFalse(report['passed'])
+            self.assertEqual(calls.count(('POST', '/api/setup/message')), 1)
+
+    def test_restore_failure_never_starts_second_cycle(self):
+        result, report, calls = self.run_profile(restore_failure=True)
+        self.assertNotEqual(result.returncode, 0); self.assertFalse(report['passed'])
+        self.assertFalse(report['cycles'][0]['restored'])
+        self.assertEqual(calls.count(('POST', '/api/setup/start')), 1)
+
+    def test_original_deadline_blocks_second_cycle_without_extension(self):
+        result, report, calls = self.run_profile(tight_deadline=True)
+        self.assertNotEqual(result.returncode, 0); self.assertFalse(report['passed'])
+        self.assertTrue(report['cycles'][0]['restored']); self.assertEqual(len(report['cycles']), 1)
+        self.assertEqual(calls.count(('POST', '/api/setup/start')), 1)
+        self.assertIn('insufficient original window', report['error'])
+
+    def test_modes_are_mutually_exclusive_before_backend_access(self):
+        result = subprocess.run([sys.executable, '-B', str(CLIENT), '--validate-workload',
+            '--repeatability-only', '--diagnostic-only'], capture_output=True, text=True, timeout=3)
+        self.assertEqual(result.returncode, 2)
+
+    def test_slow_resources_prevent_setup_start(self):
+        result, report, calls = self.run_profile(stage_delay='resources')
+        self.assertNotEqual(result.returncode, 0); self.assertFalse(report['passed'])
+        self.assertEqual(calls.count(('POST', '/api/setup/start')), 0)
+        self.assertIn('after resources', report['error'])
+
+    def test_slow_draft_prevents_message_submission(self):
+        result, report, calls = self.run_profile(stage_delay='draft')
+        self.assertNotEqual(result.returncode, 0); self.assertFalse(report['passed'])
+        self.assertEqual(calls.count(('POST', '/api/setup/start')), 1)
+        self.assertEqual(calls.count(('POST', '/api/setup/message')), 0)
+        self.assertIn('after draft', report['error'])
+
+
 if __name__ == '__main__': unittest.main(verbosity=2)

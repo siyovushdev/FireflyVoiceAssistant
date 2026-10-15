@@ -76,11 +76,18 @@ def verify_stress_gate(reference, transport, remote_root):
                      transport.get('admin_stress') is True, 'Unchecked stress client/profile')
     proof = json.loads(proof_path.read_text())
     diagnostic = transport.get('diagnostic_only', False)
+    repeatability = transport.get('repeatability_only', False)
+    recovery.require(type(diagnostic) is bool and type(repeatability) is bool and not (diagnostic and repeatability),
+                     'Invalid stress mode')
     recovery.require(gate.get('diagnostic_only') is diagnostic and proof.get('diagnostic_only') is diagnostic and
+                     gate.get('repeatability_only', False) is repeatability and proof.get('repeatability_only', False) is repeatability and
                      proof.get('passed') is True and proof.get('real_rkllm') is False and
                      proof.get('profile') == ('ADMIN4096_DIAGNOSTIC' if diagnostic else 'ADMIN4096_BOUNDED_STRESS') and
                      proof.get('apply_calls') == 0 and proof.get('device_requests') == 0 and len(proof['cycles']) == (1 if diagnostic else 2),
                      'Incomplete or mislabelled offline stress proof')
+    if repeatability:
+        recovery.require([(x['case'], x['bytes']) for x in gate['workload']] == [('long', 1606)] and
+                         transport.get('diagnostic_candidate') is not None, 'Repeatability requires the pinned long-only workload')
     import hashlib
     recovery.require(hashlib.sha256(json.dumps(gate['workload'], sort_keys=True, ensure_ascii=False).encode()).hexdigest() ==
                      gate['workload_sha256'], 'Stress workload changed')
@@ -181,12 +188,14 @@ def verify_diagnostic_candidate(reference):
     return data
 
 
-def prepare(gate_path=None, voice_mode='synthetic-acoustic', installed_candidate=False, diagnostic_candidate=None):
+def prepare(gate_path=None, voice_mode='synthetic-acoustic', installed_candidate=False, diagnostic_candidate=None, repeatability_only=False):
     recovery.require(os.geteuid() == 0, 'Run with sudo; only preparation is safe before START')
     recovery.require(gate_path is not None, 'PC browser gate required before preparation')
     verify_browser_gate({'browser_gate':json.loads(Path(gate_path).read_text()),
                          'profile':'ADMIN4096_BOUNDED_STRESS' if installed_candidate else 'voice'})
     diagnostic = verify_diagnostic_candidate(diagnostic_candidate) if diagnostic_candidate else None
+    recovery.require(type(repeatability_only) is bool and (not repeatability_only or diagnostic is not None),
+                     'Repeatability requires a pinned candidate')
     recovery.require(not diagnostic or installed_candidate, 'Diagnostic candidate requires isolated Admin profile')
     voice_check = voice_preflight(voice_mode)
     # The stress profile exercises the already installed immutable ELF, never
@@ -228,9 +237,11 @@ def prepare(gate_path=None, voice_mode='synthetic-acoustic', installed_candidate
         plan['binary_sha256'] = {installed.name: recovery.rollout.sha(installed / 'bin/firefly-demo')}
         plan['identities'] = {installed.name: identity}
         plan['profile'] = 'ADMIN4096_BOUNDED_STRESS'
+        plan['repeatability_only'] = repeatability_only
         if diagnostic:
-            plan['profile'] = 'ADMIN4096_DIAGNOSTIC'
+            if not repeatability_only: plan['profile'] = 'ADMIN4096_DIAGNOSTIC'
             plan['diagnostic_candidate'] = diagnostic
+            plan['diagnostic_reference'] = diagnostic_candidate
         # Metadata contracts refer to the actual installed libraries/assets,
         # including the protected Amina target; no dependency is copied.
         for entry in plan['dependencies']:
@@ -271,7 +282,8 @@ def prepare(gate_path=None, voice_mode='synthetic-acoustic', installed_candidate
         shutil.copyfile(REPO / 'benchmarks/web-admin-b4/DialogueSmoke.py', root / 'scripts/admin-stress-client.py')
         (root / 'scripts/admin-stress-client.py').chmod(0o600)
         proof = json.loads(Path(plan['browser_gate']['proof_path']).read_text())
-        recovery.require(proof['transport'].get('diagnostic_only',False) is bool(diagnostic) and
+        recovery.require(proof['transport'].get('diagnostic_only',False) is bool(diagnostic and not repeatability_only) and
+                         proof['transport'].get('repeatability_only',False) is repeatability_only and
                          (not diagnostic or proof['transport']['diagnostic_candidate'] == diagnostic_candidate), 'Diagnostic transport/candidate mismatch')
         gate = verify_stress_gate(proof['admin_stress_gate'], proof['transport'], proof['remoteRoot'])
         copied_proof = root / 'evidence/admin-stress-offline.json'

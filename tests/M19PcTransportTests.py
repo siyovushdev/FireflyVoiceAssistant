@@ -15,6 +15,45 @@ spec = importlib.util.spec_from_file_location('pc', Path(__file__).resolve().par
 pc = importlib.util.module_from_spec(spec); spec.loader.exec_module(pc)
 
 class PcTransportTests(unittest.TestCase):
+    def test_repeatability_requires_two_strict_restores_and_real_metrics(self):
+        system = {'name': 'Firefly'}
+        config = {'system': system, 'rooms': [{'id': 'room', 'name': 'Кабинет'}],
+            'devices': [{'name': 'Лампа', 'room_id': 'room', 'kind': 'generic', 'action_ids': ['on', 'off'],
+                'state': [{'id': 'power', 'type': 'boolean'}]}], 'bindings': [],
+            'actions': [{'id': name, 'enabled': True, 'parameters': [],
+                'assignments': [{'field': 'power', 'value': value}]} for name, value in [('on', True), ('off', False)]]}
+        # Constructed evidence fixture only: no SDK or remote operations.
+        case = {'case': 'long', 'input_bytes': 1606,
+            'state': {'status': 'editing', 'message_incomplete': False, 'configuration': config},
+            'trace': [{'metrics': {'context_tokens': 912, 'input_tokens': 275, 'output_tokens': 24, 'output_budget': 384}}]}
+        report = {'profile': 'ADMIN4096_BOUNDED_STRESS', 'repeatability_only': True, 'diagnostic_only': False,
+            'real_rkllm': True, 'passed': True, 'full_4096_context_verified': False, 'apply_calls': 0,
+            'device_requests': 0, 'initial_system': system,
+            'cycles': [copy.deepcopy({'restored': True, 'cases': [case]}) for _ in range(2)]}
+        self.assertEqual(pc.repeatability_outcome(report, 0), 'BOUNDED_TWO_CYCLE_PASS')
+        self.assertIsNone(pc.repeatability_outcome(report, 1))
+        for field, value in [('repeatability_only', False), ('diagnostic_only', True), ('real_rkllm', False),
+                ('full_4096_context_verified', True), ('apply_calls', 1), ('device_requests', 1),
+                ('cycles', report['cycles'][:1]), ('profile', 'ADMIN4096_DIAGNOSTIC')]:
+            bad = copy.deepcopy(report); bad[field] = value
+            self.assertIsNone(pc.repeatability_outcome(bad, 0))
+        for index in (0, 1):
+            for field, value in [('restored', False), ('cases', [])]:
+                bad = copy.deepcopy(report); bad['cycles'][index][field] = value
+                self.assertIsNone(pc.repeatability_outcome(bad, 0))
+            for field, value in [('trace', []), ('input_bytes', 136), ('state', {'status': 'clarification_required'})]:
+                bad = copy.deepcopy(report); bad['cycles'][index]['cases'][0][field] = value
+                self.assertIsNone(pc.repeatability_outcome(bad, 0))
+        bad = copy.deepcopy(report)
+        bad['cycles'][1]['cases'][0]['trace'][0]['metrics']['context_tokens'] = 4096
+        self.assertIsNone(pc.repeatability_outcome(bad, 0))
+
+    def test_repeatability_requires_candidate_before_remote_access(self):
+        result = subprocess.run([sys.executable, '-B', str(pc.__file__), 'prepare-only',
+            '--candidate-repeatability', '--artifacts', '/unused'], capture_output=True, text=True, timeout=3)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('requires the reviewed candidate descriptor', result.stderr)
+
     def test_diagnostic_classification_is_bound_to_failed_long_request(self):
         trace={'stage':'decode','error_code':'invalid_ai_response','error':'Invalid JSON',
                'rejected_raw_hex':b'{broken'.hex(),'rejected_raw_bytes':7,'rejected_raw_truncated':False}

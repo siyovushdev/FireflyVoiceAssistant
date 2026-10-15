@@ -131,6 +131,17 @@ class Window(rollout.Production):
                     self.plan['supervisor_files']['scripts/admin-stress-client.py'], 'Stress client not offline-qualified')
             proof = json.loads(proof_path.read_text())
             diagnostic = self.plan['profile'] == 'ADMIN4096_DIAGNOSTIC'
+            repeatability = self.plan.get('repeatability_only', False)
+            require(type(repeatability) is bool and not (diagnostic and repeatability) and
+                    gate.get('repeatability_only', False) is repeatability and
+                    proof.get('repeatability_only', False) is repeatability and
+                    browser_proof['transport'].get('repeatability_only', False) is repeatability,
+                    'Frozen repeatability mode mismatch')
+            if repeatability:
+                require(browser_proof['transport'].get('diagnostic_only') is False and
+                        browser_proof['transport'].get('diagnostic_candidate') == self.plan['diagnostic_reference'] and
+                        [(x['case'], x['bytes']) for x in gate['workload']] == [('long', 1606)],
+                        'Frozen candidate/repeatability workload mismatch')
             require(proof['profile'] == self.plan['profile'] and proof['diagnostic_only'] is diagnostic and
                     proof['passed'] is True and proof['real_rkllm'] is False and len(proof['cycles']) == (1 if diagnostic else 2) and
                     all(c['restored'] is True and [(x['case'],x['input_bytes']) for x in c['cases']] ==

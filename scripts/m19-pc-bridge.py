@@ -159,8 +159,9 @@ def dispatch(request):
     if action == 'prepare':
         launch = load_module('pc_launch','m19-hardware-start.py')
         profile = request.get('profile', 'voice')
-        if profile not in ('voice', 'admin-stress', 'admin-diagnostic'): raise RuntimeError('Unknown M19 test profile')
-        root = (launch.prepare(Path(request['gate_path']), 'owner-live', True, request['diagnostic_candidate']) if profile == 'admin-diagnostic' else
+        if profile not in ('voice', 'admin-stress', 'admin-diagnostic', 'admin-repeatability'): raise RuntimeError('Unknown M19 test profile')
+        root = (launch.prepare(Path(request['gate_path']), 'owner-live', True, request['diagnostic_candidate'], True) if profile == 'admin-repeatability' else
+                launch.prepare(Path(request['gate_path']), 'owner-live', True, request['diagnostic_candidate']) if profile == 'admin-diagnostic' else
                 launch.prepare(Path(request['gate_path']), 'owner-live', True) if profile == 'admin-stress' else
                 launch.prepare(Path(request['gate_path']), request.get('voice_mode','synthetic-acoustic')))
         plan = json.loads((root / 'plan.json').read_text())
@@ -179,8 +180,10 @@ def dispatch(request):
         client = REPO / 'benchmarks/web-admin-b4/DialogueSmoke.py'
         client_sha = sha(client)
         diagnostic = request.get('diagnostic_only', False)
-        if type(diagnostic) is not bool: raise RuntimeError('Invalid diagnostic mode')
-        flags = ['--diagnostic-only'] if diagnostic else []
+        repeatability = request.get('repeatability_only', False)
+        if type(diagnostic) is not bool or type(repeatability) is not bool or (diagnostic and repeatability):
+            raise RuntimeError('Invalid diagnostic/repeatability mode')
+        flags = ['--diagnostic-only'] if diagnostic else ['--repeatability-only'] if repeatability else []
         workload = json.loads(run(['/usr/bin/python3', '-B', client, '--validate-workload', *flags]))
         run(['/usr/bin/python3', '-B', REPO / 'benchmarks/web-admin-b4/DialogueSmoke.py',
              '--stress-url', data['admin_url'], '--store', data['store'], '--output', output,
@@ -195,15 +198,20 @@ def dispatch(request):
                 'client_sha256': client_sha, 'workload': workload,
                 'workload_sha256': hashlib.sha256(json.dumps(workload, sort_keys=True, ensure_ascii=False).encode()).hexdigest(),
                 'boot_id': data['boot_id'], 'offline_root': str(root), 'diagnostic_only': diagnostic,
+                'repeatability_only': repeatability,
                 'checked_monotonic': time.monotonic()}
         receipt = root / 'admin-stress-gate.json'
         receipt.write_text(json.dumps(gate)); receipt.chmod(0o600)
         return {**proof, 'gate': {'path': str(receipt), 'sha256': sha(receipt)}}
-    if action == 'diagnostic-result':
+    if action in ('diagnostic-result', 'repeatability-result'):
         window = load_module('diagnostic_recovery','m19-hardware-recovery.py').Window(root)
-        if window.plan.get('profile') != 'ADMIN4096_DIAGNOSTIC': raise RuntimeError('Not a diagnostic window')
+        repeatability = action == 'repeatability-result'
+        expected = 'ADMIN4096_BOUNDED_STRESS' if repeatability else 'ADMIN4096_DIAGNOSTIC'
+        if window.plan.get('profile') != expected or window.plan.get('repeatability_only', False) is not repeatability:
+            raise RuntimeError('Wrong diagnostic/repeatability window')
         report = json.loads((root / 'evidence/admin-stress.json').read_text())
-        if report['profile'] != 'ADMIN4096_DIAGNOSTIC' or not report['real_rkllm']: raise RuntimeError('Not a real diagnostic result')
+        if report['profile'] != expected or report.get('repeatability_only', False) is not repeatability or not report['real_rkllm']:
+            raise RuntimeError('Not the matching real result')
         return report
     if action == 'memory': return memory(root)
     if action == 'rows':

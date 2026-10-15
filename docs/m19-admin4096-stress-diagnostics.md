@@ -1,5 +1,42 @@
 # M19 Admin4096 failure diagnostics
 
+## Bounded repeatability on the verified c7fa149 candidate
+
+The real single-long check of `c7fa149` passed: one strict Cabinet/Lamp proposal
+with boolean ON/OFF and the expected Russian forms, followed by Runtime restore.
+Its main and four language generations each used attempt 1. Original installed
+`320b80a6` production recovery also passed. The corrected candidate is uninstalled.
+
+The existing PC harness adds `--candidate-repeatability`, requiring that exact
+root-private candidate descriptor. It runs **two complete Runtime → Admin4096 →
+Runtime cycles, with one long1606 request per cycle**. The short control request
+is omitted. No Apply, commands, device calls or voice tests occur. Every proposal
+must be editing/complete with the unchanged system, one Кабинет, one Лампа in
+that room, one boolean power field and exactly ON/OFF effects, without bindings.
+Both cancel/Runtime READY checks and external production recovery are mandatory.
+
+The fixed repeatability mode is distinct from diagnostic1×1 and historical
+stress2×2. Mode, workload/client hashes and descriptor reference are bound across
+the PC transport, offline receipt, frozen supervisor and cutover checks. A prior
+mode's proof cannot qualify this window. The previously verified native ELF,
+installed libraries/assets and models are reused; no product rebuild or rollout.
+
+Measured single-cycle timing was 193.59s plus 55.84s initial startup. Two cycles
+therefore estimate 443s against an approximately 570s client deadline; this is
+an estimate, not a guarantee. The new profile requires 300s before starting a
+cycle and 220s before a message (120s message timeout + 100s restore wait).
+Those checks repeat immediately before submission after preparatory operations.
+Insufficient time produces an incomplete FAIL and recovery; no deadline extends.
+The 600s hardware window, independent 360s recovery and RAM6/1GiB are unchanged.
+
+Success is labelled **BOUNDED_TWO_CYCLE_PASS**, never full-context stress PASS.
+Vendor counts and memory at each cycle are recorded. The last real maximum was
+1211 observed/1571 reserved tokens. The Admin API limits each atomic step to
+1800 UTF-8 bytes; no offline vendor tokenizer measurement proves that a legal
+workload fills4096. Saturation and long-term soak remain **NOT_VERIFIED**. This
+preparation does not authorize another hardware window; a fresh owner START and
+fresh matching gates are required.
+
 ## Offline brightness-exclusion instruction routing
 
 The `874036b` real single-request check still failed: both full 87-byte replies

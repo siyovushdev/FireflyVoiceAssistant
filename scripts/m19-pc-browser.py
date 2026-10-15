@@ -66,8 +66,9 @@ def browser_profile(args):
     if getattr(args, 'admin_stress', False):
         profile['admin_stress'] = True
         profile['stress_client_sha256'] = hashlib.sha256((REPO/'benchmarks/web-admin-b4/DialogueSmoke.py').read_bytes()).hexdigest()
-        profile['diagnostic_only'] = bool(getattr(args, 'diagnostic_candidate', None))
-        if profile['diagnostic_only']:
+        profile['repeatability_only'] = bool(getattr(args, 'candidate_repeatability', False))
+        profile['diagnostic_only'] = bool(getattr(args, 'diagnostic_candidate', None)) and not profile['repeatability_only']
+        if getattr(args, 'diagnostic_candidate', None):
             profile['diagnostic_candidate'] = {'path':args.diagnostic_candidate, 'sha256':args.diagnostic_candidate_sha256}
     return profile
 
@@ -114,6 +115,27 @@ def wait_test_ready(transport, remote_root, artifacts, timeout=120):
         time.sleep(.5)
     raise RuntimeError('Test runtime readiness deadline exceeded')
 
+def valid_power_proposal(state, initial_system):
+    try:
+        config = state['configuration']
+        if state['status'] != 'editing' or state['message_incomplete'] is not False or state.get('questions'): return False
+        if [len(config[key]) for key in ('rooms','devices','actions')] != [1,1,2] or config['bindings']: return False
+        room = config['rooms'][0]; device = config['devices'][0]
+        if room['name'] != 'Кабинет' or device['name'] != 'Лампа' or device['room_id'] != room['id']: return False
+        if not isinstance(initial_system,dict) or config['system'] != initial_system: return False
+        if device['kind'] != 'generic' or len(device['state']) != 1: return False
+        if device['state'][0]['id'] != 'power' or device['state'][0]['type'] != 'boolean': return False
+        actions = config['actions']
+        if set(device['action_ids']) != {a['id'] for a in actions}: return False
+        for action in actions:
+            if not action['enabled'] or action['parameters'] or len(action['assignments']) != 1: return False
+            assignment = action['assignments'][0]
+            if assignment['field'] != 'power' or type(assignment['value']) is not bool: return False
+        if {a['assignments'][0]['value'] for a in actions} != {False,True}: return False
+    except (KeyError, TypeError, IndexError): return False
+    return True
+
+
 def diagnostic_outcome(report, returncode):
     """Classify this single request, never a later cancel/restore failure."""
     if report.get('profile') != 'ADMIN4096_DIAGNOSTIC' or report.get('real_rkllm') is not True:
@@ -125,23 +147,7 @@ def diagnostic_outcome(report, returncode):
     if not returncode and report.get('passed') is True and cycles[0].get('restored') is True and not report.get('http_error'):
         # A valid clarification is not the requested proposal. Check after the
         # client has restored Runtime, without another inference or Apply.
-        try:
-            state = case['state']; config = state['configuration']
-            if state['status'] != 'editing' or state['message_incomplete'] is not False or state.get('questions'): return None
-            if [len(config[key]) for key in ('rooms','devices','actions')] != [1,1,2] or config['bindings']: return None
-            room = config['rooms'][0]; device = config['devices'][0]
-            if room['name'] != 'Кабинет' or device['name'] != 'Лампа' or device['room_id'] != room['id']: return None
-            if not isinstance(report.get('initial_system'),dict) or config['system'] != report['initial_system']: return None
-            if device['kind'] != 'generic' or len(device['state']) != 1: return None
-            if device['state'][0]['id'] != 'power' or device['state'][0]['type'] != 'boolean': return None
-            actions = config['actions']
-            if set(device['action_ids']) != {a['id'] for a in actions}: return None
-            for action in actions:
-                if not action['enabled'] or action['parameters'] or len(action['assignments']) != 1: return None
-                assignment = action['assignments'][0]
-                if assignment['field'] != 'power' or type(assignment['value']) is not bool: return None
-            if {a['assignments'][0]['value'] for a in actions} != {False,True}: return None
-        except (KeyError, TypeError, IndexError): return None
+        if not valid_power_proposal(case.get('state'), report.get('initial_system')): return None
         return 'AI_REJECTION_NOT_REPRODUCED'
     error = report.get('http_error', {})
     if (not returncode or report.get('passed') is not False or error.get('status') != 409 or
@@ -156,6 +162,30 @@ def diagnostic_outcome(report, returncode):
             return 'AI_REJECTION_CAPTURED'
     except (TypeError, ValueError): pass
     return None
+
+def repeatability_outcome(report, returncode):
+    if (returncode or report.get('profile') != 'ADMIN4096_BOUNDED_STRESS' or
+            report.get('real_rkllm') is not True or report.get('repeatability_only') is not True or
+            report.get('diagnostic_only') is not False or report.get('passed') is not True or
+            report.get('full_4096_context_verified') is not False or report.get('error') or report.get('http_error') or
+            report.get('apply_calls') != 0 or report.get('device_requests') != 0): return None
+    cycles = report.get('cycles', [])
+    if len(cycles) != 2: return None
+    for cycle in cycles:
+        if cycle.get('restored') is not True or len(cycle.get('cases', [])) != 1: return None
+        case = cycle['cases'][0]
+        if (case.get('case') != 'long' or case.get('input_bytes') != 1606 or
+                not valid_power_proposal(case.get('state'), report.get('initial_system'))): return None
+        try:
+            metrics = [x['metrics'] for x in case['trace'] if x.get('metrics')]
+            if not metrics: return None
+            for metric in metrics:
+                observed = metric['context_tokens'] + metric['input_tokens'] + metric['output_tokens']
+                reserved = metric['context_tokens'] + metric['input_tokens'] + metric['output_budget']
+                if not 0 < observed <= reserved <= 4096: return None
+        except (KeyError, TypeError): return None
+    return 'BOUNDED_TWO_CYCLE_PASS'
+
 
 def collect_evidence(transport, prepared, artifacts):
     remote_root = prepared['root']
@@ -245,7 +275,10 @@ def main():
     parser.add_argument('--admin-stress', action='store_true', help='Two private Admin4096 cycles using the installed immutable ELF; no voice/Apply')
     parser.add_argument('--diagnostic-candidate', help='Root-private pinned descriptor; one long request only')
     parser.add_argument('--diagnostic-candidate-sha256')
+    parser.add_argument('--candidate-repeatability', action='store_true', help='Pinned candidate: two complete cycles, one long proposal per cycle')
     args = parser.parse_args()
+    if args.candidate_repeatability and not args.diagnostic_candidate:
+        parser.error('candidate repeatability requires the reviewed candidate descriptor')
     if args.diagnostic_candidate:
         if not args.admin_stress or args.remote_repo != '/home/firefly/FireflyVoiceAssistantLinux-m19-brightness-route' or not args.diagnostic_candidate_sha256:
             parser.error('diagnostic requires admin-stress, exact diagnostic source and descriptor SHA256')
@@ -265,7 +298,8 @@ def main():
     (root / 'offline-backend.json').write_text(json.dumps(offline, indent=2))
     try:
         if args.admin_stress:
-            stress_proof = transport.call('offline-stress', timeout=110, root=offline['root'], diagnostic_only=bool(args.diagnostic_candidate))
+            stress_proof = transport.call('offline-stress', timeout=110, root=offline['root'],
+                                          diagnostic_only=profile['diagnostic_only'], repeatability_only=profile['repeatability_only'])
             if not stress_proof.get('passed') or stress_proof.get('real_rkllm'):
                 raise RuntimeError('Offline stress transport gate failed or mislabelled inference')
             (root / 'offline-stress.json').write_text(json.dumps(stress_proof, indent=2))
@@ -279,7 +313,7 @@ def main():
     if args.mode == 'offline-gate':
         print(json.dumps({'result':'OFFLINE_BROWSER_GATE_PASS','artifacts':str(root)})); return
     prepared = transport.call('prepare', timeout=120, gate_path=gate['gate_path'], voice_mode=args.voice_mode,
-                              profile='admin-diagnostic' if args.diagnostic_candidate else 'admin-stress' if args.admin_stress else 'voice',
+                              profile='admin-repeatability' if args.candidate_repeatability else 'admin-diagnostic' if args.diagnostic_candidate else 'admin-stress' if args.admin_stress else 'voice',
                               diagnostic_candidate=profile.get('diagnostic_candidate'))
     (root / 'prepared.json').write_text(json.dumps(prepared, indent=2))
     if args.mode == 'prepare-only':
@@ -313,16 +347,17 @@ def main():
                 ' --mock-log ' + shlex.quote(prepared['plan']['mock_log']) +
                 ' --output ' + shlex.quote(str(remote_root / 'evidence/admin-stress.json')) +
                 ' --deadline-monotonic ' + shlex.quote(str(arm['deadline'] - 30)))
-            if args.diagnostic_candidate: command += ' --diagnostic-only'
+            if args.candidate_repeatability: command += ' --repeatability-only'
+            elif args.diagnostic_candidate: command += ' --diagnostic-only'
             completed = subprocess.run(['/usr/bin/ssh', *transport.options, transport.host, command],
                 capture_output=True, text=True, timeout=600)
             (root / 'stress-client.stdout').write_text(completed.stdout)
             (root / 'stress-client.stderr').write_text(completed.stderr)
             diagnostic_result = None
             if args.diagnostic_candidate:
-                report = transport.call('diagnostic-result', root=prepared['root'])
+                report = transport.call('repeatability-result' if args.candidate_repeatability else 'diagnostic-result', root=prepared['root'])
                 (root / 'diagnostic-result.json').write_text(json.dumps(report,indent=2))
-                diagnostic_result = diagnostic_outcome(report, completed.returncode)
+                diagnostic_result = (repeatability_outcome if args.candidate_repeatability else diagnostic_outcome)(report, completed.returncode)
                 if not diagnostic_result: raise RuntimeError('Diagnostic outcome incomplete or failure outside long-request decode')
             if completed.returncode and not diagnostic_result: raise RuntimeError('Admin stress client failed: ' + completed.stderr[-1500:])
             actual_rows = transport.call('rows', root=prepared['root'])
