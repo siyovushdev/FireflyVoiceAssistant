@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Local process lifetime and transport safety; no remote/device operations."""
 import importlib.util
+import copy
 import os
 from pathlib import Path
 import subprocess
@@ -14,6 +15,31 @@ spec = importlib.util.spec_from_file_location('pc', Path(__file__).resolve().par
 pc = importlib.util.module_from_spec(spec); spec.loader.exec_module(pc)
 
 class PcTransportTests(unittest.TestCase):
+    def test_diagnostic_classification_is_bound_to_failed_long_request(self):
+        trace={'stage':'decode','error_code':'invalid_ai_response','error':'Invalid JSON',
+               'rejected_raw_hex':b'{broken'.hex(),'rejected_raw_bytes':7,'rejected_raw_truncated':False}
+        case={'case':'long','input_bytes':1606,'state':None,'private_status':'planning_failed',
+              'message_incomplete':True,'trace':[trace,trace]}
+        report={'profile':'ADMIN4096_DIAGNOSTIC','real_rkllm':True,'passed':False,
+                'cycles':[{'restored':False,'cases':[case]}],
+                'http_error':{'path':'/api/setup/message','method':'POST','status':409,'capture_complete':True}}
+        self.assertEqual(pc.diagnostic_outcome(report,1),'AI_REJECTION_CAPTURED')
+        for field,value in [('path','/api/setup/cancel'),('method','GET'),('status',503),('capture_complete',False)]:
+            bad=copy.deepcopy(report);bad['http_error'][field]=value
+            self.assertIsNone(pc.diagnostic_outcome(bad,1))
+        self.assertIsNone(pc.diagnostic_outcome(report,0))
+        for field,value in [('state',{'status':'editing'}),('private_status','editing'),('message_incomplete',False),('input_bytes',136)]:
+            bad=copy.deepcopy(report);bad['cycles'][0]['cases'][0][field]=value
+            self.assertIsNone(pc.diagnostic_outcome(bad,1))
+        bad=copy.deepcopy(report);bad['cycles'][0]['cases'][0]['trace'][1]['error_code']='runtime_rejected'
+        self.assertIsNone(pc.diagnostic_outcome(bad,1))
+
+    def test_diagnostic_success_does_not_claim_stress_acceptance(self):
+        report={'profile':'ADMIN4096_DIAGNOSTIC','real_rkllm':True,'passed':True,
+                'cycles':[{'restored':True,'cases':[{'case':'long','input_bytes':1606}]}]}
+        self.assertEqual(pc.diagnostic_outcome(report,0),'AI_REJECTION_NOT_REPRODUCED')
+        self.assertIsNone(pc.diagnostic_outcome(report,1))
+
     def test_clean_candidate_bridge_is_explicit_and_shell_quoted(self):
         import json
         clean = '/home/firefly/FireflyVoiceAssistantLinux-m19-rollout'

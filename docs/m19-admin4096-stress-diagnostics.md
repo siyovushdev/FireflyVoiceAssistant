@@ -61,3 +61,29 @@ These checks cannot establish real RKLLM correctness or stress acceptance.
 The installed production remains the accepted `320b80a6` release. These source
 changes are not installed. Further hardware testing requires a separately built,
 reviewed candidate, fresh admission/recovery preparation and new owner START.
+
+## Single-request diagnostic window
+
+The existing PC harness now accepts a root-private diagnostic descriptor and its
+explicit SHA256. This profile uses a clean native `9945f59` candidate, whose only
+product source difference from installed `320b80a6` is `SetupSession.h`. The
+descriptor pins source/header/ELF identity; the copied ELF is checked against the
+expected SHA before its plan is sealed. Shared installed libraries, models and
+wake assets are reused. Recovery still targets the installed `320b80a6` release.
+
+`--diagnostic-only` sends exactly the long 1606-byte request once in one private
+Setup cycle. The short request and voice checks are not repeated. It calls no
+Apply, execution or device endpoints. Fresh offline proof binds this mode, client,
+workload, backend and candidate reference; the existing complete PC browser gate
+and independent 600-second timer/360-second recovery remain mandatory.
+
+The result is `AI_REJECTION_CAPTURED` only for a failed POST `/api/setup/message`
+with HTTP 409, an incomplete `planning_failed` long case, and complete rejected
+decode evidence. Cancel, restore, transport errors and incomplete capture remain
+failures. An accepted request with a completed restore is labelled
+`AI_REJECTION_NOT_REPRODUCED`. Neither result is full-context stress acceptance
+or proof that the historical Qwen failure was fixed.
+
+Preparation never arms recovery or stops production. After new owner START the
+same harness creates a fresh one-use plan and repeats the required short-lived
+gates. It does not reuse an expired prepared root or authorize another attempt.

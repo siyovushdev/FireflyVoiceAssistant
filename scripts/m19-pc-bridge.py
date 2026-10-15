@@ -159,8 +159,9 @@ def dispatch(request):
     if action == 'prepare':
         launch = load_module('pc_launch','m19-hardware-start.py')
         profile = request.get('profile', 'voice')
-        if profile not in ('voice', 'admin-stress'): raise RuntimeError('Unknown M19 test profile')
-        root = (launch.prepare(Path(request['gate_path']), 'owner-live', True) if profile == 'admin-stress' else
+        if profile not in ('voice', 'admin-stress', 'admin-diagnostic'): raise RuntimeError('Unknown M19 test profile')
+        root = (launch.prepare(Path(request['gate_path']), 'owner-live', True, request['diagnostic_candidate']) if profile == 'admin-diagnostic' else
+                launch.prepare(Path(request['gate_path']), 'owner-live', True) if profile == 'admin-stress' else
                 launch.prepare(Path(request['gate_path']), request.get('voice_mode','synthetic-acoustic')))
         plan = json.loads((root / 'plan.json').read_text())
         return {'root':str(root),'admin_port':plan['admin_port'],'mock_url':plan['mock_url'],
@@ -177,11 +178,14 @@ def dispatch(request):
         output = work / 'admin-stress-offline.json'
         client = REPO / 'benchmarks/web-admin-b4/DialogueSmoke.py'
         client_sha = sha(client)
-        workload = json.loads(run(['/usr/bin/python3', '-B', client, '--validate-workload']))
+        diagnostic = request.get('diagnostic_only', False)
+        if type(diagnostic) is not bool: raise RuntimeError('Invalid diagnostic mode')
+        flags = ['--diagnostic-only'] if diagnostic else []
+        workload = json.loads(run(['/usr/bin/python3', '-B', client, '--validate-workload', *flags]))
         run(['/usr/bin/python3', '-B', REPO / 'benchmarks/web-admin-b4/DialogueSmoke.py',
              '--stress-url', data['admin_url'], '--store', data['store'], '--output', output,
              '--mock-log', data['mock_log'],
-             '--deadline-monotonic', str(time.monotonic() + 90), '--offline'], timeout=100)
+             '--deadline-monotonic', str(time.monotonic() + 90), '--offline', *flags], timeout=100)
         proof = json.loads(output.read_text())
         if sha(client) != client_sha or not proof['passed'] or proof['real_rkllm']:
             raise RuntimeError('Offline stress client changed or proof invalid')
@@ -190,11 +194,17 @@ def dispatch(request):
         gate = {'proof_path': str(proof_path), 'proof_sha256': sha(proof_path),
                 'client_sha256': client_sha, 'workload': workload,
                 'workload_sha256': hashlib.sha256(json.dumps(workload, sort_keys=True, ensure_ascii=False).encode()).hexdigest(),
-                'boot_id': data['boot_id'], 'offline_root': str(root),
+                'boot_id': data['boot_id'], 'offline_root': str(root), 'diagnostic_only': diagnostic,
                 'checked_monotonic': time.monotonic()}
         receipt = root / 'admin-stress-gate.json'
         receipt.write_text(json.dumps(gate)); receipt.chmod(0o600)
         return {**proof, 'gate': {'path': str(receipt), 'sha256': sha(receipt)}}
+    if action == 'diagnostic-result':
+        window = load_module('diagnostic_recovery','m19-hardware-recovery.py').Window(root)
+        if window.plan.get('profile') != 'ADMIN4096_DIAGNOSTIC': raise RuntimeError('Not a diagnostic window')
+        report = json.loads((root / 'evidence/admin-stress.json').read_text())
+        if report['profile'] != 'ADMIN4096_DIAGNOSTIC' or not report['real_rkllm']: raise RuntimeError('Not a real diagnostic result')
+        return report
     if action == 'memory': return memory(root)
     if action == 'rows':
         log = fixture(root)['mock_log'] if (root / 'offline.json').exists() else hardware(root).plan['mock_log']

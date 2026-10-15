@@ -115,7 +115,7 @@ class Window(rollout.Production):
         return rollout.wait_quiescent(probe, self.record, min(self.operation_deadline, time.monotonic() + 30))
 
     def pc_browser_gate(self):
-        if self.plan.get('profile') == 'ADMIN4096_BOUNDED_STRESS':
+        if self.plan.get('profile') in ('ADMIN4096_BOUNDED_STRESS', 'ADMIN4096_DIAGNOSTIC'):
             gate = self.plan['stress_gate']
             require(gate['boot_id'] == self.plan['boot_id'] and
                     0 <= time.monotonic() - gate['checked_monotonic'] < 300,
@@ -130,7 +130,9 @@ class Window(rollout.Production):
             require(rollout.sha(self.root / 'scripts/admin-stress-client.py') == gate['client_sha256'] ==
                     self.plan['supervisor_files']['scripts/admin-stress-client.py'], 'Stress client not offline-qualified')
             proof = json.loads(proof_path.read_text())
-            require(proof['passed'] is True and proof['real_rkllm'] is False and len(proof['cycles']) == 2 and
+            diagnostic = self.plan['profile'] == 'ADMIN4096_DIAGNOSTIC'
+            require(proof['profile'] == self.plan['profile'] and proof['diagnostic_only'] is diagnostic and
+                    proof['passed'] is True and proof['real_rkllm'] is False and len(proof['cycles']) == (1 if diagnostic else 2) and
                     all(c['restored'] is True and [(x['case'],x['input_bytes']) for x in c['cases']] ==
                         [(x['case'],x['bytes']) for x in gate['workload']] for c in proof['cycles']),
                     'Incomplete frozen stress proof')

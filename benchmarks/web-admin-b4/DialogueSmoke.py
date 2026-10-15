@@ -14,7 +14,7 @@ import urllib.error
 import urllib.request
 
 
-def stress_workload():
+def stress_workload(diagnostic_only=False):
     short = 'Создай зону Кабинет и лампу в кабинете, которую можно включать и выключать'
     detail = (' Требуется только питание лампы в кабинете, включение и выключение, '
               'без яркости, каналов и других возможностей, без подключения к сети')
@@ -22,7 +22,7 @@ def stress_workload():
     while len((long + detail).encode()) <= 1800:
         long += detail
     # Spaces are deliberately not used to manufacture a claimed token load.
-    return [('control', short), ('long', long)]
+    return [('long', long)] if diagnostic_only else [('control', short), ('long', long)]
 
 
 def external_stress():
@@ -39,8 +39,9 @@ def external_stress():
     parser.add_argument('--deadline-monotonic', type=float)
     parser.add_argument('--offline', action='store_true')
     parser.add_argument('--validate-workload', action='store_true')
+    parser.add_argument('--diagnostic-only', action='store_true', help='One long request; evidence collection, not stress acceptance')
     args = parser.parse_args()
-    workload = stress_workload()
+    workload = stress_workload(args.diagnostic_only)
     if args.validate_workload:
         print(json.dumps([{'case': k, 'bytes': len(v.encode()), 'text': v} for k, v in workload], ensure_ascii=False))
         return
@@ -55,7 +56,8 @@ def external_stress():
     assert (store.parent / 'offline-test-marker').is_file() if args.offline else (store.parent / 'stress-test-marker').is_file()
     assert args.mock_log and args.mock_log.resolve().is_relative_to(store.parent)
     assert args.deadline_monotonic and 0 < args.deadline_monotonic - time.monotonic() <= 600
-    report = {'profile': 'ADMIN4096_BOUNDED_STRESS', 'real_rkllm': not args.offline,
+    report = {'profile': 'ADMIN4096_DIAGNOSTIC' if args.diagnostic_only else 'ADMIN4096_BOUNDED_STRESS', 'real_rkllm': not args.offline,
+              'diagnostic_only': args.diagnostic_only,
               'cycles': [], 'passed': False, 'full_4096_context_verified': False,
               'voice': 'NOT_TESTED', 'requests': [], 'apply_calls': None, 'device_requests': None}
     deadline = args.deadline_monotonic
@@ -158,7 +160,7 @@ def external_stress():
         wait_ready()
         original = call('/api/config'); active = call('/api/config/active')['active']
         report['initial_resources'] = resources()
-        for cycle in range(2):
+        for cycle in range(1 if args.diagnostic_only else 2):
             if deadline - time.monotonic() < next_operation_reserve:
                 raise TimeoutError('insufficient original window for next cycle; no additional model launch')
             baseline = resources()
@@ -210,6 +212,7 @@ def external_stress():
             record['resources_after'] = resources(); record['restored'] = True; save()
         report['passed'] = True
         report['coverage_note'] = ('Scripted offline API/transport only; no real token or NPU coverage.' if args.offline else
+            'One diagnostic long request; not a stress acceptance result.' if args.diagnostic_only else
             'Two complete profile cycles; actual token counts recorded. This is not a claim of filling every slot of the 4096-token KV or a long-term soak.')
     except Exception as error:
         report['error'] = type(error).__name__ + ': ' + str(error)

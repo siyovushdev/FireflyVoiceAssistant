@@ -19,7 +19,7 @@ CLIENT = Path(__file__).resolve().parents[1] / 'benchmarks/web-admin-b4/Dialogue
 
 
 class StressEvidenceTests(unittest.TestCase):
-    def run_failure(self, response, status=409, remove_trace=False, reset_body=False):
+    def run_failure(self, response, status=409, remove_trace=False, reset_body=False, diagnostic_only=False):
         with tempfile.TemporaryDirectory(prefix='m19-stress-error-') as temp:
             root = Path(temp)
             (root / 'offline-test-marker').touch()
@@ -77,7 +77,8 @@ class StressEvidenceTests(unittest.TestCase):
                 result = subprocess.run([sys.executable, '-B', str(CLIENT), '--offline',
                     '--stress-url', f'http://127.0.0.1:{server.server_port}', '--store', str(store),
                     '--mock-log', str(mock), '--output', str(output),
-                    '--deadline-monotonic', str(time.monotonic() + 30)], capture_output=True, text=True, timeout=10)
+                    '--deadline-monotonic', str(time.monotonic() + 30),
+                    *(['--diagnostic-only'] if diagnostic_only else [])], capture_output=True, text=True, timeout=10)
             finally:
                 server.shutdown(); server.server_close(); thread.join(timeout=2)
             self.assertNotEqual(result.returncode, 0)
@@ -93,7 +94,8 @@ class StressEvidenceTests(unittest.TestCase):
             self.assertEqual(mock.read_bytes(), b'')
             self.assertEqual(output.stat().st_mode & 0o777, 0o600)
             case = report['cycles'][0]['cases'][0]
-            self.assertEqual(case['case'], 'control')
+            self.assertEqual(case['case'], 'long' if diagnostic_only else 'control')
+            self.assertEqual(case['input_bytes'], 1606 if diagnostic_only else 136)
             self.assertIsNone(case['state'])
             self.assertIn('wall_seconds',case,result.stderr)
             self.assertGreaterEqual(case['wall_seconds'], 0)
@@ -145,6 +147,12 @@ class StressEvidenceTests(unittest.TestCase):
         report=self.run_failure(raw)
         self.assertIn(report['http_error']['body_parse_error'],('RecursionError','ValueError'))
         self.assertEqual(base64.b64decode(report['http_error']['body_base64']),raw)
+
+    def test_diagnostic_sends_only_one_long_request_and_keeps_failure(self):
+        report=self.run_failure(b'{"ok":false}',diagnostic_only=True)
+        self.assertEqual(report['profile'],'ADMIN4096_DIAGNOSTIC')
+        self.assertEqual(len(report['cycles']),1)
+        self.assertEqual(len(report['cycles'][0]['cases']),1)
 
 
 if __name__ == '__main__': unittest.main(verbosity=2)

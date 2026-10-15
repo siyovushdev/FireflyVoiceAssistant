@@ -75,9 +75,11 @@ def verify_stress_gate(reference, transport, remote_root):
                      gate['client_sha256'] == client_sha and transport.get('stress_client_sha256') == client_sha and
                      transport.get('admin_stress') is True, 'Unchecked stress client/profile')
     proof = json.loads(proof_path.read_text())
-    recovery.require(proof.get('passed') is True and proof.get('real_rkllm') is False and
-                     proof.get('profile') == 'ADMIN4096_BOUNDED_STRESS' and
-                     proof.get('apply_calls') == 0 and proof.get('device_requests') == 0 and len(proof['cycles']) == 2,
+    diagnostic = transport.get('diagnostic_only', False)
+    recovery.require(gate.get('diagnostic_only') is diagnostic and proof.get('diagnostic_only') is diagnostic and
+                     proof.get('passed') is True and proof.get('real_rkllm') is False and
+                     proof.get('profile') == ('ADMIN4096_DIAGNOSTIC' if diagnostic else 'ADMIN4096_BOUNDED_STRESS') and
+                     proof.get('apply_calls') == 0 and proof.get('device_requests') == 0 and len(proof['cycles']) == (1 if diagnostic else 2),
                      'Incomplete or mislabelled offline stress proof')
     import hashlib
     recovery.require(hashlib.sha256(json.dumps(gate['workload'], sort_keys=True, ensure_ascii=False).encode()).hexdigest() ==
@@ -152,11 +154,35 @@ def rewrite(value, substitutions):
     return value
 
 
-def prepare(gate_path=None, voice_mode='synthetic-acoustic', installed_candidate=False):
+def verify_diagnostic_candidate(reference):
+    path = Path(reference['path'])
+    recovery.require(path.parent == Path('/var/lib') and path.name.startswith('firefly-m19-diag-candidate-') and
+                     path.suffix == '.json' and path.resolve() == path and path.stat().st_uid == 0 and
+                     not path.stat().st_mode & 0o077 and recovery.rollout.sha(path) == reference['sha256'], 'Untrusted diagnostic descriptor')
+    data = json.loads(path.read_text())
+    recovery.require(REPO == Path('/home/firefly/FireflyVoiceAssistantLinux-m19-diag') and data['source_root'] == str(REPO),
+                     'Wrong diagnostic source')
+    recovery.require(data['identity']['head'] == '9945f59f0b195b10b3aefb9715e2b54e8201369f' and not data['identity']['dirty'] and
+                     data['identity']['source_sha256'] == source_tree_fingerprint(REPO), 'Diagnostic source/build mismatch')
+    recovery.require(recovery.rollout.sha(REPO / 'src/admin/SetupSession.h') ==
+                     '5a7d7439d434529c89458b495aa02e9ee94a1eeaa58c9dd589db7848c3285b4a', 'Unreviewed diagnostic product change')
+    recovery.require(run(['git','-C',REPO,'diff','--name-only','320b80a6d5a73d9638e4bc386129248ba3d65b8e','--',
+                         'src','include','config','runtime','third_party','CMakeLists.txt']) == 'src/admin/SetupSession.h',
+                     'Unexpected diagnostic product diff')
+    binary = Path(data['binary'])
+    recovery.require(binary == REPO / 'build/diagnostic-candidate/bin/firefly-demo' and binary.resolve() == binary and
+                     recovery.rollout.sha(binary) == data['binary_sha256'] and
+                     json.loads(run([binary,'--build-identity'])) == data['identity'], 'Diagnostic binary changed')
+    return data
+
+
+def prepare(gate_path=None, voice_mode='synthetic-acoustic', installed_candidate=False, diagnostic_candidate=None):
     recovery.require(os.geteuid() == 0, 'Run with sudo; only preparation is safe before START')
     recovery.require(gate_path is not None, 'PC browser gate required before preparation')
     verify_browser_gate({'browser_gate':json.loads(Path(gate_path).read_text()),
                          'profile':'ADMIN4096_BOUNDED_STRESS' if installed_candidate else 'voice'})
+    diagnostic = verify_diagnostic_candidate(diagnostic_candidate) if diagnostic_candidate else None
+    recovery.require(not diagnostic or installed_candidate, 'Diagnostic candidate requires isolated Admin profile')
     voice_check = voice_preflight(voice_mode)
     # The stress profile exercises the already installed immutable ELF, never
     # the historical dirty M19 candidate. Recovery/barriers/unit templates stay
@@ -173,7 +199,7 @@ def prepare(gate_path=None, voice_mode='synthetic-acoustic', installed_candidate
                          'Stress requires the exact accepted installed M19 release')
         recovery.require(recovery.rollout.sha(installed / 'bin/firefly-demo') ==
                          '80175e29dc5cc96a3a4315369c45f530130c0581bec28e097a359e6110aa4af0', 'Installed ELF changed')
-    recovery.require(source_tree_fingerprint(REPO) == identity['source_sha256'], 'Candidate source changed')
+    recovery.require(source_tree_fingerprint(REPO) == (diagnostic or {'identity':identity})['identity']['source_sha256'], 'Candidate source changed')
     for path, digest in template['candidate_files'].items():
         recovery.require(recovery.rollout.sha(path) == digest, 'Candidate template changed: ' + path)
     root = Path(tempfile.mkdtemp(prefix='firefly-m19-window-', dir='/var/lib'))
@@ -197,6 +223,9 @@ def prepare(gate_path=None, voice_mode='synthetic-acoustic', installed_candidate
         plan['binary_sha256'] = {installed.name: recovery.rollout.sha(installed / 'bin/firefly-demo')}
         plan['identities'] = {installed.name: identity}
         plan['profile'] = 'ADMIN4096_BOUNDED_STRESS'
+        if diagnostic:
+            plan['profile'] = 'ADMIN4096_DIAGNOSTIC'
+            plan['diagnostic_candidate'] = diagnostic
         # Metadata contracts refer to the actual installed libraries/assets,
         # including the protected Amina target; no dependency is copied.
         for entry in plan['dependencies']:
@@ -213,12 +242,16 @@ def prepare(gate_path=None, voice_mode='synthetic-acoustic', installed_candidate
     for directory in ('candidate/bin', 'store', 'evidence'):
         (workspace / directory).mkdir(parents=True, mode=0o700)
     for name in ('candidate/bin/firefly-demo', 'candidate/mock-http-device.py', 'empty-home.json', 'store/configuration.json'):
-        source = installed / 'bin/firefly-demo' if installed_candidate and name == 'candidate/bin/firefly-demo' else template_root / name
+        source = (Path(diagnostic['binary']) if diagnostic else installed / 'bin/firefly-demo') if installed_candidate and name == 'candidate/bin/firefly-demo' else template_root / name
         shutil.copy2(source, workspace / name)
     if installed_candidate:
         (workspace / 'stress-test-marker').write_text('ADMIN4096_BOUNDED_STRESS\n')
     release = Path('/opt/firefly/voice-assistant/releases') / plan['old']
     for name in ('share', 'lib'): (workspace / 'candidate' / name).symlink_to(release / name)
+    if diagnostic:
+        recovery.require(recovery.rollout.sha(workspace / 'candidate/bin/firefly-demo') == diagnostic['binary_sha256'] and
+                         json.loads(run([workspace / 'candidate/bin/firefly-demo','--build-identity'])) == diagnostic['identity'],
+                         'Diagnostic copy differs from approved binary')
     for path in [workspace, *workspace.rglob('*')]: os.chown(path, user.pw_uid, user.pw_gid, follow_symlinks=False)
     recovery.require(shutil.disk_usage(REPO).free >= 150 * 1024 * 1024, 'Insufficient evidence disk space')
     plan['browser_gate'] = browser_gate(workspace, gate_path)
@@ -233,6 +266,8 @@ def prepare(gate_path=None, voice_mode='synthetic-acoustic', installed_candidate
         shutil.copyfile(REPO / 'benchmarks/web-admin-b4/DialogueSmoke.py', root / 'scripts/admin-stress-client.py')
         (root / 'scripts/admin-stress-client.py').chmod(0o600)
         proof = json.loads(Path(plan['browser_gate']['proof_path']).read_text())
+        recovery.require(proof['transport'].get('diagnostic_only',False) is bool(diagnostic) and
+                         (not diagnostic or proof['transport']['diagnostic_candidate'] == diagnostic_candidate), 'Diagnostic transport/candidate mismatch')
         gate = verify_stress_gate(proof['admin_stress_gate'], proof['transport'], proof['remoteRoot'])
         copied_proof = root / 'evidence/admin-stress-offline.json'
         shutil.copyfile(gate['proof_path'], copied_proof); copied_proof.chmod(0o600)
@@ -246,6 +281,8 @@ def prepare(gate_path=None, voice_mode='synthetic-acoustic', installed_candidate
     plan['supervisor_files'] = {str(p.relative_to(root)): recovery.rollout.sha(p)
         for directory in ('scripts', 'packaging', 'tests', 'units') for p in (root / directory).iterdir()}
     plan['candidate_files'] = {path: recovery.rollout.sha(path) for path in plan['candidate_files']}
+    if diagnostic:
+        plan['candidate_files'][str(workspace / 'candidate/bin/firefly-demo')] = diagnostic['binary_sha256']
     plan['boot_id'] = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
     pid = int(run(['systemctl', 'show', 'firefly-voice-assistant.service', '-p', 'MainPID', '--value']))
     with urllib.request.urlopen('http://127.0.0.1:8080/api/status', timeout=3) as response: status = json.load(response)

@@ -66,6 +66,9 @@ def browser_profile(args):
     if getattr(args, 'admin_stress', False):
         profile['admin_stress'] = True
         profile['stress_client_sha256'] = hashlib.sha256((REPO/'benchmarks/web-admin-b4/DialogueSmoke.py').read_bytes()).hexdigest()
+        profile['diagnostic_only'] = bool(getattr(args, 'diagnostic_candidate', None))
+        if profile['diagnostic_only']:
+            profile['diagnostic_candidate'] = {'path':args.diagnostic_candidate, 'sha256':args.diagnostic_candidate_sha256}
     return profile
 
 def run_driver(command, env, log, timeout):
@@ -110,6 +113,30 @@ def wait_test_ready(transport, remote_root, artifacts, timeout=120):
             return status
         time.sleep(.5)
     raise RuntimeError('Test runtime readiness deadline exceeded')
+
+def diagnostic_outcome(report, returncode):
+    """Classify this single request, never a later cancel/restore failure."""
+    if report.get('profile') != 'ADMIN4096_DIAGNOSTIC' or report.get('real_rkllm') is not True:
+        return None
+    cycles = report.get('cycles', [])
+    if len(cycles) != 1 or len(cycles[0].get('cases', [])) != 1: return None
+    case = cycles[0]['cases'][0]
+    if case.get('case') != 'long' or case.get('input_bytes') != 1606: return None
+    if not returncode and report.get('passed') is True and cycles[0].get('restored') is True and not report.get('http_error'):
+        return 'AI_REJECTION_NOT_REPRODUCED'
+    error = report.get('http_error', {})
+    if (not returncode or report.get('passed') is not False or error.get('status') != 409 or
+            error.get('path') != '/api/setup/message' or error.get('method') != 'POST' or
+            not error.get('capture_complete') or case.get('state') is not None or
+            case.get('private_status') != 'planning_failed' or case.get('message_incomplete') is not True): return None
+    traces = case.get('trace', [])
+    if not traces or any(t.get('stage') != 'decode' or t.get('error_code') != 'invalid_ai_response' for t in traces): return None
+    try:
+        if all(t.get('error') and not t.get('rejected_raw_truncated', True) and
+               len(bytes.fromhex(t.get('rejected_raw_hex', ''))) == t.get('rejected_raw_bytes', -1) for t in traces):
+            return 'AI_REJECTION_CAPTURED'
+    except (TypeError, ValueError): pass
+    return None
 
 def collect_evidence(transport, prepared, artifacts):
     remote_root = prepared['root']
@@ -197,8 +224,13 @@ def main():
     parser.add_argument('--owner-start', choices=('СТАРТ',))
     parser.add_argument('--voice-mode', choices=('synthetic-acoustic','owner-live'), default='synthetic-acoustic')
     parser.add_argument('--admin-stress', action='store_true', help='Two private Admin4096 cycles using the installed immutable ELF; no voice/Apply')
+    parser.add_argument('--diagnostic-candidate', help='Root-private pinned descriptor; one long request only')
+    parser.add_argument('--diagnostic-candidate-sha256')
     args = parser.parse_args()
-    if args.admin_stress and (args.voice_mode != 'owner-live' or args.remote_repo != '/home/firefly/FireflyVoiceAssistantLinux-m19-rollout'):
+    if args.diagnostic_candidate:
+        if not args.admin_stress or args.remote_repo != '/home/firefly/FireflyVoiceAssistantLinux-m19-diag' or not args.diagnostic_candidate_sha256:
+            parser.error('diagnostic requires admin-stress, exact diagnostic source and descriptor SHA256')
+    if args.admin_stress and (args.voice_mode != 'owner-live' or args.remote_repo != ('/home/firefly/FireflyVoiceAssistantLinux-m19-diag' if args.diagnostic_candidate else '/home/firefly/FireflyVoiceAssistantLinux-m19-rollout')):
         parser.error('stress requires owner-live (no playback) and the exact clean rollout source')
     if args.remote_repo != REMOTE_REPO and args.mode != 'offline-gate' and not args.admin_stress:
         parser.error('alternate clean source is permitted only for offline-gate')
@@ -214,7 +246,7 @@ def main():
     (root / 'offline-backend.json').write_text(json.dumps(offline, indent=2))
     try:
         if args.admin_stress:
-            stress_proof = transport.call('offline-stress', timeout=110, root=offline['root'])
+            stress_proof = transport.call('offline-stress', timeout=110, root=offline['root'], diagnostic_only=bool(args.diagnostic_candidate))
             if not stress_proof.get('passed') or stress_proof.get('real_rkllm'):
                 raise RuntimeError('Offline stress transport gate failed or mislabelled inference')
             (root / 'offline-stress.json').write_text(json.dumps(stress_proof, indent=2))
@@ -228,7 +260,8 @@ def main():
     if args.mode == 'offline-gate':
         print(json.dumps({'result':'OFFLINE_BROWSER_GATE_PASS','artifacts':str(root)})); return
     prepared = transport.call('prepare', timeout=120, gate_path=gate['gate_path'], voice_mode=args.voice_mode,
-                              profile='admin-stress' if args.admin_stress else 'voice')
+                              profile='admin-diagnostic' if args.diagnostic_candidate else 'admin-stress' if args.admin_stress else 'voice',
+                              diagnostic_candidate=profile.get('diagnostic_candidate'))
     (root / 'prepared.json').write_text(json.dumps(prepared, indent=2))
     if args.mode == 'prepare-only':
         transport.call('stop-prepared-mock', root=prepared['root'])
@@ -261,11 +294,18 @@ def main():
                 ' --mock-log ' + shlex.quote(prepared['plan']['mock_log']) +
                 ' --output ' + shlex.quote(str(remote_root / 'evidence/admin-stress.json')) +
                 ' --deadline-monotonic ' + shlex.quote(str(arm['deadline'] - 30)))
+            if args.diagnostic_candidate: command += ' --diagnostic-only'
             completed = subprocess.run(['/usr/bin/ssh', *transport.options, transport.host, command],
                 capture_output=True, text=True, timeout=600)
             (root / 'stress-client.stdout').write_text(completed.stdout)
             (root / 'stress-client.stderr').write_text(completed.stderr)
-            if completed.returncode: raise RuntimeError('Admin stress client failed: ' + completed.stderr[-1500:])
+            diagnostic_result = None
+            if args.diagnostic_candidate:
+                report = transport.call('diagnostic-result', root=prepared['root'])
+                (root / 'diagnostic-result.json').write_text(json.dumps(report,indent=2))
+                diagnostic_result = diagnostic_outcome(report, completed.returncode)
+                if not diagnostic_result: raise RuntimeError('Diagnostic outcome incomplete or failure outside long-request decode')
+            if completed.returncode and not diagnostic_result: raise RuntimeError('Admin stress client failed: ' + completed.stderr[-1500:])
             actual_rows = transport.call('rows', root=prepared['root'])
             (root / 'stress-mock-rows.json').write_text(json.dumps(actual_rows, indent=2))
             if actual_rows: raise RuntimeError('Unexpected HTTP mock traffic during Admin stress')
@@ -280,6 +320,6 @@ def main():
                 wait_recovery(transport, prepared['root'], root)
         finally:
             collect_evidence(transport, prepared, root)
-    print(json.dumps({'result':'ADMIN_STRESS_AND_RECOVERY_PASS' if args.admin_stress else 'BROWSER_TRIAL_AND_RECOVERY_PASS','artifacts':str(root)}))
+    print(json.dumps({'result':diagnostic_result if args.diagnostic_candidate else 'ADMIN_STRESS_AND_RECOVERY_PASS' if args.admin_stress else 'BROWSER_TRIAL_AND_RECOVERY_PASS','artifacts':str(root)}))
 
 if __name__ == '__main__': main()
