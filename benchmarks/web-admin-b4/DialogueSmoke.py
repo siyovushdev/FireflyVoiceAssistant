@@ -98,10 +98,10 @@ def external_stress():
         args.output.write_text(json.dumps(report, ensure_ascii=True, indent=2) + '\n')
         args.output.chmod(0o600)
 
-    def call(path, body=None):
+    def call(path, body=None, operation_deadline=None):
         assert path in (allowed_get if body is None else allowed_post)
         report['requests'].append({'path': path, 'method': 'GET' if body is None else 'POST'})
-        remaining = deadline - time.monotonic()
+        remaining = min(deadline, operation_deadline if operation_deadline is not None else deadline) - time.monotonic()
         if remaining <= 0:
             raise TimeoutError('stress original deadline exhausted')
         request = urllib.request.Request(args.stress_url.rstrip('/') + path,
@@ -157,15 +157,18 @@ def external_stress():
             save()
             raise
 
-    def ready():
-        value = call('/api/status')
+    def ready(operation_deadline=None):
+        value = call('/api/status', operation_deadline=operation_deadline)
         return value.get('runtime_ready') and (args.offline or
             (value.get('stt_ready') and value.get('voice') == 'WAITING_WAKE' and value.get('health', {}).get('overall') == 'ready'))
 
-    def wait_ready():
-        end = min(deadline, time.monotonic() + 100)
+    def wait_ready(operation_deadline=None):
+        end = min(deadline, operation_deadline if operation_deadline is not None else time.monotonic() + 100)
         while time.monotonic() < end:
-            if ready(): return
+            if ready(operation_deadline):
+                if operation_deadline is not None and time.monotonic() >= end:
+                    raise TimeoutError('runtime READY arrived after restore deadline')
+                return
             time.sleep(.2)
         raise TimeoutError('runtime restore not READY')
 
@@ -243,7 +246,9 @@ def external_stress():
                         assert 0 < observed <= reserved <= 4096
                         case.setdefault('context_coverage', []).append({'reserved_tokens': reserved, 'observed_tokens': observed})
                 unchanged(); save()
-            call('/api/setup/cancel', {'session_id': token}); wait_ready(); unchanged()
+            restore_deadline = min(deadline, time.monotonic() + 100) if args.repeatability_only else None
+            call('/api/setup/cancel', {'session_id': token}, operation_deadline=restore_deadline)
+            wait_ready(restore_deadline); unchanged()
             record['resources_after'] = resources(); record['restored'] = True; save()
         report['passed'] = True
         report['coverage_note'] = ('Scripted offline API/transport only; no real token or NPU coverage.' if args.offline else

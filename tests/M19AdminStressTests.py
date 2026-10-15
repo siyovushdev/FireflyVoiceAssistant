@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Error-evidence contract for the existing stress CLI; offline PC HTTP fixture only."""
 import base64
+import ast
 import http.server
 import json
 import os
@@ -13,6 +14,10 @@ import tempfile
 import threading
 import time
 import unittest
+import urllib.request
+import urllib.error
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 sys.dont_write_bytecode = True
 CLIENT = Path(__file__).resolve().parents[1] / 'benchmarks/web-admin-b4/DialogueSmoke.py'
@@ -156,6 +161,39 @@ class StressEvidenceTests(unittest.TestCase):
 
 
 class RepeatabilityTests(unittest.TestCase):
+    def client_function(self, name, namespace):
+        # Load only an existing nested helper; importing the legacy CLI would
+        # execute its separate live entrypoint. No backend or hardware here.
+        module = ast.parse(CLIENT.read_text())
+        external = next(n for n in module.body if isinstance(n, ast.FunctionDef) and n.name == 'external_stress')
+        function = next(n for n in external.body if isinstance(n, ast.FunctionDef) and n.name == name)
+        exec(compile(ast.Module(body=[function], type_ignores=[]), str(CLIENT), 'exec'), namespace)
+        return namespace[name]
+
+    def test_restore_uses_remaining_original_and_phase_deadline(self):
+        clock = SimpleNamespace(monotonic=lambda: 100.)
+        opener = Mock(side_effect=RuntimeError('stop after timeout observation'))
+        namespace = {'deadline': 1000., 'time': clock, 'report': {'requests': []},
+            'allowed_get': {'/api/status'}, 'allowed_post': set(),
+            'args': SimpleNamespace(stress_url='http://127.0.0.1:1234', repeatability_only=True),
+            'urllib': SimpleNamespace(request=SimpleNamespace(Request=urllib.request.Request, urlopen=opener),
+                error=urllib.error), 'json': json}
+        call = self.client_function('call', namespace)
+        with self.assertRaisesRegex(RuntimeError, 'timeout observation'):
+            call('/api/status', operation_deadline=110.)
+        self.assertEqual(opener.call_args.kwargs['timeout'], 10.)
+        opener.reset_mock(); clock.monotonic = lambda: 111.
+        with self.assertRaises(TimeoutError): call('/api/status', operation_deadline=110.)
+        opener.assert_not_called()
+
+    def test_ready_after_shared_restore_deadline_cannot_pass(self):
+        ticks = [100.]
+        def late_ready(deadline):
+            self.assertEqual(deadline, 110.); ticks[0] = 111.; return True
+        namespace = {'deadline': 1000., 'time': SimpleNamespace(monotonic=lambda: ticks[0]), 'ready': late_ready}
+        wait = self.client_function('wait_ready', namespace)
+        with self.assertRaisesRegex(TimeoutError, 'arrived after restore deadline'): wait(110.)
+
     @staticmethod
     def proposal():
         return {'status': 'editing', 'message_incomplete': False, 'questions': [], 'version': 3,

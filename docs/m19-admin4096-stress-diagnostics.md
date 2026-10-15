@@ -24,7 +24,9 @@ installed libraries/assets and models are reused; no product rebuild or rollout.
 Measured single-cycle timing was 193.59s plus 55.84s initial startup. Two cycles
 therefore estimate 443s against an approximately 570s client deadline; this is
 an estimate, not a guarantee. The new profile requires 300s before starting a
-cycle and 220s before a message (120s message timeout + 100s restore wait).
+cycle and 220s before a message (120s message timeout + 100s for cancel and
+Runtime READY together). Cancel and subsequent readiness polls share one absolute
+restore deadline, capped by the original window; a late READY cannot pass.
 Those checks repeat immediately before submission after preparatory operations.
 Insufficient time produces an incomplete FAIL and recovery; no deadline extends.
 The 600s hardware window, independent 360s recovery and RAM6/1GiB are unchanged.
