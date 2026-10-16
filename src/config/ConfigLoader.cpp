@@ -312,8 +312,15 @@ Configuration decode(const Json& value) {
             ObservationBinding o;
             o.targetId = item.at("target_id"); o.connectionId = item.at("connection_id");
             o.executor = executorKind(item.at("executor"));
-            if (o.executor == ExecutorKind::Mqtt) o.mqtt = decodeMqttObservation(item.at("mqtt"));
-            else o.http = decodeHttp(item.at("http"), true);
+            if (o.executor == ExecutorKind::Mqtt) {
+                if (item.contains("http") || !item.contains("mqtt"))
+                    throw ConfigError("schema_error", "/observations", "MQTT observations require MQTT only");
+                o.mqtt = decodeMqttObservation(item.at("mqtt"));
+            } else {
+                if (item.contains("mqtt") || !item.contains("http"))
+                    throw ConfigError("schema_error", "/observations", "HTTP observations require HTTP only");
+                o.http = decodeHttp(item.at("http"), true);
+            }
             o.fields = item.at("fields").get<std::map<std::string, std::string>>();
             result.observations.push_back(std::move(o));
         }
@@ -323,8 +330,15 @@ Configuration decode(const Json& value) {
             binding.actionId = item.at("action_id");
             binding.executor = executorKind(item.at("executor"));
             binding.connectionId = item.value("connection_id", "");
-            if (binding.executor == ExecutorKind::Mqtt) binding.mqtt = decodeMqttBinding(item.at("mqtt"));
-            else binding.http = decodeHttp(item.at("http"), !binding.connectionId.empty());
+            if (binding.executor == ExecutorKind::Mqtt) {
+                if (item.contains("http") || !item.contains("mqtt"))
+                    throw ConfigError("schema_error", "/bindings", "MQTT bindings require MQTT only");
+                binding.mqtt = decodeMqttBinding(item.at("mqtt"));
+            } else {
+                if (item.contains("mqtt") || !item.contains("http"))
+                    throw ConfigError("schema_error", "/bindings", "HTTP bindings require HTTP only");
+                binding.http = decodeHttp(item.at("http"), !binding.connectionId.empty());
+            }
             result.bindings.push_back(std::move(binding));
         }
     }
