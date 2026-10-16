@@ -4,7 +4,6 @@
 #include "firefly/actions/ScalarJson.h"
 #include <algorithm>
 #include <chrono>
-#include <condition_variable>
 #include <cstring>
 #include <map>
 #include <mutex>
@@ -92,20 +91,16 @@ void configure(Client& client, const config::Connection& connection) {
     // Caller owns the entire client; no credentials retained in ConfigStore/logs.
 }
 struct Publication {
-    std::mutex mutex;
-    std::condition_variable cv;
-    bool connected = false, connectionFinished = false, finished = false;
-    int messageId = -1;
+    bool connected = false, connectionFinished = false;
+    int acknowledgedMid = -1;
 };
 void connected(mosquitto*, void* context, int code) {
     auto& p = *static_cast<Publication*>(context);
-    { std::lock_guard<std::mutex> lock(p.mutex); p.connected = code == 0; p.connectionFinished = true; }
-    p.cv.notify_all();
+    p.connected = code == 0;
+    p.connectionFinished = true;
 }
 void published(mosquitto*, void* context, int id) {
-    auto& p = *static_cast<Publication*>(context);
-    { std::lock_guard<std::mutex> lock(p.mutex); if (p.messageId == id) p.finished = true; }
-    p.cv.notify_all();
+    static_cast<Publication*>(context)->acknowledgedMid = id;
 }
 HardwareResult publish(const config::Connection& conn, const config::MqttBinding& mapping) {
     Publication p;
@@ -115,27 +110,31 @@ HardwareResult publish(const config::Connection& conn, const config::MqttBinding
         mosquitto_connect_callback_set(client.ptr, connected);
         mosquitto_publish_callback_set(client.ptr, published);
         if (mosquitto_connect_async(client.ptr, conn.network.host.c_str(),
-                static_cast<int>(conn.network.port), 30) != MOSQ_ERR_SUCCESS ||
-            mosquitto_loop_start(client.ptr) != MOSQ_ERR_SUCCESS)
+                static_cast<int>(conn.network.port), 30) != MOSQ_ERR_SUCCESS)
             return error("mqtt_connection_failure", ReachabilityEvidence::Unreachable);
-        client.running = true;
+
+        // Drive a one-shot client in the calling thread. Unlike loop_start(),
+        // mosquitto_loop() does not automatically reconnect and replay an
+        // unacknowledged QoS 1 command on network recovery.
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(conn.timeoutMs);
-        std::unique_lock<std::mutex> lock(p.mutex);
-        if (!p.cv.wait_until(lock, deadline, [&] { return p.connectionFinished; }))
-            return error("mqtt_timeout", ReachabilityEvidence::Unreachable);
+        while (!p.connectionFinished && std::chrono::steady_clock::now() < deadline) {
+            if (mosquitto_loop(client.ptr, 50, 1) != MOSQ_ERR_SUCCESS)
+                return error("mqtt_connection_failure", ReachabilityEvidence::Unreachable);
+        }
+        if (!p.connectionFinished) return error("mqtt_timeout", ReachabilityEvidence::Unreachable);
         if (!p.connected) return error("mqtt_connect_rejected", ReachabilityEvidence::Unreachable);
-        // Single-use client: never reconnect/retry this command after an uncertain
-        // delivery. QoS 1 remains at-least-once within this attempt.
-        lock.unlock();
+
         int mid = -1;
-        const auto result = mosquitto_publish(client.ptr, &mid, mapping.topic.c_str(),
-            static_cast<int>(mapping.payload.size()), mapping.payload.data(),
-            static_cast<int>(mapping.qos), mapping.retain);
-        if (result != MOSQ_ERR_SUCCESS) return error("mqtt_publish_rejected", ReachabilityEvidence::Reachable);
-        lock.lock();
-        p.messageId = mid;
-        if (!p.cv.wait_until(lock, deadline, [&] { return p.finished; }))
-            return error("mqtt_publish_uncertain", ReachabilityEvidence::Reachable);
+        if (mosquitto_publish(client.ptr, &mid, mapping.topic.c_str(),
+                static_cast<int>(mapping.payload.size()), mapping.payload.data(),
+                static_cast<int>(mapping.qos), mapping.retain) != MOSQ_ERR_SUCCESS)
+            return error("mqtt_publish_rejected", ReachabilityEvidence::Reachable);
+        while (p.acknowledgedMid != mid && std::chrono::steady_clock::now() < deadline) {
+            if (mosquitto_loop(client.ptr, 50, 1) != MOSQ_ERR_SUCCESS)
+                return error("mqtt_publish_uncertain", ReachabilityEvidence::Reachable);
+        }
+        if (p.acknowledgedMid != mid) return error("mqtt_publish_uncertain", ReachabilityEvidence::Reachable);
+        // Packet transmitted/PUBACK obtained; this does not assert device state.
         return {true, {}, {}, ReachabilityEvidence::Reachable};
     } catch (const std::exception&) {
         // Never print secrets or broker-provided text in public diagnostics.
@@ -154,9 +153,17 @@ struct MqttHardwareExecutor::Impl {
         const config::Connection& connection;
         Client client;
         std::map<std::string, std::vector<const config::ObservationBinding*>> byTopic;
-        bool started = false;
         Subscription(Impl& owner, const config::Connection& c)
             : owner(owner), connection(c), client(this) {}
+        ~Subscription() {
+            // Join callbacks before byTopic and the referenced DeviceStateStore
+            // may be destroyed. Client's later destructor only frees the handle.
+            if (client.running) {
+                mosquitto_disconnect(client.ptr);
+                mosquitto_loop_stop(client.ptr, true);
+                client.running = false;
+            }
+        }
 
         static void onConnect(mosquitto* client, void* ptr, int code) {
             auto& s = *static_cast<Subscription*>(ptr);
@@ -184,6 +191,7 @@ struct MqttHardwareExecutor::Impl {
                 message->payloadlen < 0 || message->payloadlen > 4096) return;
             const auto found = s.byTopic.find(message->topic);
             if (found == s.byTopic.end()) return;
+            if (message->payloadlen == 0 || !message->payload) return;
             const std::string bytes(static_cast<const char*>(message->payload), static_cast<std::size_t>(message->payloadlen));
             for (const auto* binding : found->second) {
                 try {
@@ -218,7 +226,6 @@ struct MqttHardwareExecutor::Impl {
                         static_cast<int>(connection.network.port), 30) != MOSQ_ERR_SUCCESS ||
                     mosquitto_loop_start(client.ptr) != MOSQ_ERR_SUCCESS) return false;
                 client.running = true;
-                started = true;
                 return true;
             } catch (const std::exception&) { return false; }
         }
