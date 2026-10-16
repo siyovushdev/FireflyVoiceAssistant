@@ -31,6 +31,7 @@ private:
         std::uint64_t epoch = 0;
         bool inFlight = false;
         bool published = false;
+        bool disconnectedDuringCommand = false;
         std::map<std::string, actions::Scalar> expected;
         std::optional<std::map<std::string, actions::Scalar>> buffered;
     };

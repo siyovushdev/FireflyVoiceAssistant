@@ -145,9 +145,6 @@ void DeviceStateStore::validateObservationLocked(const StateObservation& observa
     if ((observation.timestampMs != 0 && !observation.orderSteadyMs) || order > arrival)
         throw config::ConfigError("invalid_observation", "/observation",
             "Explicit event time requires a non-future process-local steady order stamp");
-    if (observation.properties.empty())
-        throw config::ConfigError("invalid_observation", "/observation/properties",
-            "Empty observation does not establish device state");
     for (const auto& [key, value] : observation.properties) {
         const auto found = current.properties.find(key);
         if (found == current.properties.end())

@@ -122,8 +122,8 @@ int main(int argc, char** argv) {
         state.applyPrediction(disconnectTarget, target80, instant);
         gate.end(disconnectTarget, state, true);
         check(state.device(disconnectTarget)->properties.at("brightness").knowledge ==
-                  execution::StateKnowledge::Predicted,
-              "disconnect cannot replay stale buffered sample as Confirmed");
+                  execution::StateKnowledge::Unknown,
+              "disconnect revokes both stale buffer and later prediction");
         check(state.device(disconnectTarget)->connectivity == execution::Connectivity::Unreachable,
               "buffered state cannot restore reachability after disconnect");
         check(livingOld != livingTicket, "living command updated ticket");

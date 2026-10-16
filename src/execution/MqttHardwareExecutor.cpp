@@ -34,6 +34,7 @@ void MqttObservationGate::begin(const std::string& target,
     ++current.epoch;  // old callback tickets can never confirm this command
     current.inFlight = true;
     current.published = false;
+    current.disconnectedDuringCommand = false;
     current.expected = expected;
     current.buffered.reset();
 }
@@ -56,6 +57,7 @@ void MqttObservationGate::disconnected(const std::string& target, DeviceStateSto
     std::lock_guard<std::mutex> lock(mutex_);
     auto& current = targets_[target];
     ++current.epoch;    // revoke tickets captured before disconnect
+    if (current.inFlight) current.disconnectedDuringCommand = true;
     current.published = false;
     current.buffered.reset();
     try {
@@ -79,6 +81,16 @@ void MqttObservationGate::end(const std::string& target, DeviceStateStore& store
     current.expected.clear();
     current.inFlight = false;
     current.published = false;
+    if (current.disconnectedDuringCommand) {
+        // BoundDeviceExecutor may have marked the publishing client reachable
+        // after the subscription was lost. Disconnect wins the final state
+        // even when publish and disconnect raced in the same millisecond.
+        try {
+            store.invalidate(target);
+            store.markUnreachable(target, store.nowMs());
+        } catch (const std::exception&) { /* fail closed */ }
+    }
+    current.disconnectedDuringCommand = false;
     // Keep tickets from a successful submit: a callback may finish decoding
     // just after PUBACK. Failed attempts cannot produce a late confirmation.
     if (!accepted) ++current.epoch;
