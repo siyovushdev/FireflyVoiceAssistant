@@ -54,15 +54,22 @@ export function defaultMqttMapping(): Mutable<MqttBindingDto> {
     return { topic: '', payload: '', qos: 0, retain: false };
 }
 export function projectConnectivity(config: ConfigurationDto, connection: ConnectionDto | null, targetId: string,
-    mappings: readonly BindingDto[], observation?: NonNullable<ConfigurationDto['observations']>[number]): Draft {
+    mappings: readonly BindingDto[], observation?: NonNullable<ConfigurationDto['observations']>[number],
+    transport?: 'http' | 'mqtt', replaceOtherObservation = false): Draft {
     const next = clone(config);
     if (connection) {
         const index = (next.connections ??= []).findIndex(c => c.id === connection.id);
         if (index < 0) next.connections.push(clone(connection)); else next.connections[index] = clone(connection);
     }
     if (targetId) {
-        next.bindings = [...next.bindings.filter(b => b.target_id !== targetId), ...clone(mappings)];
-        next.observations = (next.observations ?? []).filter(o => o.target_id !== targetId);
+        // A device can have HTTP and MQTT actions simultaneously. Never remove
+        // the other transport just because this editor didn't render its fields.
+        next.bindings = [...next.bindings.filter(b =>
+            b.target_id !== targetId || (transport !== undefined && b.executor !== transport)), ...clone(mappings)];
+        // This MVP supports one observation per target. Replacing a readback
+        // of another transport must be a separate, explicitly approved choice.
+        next.observations = (next.observations ?? []).filter(o => o.target_id !== targetId ||
+            (transport !== undefined && o.executor !== transport && !replaceOtherObservation));
         if (observation) next.observations.push(clone(observation));
     }
     return next;

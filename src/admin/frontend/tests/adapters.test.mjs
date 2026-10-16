@@ -142,3 +142,39 @@ test('M20 MQTT manual draft is separate from HTTP and visible in readable Review
     assert.equal(base.connections?.some(c => c.type === 'mqtt') ?? false, false,
         'editing must not mutate the active snapshot');
 });
+
+test('M20 mixed HTTP/MQTT draft retains other transport on edit', () => {
+    const base = structuredClone(fixture);
+    const mqtt = newMqttConnection(base);
+    base.connections ??= [];
+    base.connections.push(mqtt);
+    base.bindings = [
+        { target_id: 'device_bench', action_id: 'action_http', executor: 'http',
+          connection_id: 'http_controller', http: { method: 'POST', path: '/relay/2', body: {} } },
+        { target_id: 'device_bench', action_id: 'action_mqtt_a', executor: 'mqtt',
+          connection_id: 'broker_a', mqtt: { topic: 'a/set', payload: 'ON', qos: 0, retain: false } },
+        { target_id: 'device_bench', action_id: 'action_mqtt_b', executor: 'mqtt',
+          connection_id: 'broker_b', mqtt: { topic: 'b/set', payload: 'OFF', qos: 0, retain: false } }
+    ];
+    base.observations = [{ target_id: 'device_bench', connection_id: 'http_controller', executor: 'http',
+        http: { method: 'GET', path: '/relay/2', body: {} }, fields: { on: 'power' } }];
+    const updateA = structuredClone(base.bindings.filter(b => b.executor === 'mqtt'));
+    updateA[0].mqtt.payload = 'OFF';
+    const next = projectConnectivity(base, mqtt, 'device_bench', updateA, undefined, 'mqtt');
+    assert.deepEqual(next.bindings.find(b => b.executor === 'http'), base.bindings[0],
+        'saving MQTT must preserve HTTP action');
+    assert.deepEqual(next.observations[0], base.observations[0],
+        'saving MQTT without a new observation preserves HTTP GET');
+    assert.equal(next.bindings.find(b => b.action_id === 'action_mqtt_a').connection_id, 'broker_a');
+    assert.equal(next.bindings.find(b => b.action_id === 'action_mqtt_b').connection_id, 'broker_b');
+    assert.equal(next.bindings.find(b => b.action_id === 'action_mqtt_a').mqtt.payload, 'OFF');
+    const newMqttObs = { target_id: 'device_bench', connection_id: 'broker_b',
+        executor: 'mqtt', mqtt: { topic: 'b/state', format: 'text', field: 'power', qos: 0 },
+        fields: {} };
+    const replace = projectConnectivity(base, mqtt, 'device_bench', updateA, newMqttObs, 'mqtt', true);
+    assert.equal(replace.observations.length, 1, 'explicit replacement is required');
+    assert.equal(replace.observations[0].executor, 'mqtt');
+    const httpEdit = projectConnectivity(next, null, 'device_bench', [base.bindings[0]],
+        base.observations[0], 'http');
+    assert.deepEqual(httpEdit.bindings.filter(b => b.executor === 'mqtt'), updateA);
+});

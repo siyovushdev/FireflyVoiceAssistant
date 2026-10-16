@@ -10,8 +10,8 @@ const emit = defineEmits<{ ready: []; back: [] }>();
 const task = manual.task.value!;
 const config = task.buffer;
 const initialId = task.id.startsWith('@') ? task.id.slice(1) :
-    config.bindings.find(b => b.target_id === task.id)?.connection_id ??
-    config.observations?.find(o => o.target_id === task.id)?.connection_id ?? '';
+    config.bindings.find(b => b.target_id === task.id && b.executor === 'mqtt')?.connection_id ??
+    config.observations?.find(o => o.target_id === task.id && o.executor === 'mqtt')?.connection_id ?? '';
 const initial = config.connections?.find(c => c.id === initialId && c.type === 'mqtt');
 const selected = ref(initial?.id ?? '');
 const connection = ref<Mutable<ConnectionDto>>(clone(initial ?? newMqttConnection(config)));
@@ -27,6 +27,10 @@ const actions = computed(() => config.actions.filter(a => device.value?.action_i
 const mappings = ref<Mutable<BindingDto>[]>([]);
 let previous = config.observations?.find(o => o.target_id === targetId.value && o.executor === 'mqtt');
 const observing = ref(!!previous);
+const observeConnectionId = ref(previous?.connection_id ?? '');
+const replaceOtherObservation = ref(false);
+const otherObservation = computed(() => config.observations?.find(o =>
+    o.target_id === targetId.value && o.executor !== 'mqtt'));
 function emptyObservation(): Mutable<MqttObservationDto> {
     return { topic: '', format: 'text', qos: 0, field: 'power', true_payload: 'ON', false_payload: 'OFF' };
 }
@@ -44,6 +48,8 @@ function loadDevice() {
     mappings.value = config.bindings.filter(b => b.target_id === targetId.value && b.executor === 'mqtt').map(clone);
     previous = config.observations?.find(o => o.target_id === targetId.value && o.executor === 'mqtt');
     observing.value = !!previous;
+    observeConnectionId.value = previous?.connection_id ?? '';
+    replaceOtherObservation.value = false;
     observation.value = clone(previous?.mqtt ?? {
         ...emptyObservation(), field: device.value?.state?.find(s => s.type === 'boolean')?.id ?? ''
     });
@@ -53,7 +59,10 @@ loadDevice();
 watch(targetId, loadDevice);
 function toggle(actionId: string, enabled: boolean) {
     if (!enabled) { mappings.value = mappings.value.filter(m => m.action_id !== actionId); return; }
-    const assignment = actions.value.find(a => a.id === actionId)?.assignments?.find(a => a.field === 'power');
+    const action = actions.value.find(a => a.id === actionId);
+    if (!action || action.parameters.length || config.bindings.some(b =>
+        b.target_id === targetId.value && b.action_id === actionId && b.executor !== 'mqtt')) return;
+    const assignment = action.assignments?.find(a => a.field === 'power');
     const mqtt = defaultMqttMapping();
     if (typeof assignment?.value === 'boolean') mqtt.payload = assignment.value ? 'ON' : 'OFF';
     mappings.value.push({ target_id: targetId.value, action_id: actionId, connection_id: connection.value.id,
@@ -69,10 +78,15 @@ function validate(): boolean {
     if (step.value === 1 && (!connection.value.name.trim() || !host.value.trim() ||
         !Number.isInteger(port.value) || port.value < 1 || port.value > 65535))
         issue('Укажите название, адрес и порт брокера.');
-    if (step.value === 2) for (const m of mappings.value)
+    if (step.value === 2) for (const m of mappings.value) {
         if (!m.mqtt?.topic.trim() || !Number.isInteger(m.mqtt.qos) || m.mqtt.qos < 0 || m.mqtt.qos > 1)
             issue('Для каждого действия укажите topic и QoS 0 или 1.');
+        if (actions.value.find(a => a.id === m.action_id)?.parameters.length)
+            issue('Параметризованные MQTT-действия пока не поддерживаются.');
+    }
     if (step.value === 3 && observing.value) {
+        if (otherObservation.value && !replaceOtherObservation.value)
+            issue('Для замены чтения состояния другого протокола требуется явное подтверждение.');
         if (!observation.value.topic.trim()) issue('Укажите topic состояния.');
         if (observation.value.format === 'text') {
             if (!observation.value.field || !observation.value.true_payload || !observation.value.false_payload ||
@@ -90,18 +104,23 @@ function project(): Mutable<ConfigurationDto> {
     c.enabled = true;
     c.network = { host: local.value ? '127.0.0.1' : host.value.trim(), port: port.value };
     c.mqtt = { tls: tls.value, ...(credentials.value.trim() ? { credentials_id: credentials.value.trim() } : {}) };
-    const nextMappings = mappings.value.map(m => ({ ...clone(m), connection_id: c.id, executor: 'mqtt' }));
+    // Preserve each action's existing broker. Only newly added mappings and
+    // explicit "Use selected broker" buttons change the connection reference.
+    const nextMappings = mappings.value.map(m => ({ ...clone(m), executor: 'mqtt',
+        connection_id: m.connection_id || c.id }));
     let nextObservation: NonNullable<ConfigurationDto['observations']>[number] | undefined;
     if (observing.value && targetId.value) {
         const m = clone(observation.value);
-        nextObservation = { target_id: targetId.value, connection_id: c.id, executor: 'mqtt',
+        nextObservation = { target_id: targetId.value,
+            connection_id: observeConnectionId.value || c.id, executor: 'mqtt',
             mqtt: m.format === 'text'
                 ? { topic: m.topic, format: 'text', qos: m.qos, field: m.field,
                     true_payload: m.true_payload, false_payload: m.false_payload }
                 : { topic: m.topic, format: 'json', qos: m.qos },
             fields: m.format === 'json' ? Object.fromEntries(fields.value) : {} };
     }
-    return projectConnectivity(config, c, targetId.value, nextMappings, nextObservation);
+    return projectConnectivity(config, c, targetId.value, nextMappings, nextObservation,
+        'mqtt', observing.value && replaceOtherObservation.value);
 }
 const affected = computed(() => consumers(project(), connection.value.id));
 async function finish() {
@@ -143,8 +162,16 @@ async function finish() {
     <p>Для каждого действия укажите topic и точный текст или JSON по документации устройства.</p>
     <article v-for="action in actions" :key="action.id" class="form-section">
       <label class="check"><input type="checkbox" :checked="mappings.some(b => b.action_id === action.id)"
+        :disabled="!!action.parameters.length || config.bindings.some(b => b.target_id === targetId && b.action_id === action.id && b.executor !== 'mqtt')"
         @change="toggle(action.id, ($event.target as HTMLInputElement).checked)" />{{ action.name }}</label>
+      <p v-if="action.parameters.length" class="muted">MQTT MVP поддерживает только действия без параметров.</p>
+      <p v-else-if="config.bindings.some(b => b.target_id === targetId && b.action_id === action.id && b.executor !== 'mqtt')"
+          class="notice">Действие уже подключено через другой протокол. Сначала явно отвяжите его там.</p>
       <template v-for="mapping in mappings.filter(m => m.action_id === action.id)" :key="mapping.action_id">
+        <p v-if="mapping.connection_id && mapping.connection_id !== connection.id" class="notice">
+          Действие остаётся на брокере {{ config.connections?.find(c => c.id === mapping.connection_id)?.name ?? mapping.connection_id }}.
+          <button type="button" @click="mapping.connection_id = connection.id">Перенести на выбранный брокер</button>
+        </p>
         <label>Command topic *<input v-model="mapping.mqtt!.topic" required placeholder="home/relay/set" /></label>
         <label>Payload (TEXT / JSON)<textarea v-model="mapping.mqtt!.payload" rows="2" /></label>
         <label>QoS<select v-model.number="mapping.mqtt!.qos"><option :value="0">0 — без подтверждения</option>
@@ -159,6 +186,15 @@ async function finish() {
       <option :value="false">Без чтения состояния</option><option :value="true">Подписаться на topic</option>
     </select></label>
     <template v-if="observing">
+      <p v-if="otherObservation" class="notice">
+        Сейчас состояние читается через {{ otherObservation.executor.toUpperCase() }}.
+        <label class="check"><input v-model="replaceOtherObservation" type="checkbox" />
+          Заменить существующее чтение состояния на MQTT (явное подтверждение)</label>
+      </p>
+      <p v-if="observeConnectionId && observeConnectionId !== connection.id" class="notice">
+        Подписка остаётся на брокере {{ config.connections?.find(c => c.id === observeConnectionId)?.name ?? observeConnectionId }}.
+        <button type="button" @click="observeConnectionId = connection.id">Перенести подписку на выбранный брокер</button>
+      </p>
       <label>State topic *<input v-model="observation.topic" required /></label>
       <label>Формат<select v-model="observation.format"><option value="text">TEXT: ON / OFF</option>
         <option value="json">JSON: поля верхнего уровня</option></select></label>
