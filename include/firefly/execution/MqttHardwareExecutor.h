@@ -1,6 +1,7 @@
 #pragma once
 #include "firefly/execution/HardwareExecutor.h"
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -16,9 +17,11 @@ class DeviceStateStore;
 class MqttObservationGate final {
 public:
     std::uint64_t snapshot(const std::string& target) const;
-    void begin(const std::string& target);
-    void publicationStarted(const std::string& target);
-    void end(const std::string& target, DeviceStateStore& store) noexcept;
+    void begin(const std::string& target,
+               const std::map<std::string, actions::Scalar>& expected);
+    int submitPublication(const std::string& target, const std::function<int()>& publish);
+    void disconnected(const std::string& target, DeviceStateStore& store) noexcept;
+    void end(const std::string& target, DeviceStateStore& store, bool accepted) noexcept;
     // true: accepted or buffered; false: obsolete or pre-publish telemetry.
     bool accept(const std::string& target, std::uint64_t snapshot,
                 const std::map<std::string, actions::Scalar>& properties,
@@ -28,6 +31,7 @@ private:
         std::uint64_t epoch = 0;
         bool inFlight = false;
         bool published = false;
+        std::map<std::string, actions::Scalar> expected;
         std::optional<std::map<std::string, actions::Scalar>> buffered;
     };
     mutable std::mutex mutex_;
@@ -48,8 +52,9 @@ public:
                            const actions::GenericAction& action) override;
     HardwareObservation observe(const config::ObservationBinding& binding) override;
     void startSubscriptions();
-    void beginCommand(const std::string& target);
-    void endCommand(const std::string& target);
+    void beginCommand(const std::string& target,
+                      const std::map<std::string, actions::Scalar>& expected);
+    void endCommand(const std::string& target, bool accepted);
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

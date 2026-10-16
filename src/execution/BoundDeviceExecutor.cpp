@@ -122,17 +122,32 @@ ExecutionResult BoundDeviceExecutor::execute(const actions::GenericAction& actio
         return predicted;
     }
 
-    // A subscription can deliver a previous state while MQTT is still
-    // connecting. Block observations through both publish and prediction.
-    // The scope guard also releases the barrier on failure/exception.
+    // Derive state assignments once, before any physical action. The MQTT
+    // barrier can only buffer a matching early state, never an unrelated OFF.
+    std::map<std::string, actions::Scalar> expected;
+    if (predicted.current) {
+        if (const auto* light = std::get_if<LightState>(&*predicted.current))
+            expected.emplace("brightness", actions::Scalar(light->brightness));
+        else if (const auto* door = std::get_if<DoorState>(&*predicted.current))
+            expected.emplace("position", actions::Scalar(std::string(
+                door->position == DoorPosition::Open ? "OPEN" : "CLOSED")));
+        else if (const auto* typed = std::get_if<TypedState>(&*predicted.current)) {
+            const auto& def = catalog_->configuration().actions.at(catalog_->actionIndex().at(action.actionId()));
+            for (const auto& assign : def.assignments) {
+                if (assign.argument && !action.arguments().count(*assign.argument)) continue;
+                expected.emplace(assign.field, typed->at(assign.field));
+            }
+        }
+    }
     struct MqttCommandWindow {
         MqttHardwareExecutor* owner = nullptr;
         std::string target;
-        ~MqttCommandWindow() { if (owner) owner->endCommand(target); }
+        bool committed = false;
+        ~MqttCommandWindow() { if (owner) owner->endCommand(target, committed); }
     } window;
     if (lookup.binding->executor == config::ExecutorKind::Mqtt && mqtt_) {
         window.target = action.targetId();
-        mqtt_->beginCommand(window.target);
+        mqtt_->beginCommand(window.target, expected);
         window.owner = mqtt_.get();
     }
     const auto hardware = registry_.execute(*lookup.binding, action);
@@ -151,27 +166,10 @@ ExecutionResult BoundDeviceExecutor::execute(const actions::GenericAction& actio
         return predicted;
     }
 
-    // Accepted ≠ Confirmed. Record Predicted knowledge only after transport accept.
-    if (predicted.current) {
-        std::map<std::string, actions::Scalar> expected;
-        if (const auto* light = std::get_if<LightState>(&*predicted.current))
-            expected.emplace("brightness", actions::Scalar(light->brightness));
-        else if (const auto* door = std::get_if<DoorState>(&*predicted.current))
-            expected.emplace("position", actions::Scalar(std::string(
-                door->position == DoorPosition::Open ? "OPEN" : "CLOSED")));
-        else if (const auto* typed = std::get_if<TypedState>(&*predicted.current)) {
-            // Preview includes virtual initial/Playground values. Only assignments
-            // actually made by this accepted action are production evidence.
-            const auto& definition = catalog_->configuration().actions.at(catalog_->actionIndex().at(action.actionId()));
-            for (const auto& assignment : definition.assignments) {
-                if (assignment.argument && !action.arguments().count(*assignment.argument)) continue;
-                expected.emplace(assignment.field, typed->at(assignment.field));
-            }
-        }
-        // An observation starting after this barrier closes may confirm the
-        // predicted value; one from the connection phase may not.
-        production_.applyPrediction(action.targetId(), expected, now);
-    }
+    // Only transport acceptance creates Predicted; after this, a validated
+    // pre-PUBACK observation may be safely replayed as Confirmed by the guard.
+    if (predicted.current) production_.applyPrediction(action.targetId(), expected, now);
+    window.committed = true;
     predicted.status = ExecutionStatus::Accepted;
     predicted.success = true;
     // Do not mutate playground simulation from production hardware acceptance.
