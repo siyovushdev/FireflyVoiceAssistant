@@ -38,8 +38,20 @@ add_library(firefly_execution
     ../execution/BoundDeviceExecutor.cpp
     ../execution/BindingResolver.cpp
     ../execution/HttpHardwareExecutor.cpp
+    ../execution/MqttHardwareExecutor.cpp
     ../execution/DeviceStateStore.cpp)
 target_link_libraries(firefly_execution PUBLIC firefly_domain)
+option(FIREFLY_ENABLE_MQTT "Build MQTT executor with preinstalled libmosquitto (no downloads)" OFF)
+if(FIREFLY_ENABLE_MQTT)
+    find_path(FIREFLY_MOSQUITTO_INCLUDE_DIR mosquitto.h)
+    find_library(FIREFLY_MOSQUITTO_LIBRARY NAMES mosquitto)
+    if(NOT FIREFLY_MOSQUITTO_INCLUDE_DIR OR NOT FIREFLY_MOSQUITTO_LIBRARY)
+        message(FATAL_ERROR "FIREFLY_ENABLE_MQTT requires libmosquitto headers/library, provisioned offline")
+    endif()
+    target_compile_definitions(firefly_execution PRIVATE FIREFLY_WITH_MOSQUITTO=1)
+    target_include_directories(firefly_execution PRIVATE "${FIREFLY_MOSQUITTO_INCLUDE_DIR}")
+    target_link_libraries(firefly_execution PUBLIC "${FIREFLY_MOSQUITTO_LIBRARY}")
+endif()
 target_include_directories(firefly_execution SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
 target_compile_options(firefly_execution PRIVATE -Wall -Wextra -Wpedantic)
 add_library(firefly_admin_core RuntimeGeneration.cpp RuntimeWorker.cpp Api.cpp AdminLanguage.cpp AdminDraft.cpp AdminPlan.cpp AdminCopilot.cpp AdminTranscriber.cpp HealthModel.cpp)

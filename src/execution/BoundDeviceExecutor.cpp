@@ -1,5 +1,6 @@
 #include "firefly/execution/ActionExecutor.h"
 #include "firefly/execution/HttpHardwareExecutor.h"
+#include "firefly/execution/MqttHardwareExecutor.h"
 #include <nlohmann/json.hpp>
 
 namespace firefly::execution {
@@ -31,6 +32,11 @@ std::map<std::string, std::string> physicalMappings(config::Catalog catalog) {
 BoundDeviceExecutor::BoundDeviceExecutor(config::Catalog catalog, SteadyClockMs steadyClock, WallClockMs wallClock)
     : catalog_(catalog), playground_(catalog), production_(catalog, std::move(steadyClock), std::move(wallClock)), resolver_(catalog) {
     registry_.registerExecutor(config::ExecutorKind::Http, std::make_shared<HttpHardwareExecutor>(catalog));
+    mqtt_ = std::make_shared<MqttHardwareExecutor>(catalog, production_);
+    registry_.registerExecutor(config::ExecutorKind::Mqtt, mqtt_);
+}
+void BoundDeviceExecutor::startSubscriptions() {
+    if (mqtt_) mqtt_->startSubscriptions();
 }
 
 ExecutionResult BoundDeviceExecutor::preview(const actions::GenericAction& action) const {
@@ -116,6 +122,7 @@ ExecutionResult BoundDeviceExecutor::execute(const actions::GenericAction& actio
         return predicted;
     }
 
+    const auto publishOrder = production_.steadyNowMs();
     const auto hardware = registry_.execute(*lookup.binding, action);
     // Connectivity follows transport evidence, independent of Accepted|Failed.
     if (hardware.reachability == ReachabilityEvidence::Reachable)
@@ -149,7 +156,7 @@ ExecutionResult BoundDeviceExecutor::execute(const actions::GenericAction& actio
                 expected.emplace(assignment.field, typed->at(assignment.field));
             }
         }
-        production_.applyPrediction(action.targetId(), expected, now);
+        production_.applyPrediction(action.targetId(), expected, now, publishOrder);
     }
     predicted.status = ExecutionStatus::Accepted;
     predicted.success = true;

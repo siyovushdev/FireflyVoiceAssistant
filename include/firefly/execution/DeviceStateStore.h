@@ -72,7 +72,7 @@ public:
     // After Accepted hardware execution: expected property map as Predicted.
     void applyPrediction(const std::string& targetId,
                          const std::map<std::string, actions::Scalar>& expected,
-                         std::int64_t atMs);
+                         std::int64_t atMs, std::optional<std::int64_t> startedSteadyMs = std::nullopt);
     // Independent telemetry/readback — Confirmed; overrides Predicted when the
     // local steady order stamp is not older than existing property knowledge.
     // Older observations are rejected (stale_observation). Values must obey

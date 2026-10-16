@@ -187,6 +187,9 @@ void RuntimeGenerations::apply(config::Catalog catalog) {
     contextTokens_ = next->targetContexts.empty() ? model_.contextTokens() : nextContextTokens;
     std::atomic_store(&active_, next);
     ++nextGeneration_;
+    // No broker contact during preflight. After publication, subscription
+    // startup is best effort; an unreachable broker cannot fail the Apply.
+    next->executor->startSubscriptions();
 }
 void RuntimeGenerations::preflight(config::Catalog catalog) {
     const auto next = std::make_shared<const RuntimeGeneration>(std::move(catalog), 0, model_.commandProtocol());

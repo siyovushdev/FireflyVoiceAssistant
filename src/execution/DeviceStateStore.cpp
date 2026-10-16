@@ -114,18 +114,23 @@ std::optional<DeviceKnowledge> DeviceStateStore::device(const std::string& targe
 
 void DeviceStateStore::applyPrediction(const std::string& targetId,
                                        const std::map<std::string, actions::Scalar>& expected,
-                                       std::int64_t atMs) {
+                                       std::int64_t atMs, std::optional<std::int64_t> startedSteadyMs) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto found = devices_.find(targetId);
     if (found == devices_.end()) return;
     const auto steady = steadyNowMs();
+    const auto order = startedSteadyMs.value_or(steady);
     for (const auto& [key, value] : expected) {
         auto& property = found->second.properties[key];
+        // A subscribed state message may confirm the command while publish()
+        // is still returning. Never overwrite that newer confirmed evidence.
+        if (property.knowledge == StateKnowledge::Confirmed && property.orderSteadyMs &&
+            *property.orderSteadyMs > order) continue;
         property.value = value;
         property.knowledge = StateKnowledge::Predicted;
         property.updatedAtMs = atMs;
         property.freshnessSteadyMs = steady;
-        property.orderSteadyMs = steady;
+        property.orderSteadyMs = order;
     }
 }
 
