@@ -99,8 +99,10 @@ int main(int argc, char** argv) {
             oldConfig["connections"] = Json::array({{
                 {"id","connection_legacy_mqtt"},{"name","Future broker"},
                 {"type","mqtt"},{"enabled",false},{"timeout_ms",2000},
-                {"network",{{"host","192.168.1.50"},{"port",1883}}}
+                {"network",{{"host","old_broker_host"},{"port",1883}}}
             }});
+            // Underscore was allowed in disabled M19 placeholders. Changing
+            // validation of dormant transports would also corrupt old stores.
             const auto historical = catalog(oldConfig);
             const auto original = Json::parse(historical->canonicalJson());
             check(!original["connections"][0].contains("mqtt"), "disabled M19 MQTT must not acquire a default mqtt object");
