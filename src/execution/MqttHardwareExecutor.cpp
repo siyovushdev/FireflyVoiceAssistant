@@ -22,9 +22,10 @@
 
 namespace firefly::execution {
 std::uint64_t MqttObservationGate::snapshot(const std::string& target) const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    const auto found = targets_.find(target);
-    return found == targets_.end() ? 0 : found->second.epoch;
+    (void)target;
+    // Capture arrival order before competing with the publication mutex.
+    // A callback already running cannot acquire a fresh post-publish ticket.
+    return nextTicket_.fetch_add(1, std::memory_order_seq_cst);
 }
 void MqttObservationGate::begin(const std::string& target,
                                 const std::map<std::string, actions::Scalar>& expected) {
@@ -33,7 +34,7 @@ void MqttObservationGate::begin(const std::string& target,
     if (current.inFlight) throw std::logic_error("mqtt_target_busy");
     // Copy can fail; don't leave the target stuck in-flight on allocation failure.
     current.expected = expected;
-    ++current.epoch;  // old callback tickets can never confirm this command
+    current.cutoffTicket = nextTicket_.fetch_add(1, std::memory_order_seq_cst);
     current.inFlight = true;
     current.published = false;
     current.disconnectedDuringCommand = false;
@@ -49,7 +50,7 @@ int MqttObservationGate::submitPublication(const std::string& target,
     // Callback snapshots and buffering share this exact mutex.
     const int result = publish();
     if (result == 0) { // MOSQ_ERR_SUCCESS
-        ++found->second.epoch;
+        found->second.cutoffTicket = nextTicket_.fetch_add(1, std::memory_order_seq_cst);
         found->second.published = true;
     }
     return result;
@@ -58,7 +59,7 @@ void MqttObservationGate::disconnected(const std::string& target, DeviceStateSto
     try {
         std::lock_guard<std::mutex> lock(mutex_);
         auto& current = targets_[target];
-        ++current.epoch;    // revoke tickets captured before disconnect
+        current.cutoffTicket = nextTicket_.fetch_add(1, std::memory_order_seq_cst);
         if (current.inFlight) current.disconnectedDuringCommand = true;
         current.published = false;
         current.buffered.reset();
@@ -95,7 +96,8 @@ void MqttObservationGate::end(const std::string& target, DeviceStateStore& store
     }
     // Keep tickets only from a healthy successful submission. An observation
     // captured during disconnect or a failed attempt cannot confirm later.
-    if (!accepted || current.disconnectedDuringCommand) ++current.epoch;
+    if (!accepted || current.disconnectedDuringCommand)
+        current.cutoffTicket = nextTicket_.fetch_add(1, std::memory_order_seq_cst);
     current.disconnectedDuringCommand = false;
 }
 bool MqttObservationGate::accept(const std::string& target, std::uint64_t version,
@@ -103,7 +105,7 @@ bool MqttObservationGate::accept(const std::string& target, std::uint64_t versio
                                  DeviceStateStore& store) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto& current = targets_[target];
-    if (current.epoch != version) return false;
+    if (version <= current.cutoffTicket) return false;
     const StateObservation sample{target, properties, 0, std::nullopt};
     if (current.inFlight) {
         if (!current.published || current.expected.empty()) return false;
@@ -117,7 +119,12 @@ bool MqttObservationGate::accept(const std::string& target, std::uint64_t versio
             const auto found = properties.find(key);
             if (found == properties.end()) continue;
             overlaps = true;
-            if (found->second != expected) return false;
+            if (found->second != expected) {
+                // A newer valid contradiction revokes an earlier matching sample.
+                // Do not turn the earlier ON into Confirmed after a fresh OFF.
+                current.buffered.reset();
+                return false;
+            }
         }
         if (!overlaps) return false;
         // Build replacement before touching an earlier valid buffer.
