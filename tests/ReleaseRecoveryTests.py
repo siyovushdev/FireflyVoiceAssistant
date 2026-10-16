@@ -22,6 +22,11 @@ controller = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(controller)
 
 
+def character_device_stat():
+    # Mock the filesystem boundary, not S_ISCHR: test PCs need no RK3588 nodes.
+    return os.stat_result((controller.stat.S_IFCHR | 0o600, 0, 0, 1, 0, 0, 0, 0, 0, 0))
+
+
 def snapshot(owners=(), children=(), main=0, active='inactive', control=0):
     return dict(owners=list(owners), cgroup_pids=list(children), main_pid=main,
                 control_pid=control, active_state=active)
@@ -395,7 +400,7 @@ class RecoveryTests(unittest.TestCase):
     def test_fuser_records_offending_pid_stdout_stderr(self):
         ops = self.make_controller()
         result = subprocess.CompletedProcess([], 0, ' 123 456 ', '/dev/dri/card1: m\n/dev/snd/pcmC3D0c:')
-        with patch.object(controller.stat, 'S_ISCHR', return_value=True), \
+        with patch.object(controller.Path, 'stat', return_value=character_device_stat()), \
                 patch.object(controller.subprocess, 'run', return_value=result):
             self.assertEqual(ops.owner_probe(), [123, 456])
         self.assertEqual(ops.records[0][1]['stdout'], ' 123 456 ')
@@ -405,16 +410,23 @@ class RecoveryTests(unittest.TestCase):
                        subprocess.CompletedProcess([], 0, '', ''),
                        subprocess.CompletedProcess([], 1, '123', ''),
                        subprocess.CompletedProcess([], 2, '', '')]:
-            with self.subTest(result=result), patch.object(controller.stat, 'S_ISCHR', return_value=True), \
+            with self.subTest(result=result), patch.object(controller.Path, 'stat', return_value=character_device_stat()), \
                     patch.object(controller.subprocess, 'run', return_value=result), self.assertRaises(RuntimeError):
                 ops.owner_probe()
     def test_fuser_timeout_keeps_partial_output(self):
         ops = self.make_controller()
-        with patch.object(controller.stat, 'S_ISCHR', return_value=True), \
+        with patch.object(controller.Path, 'stat', return_value=character_device_stat()), \
                 patch.object(controller.subprocess, 'run', side_effect=subprocess.TimeoutExpired('fuser', 5, b'123', b'error')), \
                 self.assertRaises(subprocess.TimeoutExpired):
             ops.owner_probe()
         self.assertIn('123', ops.records[0][1]['stdout'])
+    def test_non_character_resource_fails_closed_before_fuser(self):
+        ops = self.make_controller()
+        regular = os.stat_result((controller.stat.S_IFREG | 0o600, 0, 0, 1, 0, 0, 0, 0, 0, 0))
+        with patch.object(controller.Path, 'stat', return_value=regular), \
+                patch.object(controller.subprocess, 'run') as run, self.assertRaisesRegex(RuntimeError, 'not a character device'):
+            ops.owner_probe()
+        run.assert_not_called()
     def test_missing_resource_fails_closed_before_fuser(self):
         ops = self.make_controller()
         with patch.object(controller.Path, 'stat', side_effect=FileNotFoundError), \
