@@ -4,7 +4,8 @@ import { readFileSync } from 'node:fs';
 import { decodeResponse, readApi } from '../.test-build/api/client.js';
 import { devices, zones, properties, sameGeneration } from '../.test-build/adapters/catalog.js';
 import { createSystemStore } from '../.test-build/stores/system.js';
-import { newMqttConnection, defaultMqttMapping, projectConnectivity, readableDiff } from '../.test-build/adapters/editing.js';
+import { newMqttConnection, defaultMqttMapping, projectConnectivity, readableDiff,
+    connectionActionSummary, connectionObservationSummary } from '../.test-build/adapters/editing.js';
 
 const fixture = JSON.parse(readFileSync(new URL('../../../../tests/admin/v2/system.json', import.meta.url)));
 const catalog = () => ({ ok: true, configuration: structuredClone(fixture), hash: 'a'.repeat(64), revision: 1, generation_id: 3 });
@@ -177,4 +178,36 @@ test('M20 mixed HTTP/MQTT draft retains other transport on edit', () => {
     const httpEdit = projectConnectivity(next, null, 'device_bench', [base.bindings[0]],
         base.observations[0], 'http');
     assert.deepEqual(httpEdit.bindings.filter(b => b.executor === 'mqtt'), updateA);
+});
+
+test('M20 MQTT Review shows preserved HTTP actions, GET and distinct brokers', () => {
+    const candidate = structuredClone(fixture);
+    candidate.connections = [
+        { id: 'broker_a', name: 'MQTT-A', type: 'mqtt', enabled: true,
+          network: { host: '127.0.0.1', port: 1883 }, mqtt: { tls: false }, timeout_ms: 2000 },
+        { id: 'broker_b', name: 'MQTT-B', type: 'mqtt', enabled: true,
+          network: { host: '127.0.0.1', port: 1884 }, mqtt: { tls: false }, timeout_ms: 2000 },
+        { id: 'http_device', name: 'HTTP Controller', type: 'http', enabled: true,
+          http: { base_url: 'http://127.0.0.1:8765' }, timeout_ms: 2000 }
+    ];
+    candidate.bindings = [
+        { target_id: 'device_bench', action_id: 'turn_on', executor: 'mqtt',
+          connection_id: 'broker_a', mqtt: { topic: 'relay/set', payload: 'ON', qos: 0, retain: false } },
+        { target_id: 'device_bench', action_id: 'turn_off', executor: 'mqtt',
+          connection_id: 'broker_b', mqtt: { topic: 'relay/set', payload: 'OFF', qos: 0, retain: false } },
+        { target_id: 'device_bench', action_id: 'refresh', executor: 'http',
+          connection_id: 'http_device', http: { method: 'POST', path: '/refresh' } }
+    ];
+    candidate.observations = [
+        { target_id: 'device_bench', connection_id: 'http_device',
+          executor: 'http', http: { method: 'GET', path: '/state' }, fields: { power: 'power' } }
+    ];
+    assert.match(connectionActionSummary(candidate, 'device_bench', 'turn_on'), /MQTT-A.*ON/);
+    assert.match(connectionActionSummary(candidate, 'device_bench', 'turn_off'), /MQTT-B.*OFF/);
+    assert.match(connectionActionSummary(candidate, 'device_bench', 'refresh'), /HTTP Controller.*POST \/refresh/);
+    assert.match(connectionObservationSummary(candidate, 'device_bench'), /HTTP Controller.*GET \/state/);
+    assert.equal(connectionActionSummary(candidate, 'device_bench', 'missing'), 'не подключено');
+    candidate.observations = [{ target_id: 'device_bench', executor: 'mqtt',
+        connection_id: 'broker_b', mqtt: { topic: 'relay/state', format: 'text', qos: 0 }, fields: {} }];
+    assert.match(connectionObservationSummary(candidate, 'device_bench'), /MQTT-B.*relay\/state/);
 });

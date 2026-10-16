@@ -74,6 +74,29 @@ export function projectConnectivity(config: ConfigurationDto, connection: Connec
     }
     return next;
 }
+// A transport editor's Review must describe the complete projected candidate,
+ // including actions/observation belonging to another transport.
+export function connectionActionSummary(config: ConfigurationDto, targetId: string, actionId: string): string {
+    const binding = config.bindings.find(b => b.target_id === targetId && b.action_id === actionId);
+    if (!binding) return 'не подключено';
+    const connection = config.connections?.find(c => c.id === binding.connection_id);
+    const name = connection?.name ?? (binding.connection_id || 'отдельный адрес');
+    if (binding.executor === 'mqtt' && binding.mqtt)
+        return `MQTT · ${name} · ${binding.mqtt.topic} → ${binding.mqtt.payload}`;
+    if (binding.executor === 'http' && binding.http)
+        return `HTTP · ${name} · ${binding.http.method} ${binding.http.url ?? binding.http.path ?? ''}`;
+    return 'неподдерживаемое подключение';
+}
+export function connectionObservationSummary(config: ConfigurationDto, targetId: string): string {
+    const observation = config.observations?.find(o => o.target_id === targetId);
+    if (!observation) return 'не предоставляется';
+    const name = config.connections?.find(c => c.id === observation.connection_id)?.name ?? observation.connection_id;
+    if (observation.executor === 'mqtt' && observation.mqtt)
+        return `MQTT · ${name} · ${observation.mqtt.topic} (${observation.mqtt.format})`;
+    if (observation.executor === 'http' && observation.http)
+        return `HTTP · ${name} · GET ${observation.http.path ?? observation.http.url ?? ''}`;
+    return 'неподдерживаемое наблюдение';
+}
 function connectivitySummary(value: Record<string, unknown>, config: ConfigurationDto): string | null {
     if (value.type === 'mqtt' && value.network && typeof value.network === 'object') {
         const network = value.network as { host?: string; port?: number };

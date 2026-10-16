@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { manual } from '../stores/manual.js';
-import { clone, consumers, defaultMqttMapping, newMqttConnection, projectConnectivity, type Mutable } from '../adapters/editing.js';
+import { clone, consumers, defaultMqttMapping, newMqttConnection, projectConnectivity,
+    connectionActionSummary, connectionObservationSummary, type Mutable } from '../adapters/editing.js';
 import type { BindingDto, ConnectionDto, MqttObservationDto, ConfigurationDto } from '../types/wire.js';
 import TaskErrors from './forms/TaskErrors.vue';
 import type { Issue } from '../api/admin.js';
@@ -122,7 +123,8 @@ function project(): Mutable<ConfigurationDto> {
     return projectConnectivity(config, c, targetId.value, nextMappings, nextObservation,
         'mqtt', observing.value && replaceOtherObservation.value);
 }
-const affected = computed(() => consumers(project(), connection.value.id));
+const reviewCandidate = computed(() => project());
+const affected = computed(() => consumers(reviewCandidate.value, connection.value.id));
 async function finish() {
     if (!validate()) return;
     Object.assign(config, project());
@@ -222,9 +224,8 @@ async function finish() {
   <div v-if="step === 4" class="review-connection">
     <p><strong>{{ connection.name }}</strong> · {{ local ? 'Локальный Firefly' : host }}:{{ port }} · {{ tls ? 'TLS' : 'без TLS' }}</p>
     <p v-for="a in actions" :key="a.id">{{ a.name }}:
-      {{ mappings.find(m => m.action_id === a.id)?.mqtt?.topic ?? 'не подключено' }}
-      → {{ mappings.find(m => m.action_id === a.id)?.mqtt?.payload }}</p>
-    <p>Состояние: {{ observing ? observation.topic + ' (' + observation.format + ')' : 'не предоставляется' }}</p>
+      {{ connectionActionSummary(reviewCandidate, targetId, a.id) }}</p>
+    <p>Состояние: {{ connectionObservationSummary(reviewCandidate, targetId) }}</p>
     <p>Потребители подключения: {{ affected.join(', ') || 'нет' }}</p>
     <strong>Оборудование командами ещё не проверялось.</strong>
     <p>Откроется общий Review → Apply. Сохранение не включает локальный брокер.</p>
