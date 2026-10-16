@@ -1,4 +1,4 @@
-import type { ActionDto, ConfigurationDto, DeviceDto, FieldDto, Scalar, ConnectionDto, BindingDto, HttpDto } from '../types/wire.js';
+import type { ActionDto, ConfigurationDto, DeviceDto, FieldDto, Scalar, ConnectionDto, BindingDto, HttpDto, MqttBindingDto } from '../types/wire.js';
 export type Mutable<T> = T extends object ? { -readonly [K in keyof T]: Mutable<T[K]> } : T;
 export type Draft = Mutable<ConfigurationDto>;
 export type Field = Mutable<FieldDto>;
@@ -46,6 +46,13 @@ export function newHttpConnection(config: ConfigurationDto): Mutable<ConnectionD
 export function defaultHttpMapping(): Mutable<HttpDto> {
     return { method: 'POST', path: '', body: {}, timeout_ms: 0, content_type: 'application/json', expected_status: 200 };
 }
+export function newMqttConnection(config: ConfigurationDto): Mutable<ConnectionDto> {
+    return { id: allocate(config, 'connection_mqtt'), name: '', type: 'mqtt', enabled: true,
+        timeout_ms: 2000, network: { host: '127.0.0.1', port: 1883 }, mqtt: { tls: false } };
+}
+export function defaultMqttMapping(): Mutable<MqttBindingDto> {
+    return { topic: '', payload: '', qos: 0, retain: false };
+}
 export function projectConnectivity(config: ConfigurationDto, connection: ConnectionDto | null, targetId: string,
     mappings: readonly BindingDto[], observation?: NonNullable<ConfigurationDto['observations']>[number]): Draft {
     const next = clone(config);
@@ -61,6 +68,21 @@ export function projectConnectivity(config: ConfigurationDto, connection: Connec
     return next;
 }
 function connectivitySummary(value: Record<string, unknown>, config: ConfigurationDto): string | null {
+    if (value.type === 'mqtt' && value.network && typeof value.network === 'object') {
+        const network = value.network as { host?: string; port?: number };
+        const mqtt = value.mqtt as { tls?: boolean; credentials_id?: string } | undefined;
+        return String(value.name ?? 'MQTT') + ' · MQTT ' + String(network.host) + ':' + String(network.port) +
+            (mqtt?.tls ? ' · TLS' : '') + (mqtt?.credentials_id ? ' · credentials' : '') +
+            (value.enabled === false ? ' · отключено' : '');
+    }
+    if (value.executor === 'mqtt' && value.mqtt && typeof value.mqtt === 'object') {
+        const mqtt = value.mqtt as { topic?: string; payload?: string; format?: string };
+        const device = config.devices.find(d => d.id === value.target_id);
+        const action = config.actions.find(a => a.id === value.action_id);
+        return [device?.name, action?.name, 'MQTT ' + (mqtt.topic ?? ''),
+            mqtt.payload === undefined ? 'State: ' + (mqtt.format ?? '') : 'Payload: ' + mqtt.payload,
+            value.fields ? 'Поля: ' + JSON.stringify(value.fields) : ''].filter(Boolean).join(' · ');
+    }
     if (!value.http || typeof value.http !== 'object') return null;
     const http = value.http as Record<string, unknown>;
     if ('base_url' in http) return `${value.name} · ${http.base_url}${http.base_path ?? ''}${value.enabled === false ? ' · отключено' : ''}`;
