@@ -27,9 +27,10 @@ const actions = computed(() => config.actions.filter(a => device.value?.action_i
 const mappings = ref<Mutable<BindingDto>[]>([]);
 let previous = config.observations?.find(o => o.target_id === targetId.value && o.executor === 'mqtt');
 const observing = ref(!!previous);
-const observation = ref<Mutable<MqttObservationDto>>(clone(previous?.mqtt ?? {
-    topic: '', format: 'text', qos: 0, field: 'power', true_payload: 'ON', false_payload: 'OFF'
-}));
+function emptyObservation(): Mutable<MqttObservationDto> {
+    return { topic: '', format: 'text', qos: 0, field: 'power', true_payload: 'ON', false_payload: 'OFF' };
+}
+const observation = ref<Mutable<MqttObservationDto>>(clone(previous?.mqtt ?? emptyObservation()));
 const fields = ref<[string, string][]>(Object.entries(previous?.fields ?? {}));
 
 function chooseConnection() {
@@ -44,9 +45,7 @@ function loadDevice() {
     previous = config.observations?.find(o => o.target_id === targetId.value && o.executor === 'mqtt');
     observing.value = !!previous;
     observation.value = clone(previous?.mqtt ?? {
-        topic: '', format: 'text', qos: 0,
-        field: device.value?.state?.find(s => s.type === 'boolean')?.id ?? '',
-        true_payload: 'ON', false_payload: 'OFF'
+        ...emptyObservation(), field: device.value?.state?.find(s => s.type === 'boolean')?.id ?? ''
     });
     fields.value = Object.entries(previous?.fields ?? {});
 }

@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { decodeResponse, readApi } from '../.test-build/api/client.js';
 import { devices, zones, properties, sameGeneration } from '../.test-build/adapters/catalog.js';
 import { createSystemStore } from '../.test-build/stores/system.js';
+import { newMqttConnection, defaultMqttMapping, projectConnectivity, readableDiff } from '../.test-build/adapters/editing.js';
 
 const fixture = JSON.parse(readFileSync(new URL('../../../../tests/admin/v2/system.json', import.meta.url)));
 const catalog = () => ({ ok: true, configuration: structuredClone(fixture), hash: 'a'.repeat(64), revision: 1, generation_id: 3 });
@@ -119,4 +120,25 @@ test('no active runtime shows stored catalog with Unknown evidence', async () =>
     assert.equal(store.active.value, null);
     assert.equal(store.health.value, 'Статус недоступен');
     assert.equal(store.devices.value.at(-1).properties[0].value, '—');
+});
+
+test('M20 MQTT manual draft is separate from HTTP and visible in readable Review', () => {
+    const base = structuredClone(fixture);
+    const connection = newMqttConnection(base);
+    assert.equal(connection.type, 'mqtt');
+    assert.equal(connection.network.host, '127.0.0.1');
+    assert.equal(connection.mqtt.tls, false);
+    const command = { target_id: 'device_bench', action_id: 'action_relay_on',
+        connection_id: connection.id, executor: 'mqtt',
+        mqtt: { ...defaultMqttMapping(), topic: 'home/relay/set', payload: 'ON' } };
+    const observation = { target_id: 'device_bench', connection_id: connection.id, executor: 'mqtt',
+        mqtt: { topic: 'home/relay/state', format: 'text', field: 'power',
+            true_payload: 'ON', false_payload: 'OFF', qos: 0 }, fields: {} };
+    const next = projectConnectivity(base, connection, 'device_bench', [command], observation);
+    assert.equal(next.connections.some(c => c.id === connection.id), true);
+    assert.equal(next.bindings.some(b => b.executor === 'mqtt' && b.mqtt.topic === 'home/relay/set'), true);
+    assert.equal(next.observations.some(o => o.executor === 'mqtt'), true);
+    assert.match(readableDiff(base, next).map(c => c.afterText).join(' / '), /MQTT|relay\/set/);
+    assert.equal(base.connections?.some(c => c.type === 'mqtt') ?? false, false,
+        'editing must not mutate the active snapshot');
 });
