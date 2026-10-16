@@ -1,5 +1,7 @@
 # M19 Resource-Aware AI Setup
 
+> Dated milestone/design record. Its test results and deployment statements apply to the recorded revision, not today. For current M19 identity, architecture and operating instructions, start at [the production baseline](production-baseline.md) and [README](../README.md). Historical results below are preserved.
+
 ## Qualification — 2026-10-14
 
 Real Admin Qwen3-4B ctx4096, original AI Setup, private Review / one Apply,

@@ -1,5 +1,7 @@
 # M19 production preparation (no activation)
 
+> Dated milestone/design record. Its test results and deployment statements apply to the recorded revision, not today. For current M19 identity, architecture and operating instructions, start at [the production baseline](production-baseline.md) and [README](../README.md). Historical results below are preserved.
+
 Product base: master `4118088eb938e1c616798fce5e08bfac3a794f58`.
 Packaging changes are committed locally on a descendant; the approved commit
 must be that exact clean HEAD, including packaging, runner and CMake changes.
