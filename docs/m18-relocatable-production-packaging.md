@@ -1,5 +1,7 @@
 # M18.6 — Relocatable production packaging
 
+> Dated milestone/design record. Its test results and deployment statements apply to the recorded revision, not today. For current M19 identity, architecture and operating instructions, start at [the production baseline](production-baseline.md) and [README](../README.md). Historical results below are preserved.
+
 Baseline: `e5acc711dbe29aacd68a56b6e96f8554f1618d58`.
 Branch: `feature/m18.6-relocatable-deployment`.
 This milestone packages the existing single-process appliance. It does not change

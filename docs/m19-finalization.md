@@ -1,5 +1,7 @@
 # M19 finalization — 2026-10-14
 
+> Dated milestone/design record. Its test results and deployment statements apply to the recorded revision, not today. For current M19 identity, architecture and operating instructions, start at [the production baseline](production-baseline.md) and [README](../README.md). Historical results below are preserved.
+
 Closure readiness is based on the explicitly retained **PARTIAL_PASS** boundary.
 Real Admin Qwen3-4B ctx4096 initialized, ran five inference calls and produced the
 original Кабинет / Лампа proposal with Russian forms and boolean ON/OFF. Review

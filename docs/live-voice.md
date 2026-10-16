@@ -1,5 +1,7 @@
 # Live voice mode (Milestone 4 checkpoint)
 
+> Dated milestone/design record. Its test results and deployment statements apply to the recorded revision, not today. For current M19 identity, architecture and operating instructions, start at [the production baseline](production-baseline.md) and [README](../README.md). Historical results below are preserved.
+
 Linux/aarch64 only. No wake word, network service, or hardware action execution.
 The existing text mode and command semantics are unchanged. Speak only after
 `LISTENING`; wait for the next `LISTENING` before the next command.

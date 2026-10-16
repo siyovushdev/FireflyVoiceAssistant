@@ -1,54 +1,29 @@
-# Repository Guidelines
+# Repository guidelines — M19 baseline
 
-## Fixed Target and Scope
-FireflyVoiceAssistantLinux targets Linux/aarch64 only: Firefly ROC-RK3588S-PC, Ubuntu 22.04, RK3588S, 8 GB RAM. The fixed inference stack is RKLLM 1.3.0 with Qwen3-4B W8A8 on the NPU. Do not select another LLM, change quantization, rebuild the model, redo Vulkan/NPU research, or work on Android.
+Read [README.md](README.md) first, then [the dated production baseline](docs/production-baseline.md), [architecture](docs/architecture.md), and [build/test guide](docs/build-and-test.md). These are the current entry points. Earlier milestone reports and [archived M1–M4 instructions](docs/history/agent-instructions-m1-m4.md) preserve historical evidence; they do not define today's scope.
 
-The initial milestone was TEXT ONLY: no microphone, STT, GPIO/hardware execution, or systemd. Do not integrate RKLLM during the first implementation milestone. Never use serialized persistent prompt cache as production state.
+## Target and boundaries
 
-## Read-Only Production References
-`~/demo_Linux_aarch64` is strictly READ-ONLY. Never modify, rename, delete, or overwrite anything there. Inspect only necessary listed references:
-- `rkllm.h`
-- `Qwen3-4B_W8A8_RK3588_3core.rkllm`
-- `prompt_compact_v5_short_system.txt`
-- `firefly_benchmark_runner_memory_system_v1.cpp`
-- `firefly_benchmark_runner_safety_v1.cpp`
+Production is Linux/aarch64 on Firefly RK3588S, Ubuntu 22.04, 8 GB RAM. Keep RKLLM 1.3.0, Qwen3-4B W8A8, Runtime context 1024, separate Admin context 4096, and the 6 GiB admission / 1 GiB reserve policies. Do not change models, quantization, swap or safety thresholds as incidental cleanup. MQTT is not implemented; do not start M20 without an explicit task.
 
-Do not tune prompt v5. Do not replace the compact protocol with JSON.
+Codex and Chromium run on the Ubuntu PC. Control Firefly over SSH. Inspect production read-only unless the owner explicitly authorizes a hardware window or activation. Never launch a competing NPU/microphone owner. Do not stop/restart production, switch release pointers, mutate ConfigStore or change the permanent unit during ordinary development. SSH credentials, tokens, private ConfigStore backups, raw user audio and model binaries must not be committed. Preserve the already tracked frozen small Amina release artifact.
 
-## Frozen Protocol and Architecture
-Pipeline: original text → conservative deterministic parser → RKLLM/Qwen3-4B if unresolved → SafetyGate → strict ActionValidator → Action.
+`~/demo_Linux_aarch64` is read-only. Preserve active/rollback releases, the original grounding release used as the Amina anchor, shared models, evidence, dirty trees and unrelated processes. Use a separate branch/worktree from fetched master; never reset or clean someone else's checkout. Publication, merge, tag and rollout require authorization in the task. Historical one-shot permissions and recovery plans are not reusable.
 
-Protocol: `L|K|N` kitchen, `L|B|N` bedroom, `L|G|N` living room/hall, `L|C|N` corridor; integer N is 0..100. `D` means open entrance door. `U` means unsupported, ambiguous, or unsafe and is never executable.
+## Current semantic contracts
 
-The parser must never guess. Exact commands require explicit room and brightness; on/maximum = 100, off = 0, half = 50. SafetyGate may only preserve the candidate or reject to U, never repair or invent. For light actions, the predicted room must occur explicitly in ORIGINAL input. Reject brightness 0 when original input contains a form of «включить». Strict validation accepts only D or the four valid light forms.
+Original text → LanguageIndex / conservative parser / scoped Runtime Qwen → typed GenericAction → SafetyGate → domain validation → BindingResolver → registered executor. Keep original-input grounding; unsupported or ambiguous input must never execute. SafetyGate may preserve or reject, never repair or invent. Keep explicit entrance-door opening and contradictory light-state protections; do not correct STT transcripts to force acceptance.
 
-## Implementation and Verification
-Use maintainable C++17, CMake, separated responsibilities, RAII where appropriate, and no unnecessary global state. Public interfaces live in `include/firefly/`, implementations in `src/`, unit tests in `tests/`. Use four-space indentation and descriptive names.
+Runtime uses the config-derived compact scalar protocol (`[integer]`, `[]`, `null`); strict structured JSON remains for applicable schemas and Admin operations. `D`, `L|…`, `U` are legacy CLI/debug adapters, not the current internal action model. Do not restore M1 hardcoded rooms or the old prompt as production behavior. ConfigStore owns stable IDs, typed actions, CAS revision/hash, backups/LKG and atomic RuntimeGeneration publication. Preserve legacy HTTP URL bindings and reusable Connection bindings. Predicted command state and independently observed Confirmed state are distinct.
 
-First milestone: inspect repository and necessary references; implement Action, ActionValidator, DeterministicParser, SafetyGate; test all four without RKLLM. Run:
+AI Setup owns a private draft. Proposal/acceptance does not execute devices; Review → explicit Apply owns publication. Resource-Aware lifecycle drains voice and releases Runtime before Admin load; failed teardown/admission fails closed. Never substitute scripted inference when claiming real Qwen/voice acceptance.
 
-```sh
-cmake -S . -B build -DRKLLM_ROOT=/home/firefly/demo_Linux_aarch64
-cmake --build build
-ctest --test-dir build --output-on-failure
-```
+## Implementation and verification
 
-Stop after tests pass. Report files created, architecture, build command, tests/results, and proposed next step. For future changes, add regression tests for safety failures. Keep commits focused; PRs describe behavior and validation. Never commit model binaries or credentials.
+C++17, CMake, RAII, four-space indentation; headers in `include/firefly`, implementations in `src`, regressions in `tests`. Keep changes focused and public compatibility intact. No unrelated refactoring or new deployment framework.
 
-## Milestone 2 Integration
-`RkllmEngine` uses the exact reference header and runtime at `~/demo_Linux_aarch64/lib/librkllmrt.so`, also READ-ONLY. Keep Qwen3 template and reference sampling parameters fixed. Initialize once, bootstrap with an empty user prompt, clear KV keeping the system prompt, then clear with `rkllm_clear_kv_cache(handle, 1, nullptr, nullptr)` before every real request. Use synchronous inference and per-instance callback userdata; never use persistent prompt caches.
+Use the documented explicit host offline mode for PC CPU tests; never label it an aarch64 production build. Real assistant/voice builds remain aarch64-only. Frontend uses the pinned lockfile and local embedded assets, Node at build time only. Inspect a test's resource effects before running it; model-backed replay, hardware harnesses and systemd coordinator fixtures are not ordinary PC unit tests.
 
-`CommandEngine` must bypass the LLM for deterministic candidates, normalize only model-output whitespace on fallback, and always give SafetyGate the ORIGINAL input. Keep mock-based CommandEngine tests independent of the NPU. Use `FIREFLY_BUILD_ASSISTANT=OFF` for a core-only build. Run real smoke tests separately with the frozen model/prompt, report routes and available timings, then stop at the authorized milestone. Preserve baseline core semantics. Do not download dependencies/models without permission.
+Run applicable CTest, frontend typecheck/tests/build and offline packaging/recovery checks. Record exact exclusions and failures. Do not lower guards to obtain PASS or claim tests that did not run. M19 remains PARTIAL_PASS: bounded two-cycle Admin success is not full 4096-token saturation or a long soak. Owner ON/OFF acceptance is distinct from machine-instrumented OFF coverage.
 
-## Milestone 3 Stabilization Rules
-Milestone 3 was text-only; its scope did not include STT. Input is limited to 192 UTF-8 bytes; reject invalid, oversized, or blank input to U before parser/inference. Never replay output after failure. Runtime/KV/callback failures and deadlines require engine restart; fast-path commands remain independent. Model-output syntax failures become U without changing prompt/model/protocol.
-
-Use only the exact `rkllm_abort` / `rkllm_is_running` APIs in the reference header. Keep the watchdog joined and the handle alive until synchronous inference and abort return. Default deadline is 30 seconds; it is not a hard bound on vendor hangs. Warn on CLI requests over 2 seconds. Keep raw model output separate from final actions in diagnostics.
-
-Maintain `tests/data/dev.tsv` as DEV/regression only; do not use HIDDEN tests. Run the seven available suites and the separate real NPU harness, report error categories and latency, then stop. Parser regexes are now precompiled; do not broaden the grammar as part of optimization. Reference files remain strictly read-only.
-
-## Explicit Entrance-Door Safety
-D may pass only with an explicit opening word (`открой`, `откройте`, `открыть`, `открывай`, `открывайте`) and a `двер` stem plus an entrance reference (either the `входн` stem or adjacent whole tokens `на входе`) in the ORIGINAL CommandEngine input, case-insensitively. Otherwise return U. Do not correct transcripts. Keep the frozen DEV data unchanged, including «Открыть дверь на входе». Light rules, parser, prompt, model, and protocol remain unchanged.
-
-## Milestone 4 Checkpoint
-The current implementation includes offline native ALSA → Silero VAD → full Russian Zipformer STT → unchanged CommandEngine. See [the live baseline](docs/milestone-4-baseline.md) and [build/run guide](docs/live-voice.md). Models, STT/VAD settings, parser, SafetyGate, Qwen3 prompt/configuration and compact protocol remain unchanged. Current live padding defaults are configurable 300 ms pre/post-roll, selected on DEV; they are not permanently frozen production constants. Fresh live regression is 8/9 exact STT and actions, zero false accepts/wrong actions, one false reject. Preserve «открыть дверь на входе» → «открытвер на входе» → U as a recorded failure; do not add a transcript correction or tune components without separate authorization. Milestone 4 is complete. Do not start wake-word detection or hardware execution without a new instruction.
+Use [release-procedure.md](docs/release-procedure.md) for authorized releases. Pin product commit, build identity, package/assets hashes and independent recovery; never reuse a consumed plan or activate an unreviewed build. Report changes, tests, limitations and production preservation, and stop at the task boundary.

@@ -1,40 +1,28 @@
-# Reproducible supervised release procedure
+# Current supervised release and recovery procedure
 
-This preparation authorizes **no fifth rollout**. Production remains on
-`wake-beep-dc7b142e-20261011`; the new SafetyGate is not installed. A future
-attempt requires reviewed code and a new explicit owner authorization.
+Start with the [dated production baseline](production-baseline.md) and [build guide](build-and-test.md). Current known release is `m19-c7fa1490-20261015T150156Z`; rollback is `m19-320b80a6-20261014T173500Z`. Recheck live identities before any future preparation. This document grants no activation permission.
 
-## Rollout #4: established cause and evidence limit
+Large Runtime/Admin/STT/VAD models stay under `/opt/firefly/voice-assistant/models`. Stage using the existing `--production --reuse-installed-models` contract and pinned `--wake-reference-release grounding-818157ec-20261013T040322Z`; see [M19 packaging contract](m19-production-preparation.md). `install-release` creates an inactive immutable release only. It is not an activation, and a read-only audit does not run it.
 
-The untracked preparation wrapper added `assert 'NRestarts=1' in props` after
-an additional real restart fixture. It attempted to prove `Restart=on-failure`
-beyond the already reviewed mandatory tests and typed supervision gate. This
-snapshot assertion was not part of a versioned, tested release procedure.
-Its failure aborted before production was stopped: downtime was zero.
+Pin the new assets fingerprint from reviewed source and actual built dist in `APPROVED_ADMIN_ASSETS_SHA256`. New assets need not equal old assets. Runner/ELF/manifest/fresh dist must all match that explicit pin; omitting it deliberately preserves the legacy old/new equality gate. Never disable integrity verification. For installed c7 the pin is `fd3cbf4dd6403204f35a8759c8678282d37958854d7654117c5cdc29a01110f9`; a future frontend change requires its own reviewed pin.
 
-The first `systemctl show` response was not preserved. Therefore its returned
-counter and the immediate reason for the assertion failure remain unknown.
-The original journal proves exit 23 followed by PID-1 restart counter 1;
-fixture PIDs 497549 and 497570 restored the simulated old release. A later
-`LoadState=not-found` / `NRestarts=0` response is not evidence of the first
-response. See [incident.json](evidence/release-procedure/incident.json), including
-the original file hashes and precise invocation reference. Originals remain intact.
+Keep installed active/rollback releases and the grounding Amina anchor. All old prepared/consumed plans are historical and boot-bound. Prepare a fresh recovery bundle for each separately authorized attempt; no old START is reusable. The historical rollout #4 failure is preserved [separately](history/release-procedure-rollout4.md), with original evidence unchanged.
 
 ## Fixed preparation and execution entry points
 
 [`scripts/release-runner.py`](../scripts/release-runner.py) coordinates the
 existing packaging verifier, production controller, recovery helper and
-asynchronous launcher. Those reviewed mechanisms are unchanged. No fixture
+asynchronous launcher. These existing mechanisms include the reviewed M19 model-reference and assets-pin changes. No fixture
 adapter is included in the production recovery bundle.
 
-First build the approved clean merge commit with the existing pinned native
+First build the approved exact clean product commit with the existing pinned native
 voice/Admin dependencies, then stage, verify and install a **new immutable
 release directory** using the [existing packaging procedure](m18-relocatable-production-packaging.md).
 Do not activate it, replace models, change the unit or delete the original release.
 The build directory must retain the full applicable CTest executables and the
 frontend must retain its installed dependencies. Preparation reruns the existing
 CTest and frontend typecheck/test/build commands as `firefly`, without downloads.
-Use the [hotfix build instructions](production-grounding-hotfix.md).
+Use the [current build instructions](build-and-test.md). Earlier hotfix reports are historical.
 
 Offline application checks and mandatory fixtures strip `FIREFLY_OWNER_ACCEPTED`
 even when inherited from the operator. Only the two read-only installed-package
@@ -43,13 +31,14 @@ authorize `run` or a deployment; see the
 [environment-isolation evidence](evidence/release-runner-auth-env/README.md).
 
 Use only these two checked-in entry points; substitute the approved absolute
-source path, full merge SHA, staged release ID and a new unique `/run` directory:
+source path, full approved product SHA, staged release ID and a new unique `/run` directory:
 
 ```sh
 # Non-disruptive preparation; no service stop or pointer activation.
 sudo -n env PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 "$SOURCE/scripts/release-runner.py" prepare \
   --source "$SOURCE" --approved-commit "$APPROVED_COMMIT" \
-  --new-release "$NEW_RELEASE" --root "$SUPERVISOR"
+  --new-release "$NEW_RELEASE" --root "$SUPERVISOR" \
+  --approved-admin-assets-sha256 "$APPROVED_ADMIN_ASSETS_SHA256"
 
 # Only within a separately owner-authorized window, after PREPARED.
 sudo -n env PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 "$SUPERVISOR/scripts/release-runner.py" run \
@@ -59,7 +48,7 @@ sudo -n env PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 "$SUPERVISOR/scripts/rele
 `SOURCE` must be canonical and clean. `SUPERVISOR` must be a new direct child of
 `/run`, for example `/run/firefly-release-YYYYMMDDTHHMMSSZ`. Preparation pins
 the tracked runner and copied tools, verifies installed old/new release identity,
-source fingerprint, identical Admin assets, libraries, wake artifacts, unit,
+source fingerprint, explicitly pinned new Admin assets, libraries, wake artifacts, unit,
 seed and shared-model contract. It creates a root-private mode-0700 recovery
 bundle and a complete rights-preserving ConfigStore backup with file SHA256 and
 metadata. Existing readiness, configuration and sole-owner gates must pass.
@@ -94,8 +83,9 @@ processes or restore the ConfigStore by overwriting it.
 
 ## Offline validation and limits
 
-Run the operator unit tests and the complete real systemd file-only coordinator
-suite with a fresh private evidence destination:
+CPU unit tests are safe in an isolated build. The real systemd coordinator suite
+is a separately scoped integration procedure; do not run it merely to audit
+production. For authorized release preparation, use a fresh private evidence destination:
 
 ```sh
 ctest --test-dir build -R '^(ReleaseRecovery|DeploymentLauncher|ReleaseRunner)$' --output-on-failure

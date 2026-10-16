@@ -1,5 +1,7 @@
 # Config-derived language index
 
+> Dated milestone/design record. Its test results and deployment statements apply to the recorded revision, not today. For current M19 identity, architecture and operating instructions, start at [the production baseline](production-baseline.md) and [README](../README.md). Historical results below are preserved.
+
 ## Audit at 72b154742b1506ca2c1f002ed2bdb84e8c21e660
 
 Config schema v2 already owns location mentions/phrases/metadata aliases, device
