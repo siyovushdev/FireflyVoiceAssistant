@@ -309,25 +309,33 @@ struct MqttHardwareExecutor::Impl {
                     owner.state.markUnreachable(binding->targetId, owner.state.nowMs());
                 }
         }
-        static void onMessage(mosquitto*, void* ptr, const mosquitto_message* message) {
-            auto& s = *static_cast<Subscription*>(ptr);
-            if (!message || !message->topic || message->retain ||
-                message->payloadlen < 0 || message->payloadlen > 4096) return;
-            const auto found = s.byTopic.find(message->topic);
-            if (found == s.byTopic.end()) return;
-            if (message->payloadlen == 0 || !message->payload) return;
-            const std::string bytes(static_cast<const char*>(message->payload), static_cast<std::size_t>(message->payloadlen));
-            for (const auto* binding : found->second) {
-                // Snapshot per target before parsing; a command on A must
-                // never invalidate a valid state notification for B.
-                const auto observationEpoch = s.owner.gate.snapshot(binding->targetId);
-                try {
-                    const auto properties = decodeMqttObservationPayload(*binding, bytes);
-                    (void)s.owner.gate.accept(binding->targetId, observationEpoch,
-                                               properties, s.owner.state);
-                } catch (const std::exception&) {
-                    // Duplicate/malformed/old samples fail closed; no partial update.
+        static void onMessage(mosquitto*, void* ptr, const mosquitto_message* message) noexcept {
+            try {
+                auto& s = *static_cast<Subscription*>(ptr);
+                if (!message || !message->topic || message->retain ||
+                    message->payloadlen <= 0 || message->payloadlen > 4096 || !message->payload) return;
+                const auto found = s.byTopic.find(message->topic);
+                if (found == s.byTopic.end()) return;
+                // Capture all affected targets before copying/parsing a potentially
+                // slow message. In particular, a callback started before PUBLISH
+                // must not acquire the post-publish epoch after parsing target A.
+                std::vector<std::pair<const config::ObservationBinding*, std::uint64_t>> observed;
+                observed.reserve(found->second.size());
+                for (const auto* binding : found->second)
+                    observed.emplace_back(binding, s.owner.gate.snapshot(binding->targetId));
+                const std::string bytes(static_cast<const char*>(message->payload),
+                                        static_cast<std::size_t>(message->payloadlen));
+                for (const auto& [binding, version] : observed) {
+                    try {
+                        const auto properties = decodeMqttObservationPayload(*binding, bytes);
+                        (void)s.owner.gate.accept(binding->targetId, version,
+                                                   properties, s.owner.state);
+                    } catch (const std::exception&) {
+                        // Malformed/obsolete samples fail closed, without partial state.
+                    }
                 }
+            } catch (const std::exception&) {
+                // No exception, including allocation failure, may cross a C callback.
             }
         }
         bool start() {
