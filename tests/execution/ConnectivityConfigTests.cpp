@@ -60,8 +60,35 @@ int main(int argc, char** argv) {
         check(lkg && (*lkg)->contentHash() == connected->contentHash(), "corrupt-current LKG recovery retains connectivity");
         check((*lkg)->configuration().connections.size() == 1 && (*lkg)->configuration().bindings.size() == 1, "LKG complete graph");
         (void)saved;
-        // Planned schemas are persisted but cannot be enabled or bound to HTTP.
-        for (const auto& type : {"mqtt", "tcp", "udp", "serial", "can"}) {
+        // MQTT is an executable transport; its credentials are references only.
+        auto mqttConfig = value;
+        mqttConfig["connections"] = Json::array({{
+            {"id","connection_mqtt"},{"name","Local broker"},{"type","mqtt"},{"enabled",true},{"timeout_ms",2000},
+            {"network",{{"host","127.0.0.1"},{"port",1883}}},{"mqtt",{{"tls",false},{"credentials_id","relay_secret"}}}
+        }});
+        mqttConfig["bindings"] = Json::array({{
+            {"target_id","device_kitchen_light"},{"action_id","action_set_brightness"},
+            {"connection_id","connection_mqtt"},{"executor","mqtt"},
+            {"mqtt",{{"topic","home/light/set"},{"payload","40"},{"qos",0},{"retain",false}}}
+        }});
+        mqttConfig["observations"] = Json::array({{
+            {"target_id","device_kitchen_light"},{"connection_id","connection_mqtt"},{"executor","mqtt"},
+            {"mqtt",{{"topic","home/light/state"},{"format","json"},{"qos",0}}},
+            {"fields",{{"brightness","brightness"}}}
+        }});
+        const auto mqttSnapshot = catalog(mqttConfig);
+        check(config::ConfigLoader::fromJson(mqttSnapshot->canonicalJson())->contentHash() == mqttSnapshot->contentHash(), "MQTT canonical roundtrip");
+        auto mqttBad = mqttConfig;
+        mqttBad["bindings"][0]["mqtt"]["topic"] = "home/+/set";
+        rejects([&] { catalog(mqttBad); });
+        mqttBad = mqttConfig; mqttBad["connections"][0]["mqtt"]["credentials_id"] = "../secrets";
+        rejects([&] { catalog(mqttBad); });
+        mqttBad = mqttConfig; mqttBad["bindings"][0]["executor"] = "http";
+        rejects([&] { catalog(mqttBad); });
+        mqttBad = mqttConfig; mqttBad["observations"][0]["mqtt"]["format"] = "text";
+        rejects([&] { catalog(mqttBad); });
+        // Other planned schemas remain disabled and cannot be bound to HTTP.
+        for (const auto& type : {"tcp", "udp", "serial", "can"}) {
             auto planned = value;
             Json entry{{"id","connection_planned"},{"name","Future"},{"type",type},{"enabled",false},{"timeout_ms",1000}};
             if (std::string(type) == "serial") entry["serial"] = {{"port","/dev/ttyUSB0"},{"baud_rate",115200}};

@@ -80,7 +80,24 @@ enum class ExecutorKind { Unknown, Http, Mqtt, Tcp, Udp, Serial, Can };
 struct HttpConnection {
     std::string baseUrl, basePath;
 };
-// Planned transports are configuration contracts only; no executor is registered.
+// Network endpoints are shared by MQTT and future TCP/UDP executors.
+struct MqttConnectionSettings {
+    bool tls = false;
+    // Identifier only. The actual username/password must never enter ConfigStore.
+    std::string credentialsId;
+};
+struct MqttBinding {
+    std::string topic, payload;
+    std::int64_t qos = 0;
+    bool retain = false;
+};
+struct MqttObservation {
+    std::string topic;
+    std::string format = "text"; // text boolean ON/OFF or top-level JSON object
+    std::string field;          // target boolean field for text
+    std::string truePayload = "ON", falsePayload = "OFF";
+    std::int64_t qos = 0;
+};
 struct NetworkConnection { std::string host; std::int64_t port = 0; };
 struct SerialConnection { std::string port; std::int64_t baudRate = 9600; };
 struct CanConnection { std::string interface; };
@@ -89,6 +106,7 @@ struct Connection : Identity {
     bool enabled = true;
     std::int64_t timeoutMs = 2000;
     HttpConnection http;
+    MqttConnectionSettings mqtt;
     NetworkConnection network;
     SerialConnection serial;
     CanConnection can;
@@ -111,12 +129,14 @@ struct Binding {
     std::string targetId, actionId;
     ExecutorKind executor = ExecutorKind::Unknown;
     HttpBinding http;
+    MqttBinding mqtt;
     std::string connectionId;
 };
 struct ObservationBinding {
     std::string targetId, connectionId;
     ExecutorKind executor = ExecutorKind::Http;
     HttpBinding http;
+    MqttObservation mqtt;
     // Top-level JSON response member -> existing state property. No expressions.
     std::map<std::string, std::string> fields;
 };

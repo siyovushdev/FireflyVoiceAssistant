@@ -1,856 +1,946 @@
 {
-    "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "$id": "urn:firefly:configuration:v2",
-    "title": "Firefly typed mock configuration v2",
-    "type": "object",
-    "properties": {
-        "schema_version": {
-            "type": "integer",
-            "const": 2
-        },
-        "revision": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 9007199254740991
-        },
-        "retired_ids": {
-            "type": "array",
-            "items": {
-                "$ref": "#/$defs/id"
-            },
-            "minItems": 0,
-            "maxItems": 4096
-        },
-        "system": {
-            "type": "object",
-            "properties": {
-                "id": {
-                    "$ref": "#/$defs/id"
-                },
-                "name": {
-                    "$ref": "#/$defs/name"
-                },
-                "locale": {
-                    "const": "ru-RU"
-                },
-                "interpretation_profile": {
-                    "const": "legacy_m4_v1"
-                }
-            },
-            "required": [
-                "id",
-                "name",
-                "locale",
-                "interpretation_profile"
-            ],
-            "additionalProperties": false
-        },
-        "rooms": {
-            "type": "array",
-            "items": {
-                "$ref": "#/$defs/room"
-            },
-            "minItems": 0,
-            "maxItems": 64
-        },
-        "devices": {
-            "type": "array",
-            "items": {
-                "$ref": "#/$defs/device"
-            },
-            "minItems": 0,
-            "maxItems": 128
-        },
-        "actions": {
-            "type": "array",
-            "items": {
-                "$ref": "#/$defs/action"
-            },
-            "minItems": 0,
-            "maxItems": 32
-        },
-        "safety": {
-            "type": "object",
-            "properties": {
-                "restrictions": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/$defs/restriction"
-                    },
-                    "minItems": 0,
-                    "maxItems": 128
-                }
-            },
-            "required": [
-                "restrictions"
-            ],
-            "additionalProperties": false
-        },
-        "bindings": {
-            "type": "array",
-            "items": {
-                "$ref": "#/$defs/binding"
-            },
-            "minItems": 0,
-            "maxItems": 256
-        },
-        "compatibility": {
-            "type": [
-                "object",
-                "null"
-            ],
-            "properties": {
-                "codec": {
-                    "const": "compact_v1"
-                },
-                "light_action_id": {
-                    "$ref": "#/$defs/id"
-                },
-                "light_targets": {
-                    "type": "object",
-                    "properties": {
-                        "K": {
-                            "$ref": "#/$defs/id"
-                        },
-                        "B": {
-                            "$ref": "#/$defs/id"
-                        },
-                        "G": {
-                            "$ref": "#/$defs/id"
-                        },
-                        "C": {
-                            "$ref": "#/$defs/id"
-                        }
-                    },
-                    "required": [
-                        "K",
-                        "B",
-                        "G",
-                        "C"
-                    ],
-                    "additionalProperties": false
-                },
-                "door_action_id": {
-                    "$ref": "#/$defs/id"
-                },
-                "door_target_id": {
-                    "$ref": "#/$defs/id"
-                }
-            },
-            "required": [
-                "codec",
-                "light_action_id",
-                "light_targets",
-                "door_action_id",
-                "door_target_id"
-            ],
-            "additionalProperties": false
-        },
-        "connections": {
-            "type": "array",
-            "items": {
-                "$ref": "#/$defs/connection"
-            },
-            "maxItems": 128
-        },
-        "observations": {
-            "type": "array",
-            "items": {
-                "$ref": "#/$defs/observation"
-            },
-            "maxItems": 128
-        }
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:firefly:configuration:v2",
+  "title": "Firefly typed mock configuration v2",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 2
     },
-    "required": [
-        "schema_version",
-        "revision",
-        "retired_ids",
-        "system",
-        "rooms",
-        "devices",
-        "actions",
-        "safety",
-        "bindings",
-        "compatibility"
-    ],
-    "additionalProperties": false,
-    "$defs": {
+    "revision": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "retired_ids": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/id"
+      },
+      "minItems": 0,
+      "maxItems": 4096
+    },
+    "system": {
+      "type": "object",
+      "properties": {
         "id": {
-            "type": "string",
-            "pattern": "^[a-z][a-z0-9_]{0,63}$"
+          "$ref": "#/$defs/id"
         },
         "name": {
+          "$ref": "#/$defs/name"
+        },
+        "locale": {
+          "const": "ru-RU"
+        },
+        "interpretation_profile": {
+          "const": "legacy_m4_v1"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "locale",
+        "interpretation_profile"
+      ],
+      "additionalProperties": false
+    },
+    "rooms": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/room"
+      },
+      "minItems": 0,
+      "maxItems": 64
+    },
+    "devices": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/device"
+      },
+      "minItems": 0,
+      "maxItems": 128
+    },
+    "actions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/action"
+      },
+      "minItems": 0,
+      "maxItems": 32
+    },
+    "safety": {
+      "type": "object",
+      "properties": {
+        "restrictions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/restriction"
+          },
+          "minItems": 0,
+          "maxItems": 128
+        }
+      },
+      "required": [
+        "restrictions"
+      ],
+      "additionalProperties": false
+    },
+    "bindings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/binding"
+      },
+      "minItems": 0,
+      "maxItems": 256
+    },
+    "compatibility": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "codec": {
+          "const": "compact_v1"
+        },
+        "light_action_id": {
+          "$ref": "#/$defs/id"
+        },
+        "light_targets": {
+          "type": "object",
+          "properties": {
+            "K": {
+              "$ref": "#/$defs/id"
+            },
+            "B": {
+              "$ref": "#/$defs/id"
+            },
+            "G": {
+              "$ref": "#/$defs/id"
+            },
+            "C": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "K",
+            "B",
+            "G",
+            "C"
+          ],
+          "additionalProperties": false
+        },
+        "door_action_id": {
+          "$ref": "#/$defs/id"
+        },
+        "door_target_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "codec",
+        "light_action_id",
+        "light_targets",
+        "door_action_id",
+        "door_target_id"
+      ],
+      "additionalProperties": false
+    },
+    "connections": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/connection"
+      },
+      "maxItems": 128
+    },
+    "observations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/observation"
+      },
+      "maxItems": 128
+    }
+  },
+  "required": [
+    "schema_version",
+    "revision",
+    "retired_ids",
+    "system",
+    "rooms",
+    "devices",
+    "actions",
+    "safety",
+    "bindings",
+    "compatibility"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,63}$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "parameter": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "$ref": "#/$defs/name"
+        },
+        "type": {
+          "enum": [
+            "boolean",
+            "integer",
+            "number",
+            "string",
+            "enum"
+          ]
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "unit": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "minimum": {
+          "type": "number",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "maximum": {
+          "type": "number",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "min_length": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1024
+        },
+        "max_length": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1024
+        },
+        "values": {
+          "type": "array",
+          "items": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 128
-        },
-        "parameter": {
-            "type": "object",
-            "properties": {
-                "id": {
-                    "$ref": "#/$defs/id"
-                },
-                "name": {
-                    "$ref": "#/$defs/name"
-                },
-                "type": {
-                    "enum": [
-                        "boolean",
-                        "integer",
-                        "number",
-                        "string",
-                        "enum"
-                    ]
-                },
-                "required": {
-                    "type": "boolean"
-                },
-                "description": {
-                    "type": "string",
-                    "maxLength": 256
-                },
-                "unit": {
-                    "type": "string",
-                    "maxLength": 32
-                },
-                "minimum": {
-                    "type": "number",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
-                },
-                "maximum": {
-                    "type": "number",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
-                },
-                "min_length": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 1024
-                },
-                "max_length": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 1024
-                },
-                "values": {
-                    "type": "array",
-                    "items": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 96
-                    },
-                    "maxItems": 32
-                }
-            },
-            "required": [
-                "id",
-                "name",
-                "type",
-                "required",
-                "description",
-                "unit"
-            ],
-            "additionalProperties": false
-        },
-        "room": {
-            "type": "object",
-            "properties": {
-                "id": {
-                    "$ref": "#/$defs/id"
-                },
-                "name": {
-                    "$ref": "#/$defs/name"
-                },
-                "speech": {
-                    "type": "object",
-                    "properties": {
-                        "mentions": {
-                            "type": "array",
-                            "items": {
-                                "type": "string",
-                                "minLength": 1,
-                                "maxLength": 96
-                            },
-                            "minItems": 0,
-                            "maxItems": 32
-                        },
-                        "locations": {
-                            "type": "array",
-                            "items": {
-                                "type": "string",
-                                "minLength": 1,
-                                "maxLength": 96
-                            },
-                            "minItems": 0,
-                            "maxItems": 32
-                        }
-                    },
-                    "required": [
-                        "mentions",
-                        "locations"
-                    ],
-                    "additionalProperties": false
-                },
-                "metadata": {
-                    "type": "object",
-                    "properties": {
-                        "type": {
-                            "type": "string",
-                            "maxLength": 64
-                        },
-                        "description": {
-                            "type": "string",
-                            "maxLength": 256
-                        },
-                        "aliases": {
-                            "type": "array",
-                            "items": {
-                                "type": "string",
-                                "minLength": 1,
-                                "maxLength": 96
-                            },
-                            "maxItems": 16
-                        },
-                        "parent_id": {
-                            "type": [
-                                "string",
-                                "null"
-                            ]
-                        },
-                        "container": {
-                            "type": "boolean"
-                        },
-                        "origin": {
-                            "enum": [
-                                "manual",
-                                "local_ai",
-                                "imported"
-                            ]
-                        },
-                        "confirmed": {
-                            "type": "boolean"
-                        }
-                    },
-                    "additionalProperties": false
-                }
-            },
-            "required": [
-                "id",
-                "name",
-                "speech"
-            ],
-            "additionalProperties": false
-        },
-        "device": {
-            "type": "object",
-            "properties": {
-                "id": {
-                    "$ref": "#/$defs/id"
-                },
-                "name": {
-                    "$ref": "#/$defs/name"
-                },
-                "kind": {
-                    "enum": [
-                        "light",
-                        "entrance_door",
-                        "generic"
-                    ]
-                },
-                "room_id": {
-                    "type": [
-                        "string",
-                        "null"
-                    ]
-                },
-                "enabled": {
-                    "type": "boolean"
-                },
-                "action_ids": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/$defs/id"
-                    },
-                    "minItems": 0,
-                    "maxItems": 32
-                },
-                "spoken_aliases": {
-                    "type": "array",
-                    "items": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 96
-                    },
-                    "maxItems": 32
-                },
-                "metadata": {
-                    "type": "object",
-                    "properties": {
-                        "type": {
-                            "type": "string",
-                            "maxLength": 64
-                        },
-                        "description": {
-                            "type": "string",
-                            "maxLength": 256
-                        },
-                        "aliases": {
-                            "type": "array",
-                            "items": {
-                                "type": "string",
-                                "minLength": 1,
-                                "maxLength": 96
-                            },
-                            "maxItems": 16
-                        },
-                        "origin": {
-                            "enum": [
-                                "manual",
-                                "local_ai",
-                                "imported"
-                            ]
-                        },
-                        "confirmed": {
-                            "type": "boolean"
-                        }
-                    },
-                    "additionalProperties": false
-                },
-                "state": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/$defs/state_field"
-                    },
-                    "maxItems": 16
-                }
-            },
-            "required": [
-                "id",
-                "name",
-                "kind",
-                "room_id",
-                "enabled",
-                "action_ids",
-                "spoken_aliases",
-                "state"
-            ],
-            "additionalProperties": false
-        },
-        "action": {
-            "type": "object",
-            "properties": {
-                "id": {
-                    "$ref": "#/$defs/id"
-                },
-                "name": {
-                    "$ref": "#/$defs/name"
-                },
-                "operation": {
-                    "enum": [
-                        "light.set_brightness.v1",
-                        "entrance_door.open.v1",
-                        "mock.assign.v1"
-                    ]
-                },
-                "enabled": {
-                    "type": "boolean"
-                },
-                "parameters": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/$defs/parameter"
-                    },
-                    "minItems": 0,
-                    "maxItems": 16
-                },
-                "speech_aliases": {
-                    "type": "array",
-                    "items": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 96
-                    },
-                    "maxItems": 32
-                },
-                "description": {
-                    "type": "string",
-                    "maxLength": 256
-                },
-                "assignments": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/$defs/assignment"
-                    },
-                    "maxItems": 16
-                },
-                "origin": {
-                    "enum": [
-                        "manual",
-                        "local_ai",
-                        "imported"
-                    ]
-                }
-            },
-            "required": [
-                "id",
-                "name",
-                "operation",
-                "enabled",
-                "parameters",
-                "speech_aliases",
-                "description",
-                "assignments"
-            ],
-            "additionalProperties": false
-        },
-        "restriction": {
-            "type": "object",
-            "properties": {
-                "id": {
-                    "$ref": "#/$defs/id"
-                },
-                "name": {
-                    "$ref": "#/$defs/name"
-                },
-                "kind": {
-                    "const": "deny_action"
-                },
-                "device_id": {
-                    "$ref": "#/$defs/id"
-                },
-                "action_id": {
-                    "$ref": "#/$defs/id"
-                }
-            },
-            "required": [
-                "id",
-                "name",
-                "kind",
-                "device_id",
-                "action_id"
-            ],
-            "additionalProperties": false
-        },
-        "state_field": {
-            "type": "object",
-            "properties": {
-                "id": {
-                    "$ref": "#/$defs/id"
-                },
-                "name": {
-                    "$ref": "#/$defs/name"
-                },
-                "type": {
-                    "enum": [
-                        "boolean",
-                        "integer",
-                        "number",
-                        "string",
-                        "enum"
-                    ]
-                },
-                "required": {
-                    "type": "boolean"
-                },
-                "description": {
-                    "type": "string",
-                    "maxLength": 256
-                },
-                "unit": {
-                    "type": "string",
-                    "maxLength": 32
-                },
-                "minimum": {
-                    "type": "number",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
-                },
-                "maximum": {
-                    "type": "number",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
-                },
-                "min_length": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 1024
-                },
-                "max_length": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 1024
-                },
-                "values": {
-                    "type": "array",
-                    "items": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 96
-                    },
-                    "maxItems": 32
-                },
-                "initial": {
-                    "type": [
-                        "boolean",
-                        "integer",
-                        "number",
-                        "string"
-                    ]
-                }
-            },
-            "required": [
-                "id",
-                "name",
-                "type",
-                "required",
-                "description",
-                "unit",
-                "initial"
-            ],
-            "additionalProperties": false
-        },
-        "assignment": {
-            "type": "object",
-            "properties": {
-                "field": {
-                    "$ref": "#/$defs/id"
-                },
-                "argument": {
-                    "$ref": "#/$defs/id"
-                },
-                "value": {
-                    "type": [
-                        "boolean",
-                        "integer",
-                        "number",
-                        "string"
-                    ]
-                }
-            },
-            "required": [
-                "field"
-            ],
-            "additionalProperties": false
-        },
-        "http_binding": {
-            "type": "object",
-            "properties": {
-                "method": {
-                    "enum": [
-                        "POST",
-                        "PUT",
-                        "PATCH",
-                        "DELETE",
-                        "GET"
-                    ]
-                },
-                "url": {
-                    "type": "string",
-                    "minLength": 10,
-                    "maxLength": 512,
-                    "description": "http://IPv4[:port]/path — numeric IPv4 only; DNS hostnames rejected because getaddrinfo is not covered by the HTTP socket deadline"
-                },
-                "timeout_ms": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 10000
-                },
-                "content_type": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 128
-                },
-                "body": {
-                    "type": "object"
-                },
-                "argument": {
-                    "$ref": "#/$defs/id"
-                },
-                "path": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 512
-                },
-                "expected_status": {
-                    "type": "integer",
-                    "minimum": 200,
-                    "maximum": 299
-                },
-                "headers": {
-                    "type": "object"
-                }
-            },
-            "required": [
-                "method"
-            ],
-            "additionalProperties": false
-        },
-        "binding": {
-            "type": "object",
-            "properties": {
-                "target_id": {
-                    "$ref": "#/$defs/id"
-                },
-                "action_id": {
-                    "$ref": "#/$defs/id"
-                },
-                "executor": {
-                    "enum": [
-                        "http"
-                    ]
-                },
-                "http": {
-                    "$ref": "#/$defs/http_binding"
-                },
-                "connection_id": {
-                    "$ref": "#/$defs/id"
-                }
-            },
-            "required": [
-                "target_id",
-                "action_id",
-                "executor",
-                "http"
-            ],
-            "additionalProperties": false
-        },
-        "connection": {
-            "type": "object",
-            "properties": {
-                "id": {
-                    "$ref": "#/$defs/id"
-                },
-                "name": {
-                    "$ref": "#/$defs/name"
-                },
-                "type": {
-                    "enum": [
-                        "http",
-                        "mqtt",
-                        "tcp",
-                        "udp",
-                        "serial",
-                        "can"
-                    ]
-                },
-                "enabled": {
-                    "type": "boolean"
-                },
-                "timeout_ms": {
-                    "type": "integer",
-                    "minimum": 50,
-                    "maximum": 10000
-                },
-                "http": {
-                    "type": "object",
-                    "properties": {
-                        "base_url": {
-                            "type": "string",
-                            "minLength": 1,
-                            "maxLength": 512
-                        },
-                        "base_path": {
-                            "type": "string",
-                            "maxLength": 512
-                        }
-                    },
-                    "required": [
-                        "base_url"
-                    ],
-                    "additionalProperties": false
-                },
-                "network": {
-                    "type": "object",
-                    "properties": {
-                        "host": {
-                            "type": "string",
-                            "minLength": 1,
-                            "maxLength": 253
-                        },
-                        "port": {
-                            "type": "integer",
-                            "minimum": 1,
-                            "maximum": 65535
-                        }
-                    },
-                    "required": [
-                        "host",
-                        "port"
-                    ],
-                    "additionalProperties": false
-                },
-                "serial": {
-                    "type": "object",
-                    "properties": {
-                        "port": {
-                            "type": "string",
-                            "minLength": 1,
-                            "maxLength": 256
-                        },
-                        "baud_rate": {
-                            "type": "integer",
-                            "minimum": 50,
-                            "maximum": 4000000
-                        }
-                    },
-                    "required": [
-                        "port",
-                        "baud_rate"
-                    ],
-                    "additionalProperties": false
-                },
-                "can": {
-                    "type": "object",
-                    "properties": {
-                        "interface": {
-                            "type": "string",
-                            "minLength": 1,
-                            "maxLength": 64
-                        }
-                    },
-                    "required": [
-                        "interface"
-                    ],
-                    "additionalProperties": false
-                }
-            },
-            "required": [
-                "id",
-                "name",
-                "type",
-                "enabled",
-                "timeout_ms"
-            ],
-            "additionalProperties": false
-        },
-        "observation": {
-            "type": "object",
-            "properties": {
-                "target_id": {
-                    "$ref": "#/$defs/id"
-                },
-                "connection_id": {
-                    "$ref": "#/$defs/id"
-                },
-                "executor": {
-                    "const": "http"
-                },
-                "http": {
-                    "$ref": "#/$defs/http_binding"
-                },
-                "fields": {
-                    "type": "object"
-                }
-            },
-            "required": [
-                "target_id",
-                "connection_id",
-                "executor",
-                "http",
-                "fields"
-            ],
-            "additionalProperties": false
+            "maxLength": 96
+          },
+          "maxItems": 32
         }
+      },
+      "required": [
+        "id",
+        "name",
+        "type",
+        "required",
+        "description",
+        "unit"
+      ],
+      "additionalProperties": false
+    },
+    "room": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "$ref": "#/$defs/name"
+        },
+        "speech": {
+          "type": "object",
+          "properties": {
+            "mentions": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 96
+              },
+              "minItems": 0,
+              "maxItems": 32
+            },
+            "locations": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 96
+              },
+              "minItems": 0,
+              "maxItems": 32
+            }
+          },
+          "required": [
+            "mentions",
+            "locations"
+          ],
+          "additionalProperties": false
+        },
+        "metadata": {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "description": {
+              "type": "string",
+              "maxLength": 256
+            },
+            "aliases": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 96
+              },
+              "maxItems": 16
+            },
+            "parent_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "container": {
+              "type": "boolean"
+            },
+            "origin": {
+              "enum": [
+                "manual",
+                "local_ai",
+                "imported"
+              ]
+            },
+            "confirmed": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "speech"
+      ],
+      "additionalProperties": false
+    },
+    "device": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "$ref": "#/$defs/name"
+        },
+        "kind": {
+          "enum": [
+            "light",
+            "entrance_door",
+            "generic"
+          ]
+        },
+        "room_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "action_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 0,
+          "maxItems": 32
+        },
+        "spoken_aliases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 96
+          },
+          "maxItems": 32
+        },
+        "metadata": {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "description": {
+              "type": "string",
+              "maxLength": 256
+            },
+            "aliases": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 96
+              },
+              "maxItems": 16
+            },
+            "origin": {
+              "enum": [
+                "manual",
+                "local_ai",
+                "imported"
+              ]
+            },
+            "confirmed": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        },
+        "state": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/state_field"
+          },
+          "maxItems": 16
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "kind",
+        "room_id",
+        "enabled",
+        "action_ids",
+        "spoken_aliases",
+        "state"
+      ],
+      "additionalProperties": false
+    },
+    "action": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "$ref": "#/$defs/name"
+        },
+        "operation": {
+          "enum": [
+            "light.set_brightness.v1",
+            "entrance_door.open.v1",
+            "mock.assign.v1"
+          ]
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "parameters": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/parameter"
+          },
+          "minItems": 0,
+          "maxItems": 16
+        },
+        "speech_aliases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 96
+          },
+          "maxItems": 32
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "assignments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/assignment"
+          },
+          "maxItems": 16
+        },
+        "origin": {
+          "enum": [
+            "manual",
+            "local_ai",
+            "imported"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "operation",
+        "enabled",
+        "parameters",
+        "speech_aliases",
+        "description",
+        "assignments"
+      ],
+      "additionalProperties": false
+    },
+    "restriction": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "$ref": "#/$defs/name"
+        },
+        "kind": {
+          "const": "deny_action"
+        },
+        "device_id": {
+          "$ref": "#/$defs/id"
+        },
+        "action_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "kind",
+        "device_id",
+        "action_id"
+      ],
+      "additionalProperties": false
+    },
+    "state_field": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "$ref": "#/$defs/name"
+        },
+        "type": {
+          "enum": [
+            "boolean",
+            "integer",
+            "number",
+            "string",
+            "enum"
+          ]
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "unit": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "minimum": {
+          "type": "number",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "maximum": {
+          "type": "number",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "min_length": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1024
+        },
+        "max_length": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1024
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 96
+          },
+          "maxItems": 32
+        },
+        "initial": {
+          "type": [
+            "boolean",
+            "integer",
+            "number",
+            "string"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "type",
+        "required",
+        "description",
+        "unit",
+        "initial"
+      ],
+      "additionalProperties": false
+    },
+    "assignment": {
+      "type": "object",
+      "properties": {
+        "field": {
+          "$ref": "#/$defs/id"
+        },
+        "argument": {
+          "$ref": "#/$defs/id"
+        },
+        "value": {
+          "type": [
+            "boolean",
+            "integer",
+            "number",
+            "string"
+          ]
+        }
+      },
+      "required": [
+        "field"
+      ],
+      "additionalProperties": false
+    },
+    "http_binding": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "enum": [
+            "POST",
+            "PUT",
+            "PATCH",
+            "DELETE",
+            "GET"
+          ]
+        },
+        "url": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 512,
+          "description": "http://IPv4[:port]/path — numeric IPv4 only; DNS hostnames rejected because getaddrinfo is not covered by the HTTP socket deadline"
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "content_type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "body": {
+          "type": "object"
+        },
+        "argument": {
+          "$ref": "#/$defs/id"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "expected_status": {
+          "type": "integer",
+          "minimum": 200,
+          "maximum": 299
+        },
+        "headers": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "method"
+      ],
+      "additionalProperties": false
+    },
+    "binding": {
+      "type": "object",
+      "properties": {
+        "target_id": {
+          "$ref": "#/$defs/id"
+        },
+        "action_id": {
+          "$ref": "#/$defs/id"
+        },
+        "executor": {
+          "enum": [
+            "http",
+            "mqtt"
+          ]
+        },
+        "http": {
+          "$ref": "#/$defs/http_binding"
+        },
+        "connection_id": {
+          "$ref": "#/$defs/id"
+        },
+        "mqtt": {
+          "$ref": "#/$defs/mqtt_binding"
+        }
+      },
+      "required": [
+        "target_id",
+        "action_id",
+        "executor"
+      ],
+      "additionalProperties": false
+    },
+    "connection": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "$ref": "#/$defs/name"
+        },
+        "type": {
+          "enum": [
+            "http",
+            "mqtt",
+            "tcp",
+            "udp",
+            "serial",
+            "can"
+          ]
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 50,
+          "maximum": 10000
+        },
+        "http": {
+          "type": "object",
+          "properties": {
+            "base_url": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "base_path": {
+              "type": "string",
+              "maxLength": 512
+            }
+          },
+          "required": [
+            "base_url"
+          ],
+          "additionalProperties": false
+        },
+        "network": {
+          "type": "object",
+          "properties": {
+            "host": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 253
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            }
+          },
+          "required": [
+            "host",
+            "port"
+          ],
+          "additionalProperties": false
+        },
+        "serial": {
+          "type": "object",
+          "properties": {
+            "port": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "baud_rate": {
+              "type": "integer",
+              "minimum": 50,
+              "maximum": 4000000
+            }
+          },
+          "required": [
+            "port",
+            "baud_rate"
+          ],
+          "additionalProperties": false
+        },
+        "can": {
+          "type": "object",
+          "properties": {
+            "interface": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "interface"
+          ],
+          "additionalProperties": false
+        },
+        "mqtt": {
+          "type": "object",
+          "properties": {
+            "tls": {
+              "type": "boolean"
+            },
+            "credentials_id": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "tls"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "type",
+        "enabled",
+        "timeout_ms"
+      ],
+      "additionalProperties": false
+    },
+    "observation": {
+      "type": "object",
+      "properties": {
+        "target_id": {
+          "$ref": "#/$defs/id"
+        },
+        "connection_id": {
+          "$ref": "#/$defs/id"
+        },
+        "executor": {
+          "enum": [
+            "http",
+            "mqtt"
+          ]
+        },
+        "http": {
+          "$ref": "#/$defs/http_binding"
+        },
+        "fields": {
+          "type": "object"
+        },
+        "mqtt": {
+          "$ref": "#/$defs/mqtt_observation"
+        }
+      },
+      "required": [
+        "target_id",
+        "connection_id",
+        "executor",
+        "fields"
+      ],
+      "additionalProperties": false
+    },
+    "mqtt_binding": {
+      "type": "object",
+      "properties": {
+        "topic": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "payload": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "qos": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "retain": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "topic",
+        "payload",
+        "qos",
+        "retain"
+      ],
+      "additionalProperties": false
+    },
+    "mqtt_observation": {
+      "type": "object",
+      "properties": {
+        "topic": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "format": {
+          "enum": [
+            "text",
+            "json"
+          ]
+        },
+        "field": {
+          "$ref": "#/$defs/id"
+        },
+        "true_payload": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "false_payload": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "qos": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "required": [
+        "topic",
+        "format",
+        "qos"
+      ],
+      "additionalProperties": false
     }
+  }
 }
