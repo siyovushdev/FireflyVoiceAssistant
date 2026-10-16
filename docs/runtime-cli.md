@@ -16,7 +16,7 @@ Enter one command per line. Blank and whitespace-only lines return `U`; `quit`, 
 
 Callback userdata points to the owning implementation: no global bridge is needed. A request mutex serializes inference, a separate mutex protects callback output, and callback exceptions are captured rather than crossing the C API. Raw output is returned only after a successful completed run. CommandEngine decodes exactly one JSON result (JSON whitespace is allowed), then gates against the untouched original input and validates. No output repair or compact ingress is used. Engine lifetime must outlast callers; destruction must not race inference.
 
-For unit tests without the SDK/runtime, use a separate build directory:
+The following core-only unit-test build is for **Linux/aarch64 only** and needs no SDK/runtime. On an x86_64 PC, use the explicit host offline mode in the [build guide](build-and-test.md#pc-cpu-tests-native-host-not-a-release). Use a separate build directory:
 ```sh
 cmake -S . -B build/unit -DFIREFLY_BUILD_ASSISTANT=OFF -DFIREFLY_BUILD_ADMIN=OFF -DFIREFLY_BUILD_CONFIG_TOOLS=ON
 cmake --build build/unit
