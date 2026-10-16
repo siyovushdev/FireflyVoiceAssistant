@@ -34,65 +34,113 @@ int main(int argc, char** argv) {
               "TEXT boolean state parsed");
         rejects([&] { (void)execution::decodeMqttObservationPayload(observation, "unknown"); });
 
-        // Reproduce early device confirmation before PUBACK, including equal
-        // millisecond timestamps. Old pre-publish packets still fail closed.
+        // Early state after MQTT submit but before PUBACK is buffered, not lost.
+        // A pre-submit sample (even at the same millisecond) is never admitted.
         auto base = config::ConfigLoader::fromFile(std::string(argv[1]) + "/config/current-m4.json");
         std::int64_t instant = 1000;
         execution::DeviceStateStore state(base, [&] { return instant; }, [&] { return instant; });
         execution::MqttObservationGate gate;
         const std::string target = "device_kitchen_light";
+        const std::map<std::string, actions::Scalar> target80{
+            {"brightness", actions::Scalar(std::int64_t{80})}};
+        const std::map<std::string, actions::Scalar> old0{
+            {"brightness", actions::Scalar(std::int64_t{0})}};
         const auto beforeCommand = gate.snapshot(target);
-        gate.begin(target);
+        gate.begin(target, target80);
         const auto whileConnecting = gate.snapshot(target);
-        check(!gate.accept(target, whileConnecting,
-                           {{"brightness", actions::Scalar(std::int64_t{0})}}, state),
-              "pre-publish state cannot confirm a new command");
-        gate.publicationStarted(target);
+        check(!gate.accept(target, whileConnecting, old0, state),
+              "an old OFF during broker connection is not a new ON");
+        check(!gate.accept(target, whileConnecting, target80, state),
+              "even matching state cannot confirm before publishing");
+
+        int submitted = 0;
+        check(gate.submitPublication(target, [&] { ++submitted; return 0; }) == 0 &&
+                  submitted == 1, "submit must invoke library call exactly once");
         const auto whilePublishing = gate.snapshot(target);
-        check(!gate.accept(target, beforeCommand,
-                           {{"brightness", actions::Scalar(std::int64_t{0})}}, state),
-              "packet captured before command rejected");
-        check(!gate.accept(target, whileConnecting,
-                           {{"brightness", actions::Scalar(std::int64_t{0})}}, state),
-              "delayed connection-phase state rejected");
+        check(whilePublishing != whileConnecting, "epoch advances only after successful submission");
+        check(!gate.accept(target, beforeCommand, old0, state),
+              "pre-command ticket rejected");
+        check(!gate.accept(target, whileConnecting, old0, state),
+              "callback captured before publish cannot enter early buffer");
+        check(!gate.accept(target, whilePublishing, old0, state),
+              "mismatching OFF cannot confirm requested ON");
 
-        check(gate.accept(target, whilePublishing,
-                          {{"brightness", actions::Scalar(std::int64_t{80})}}, state),
-              "fresh early device state buffered before broker acknowledgment");
-        check(state.device(target)->properties.at("brightness").knowledge == execution::StateKnowledge::Unknown,
-              "buffering cannot confirm before prediction");
-        state.applyPrediction(target, {{"brightness", actions::Scalar(std::int64_t{80})}}, instant);
-        gate.end(target, state);
-        check(state.device(target)->properties.at("brightness").knowledge == execution::StateKnowledge::Confirmed,
-              "early reply wins over prediction, even in same millisecond");
-        check(state.device(target)->properties.at("brightness").value ==
-                  actions::Scalar(std::int64_t{80}), "early reply value preserved");
-        check(gate.accept(target, whilePublishing,
-                          {{"brightness", actions::Scalar(std::int64_t{70})}}, state),
-              "late-parsed callback from publish phase still accepted");
-        check(state.device(target)->properties.at("brightness").value ==
-                  actions::Scalar(std::int64_t{70}), "later message applies after publish returns");
+        check(gate.accept(target, whilePublishing, target80, state),
+              "fresh early confirmation is buffered before PUBACK");
+        // This deliberately invalid sample previously displaced valid power:true.
+        rejects([&] {
+            (void)gate.accept(target, whilePublishing,
+                {{"brightness", actions::Scalar(std::string("invalid"))}}, state);
+        });
+        rejects([&] {
+            (void)gate.accept(target, whilePublishing,
+                {{"brightness", actions::Scalar(true)}}, state);
+        });
+        check(state.device(target)->properties.at("brightness").knowledge ==
+                  execution::StateKnowledge::Unknown, "buffer must not confirm before predicted state");
+        state.applyPrediction(target, target80, instant);
+        gate.end(target, state, true);
+        const auto confirmed = state.device(target)->properties.at("brightness");
+        check(confirmed.knowledge == execution::StateKnowledge::Confirmed,
+              "valid buffered reply survives invalid sample and becomes Confirmed");
+        check(confirmed.value == actions::Scalar(std::int64_t{80}),
+              "badly typed sample did not evict valid early reply");
 
-        // A command to kitchen cannot invalidate unrelated bedroom telemetry.
+        // A callback already entered after submit but decoded after PUBACK is valid.
+        check(gate.accept(target, whilePublishing, target80, state),
+              "late-parsed post-submit callback can confirm");
+        // New command revokes the old callback ticket; another device is unaffected.
+        const auto beforeSecondCommand = gate.snapshot(target);
         const std::string other = "device_bedroom_light";
-        const auto otherSnapshot = gate.snapshot(other);
-        gate.begin(target);
-        check(gate.accept(other, otherSnapshot,
-                          {{"brightness", actions::Scalar(std::int64_t{35})}}, state),
-              "target B observation survives command on A");
-        check(state.device(other)->properties.at("brightness").knowledge == execution::StateKnowledge::Confirmed,
-              "target B confirmed independently");
-        gate.end(target, state);
-        check(!gate.accept(target, whilePublishing,
-                           {{"brightness", actions::Scalar(std::int64_t{0})}}, state),
-              "previous command callback cannot cross a new command boundary");
+        const auto snapshotB = gate.snapshot(other);
+        gate.begin(target, target80);
+        check(gate.accept(other, snapshotB,
+                {{"brightness", actions::Scalar(std::int64_t{35})}}, state),
+              "a command on A cannot discard valid telemetry from B");
+        check(state.device(other)->properties.at("brightness").knowledge ==
+                  execution::StateKnowledge::Confirmed, "unrelated device remains Confirmed");
+        check(!gate.accept(target, beforeSecondCommand, old0, state),
+              "callbacks from previous command cannot cross another command boundary");
+        gate.end(target, state, false);
 
-        // No buffered telemetry is manufactured on failed/aborted commands.
-        const auto unknown = "device_living_light";
-        gate.begin(unknown);
-        gate.end(unknown, state);
-        check(state.device(unknown)->properties.at("brightness").knowledge == execution::StateKnowledge::Unknown,
-              "failed before publish does not invent state");
+        // Disconnect invalidates buffered candidates and tickets *before* end().
+        const std::string disconnectTarget = "device_living_light";
+        const auto livingOld = gate.snapshot(disconnectTarget);
+        gate.begin(disconnectTarget, target80);
+        check(gate.submitPublication(disconnectTarget, [] { return 0; }) == 0,
+              "living command submits");
+        const auto livingTicket = gate.snapshot(disconnectTarget);
+        check(gate.accept(disconnectTarget, livingTicket, target80, state),
+              "living early confirmation buffered");
+        gate.disconnected(disconnectTarget, state);
+        check(!gate.accept(disconnectTarget, livingTicket, target80, state),
+              "disconnect revokes old callback ticket");
+        check(state.device(disconnectTarget)->properties.at("brightness").knowledge ==
+                  execution::StateKnowledge::Unknown,
+              "disconnect clears prior state knowledge");
+        // Simulate command return after loss of subscribe connection.
+        state.applyPrediction(disconnectTarget, target80, instant);
+        gate.end(disconnectTarget, state, true);
+        check(state.device(disconnectTarget)->properties.at("brightness").knowledge ==
+                  execution::StateKnowledge::Predicted,
+              "disconnect cannot replay stale buffered sample as Confirmed");
+        check(state.device(disconnectTarget)->connectivity == execution::Connectivity::Unreachable,
+              "buffered state cannot restore reachability after disconnect");
+        check(livingOld != livingTicket, "living command updated ticket");
+
+        // Failed C API submission cannot open the post-submit window at all.
+        const std::string failedTarget = "device_corridor_light";
+        gate.begin(failedTarget, target80);
+        const auto beforeFailedSubmit = gate.snapshot(failedTarget);
+        check(gate.submitPublication(failedTarget, [] { return 4; }) == 4,
+              "library submission failure propagated");
+        check(gate.snapshot(failedTarget) == beforeFailedSubmit,
+              "failed submission cannot open post-submit epoch");
+        check(!gate.accept(failedTarget, beforeFailedSubmit, target80, state),
+              "failed submission cannot buffer state");
+        gate.end(failedTarget, state, false);
+        check(state.device(failedTarget)->properties.at("brightness").knowledge ==
+                  execution::StateKnowledge::Unknown, "failed command has no fabricated confirmation");
         std::cout << "PASS MQTT codec duplicates and command/observation barrier\n";
         return 0;
     } catch (const std::exception& exception) {
