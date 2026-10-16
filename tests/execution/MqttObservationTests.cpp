@@ -140,24 +140,36 @@ int main(int argc, char** argv) {
         const std::string failedTarget = "device_corridor_light";
         gate.begin(failedTarget, target80);
         const auto beforeFailedSubmit = gate.snapshot(failedTarget);
-        check(gate.submitPublication(failedTarget, [] { return 4; }) == 4,
-              "library submission failure propagated");
+        std::uint64_t failedInFlightTicket = 0;
+        check(gate.submitPublication(failedTarget, [&] {
+                  failedInFlightTicket = gate.snapshot(failedTarget);
+                  return 4;
+              }) == 4, "library submission failure propagated");
         // Snapshot tickets are monotonic even when submission fails;
         // the publish cutoff must remain closed instead.
         check(!gate.accept(failedTarget, beforeFailedSubmit, target80, state),
-              "failed submission cannot buffer state");
+              "failed submission cannot buffer pre-submit state");
+        check(!gate.accept(failedTarget, failedInFlightTicket, target80, state),
+              "failed submission cannot buffer an otherwise eligible in-flight ON");
         gate.end(failedTarget, state, false);
         check(state.device(failedTarget)->properties.at("brightness").knowledge ==
                   execution::StateKnowledge::Unknown, "failed command has no fabricated confirmation");
-        // A callback whose entry precedes completion of the publish API cannot
-        // borrow a new ticket merely because publication holds the gate mutex.
+        // A callback captured before the API call must stay obsolete even
+        // when accept() is delayed by the gate mutex. A genuine response
+        // captured DURING publish() must survive the return-time boundary.
+        // Use fresh state so a previous Confirmed cannot mask this regression.
         const std::string raced = "device_kitchen_light";
-        gate.begin(raced, target80);
+        execution::DeviceStateStore raceState(base, [&] { return instant; }, [&] { return instant; });
+        execution::MqttObservationGate raceGate;
+        raceGate.begin(raced, target80);
+        const auto oldBeforePublish = raceGate.snapshot(raced);
         std::mutex syncMutex;
         std::condition_variable syncCv;
-        bool enteredPublish = false, leavePublish = false;
+        bool enteredPublish = false, leavePublish = false, callbackEntered = false;
+        bool earlyAccepted = false;
+        int publicationCode = -1;
         std::thread publisher([&] {
-            gate.submitPublication(raced, [&] {
+            publicationCode = raceGate.submitPublication(raced, [&] {
                 std::unique_lock<std::mutex> lk(syncMutex);
                 enteredPublish = true;
                 syncCv.notify_all();
@@ -169,27 +181,56 @@ int main(int argc, char** argv) {
             std::unique_lock<std::mutex> lk(syncMutex);
             syncCv.wait(lk, [&] { return enteredPublish; });
         }
-        const auto staleDuringPublish = gate.snapshot(raced);
+        const auto earlyOnTicket = raceGate.snapshot(raced);
+        std::thread callback([&] {
+            {
+                std::lock_guard<std::mutex> lk(syncMutex);
+                callbackEntered = true;
+            }
+            syncCv.notify_all();
+            earlyAccepted = raceGate.accept(raced, earlyOnTicket, target80, raceState);
+        });
         {
-            std::lock_guard<std::mutex> lk(syncMutex);
+            std::unique_lock<std::mutex> lk(syncMutex);
+            syncCv.wait(lk, [&] { return callbackEntered; });
             leavePublish = true;
         }
         syncCv.notify_all();
         publisher.join();
-        check(!gate.accept(raced, staleDuringPublish, old0, state),
-              "pre-publication callback must not borrow post-publication ticket");
-        check(!gate.accept(raced, staleDuringPublish, target80, state),
-              "even matching old state cannot confirm after publish");
-        const auto freshOn = gate.snapshot(raced);
-        check(gate.accept(raced, freshOn, target80, state), "new ON is buffered");
-        const auto freshOff = gate.snapshot(raced);
-        check(!gate.accept(raced, freshOff, old0, state),
+        callback.join();
+        check(publicationCode == 0, "publication succeeded");
+        check(!raceGate.accept(raced, oldBeforePublish, target80, raceState),
+              "old matching ON cannot borrow a new ticket after waiting on mutex");
+        check(!raceGate.accept(raced, oldBeforePublish, old0, raceState),
+              "old OFF cannot invalidate a fresh in-flight reply");
+        check(earlyAccepted, "ON delivered during publish return is buffered");
+        check(raceState.device(raced)->properties.at("brightness").knowledge ==
+                  execution::StateKnowledge::Unknown,
+              "early callback must not confirm before prediction");
+        raceState.applyPrediction(raced, target80, instant);
+        raceGate.end(raced, raceState, true);
+        const auto earlyConfirmed = raceState.device(raced)->properties.at("brightness");
+        check(earlyConfirmed.knowledge == execution::StateKnowledge::Confirmed &&
+                  earlyConfirmed.value == actions::Scalar(std::int64_t{80}),
+              "early ON before publish returned must become Confirmed");
+
+        // A later, valid contradictory OFF still cancels buffered ON.
+        // Validate separately so it cannot hide the early-positive scenario.
+        raceGate.begin(raced, target80);
+        check(raceGate.submitPublication(raced, [] { return 0; }) == 0,
+              "second publication submitted");
+        const auto freshOn = raceGate.snapshot(raced);
+        check(raceGate.accept(raced, freshOn, target80, raceState),
+              "second command has valid buffered ON");
+        const auto freshOff = raceGate.snapshot(raced);
+        check(!raceGate.accept(raced, freshOff, old0, raceState),
               "new contradictory OFF revokes buffered ON");
-        state.applyPrediction(raced, target80, instant);
-        gate.end(raced, state, true);
-        check(state.device(raced)->properties.at("brightness").knowledge !=
-                  execution::StateKnowledge::Confirmed,
+        raceState.applyPrediction(raced, target80, instant);
+        raceGate.end(raced, raceState, true);
+        check(raceState.device(raced)->properties.at("brightness").knowledge ==
+                  execution::StateKnowledge::Predicted,
               "contradictory OFF must prevent stale Confirmed ON");
+
         std::cout << "PASS MQTT codec duplicates and command/observation barrier\n";
         return 0;
     } catch (const std::exception& exception) {
