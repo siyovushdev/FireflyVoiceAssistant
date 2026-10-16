@@ -30,6 +30,9 @@ public:
 private:
     struct Target {
         std::uint64_t cutoffTicket = 0;
+        // Latest successfully validated observation for this target, even if it
+        // contradicted an in-flight command and did not become Confirmed.
+        std::uint64_t lastValidTicket = 0;
         bool inFlight = false;
         bool published = false;
         bool disconnectedDuringCommand = false;
