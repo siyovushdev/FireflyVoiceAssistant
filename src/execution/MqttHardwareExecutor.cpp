@@ -93,10 +93,10 @@ void MqttObservationGate::end(const std::string& target, DeviceStateStore& store
             store.markUnreachable(target, store.nowMs());
         } catch (const std::exception&) { /* fail closed */ }
     }
-    current.disconnectedDuringCommand = false;
     // Keep tickets only from a healthy successful submission. An observation
     // captured during disconnect or a failed attempt cannot confirm later.
     if (!accepted || current.disconnectedDuringCommand) ++current.epoch;
+    current.disconnectedDuringCommand = false;
 }
 bool MqttObservationGate::accept(const std::string& target, std::uint64_t version,
                                  const std::map<std::string, actions::Scalar>& properties,
