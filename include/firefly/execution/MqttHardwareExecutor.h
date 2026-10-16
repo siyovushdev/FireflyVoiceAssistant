@@ -1,5 +1,6 @@
 #pragma once
 #include "firefly/execution/HardwareExecutor.h"
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -28,7 +29,7 @@ public:
                 DeviceStateStore& store);
 private:
     struct Target {
-        std::uint64_t epoch = 0;
+        std::uint64_t cutoffTicket = 0;
         bool inFlight = false;
         bool published = false;
         bool disconnectedDuringCommand = false;
@@ -36,6 +37,8 @@ private:
         std::optional<std::map<std::string, actions::Scalar>> buffered;
     };
     mutable std::mutex mutex_;
+    // Monotonic arrival tickets are allocated without taking the gate mutex.
+    mutable std::atomic<std::uint64_t> nextTicket_{1};
     std::map<std::string, Target> targets_;
 };
 
