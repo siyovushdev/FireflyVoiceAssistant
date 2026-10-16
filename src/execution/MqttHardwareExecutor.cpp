@@ -111,7 +111,10 @@ bool MqttObservationGate::accept(const std::string& target, std::uint64_t versio
                                  DeviceStateStore& store) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto& current = targets_[target];
-    if (version <= current.cutoffTicket) return false;
+    // Callback execution may be reordered after arrival-ticket allocation.
+    // Never let an earlier valid sample overwrite a later one. This fence is
+    // per-target: commands/telemetry on other targets must not affect it.
+    if (version <= current.cutoffTicket || version <= current.lastValidTicket) return false;
     const StateObservation sample{target, properties, 0, std::nullopt};
     if (current.inFlight) {
         if (!current.published || current.expected.empty()) return false;
@@ -121,24 +124,33 @@ bool MqttObservationGate::accept(const std::string& target, std::uint64_t versio
         // Generic IoT MQTT has no request correlation ID. Only an early sample
         // agreeing with an actual assigned property can confirm in-flight work.
         bool overlaps = false;
+        bool contradicts = false;
         for (const auto& [key, expected] : current.expected) {
             const auto found = properties.find(key);
             if (found == properties.end()) continue;
             overlaps = true;
-            if (found->second != expected) {
-                // A newer valid contradiction revokes an earlier matching sample.
-                // Do not turn the earlier ON into Confirmed after a fresh OFF.
-                current.buffered.reset();
-                return false;
-            }
+            if (found->second != expected) contradicts = true;
         }
         if (!overlaps) return false;
-        // Build replacement before touching an earlier valid buffer.
+        if (contradicts) {
+            // A newer well-typed OFF is still an authoritative arrival even
+            // though it cannot confirm the requested ON. Revoke buffered ON
+            // and prevent an older callback from recreating it.
+            current.buffered.reset();
+            current.lastValidTicket = version;
+            return false;
+        }
+        // Build the replacement first; allocation/validation failures must
+        // not advance the ticket fence or evict a valid buffered reply.
         auto next = properties;
-        current.buffered = std::move(next); // bounded, strong exception safety
+        current.buffered = std::move(next);
+        current.lastValidTicket = version;
         return true;
     }
+    // Advance only after state validation/mutation succeeded. An invalid
+    // late observation must not fence out earlier valid telemetry.
     store.applyObservation(sample);
+    current.lastValidTicket = version;
     return true;
 }
 std::map<std::string, actions::Scalar> decodeMqttObservationPayload(
