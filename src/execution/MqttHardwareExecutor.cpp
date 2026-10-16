@@ -46,11 +46,17 @@ int MqttObservationGate::submitPublication(const std::string& target,
     const auto found = targets_.find(target);
     if (found == targets_.end() || !found->second.inFlight || found->second.published)
         throw std::logic_error("mqtt_publish_outside_command");
-    // Do not open a post-send window before invoking mosquitto_publish.
-    // Callback snapshots and buffering share this exact mutex.
+    // A callback already entered before the publish call carries an older
+    // lock-free arrival ticket, even if it must wait for this mutex. Record the
+    // barrier immediately BEFORE invoking the MQTT API: a legitimate reply may
+    // arrive from another thread while publish() is still returning.
+    //
+    // accept() cannot inspect or buffer replies while this mutex is held.
+    // Only after a successful API return do we open the eligible reply window;
+    // a failed/throwing publish can never turn those early tickets into state.
+    found->second.cutoffTicket = nextTicket_.fetch_add(1, std::memory_order_seq_cst);
     const int result = publish();
     if (result == 0) { // MOSQ_ERR_SUCCESS
-        found->second.cutoffTicket = nextTicket_.fetch_add(1, std::memory_order_seq_cst);
         found->second.published = true;
     }
     return result;
@@ -371,17 +377,21 @@ struct MqttHardwareExecutor::Impl {
         static void onMessage(mosquitto*, void* ptr, const mosquitto_message* message) noexcept {
             try {
                 auto& s = *static_cast<Subscription*>(ptr);
+                // Capture the callback-entry ticket before topic lookup, vector
+                // allocation or payload parsing. One globally ordered arrival
+                // ticket can be reused for all targets in this MQTT message;
+                // each target still has its own cutoff/command state.
+                const auto arrivalTicket = s.owner.gate.snapshot({});
                 if (!message || !message->topic || message->retain ||
                     message->payloadlen <= 0 || message->payloadlen > 4096 || !message->payload) return;
                 const auto found = s.byTopic.find(message->topic);
                 if (found == s.byTopic.end()) return;
-                // Capture all affected targets before copying/parsing a potentially
-                // slow message. In particular, a callback started before PUBLISH
-                // must not acquire the post-publish epoch after parsing target A.
+                // Attach the callback-entry ticket to every affected target
+                // before copying/parsing a potentially slow message.
                 std::vector<std::pair<const config::ObservationBinding*, std::uint64_t>> observed;
                 observed.reserve(found->second.size());
                 for (const auto* binding : found->second)
-                    observed.emplace_back(binding, s.owner.gate.snapshot(binding->targetId));
+                    observed.emplace_back(binding, arrivalTicket);
                 const std::string bytes(static_cast<const char*>(message->payload),
                                         static_cast<std::size_t>(message->payloadlen));
                 for (const auto& [binding, version] : observed) {
