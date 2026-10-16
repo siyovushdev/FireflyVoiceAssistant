@@ -34,35 +34,65 @@ int main(int argc, char** argv) {
               "TEXT boolean state parsed");
         rejects([&] { (void)execution::decodeMqttObservationPayload(observation, "unknown"); });
 
-        // Reproduce pre-command/while-connecting observations at exactly the
-        // same millisecond. Only samples starting after the barrier may confirm.
+        // Reproduce early device confirmation before PUBACK, including equal
+        // millisecond timestamps. Old pre-publish packets still fail closed.
         auto base = config::ConfigLoader::fromFile(std::string(argv[1]) + "/config/current-m4.json");
         std::int64_t instant = 1000;
         execution::DeviceStateStore state(base, [&] { return instant; }, [&] { return instant; });
         execution::MqttObservationGate gate;
         const std::string target = "device_kitchen_light";
-        const auto staleTicket = gate.snapshot();
+        const auto beforeCommand = gate.snapshot(target);
         gate.begin(target);
-        const auto duringConnect = gate.snapshot();
-        check(!gate.accept(target, duringConnect, [&] {
-            state.applyObservation({target, {{"brightness", actions::Scalar(std::int64_t{0})}}, 0, {}});
-        }), "pre-publish observation cannot confirm while command is in-flight");
+        const auto whileConnecting = gate.snapshot(target);
+        check(!gate.accept(target, whileConnecting,
+                           {{"brightness", actions::Scalar(std::int64_t{0})}}, state),
+              "pre-publish state cannot confirm a new command");
+        gate.publicationStarted(target);
+        const auto whilePublishing = gate.snapshot(target);
+        check(!gate.accept(target, beforeCommand,
+                           {{"brightness", actions::Scalar(std::int64_t{0})}}, state),
+              "packet captured before command rejected");
+        check(!gate.accept(target, whileConnecting,
+                           {{"brightness", actions::Scalar(std::int64_t{0})}}, state),
+              "delayed connection-phase state rejected");
+
+        check(gate.accept(target, whilePublishing,
+                          {{"brightness", actions::Scalar(std::int64_t{80})}}, state),
+              "fresh early device state buffered before broker acknowledgment");
+        check(state.device(target)->properties.at("brightness").knowledge == execution::StateKnowledge::Unknown,
+              "buffering cannot confirm before prediction");
         state.applyPrediction(target, {{"brightness", actions::Scalar(std::int64_t{80})}}, instant);
-        gate.end(target);
-        check(!gate.accept(target, staleTicket, [&] {
-            state.applyObservation({target, {{"brightness", actions::Scalar(std::int64_t{0})}}, 0, {}});
-        }), "delayed pre-command sample must not confirm after command");
-        check(!gate.accept(target, duringConnect, [&] {
-            state.applyObservation({target, {{"brightness", actions::Scalar(std::int64_t{0})}}, 0, {}});
-        }), "delayed in-flight sample must not confirm after command");
-        check(state.device(target)->properties.at("brightness").knowledge == execution::StateKnowledge::Predicted,
-              "prediction remains pending until a new broker state");
-        const auto freshTicket = gate.snapshot();
-        check(gate.accept(target, freshTicket, [&] {
-            state.applyObservation({target, {{"brightness", actions::Scalar(std::int64_t{80})}}, 0, {}});
-        }), "fresh message accepted at same millisecond");
+        gate.end(target, state);
         check(state.device(target)->properties.at("brightness").knowledge == execution::StateKnowledge::Confirmed,
-              "new MQTT state becomes Confirmed even at same millisecond");
+              "early reply wins over prediction, even in same millisecond");
+        check(state.device(target)->properties.at("brightness").value ==
+                  actions::Scalar(std::int64_t{80}), "early reply value preserved");
+        check(gate.accept(target, whilePublishing,
+                          {{"brightness", actions::Scalar(std::int64_t{70})}}, state),
+              "late-parsed callback from publish phase still accepted");
+        check(state.device(target)->properties.at("brightness").value ==
+                  actions::Scalar(std::int64_t{70}), "later message applies after publish returns");
+
+        // A command to kitchen cannot invalidate unrelated bedroom telemetry.
+        const std::string other = "device_bedroom_light";
+        const auto otherSnapshot = gate.snapshot(other);
+        gate.begin(target);
+        check(gate.accept(other, otherSnapshot,
+                          {{"brightness", actions::Scalar(std::int64_t{35})}}, state),
+              "target B observation survives command on A");
+        check(state.device(other)->properties.at("brightness").knowledge == execution::StateKnowledge::Confirmed,
+              "target B confirmed independently");
+        gate.end(target, state);
+        check(!gate.accept(target, whilePublishing,
+                           {{"brightness", actions::Scalar(std::int64_t{0})}}, state),
+              "previous command callback cannot cross a new command boundary");
+
+        // No buffered telemetry is manufactured on failed/aborted commands.
+        const auto unknown = "device_living_light";
+        gate.begin(unknown);
+        gate.end(unknown, state);
+        check(state.device(unknown)->properties.at("brightness").knowledge == execution::StateKnowledge::Unknown,
+              "failed before publish does not invent state");
         std::cout << "PASS MQTT codec duplicates and command/observation barrier\n";
         return 0;
     } catch (const std::exception& exception) {

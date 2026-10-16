@@ -21,27 +21,60 @@
 #endif
 
 namespace firefly::execution {
-std::uint64_t MqttObservationGate::snapshot() const {
-    return epoch_.load(std::memory_order_acquire);
+std::uint64_t MqttObservationGate::snapshot(const std::string& target) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto found = targets_.find(target);
+    return found == targets_.end() ? 0 : found->second.epoch;
 }
 void MqttObservationGate::begin(const std::string& target) {
     std::lock_guard<std::mutex> lock(mutex_);
-    ++pending_[target];
-    epoch_.fetch_add(1, std::memory_order_release);
+    auto& current = targets_[target];
+    if (current.inFlight) throw std::logic_error("mqtt_target_busy");
+    ++current.epoch; // invalidate samples captured before this command
+    current.inFlight = true;
+    current.published = false;
+    current.buffered.reset();
 }
-void MqttObservationGate::end(const std::string& target) {
+void MqttObservationGate::publicationStarted(const std::string& target) {
     std::lock_guard<std::mutex> lock(mutex_);
-    const auto it = pending_.find(target);
-    if (it == pending_.end()) return;
-    if (--it->second == 0) pending_.erase(it);
-    epoch_.fetch_add(1, std::memory_order_release);
+    const auto found = targets_.find(target);
+    if (found == targets_.end() || !found->second.inFlight) return;
+    // Messages captured while connecting must not become confirmations.
+    ++found->second.epoch;
+    found->second.published = true;
+}
+void MqttObservationGate::end(const std::string& target, DeviceStateStore& store) noexcept {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto found = targets_.find(target);
+    if (found == targets_.end() || !found->second.inFlight) return;
+    auto& current = found->second;
+    // A real device may publish its state before the MQTT PUBACK reaches us.
+    // Apply the prediction first, then the last such observation. Both are
+    // serialized with incoming callbacks under this same mutex.
+    if (current.buffered) {
+        try { store.applyObservation({target, *current.buffered, 0, std::nullopt}); }
+        catch (const std::exception&) { /* fail closed; keep prior knowledge */ }
+        current.buffered.reset();
+    }
+    current.inFlight = false;
+    current.published = false;
+    // Do not bump epoch on end: an already captured fresh callback is valid
+    // even if its parsing finishes after publish() returns.
 }
 bool MqttObservationGate::accept(const std::string& target, std::uint64_t version,
-                                 const std::function<void()>& commit) {
+                                 const std::map<std::string, actions::Scalar>& properties,
+                                 DeviceStateStore& store) {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (epoch_.load(std::memory_order_acquire) != version || pending_.count(target))
-        return false;
-    commit();
+    auto& current = targets_[target];
+    if (current.epoch != version) return false;
+    if (current.inFlight) {
+        if (!current.published) return false;
+        // Only one latest sample per target: memory is bounded, even if a
+        // device floods the topic during a slow QoS1 PUBACK.
+        current.buffered = properties;
+        return true;
+    }
+    store.applyObservation({target, properties, 0, std::nullopt});
     return true;
 }
 std::map<std::string, actions::Scalar> decodeMqttObservationPayload(
@@ -186,7 +219,8 @@ void disconnected(mosquitto* mosq, void* context, int code) {
     // reconnect and replay an unacknowledged QoS 1 publication.
     if (code != 0) (void)mosquitto_disconnect(mosq);
 }
-HardwareResult publish(const config::Connection& conn, const config::MqttBinding& mapping) {
+HardwareResult publish(const config::Connection& conn, const config::MqttBinding& mapping,
+                       MqttObservationGate& gate, const std::string& target) {
     Publication p;
     try {
         Client client(&p);
@@ -210,6 +244,9 @@ HardwareResult publish(const config::Connection& conn, const config::MqttBinding
             return error("mqtt_connect_rejected", ReachabilityEvidence::Unreachable);
         lock.unlock();
         int mid = -1;
+        // Open the post-publish observation window BEFORE the library can
+        // send a packet: an immediate device reply can precede PUBACK.
+        gate.publicationStarted(target);
         const auto result = mosquitto_publish(client.ptr, &mid, mapping.topic.c_str(),
             static_cast<int>(mapping.payload.size()), mapping.payload.data(),
             static_cast<int>(mapping.qos), mapping.retain);
@@ -274,9 +311,6 @@ struct MqttHardwareExecutor::Impl {
         }
         static void onMessage(mosquitto*, void* ptr, const mosquitto_message* message) {
             auto& s = *static_cast<Subscription*>(ptr);
-            // Capture the generation before doing parsing or waiting on a lock.
-            // A command start/end across this callback invalidates this sample.
-            const auto observationEpoch = s.owner.gate.snapshot();
             if (!message || !message->topic || message->retain ||
                 message->payloadlen < 0 || message->payloadlen > 4096) return;
             const auto found = s.byTopic.find(message->topic);
@@ -284,11 +318,13 @@ struct MqttHardwareExecutor::Impl {
             if (message->payloadlen == 0 || !message->payload) return;
             const std::string bytes(static_cast<const char*>(message->payload), static_cast<std::size_t>(message->payloadlen));
             for (const auto* binding : found->second) {
+                // Snapshot per target before parsing; a command on A must
+                // never invalidate a valid state notification for B.
+                const auto observationEpoch = s.owner.gate.snapshot(binding->targetId);
                 try {
                     const auto properties = decodeMqttObservationPayload(*binding, bytes);
-                    (void)s.owner.gate.accept(binding->targetId, observationEpoch, [&] {
-                        s.owner.state.applyObservation({binding->targetId, properties, 0, std::nullopt});
-                    });
+                    (void)s.owner.gate.accept(binding->targetId, observationEpoch,
+                                               properties, s.owner.state);
                 } catch (const std::exception&) {
                     // Duplicate/malformed/old samples fail closed; no partial update.
                 }
@@ -326,7 +362,7 @@ struct MqttHardwareExecutor::Impl {
         const auto* connection = config::findConnection(catalog->configuration(), binding.connectionId);
         if (!connection || !connection->enabled || connection->type != config::ExecutorKind::Mqtt)
             return error("mqtt_connection_missing");
-        return publish(*connection, binding.mqtt);
+        return publish(*connection, binding.mqtt, gate, binding.targetId);
 #else
         (void)binding;
         return error("mqtt_unavailable");
@@ -369,7 +405,7 @@ HardwareObservation MqttHardwareExecutor::observe(const config::ObservationBindi
     return {error("mqtt_async_observation"), {}};
 }
 void MqttHardwareExecutor::beginCommand(const std::string& target) { impl_->gate.begin(target); }
-void MqttHardwareExecutor::endCommand(const std::string& target) { impl_->gate.end(target); }
+void MqttHardwareExecutor::endCommand(const std::string& target) { impl_->gate.end(target, impl_->state); }
 void MqttHardwareExecutor::startSubscriptions() {
     // Apply has already atomically published this generation. A broker client
     // allocation/runtime failure must not make a committed Apply appear failed.

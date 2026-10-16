@@ -1,29 +1,37 @@
 #pragma once
 #include "firefly/execution/HardwareExecutor.h"
-#include <atomic>
 #include <cstdint>
-#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string_view>
 
 namespace firefly::execution {
 class DeviceStateStore;
 
-// A broker message begun before/during a command cannot be used as a fresh
-// confirmation after the command. The gate is independent of wall-clock ms.
+// Per-target command/observation barrier. It does not depend on wall-clock
+// resolution or on commands issued to unrelated targets. A state arriving
+// after publish is submitted but before PUBACK is buffered until prediction.
 class MqttObservationGate final {
 public:
-    std::uint64_t snapshot() const;
+    std::uint64_t snapshot(const std::string& target) const;
     void begin(const std::string& target);
-    void end(const std::string& target);
+    void publicationStarted(const std::string& target);
+    void end(const std::string& target, DeviceStateStore& store) noexcept;
+    // true: accepted or buffered; false: obsolete or pre-publish telemetry.
     bool accept(const std::string& target, std::uint64_t snapshot,
-                const std::function<void()>& commit);
+                const std::map<std::string, actions::Scalar>& properties,
+                DeviceStateStore& store);
 private:
+    struct Target {
+        std::uint64_t epoch = 0;
+        bool inFlight = false;
+        bool published = false;
+        std::optional<std::map<std::string, actions::Scalar>> buffered;
+    };
     mutable std::mutex mutex_;
-    std::atomic<std::uint64_t> epoch_{0};
-    std::map<std::string, std::size_t> pending_;
+    std::map<std::string, Target> targets_;
 };
 
 // Strict codec is available in host CPU tests without any network access.
