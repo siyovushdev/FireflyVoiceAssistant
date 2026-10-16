@@ -288,5 +288,15 @@ HardwareObservation MqttHardwareExecutor::observe(const config::ObservationBindi
     // confirmed samples. This is not an HTTP-like synchronous GET.
     return {error("mqtt_async_observation"), {}};
 }
-void MqttHardwareExecutor::startSubscriptions() { impl_->start(); }
+void MqttHardwareExecutor::startSubscriptions() {
+    // Apply has already atomically published this generation. A broker client
+    // allocation/runtime failure must not make a committed Apply appear failed.
+    // Subscription delivery is best-effort; unknown state is the safe fallback.
+    try { impl_->start(); }
+    catch (const std::exception&) {
+        for (const auto& observation : impl_->catalog->configuration().observations)
+            if (observation.executor == config::ExecutorKind::Mqtt)
+                impl_->state.invalidate(observation.targetId);
+    }
+}
 }
