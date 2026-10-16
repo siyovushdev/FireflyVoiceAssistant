@@ -134,34 +134,49 @@ void DeviceStateStore::applyPrediction(const std::string& targetId,
     }
 }
 
+void DeviceStateStore::validateObservationLocked(const StateObservation& observation,
+                                                  const DeviceKnowledge& current,
+                                                  std::int64_t arrival) const {
+    const auto* device = domain_.device(observation.targetId);
+    if (!device)
+        throw config::ConfigError("unknown_target", "/observation/target_id",
+            "Observation target missing from domain");
+    const auto order = observation.orderSteadyMs.value_or(arrival);
+    if ((observation.timestampMs != 0 && !observation.orderSteadyMs) || order > arrival)
+        throw config::ConfigError("invalid_observation", "/observation",
+            "Explicit event time requires a non-future process-local steady order stamp");
+    if (observation.properties.empty())
+        throw config::ConfigError("invalid_observation", "/observation/properties",
+            "Empty observation does not establish device state");
+    for (const auto& [key, value] : observation.properties) {
+        const auto found = current.properties.find(key);
+        if (found == current.properties.end())
+            throw config::ConfigError("unknown_field", "/observation/properties/" + key,
+                "Observation property is not declared for the device");
+        validateObservationValue(*device, key, value);
+        if (found->second.orderSteadyMs && order < *found->second.orderSteadyMs)
+            throw config::ConfigError("stale_observation", "/observation/properties/" + key,
+                "Observation steady order is older than existing property knowledge");
+    }
+}
+void DeviceStateStore::validateObservation(const StateObservation& observation) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto found = devices_.find(observation.targetId);
+    if (found == devices_.end())
+        throw config::ConfigError("unknown_target", "/observation/target_id",
+            "Observation target is not in the active generation");
+    validateObservationLocked(observation, found->second, steadyNowMs());
+}
 void DeviceStateStore::applyObservation(const StateObservation& observation) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto found = devices_.find(observation.targetId);
     if (found == devices_.end())
         throw config::ConfigError("unknown_target", "/observation/target_id",
             "Observation target is not in the active generation");
-    const auto* device = domain_.device(observation.targetId);
-    if (!device)
-        throw config::ConfigError("unknown_target", "/observation/target_id", "Observation target missing from domain");
-
     const auto arrival = steadyNowMs();
+    validateObservationLocked(observation, found->second, arrival);
     const auto order = observation.orderSteadyMs.value_or(arrival);
-    if ((observation.timestampMs != 0 && !observation.orderSteadyMs) || order > arrival)
-        throw config::ConfigError("invalid_observation", "/observation",
-            "Explicit event time requires a non-future process-local steady order stamp");
     const auto eventTime = observation.timestampMs == 0 ? nowMs() : observation.timestampMs;
-    // Validate schema + ordering for every property before mutating any of them.
-    for (const auto& [key, value] : observation.properties) {
-        if (!found->second.properties.count(key))
-            throw config::ConfigError("unknown_field", "/observation/properties/" + key,
-                "Observation property is not declared for the device");
-        validateObservationValue(*device, key, value);
-        const auto& property = found->second.properties.at(key);
-        if (property.orderSteadyMs && order < *property.orderSteadyMs)
-            throw config::ConfigError("stale_observation", "/observation/properties/" + key,
-                "Observation steady order is older than existing property knowledge");
-    }
-
     for (const auto& [key, value] : observation.properties) {
         auto& property = found->second.properties.at(key);
         property.value = value;

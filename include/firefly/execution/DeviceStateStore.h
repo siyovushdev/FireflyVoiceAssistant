@@ -78,6 +78,8 @@ public:
     // Older observations are rejected (stale_observation). Values must obey
     // built-in / Generic schema invariants (unsafe_constraint).
     void applyObservation(const StateObservation& observation);
+    // Dry-run schema/order validation before buffering an MQTT state sample.
+    void validateObservation(const StateObservation& observation) const;
     void markReachable(const std::string& targetId, std::int64_t atMs);
     void markUnreachable(const std::string& targetId, std::int64_t atMs);
 
@@ -96,6 +98,8 @@ private:
     void initializeUnknown(const config::Device& device);
     void validateObservationValue(const config::Device& device, const std::string& key,
                                   const actions::Scalar& value) const;
+    void validateObservationLocked(const StateObservation& observation,
+                                   const DeviceKnowledge& current, std::int64_t arrival) const;
     runtime::DomainView domain_;
     SteadyClockMs steadyClock_;
     WallClockMs wallClock_;
