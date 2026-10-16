@@ -31,11 +31,12 @@ void MqttObservationGate::begin(const std::string& target,
     std::lock_guard<std::mutex> lock(mutex_);
     auto& current = targets_[target];
     if (current.inFlight) throw std::logic_error("mqtt_target_busy");
+    // Copy can fail; don't leave the target stuck in-flight on allocation failure.
+    current.expected = expected;
     ++current.epoch;  // old callback tickets can never confirm this command
     current.inFlight = true;
     current.published = false;
     current.disconnectedDuringCommand = false;
-    current.expected = expected;
     current.buffered.reset();
 }
 int MqttObservationGate::submitPublication(const std::string& target,
@@ -54,16 +55,18 @@ int MqttObservationGate::submitPublication(const std::string& target,
     return result;
 }
 void MqttObservationGate::disconnected(const std::string& target, DeviceStateStore& store) noexcept {
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto& current = targets_[target];
-    ++current.epoch;    // revoke tickets captured before disconnect
-    if (current.inFlight) current.disconnectedDuringCommand = true;
-    current.published = false;
-    current.buffered.reset();
     try {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto& current = targets_[target];
+        ++current.epoch;    // revoke tickets captured before disconnect
+        if (current.inFlight) current.disconnectedDuringCommand = true;
+        current.published = false;
+        current.buffered.reset();
         store.invalidate(target);
         store.markUnreachable(target, store.nowMs());
-    } catch (const std::exception&) { /* buffer remains revoked */ }
+    } catch (const std::exception&) {
+        // Even OOM while acquiring gate storage cannot throw through a C callback.
+    }
 }
 void MqttObservationGate::end(const std::string& target, DeviceStateStore& store,
                               bool accepted) noexcept {
@@ -91,9 +94,9 @@ void MqttObservationGate::end(const std::string& target, DeviceStateStore& store
         } catch (const std::exception&) { /* fail closed */ }
     }
     current.disconnectedDuringCommand = false;
-    // Keep tickets from a successful submit: a callback may finish decoding
-    // just after PUBACK. Failed attempts cannot produce a late confirmation.
-    if (!accepted) ++current.epoch;
+    // Keep tickets only from a healthy successful submission. An observation
+    // captured during disconnect or a failed attempt cannot confirm later.
+    if (!accepted || current.disconnectedDuringCommand) ++current.epoch;
 }
 bool MqttObservationGate::accept(const std::string& target, std::uint64_t version,
                                  const std::map<std::string, actions::Scalar>& properties,
@@ -117,7 +120,9 @@ bool MqttObservationGate::accept(const std::string& target, std::uint64_t versio
             if (found->second != expected) return false;
         }
         if (!overlaps) return false;
-        current.buffered = properties; // bounded to one validated state sample
+        // Build replacement before touching an earlier valid buffer.
+        auto next = properties;
+        current.buffered = std::move(next); // bounded, strong exception safety
         return true;
     }
     store.applyObservation(sample);

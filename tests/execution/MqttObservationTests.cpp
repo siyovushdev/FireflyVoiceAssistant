@@ -118,9 +118,14 @@ int main(int argc, char** argv) {
         check(state.device(disconnectTarget)->properties.at("brightness").knowledge ==
                   execution::StateKnowledge::Unknown,
               "disconnect clears prior state knowledge");
-        // Simulate command return after loss of subscribe connection.
+        // Simulate command result reporting reachable AFTER losing subscribe:
+        // final disconnect status must still win.
+        const auto disconnectedTicket = gate.snapshot(disconnectTarget);
+        state.markReachable(disconnectTarget, instant);
         state.applyPrediction(disconnectTarget, target80, instant);
         gate.end(disconnectTarget, state, true);
+        check(!gate.accept(disconnectTarget, disconnectedTicket, target80, state),
+              "callback captured during disconnect cannot confirm after command");
         check(state.device(disconnectTarget)->properties.at("brightness").knowledge ==
                   execution::StateKnowledge::Unknown,
               "disconnect revokes both stale buffer and later prediction");
