@@ -82,6 +82,9 @@ struct HttpConnection {
 };
 // Network endpoints are shared by MQTT and future TCP/UDP executors.
 struct MqttConnectionSettings {
+    // Historical disabled MQTT connections had no mqtt object. Preserve their
+    // canonical bytes and persisted ConfigStore hash until explicitly edited.
+    bool present = false;
     bool tls = false;
     // Identifier only. The actual username/password must never enter ConfigStore.
     std::string credentialsId;

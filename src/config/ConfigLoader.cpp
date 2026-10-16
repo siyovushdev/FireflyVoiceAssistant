@@ -247,6 +247,7 @@ Connection decodeConnection(const Json& item) {
     else if (c.type == ExecutorKind::Can) c.can.interface = config.at("interface");
     else { c.network.host = config.at("host"); c.network.port = config.at("port"); }
     if (c.type == ExecutorKind::Mqtt && item.contains("mqtt")) {
+        c.mqtt.present = true;
         c.mqtt.tls = item.at("mqtt").at("tls");
         c.mqtt.credentialsId = item.at("mqtt").value("credentials_id", "");
     }
@@ -438,7 +439,7 @@ Json encode(const Configuration& value) {
             else if (c.type == ExecutorKind::Serial) entry["serial"] = {{"port",c.serial.port},{"baud_rate",c.serial.baudRate}};
             else if (c.type == ExecutorKind::Can) entry["can"] = {{"interface",c.can.interface}};
             else entry["network"] = {{"host",c.network.host},{"port",c.network.port}};
-            if (c.type == ExecutorKind::Mqtt) {
+            if (c.type == ExecutorKind::Mqtt && (c.mqtt.present || c.mqtt.tls || !c.mqtt.credentialsId.empty())) {
                 entry["mqtt"] = {{"tls", c.mqtt.tls}};
                 if (!c.mqtt.credentialsId.empty()) entry["mqtt"]["credentials_id"] = c.mqtt.credentialsId;
             }

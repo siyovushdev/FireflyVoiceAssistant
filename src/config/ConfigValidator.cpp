@@ -309,6 +309,11 @@ Catalog ConfigValidator::validate(Configuration configuration) {
             throw ConfigError("dangling_reference", path + "/connection_id", "Unknown connection");
         if (binding.executor == ExecutorKind::Mqtt) {
             if (binding.connectionId.empty()) throw ConfigError("malformed_binding", path, "MQTT connection_id required");
+            // MVP supports only fixed payloads. A parameterized action must not
+            // silently send an unrelated constant while predicting its argument.
+            if (!configuration.actions[catalog->actions_.at(binding.actionId)].parameters.empty())
+                throw ConfigError("unsupported_executor", path + "/mqtt",
+                                  "Parameterized MQTT actions require a reviewed typed argument mapping");
             validateMqttBinding(binding.mqtt, connection);
         } else validateHttpMapping(http, connection);
         if (binding.executor == ExecutorKind::Http && http.argument) {
