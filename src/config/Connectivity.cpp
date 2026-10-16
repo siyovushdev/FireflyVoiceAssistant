@@ -73,11 +73,18 @@ void validateConnections(const Configuration& config) {
                 if (c.type != ExecutorKind::Mqtt && c.enabled) throw ConfigError("unsupported_executor", "/connections", "Planned transports must remain disabled");
                 if (c.type == ExecutorKind::Mqtt || c.type == ExecutorKind::Tcp || c.type == ExecutorKind::Udp) {
                     field = "/network";
-                    if (c.network.host.empty() || c.network.host.size() > 253 || !clean(c.network.host) ||
-                        c.network.host.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-") != std::string::npos ||
-                        c.network.host.front() == '-' || c.network.host.back() == '-' || c.network.host.front() == '.' ||
-                        c.network.host.back() == '.' || c.network.host.find("..") != std::string::npos ||
+                    // Historical *disabled* MQTT/TCP/UDP connection templates
+                    // were allowed to store arbitrary non-whitespace hostnames.
+                    // Tightening their validation would corrupt old ConfigStores.
+                    if (c.network.host.empty() || !clean(c.network.host) ||
                         c.network.port < 1 || c.network.port > 65535) invalid("Invalid network host/port");
+                    if (c.type == ExecutorKind::Mqtt && c.enabled &&
+                        (c.network.host.size() > 253 ||
+                         c.network.host.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-") != std::string::npos ||
+                         c.network.host.front() == '-' || c.network.host.back() == '-' ||
+                         c.network.host.front() == '.' || c.network.host.back() == '.' ||
+                         c.network.host.find("..") != std::string::npos))
+                        invalid("Enabled MQTT requires a literal IPv4/DNS hostname");
                     if (c.type == ExecutorKind::Mqtt) {
                         field = "/mqtt/credentials_id";
                         if (!c.mqtt.credentialsId.empty() && (c.mqtt.credentialsId.size() > 64 ||

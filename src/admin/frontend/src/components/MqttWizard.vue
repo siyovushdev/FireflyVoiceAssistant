@@ -187,7 +187,7 @@ async function finish() {
     </select></label>
     <template v-if="observing">
       <p v-if="otherObservation" class="notice">
-        Сейчас состояние читается через {{ otherObservation.executor.toUpperCase() }}.
+        Сейчас состояние читается через {{ otherObservation.executor?.toUpperCase() ?? 'Другой протокол' }}.
         <label class="check"><input v-model="replaceOtherObservation" type="checkbox" />
           Заменить существующее чтение состояния на MQTT (явное подтверждение)</label>
       </p>
