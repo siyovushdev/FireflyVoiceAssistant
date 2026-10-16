@@ -2,7 +2,10 @@
 #include "firefly/execution/DeviceStateStore.h"
 #include "firefly/config/ConfigLoader.h"
 #include "firefly/actions/ScalarJson.h"
+#include <condition_variable>
 #include <iostream>
+#include <mutex>
+#include <thread>
 #include <stdexcept>
 
 using namespace firefly;
@@ -139,13 +142,54 @@ int main(int argc, char** argv) {
         const auto beforeFailedSubmit = gate.snapshot(failedTarget);
         check(gate.submitPublication(failedTarget, [] { return 4; }) == 4,
               "library submission failure propagated");
-        check(gate.snapshot(failedTarget) == beforeFailedSubmit,
-              "failed submission cannot open post-submit epoch");
+        // Snapshot tickets are monotonic even when submission fails;
+        // the publish cutoff must remain closed instead.
         check(!gate.accept(failedTarget, beforeFailedSubmit, target80, state),
               "failed submission cannot buffer state");
         gate.end(failedTarget, state, false);
         check(state.device(failedTarget)->properties.at("brightness").knowledge ==
                   execution::StateKnowledge::Unknown, "failed command has no fabricated confirmation");
+        // A callback whose entry precedes completion of the publish API cannot
+        // borrow a new ticket merely because publication holds the gate mutex.
+        const std::string raced = "device_kitchen_light";
+        gate.begin(raced, target80);
+        std::mutex syncMutex;
+        std::condition_variable syncCv;
+        bool enteredPublish = false, leavePublish = false;
+        std::thread publisher([&] {
+            gate.submitPublication(raced, [&] {
+                std::unique_lock<std::mutex> lk(syncMutex);
+                enteredPublish = true;
+                syncCv.notify_all();
+                syncCv.wait(lk, [&] { return leavePublish; });
+                return 0;
+            });
+        });
+        {
+            std::unique_lock<std::mutex> lk(syncMutex);
+            syncCv.wait(lk, [&] { return enteredPublish; });
+        }
+        const auto staleDuringPublish = gate.snapshot(raced);
+        {
+            std::lock_guard<std::mutex> lk(syncMutex);
+            leavePublish = true;
+        }
+        syncCv.notify_all();
+        publisher.join();
+        check(!gate.accept(raced, staleDuringPublish, old0, state),
+              "pre-publication callback must not borrow post-publication ticket");
+        check(!gate.accept(raced, staleDuringPublish, target80, state),
+              "even matching old state cannot confirm after publish");
+        const auto freshOn = gate.snapshot(raced);
+        check(gate.accept(raced, freshOn, target80, state), "new ON is buffered");
+        const auto freshOff = gate.snapshot(raced);
+        check(!gate.accept(raced, freshOff, old0, state),
+              "new contradictory OFF revokes buffered ON");
+        state.applyPrediction(raced, target80, instant);
+        gate.end(raced, state, true);
+        check(state.device(raced)->properties.at("brightness").knowledge !=
+                  execution::StateKnowledge::Confirmed,
+              "contradictory OFF must prevent stale Confirmed ON");
         std::cout << "PASS MQTT codec duplicates and command/observation barrier\n";
         return 0;
     } catch (const std::exception& exception) {
