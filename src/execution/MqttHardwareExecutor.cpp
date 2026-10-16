@@ -7,6 +7,7 @@
 #include <cstring>
 #include <map>
 #include <mutex>
+#include <set>
 #include <stdexcept>
 #include <vector>
 #include <nlohmann/json.hpp>
@@ -19,6 +20,64 @@
 #endif
 
 namespace firefly::execution {
+std::uint64_t MqttObservationGate::snapshot() const {
+    return epoch_.load(std::memory_order_acquire);
+}
+void MqttObservationGate::begin(const std::string& target) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    ++pending_[target];
+    epoch_.fetch_add(1, std::memory_order_release);
+}
+void MqttObservationGate::end(const std::string& target) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto it = pending_.find(target);
+    if (it == pending_.end()) return;
+    if (--it->second == 0) pending_.erase(it);
+    epoch_.fetch_add(1, std::memory_order_release);
+}
+bool MqttObservationGate::accept(const std::string& target, std::uint64_t version,
+                                 const std::function<void()>& commit) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (epoch_.load(std::memory_order_acquire) != version || pending_.count(target))
+        return false;
+    commit();
+    return true;
+}
+std::map<std::string, actions::Scalar> decodeMqttObservationPayload(
+    const config::ObservationBinding& binding, std::string_view payload) {
+    if (payload.empty() || payload.size() > 4096)
+        throw std::runtime_error("mqtt_invalid_observation_size");
+    std::map<std::string, actions::Scalar> result;
+    if (binding.mqtt.format == "text") {
+        if (payload == binding.mqtt.truePayload) result.emplace(binding.mqtt.field, actions::Scalar(true));
+        else if (payload == binding.mqtt.falsePayload) result.emplace(binding.mqtt.field, actions::Scalar(false));
+        else throw std::runtime_error("mqtt_unknown_boolean_payload");
+        return result;
+    }
+    if (binding.mqtt.format != "json") throw std::runtime_error("mqtt_unsupported_format");
+    // nlohmann's default parser accepts duplicate keys (last value wins).
+    // Reject every duplicate, including nested ones, before any state mutation.
+    actions::checkNumericLexemes(payload);
+    std::map<int, std::set<std::string>> keys;
+    const auto json = nlohmann::json::parse(payload.begin(), payload.end(),
+        [&](int depth, nlohmann::json::parse_event_t event, nlohmann::json& value) {
+            using Event = nlohmann::json::parse_event_t;
+            if ((event == Event::object_start || event == Event::array_start) && depth >= 16)
+                throw std::runtime_error("mqtt_json_too_deep");
+            if (event == Event::object_start) keys[depth] = {};
+            if (event == Event::object_end) keys.erase(depth);
+            if (event == Event::key &&
+                !keys.at(depth - 1).insert(value.get<std::string>()).second)
+                throw std::runtime_error("mqtt_duplicate_json_key");
+            return true;
+        });
+    if (!json.is_object()) throw std::runtime_error("mqtt_state_requires_json_object");
+    for (const auto& [source, destination] : binding.fields) {
+        if (!json.contains(source)) throw std::runtime_error("mqtt_missing_json_state_field");
+        result.emplace(destination, actions::decodeScalar(json.at(source)));
+    }
+    return result;
+}
 namespace {
 HardwareResult error(std::string code, ReachabilityEvidence evidence = ReachabilityEvidence::None) {
     return {false, std::move(code), {}, evidence};
@@ -147,6 +206,7 @@ HardwareResult publish(const config::Connection& conn, const config::MqttBinding
 struct MqttHardwareExecutor::Impl {
     config::Catalog catalog;
     DeviceStateStore& state;
+    MqttObservationGate gate;
 #ifdef FIREFLY_WITH_MOSQUITTO
     struct Subscription {
         Impl& owner;
@@ -187,6 +247,9 @@ struct MqttHardwareExecutor::Impl {
         }
         static void onMessage(mosquitto*, void* ptr, const mosquitto_message* message) {
             auto& s = *static_cast<Subscription*>(ptr);
+            // Capture the generation before doing parsing or waiting on a lock.
+            // A command start/end across this callback invalidates this sample.
+            const auto observationEpoch = s.owner.gate.snapshot();
             if (!message || !message->topic || message->retain ||
                 message->payloadlen < 0 || message->payloadlen > 4096) return;
             const auto found = s.byTopic.find(message->topic);
@@ -195,22 +258,12 @@ struct MqttHardwareExecutor::Impl {
             const std::string bytes(static_cast<const char*>(message->payload), static_cast<std::size_t>(message->payloadlen));
             for (const auto* binding : found->second) {
                 try {
-                    std::map<std::string, actions::Scalar> properties;
-                    if (binding->mqtt.format == "text") {
-                        if (bytes == binding->mqtt.truePayload) properties.emplace(binding->mqtt.field, actions::Scalar(true));
-                        else if (bytes == binding->mqtt.falsePayload) properties.emplace(binding->mqtt.field, actions::Scalar(false));
-                        else continue;
-                    } else {
-                        const auto json = nlohmann::json::parse(bytes);
-                        if (!json.is_object()) continue;
-                        for (const auto& [key, target] : binding->fields) {
-                            if (!json.contains(key)) throw std::runtime_error("missing state field");
-                            properties.emplace(target, actions::decodeScalar(json.at(key)));
-                        }
-                    }
-                    s.owner.state.applyObservation({binding->targetId, properties, 0, std::nullopt});
+                    const auto properties = decodeMqttObservationPayload(*binding, bytes);
+                    (void)s.owner.gate.accept(binding->targetId, observationEpoch, [&] {
+                        s.owner.state.applyObservation({binding->targetId, properties, 0, std::nullopt});
+                    });
                 } catch (const std::exception&) {
-                    // Malformed or stale samples fail closed; no partial state write.
+                    // Duplicate/malformed/old samples fail closed; no partial update.
                 }
             }
         }
@@ -288,6 +341,8 @@ HardwareObservation MqttHardwareExecutor::observe(const config::ObservationBindi
     // confirmed samples. This is not an HTTP-like synchronous GET.
     return {error("mqtt_async_observation"), {}};
 }
+void MqttHardwareExecutor::beginCommand(const std::string& target) { impl_->gate.begin(target); }
+void MqttHardwareExecutor::endCommand(const std::string& target) { impl_->gate.end(target); }
 void MqttHardwareExecutor::startSubscriptions() {
     // Apply has already atomically published this generation. A broker client
     // allocation/runtime failure must not make a committed Apply appear failed.

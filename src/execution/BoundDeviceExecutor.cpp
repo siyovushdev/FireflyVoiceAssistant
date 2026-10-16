@@ -122,7 +122,19 @@ ExecutionResult BoundDeviceExecutor::execute(const actions::GenericAction& actio
         return predicted;
     }
 
-    const auto publishOrder = production_.steadyNowMs();
+    // A subscription can deliver a previous state while MQTT is still
+    // connecting. Block observations through both publish and prediction.
+    // The scope guard also releases the barrier on failure/exception.
+    struct MqttCommandWindow {
+        MqttHardwareExecutor* owner = nullptr;
+        std::string target;
+        ~MqttCommandWindow() { if (owner) owner->endCommand(target); }
+    } window;
+    if (lookup.binding->executor == config::ExecutorKind::Mqtt && mqtt_) {
+        window.target = action.targetId();
+        mqtt_->beginCommand(window.target);
+        window.owner = mqtt_.get();
+    }
     const auto hardware = registry_.execute(*lookup.binding, action);
     // Connectivity follows transport evidence, independent of Accepted|Failed.
     if (hardware.reachability == ReachabilityEvidence::Reachable)
@@ -156,7 +168,9 @@ ExecutionResult BoundDeviceExecutor::execute(const actions::GenericAction& actio
                 expected.emplace(assignment.field, typed->at(assignment.field));
             }
         }
-        production_.applyPrediction(action.targetId(), expected, now, publishOrder);
+        // An observation starting after this barrier closes may confirm the
+        // predicted value; one from the connection phase may not.
+        production_.applyPrediction(action.targetId(), expected, now);
     }
     predicted.status = ExecutionStatus::Accepted;
     predicted.success = true;
