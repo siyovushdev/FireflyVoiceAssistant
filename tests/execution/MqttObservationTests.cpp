@@ -67,18 +67,26 @@ int main(int argc, char** argv) {
               "callback captured before publish cannot enter early buffer");
         check(!gate.accept(target, whilePublishing, old0, state),
               "mismatching OFF cannot confirm requested ON");
-
-        check(gate.accept(target, whilePublishing, target80, state),
-              "fresh early confirmation is buffered before PUBACK");
-        // This deliberately invalid sample previously displaced valid power:true.
+        // The mismatch is itself a valid observation: the matching ON must
+        // carry a later arrival ticket to be accepted.
+        const auto matchingEarlyTicket = gate.snapshot(target);
+        check(gate.accept(target, matchingEarlyTicket, target80, state),
+              "newer early confirmation is buffered before PUBACK");
+        check(!gate.accept(target, matchingEarlyTicket, old0, state),
+              "duplicate ticket must not revoke buffered confirmation");
+        // These malformed samples carry fresh tickets but cannot advance the
+        // valid-observation watermark or evict the existing buffered value.
+        const auto malformedTextTicket = gate.snapshot(target);
         rejects([&] {
-            (void)gate.accept(target, whilePublishing,
+            (void)gate.accept(target, malformedTextTicket,
                 {{"brightness", actions::Scalar(std::string("invalid"))}}, state);
         });
+        const auto malformedBoolTicket = gate.snapshot(target);
         rejects([&] {
-            (void)gate.accept(target, whilePublishing,
+            (void)gate.accept(target, malformedBoolTicket,
                 {{"brightness", actions::Scalar(true)}}, state);
         });
+        const auto lateCallbackTicket = gate.snapshot(target);
         check(state.device(target)->properties.at("brightness").knowledge ==
                   execution::StateKnowledge::Unknown, "buffer must not confirm before predicted state");
         state.applyPrediction(target, target80, instant);
@@ -90,7 +98,7 @@ int main(int argc, char** argv) {
               "badly typed sample did not evict valid early reply");
 
         // A callback already entered after submit but decoded after PUBACK is valid.
-        check(gate.accept(target, whilePublishing, target80, state),
+        check(gate.accept(target, lateCallbackTicket, target80, state),
               "late-parsed post-submit callback can confirm");
         // New command revokes the old callback ticket; another device is unaffected.
         const auto beforeSecondCommand = gate.snapshot(target);
@@ -231,6 +239,84 @@ int main(int argc, char** argv) {
                   execution::StateKnowledge::Predicted,
               "contradictory OFF must prevent stale Confirmed ON");
 
+        // R6: callback arrival order and callback processing order may differ.
+        // A newer, well-typed OFF must fence out an older ON, including when
+        // both callbacks carry the same wall/steady clock millisecond.
+        execution::DeviceStateStore reversedState(base, [&] { return instant; }, [&] { return instant; });
+        execution::MqttObservationGate reversedGate;
+        reversedGate.begin(target, target80);
+        check(reversedGate.submitPublication(target, [] { return 0; }) == 0,
+              "reverse-order publication succeeded");
+        const auto olderOnTicket = reversedGate.snapshot(target);
+        const auto newerOffTicket = reversedGate.snapshot(target);
+        check(newerOffTicket > olderOnTicket, "tickets reflect arrival order");
+        check(!reversedGate.accept(target, newerOffTicket, old0, reversedState),
+              "newer OFF is valid but contradicts requested ON");
+        check(!reversedGate.accept(target, olderOnTicket, target80, reversedState),
+              "older ON cannot rebuild the cleared early buffer");
+        reversedState.applyPrediction(target, target80, instant);
+        reversedGate.end(target, reversedState, true);
+        check(reversedState.device(target)->properties.at("brightness").knowledge ==
+                  execution::StateKnowledge::Predicted,
+              "reordered callbacks must not fabricate Confirmed ON");
+
+        // Even after end(), the same reverse processing must not allow a
+        // late older ON to overwrite a newer Confirmed OFF.
+        execution::DeviceStateStore lateState(base, [&] { return instant; }, [&] { return instant; });
+        execution::MqttObservationGate lateGate;
+        lateGate.begin(target, target80);
+        check(lateGate.submitPublication(target, [] { return 0; }) == 0,
+              "late observation publication succeeded");
+        const auto lateOldOn = lateGate.snapshot(target);
+        const auto lateNewOff = lateGate.snapshot(target);
+        lateState.applyPrediction(target, target80, instant);
+        lateGate.end(target, lateState, true);
+        check(lateGate.accept(target, lateNewOff, old0, lateState),
+              "latest OFF observed after command becomes Confirmed");
+        check(!lateGate.accept(target, lateOldOn, target80, lateState),
+              "older ON after end cannot overwrite later Confirmed OFF");
+        const auto lateFinal = lateState.device(target)->properties.at("brightness");
+        check(lateFinal.knowledge == execution::StateKnowledge::Confirmed &&
+                  lateFinal.value == actions::Scalar(std::int64_t{0}),
+              "latest OFF stays Confirmed with same-ms reordered callbacks");
+
+        // Invalid newer payload does not raise the valid watermark. A valid
+        // older callback must remain processable afterwards.
+        execution::DeviceStateStore invalidState(base, [&] { return instant; }, [&] { return instant; });
+        execution::MqttObservationGate invalidGate;
+        invalidGate.begin(target, target80);
+        check(invalidGate.submitPublication(target, [] { return 0; }) == 0,
+              "invalid-order publication succeeded");
+        const auto validOlderOn = invalidGate.snapshot(target);
+        const auto malformedNewer = invalidGate.snapshot(target);
+        rejects([&] { (void)invalidGate.accept(target, malformedNewer,
+            {{"brightness", actions::Scalar(std::string("wrong"))}}, invalidState); });
+        check(invalidGate.accept(target, validOlderOn, target80, invalidState),
+              "invalid newer sample does not fence valid earlier ON");
+        invalidState.applyPrediction(target, target80, instant);
+        invalidGate.end(target, invalidState, true);
+        check(invalidState.device(target)->properties.at("brightness").knowledge ==
+                  execution::StateKnowledge::Confirmed,
+              "invalid newer state did not evict valid confirmation");
+
+        // Reversed processing of older OFF and newer matching ON must retain
+        // the newest ON. A validated contradiction cannot overwrite newer ON.
+        execution::DeviceStateStore newestState(base, [&] { return instant; }, [&] { return instant; });
+        execution::MqttObservationGate newestGate;
+        newestGate.begin(target, target80);
+        check(newestGate.submitPublication(target, [] { return 0; }) == 0,
+              "newest-ON publication succeeded");
+        const auto olderOff = newestGate.snapshot(target);
+        const auto newerOn = newestGate.snapshot(target);
+        check(newestGate.accept(target, newerOn, target80, newestState),
+              "newest matching ON is buffered");
+        check(!newestGate.accept(target, olderOff, old0, newestState),
+              "older OFF cannot revoke newer matching ON");
+        newestState.applyPrediction(target, target80, instant);
+        newestGate.end(target, newestState, true);
+        check(newestState.device(target)->properties.at("brightness").knowledge ==
+                  execution::StateKnowledge::Confirmed,
+              "newest ON remains Confirmed");
         std::cout << "PASS MQTT codec duplicates and command/observation barrier\n";
         return 0;
     } catch (const std::exception& exception) {
