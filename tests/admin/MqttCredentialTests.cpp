@@ -28,10 +28,6 @@ Json answer(admin::Api& api, const char* method, const char* route, const Json& 
     check(result.status == expectedStatus, "HTTP status mismatch");
     return Json::parse(result.body);
 }
-std::string fileText(const std::string& path) {
-    std::ifstream stream(path);
-    return std::string(std::istreambuf_iterator<char>(stream), {});
-}
 } // namespace
 int main(int argc, char** argv) {
     try {
