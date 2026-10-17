@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onActivated, onDeactivated, ref, watch } from 'vue';
 import { manual } from '../stores/manual.js';
 import { clone, consumers, defaultMqttMapping, newMqttConnection, projectMqttWizard,
     connectionActionSummary, connectionObservationSummary, type Mutable } from '../adapters/editing.js';
@@ -54,7 +54,13 @@ function clearLocalBrokerEvidence() {
     brokerStatusError.value = '';
     brokerStatusBusy.value = false;
 }
-onMounted(() => { if (local.value) void inspectLocalBroker(); });
+// KeepAlive preserves all form fields across protocol navigation, but never
+// reuses old local-broker status evidence after the editor is reactivated.
+onActivated(() => {
+    clearLocalBrokerEvidence();
+    if (local.value) void inspectLocalBroker();
+});
+onDeactivated(clearLocalBrokerEvidence);
 const device = computed(() => config.devices.find(d => d.id === targetId.value));
 const actions = computed(() => config.actions.filter(a => device.value?.action_ids.includes(a.id)));
 const mappings = ref<Mutable<BindingDto>[]>([]);
@@ -174,11 +180,55 @@ function project(): Mutable<ConfigurationDto> {
     }
     return candidate;
 }
+function validateEditedDevices(): boolean {
+    // All edited devices are applied together. Recheck hidden drafts too:
+    // an incomplete command/topic from A must not silently escape just
+    // because B is selected when the user opens final Review.
+    for (const [id, draft] of deviceDrafts.changed(targetId.value, currentDeviceDraft())) {
+        let editorStep = 0;
+        let message = '';
+        if (draft.mappings.some(m => !m.mqtt?.topic?.trim() ||
+            !Number.isInteger(m.mqtt.qos) || m.mqtt.qos < 0 || m.mqtt.qos > 1 ||
+            config.actions.find(a => a.id === m.action_id)?.parameters.length)) {
+            editorStep = 2;
+            message = 'Исправьте topic/QoS или неподдерживаемое действие.';
+        } else if (draft.observing) {
+            const conflict = config.observations?.some(o =>
+                o.target_id === id && o.executor !== 'mqtt');
+            if (conflict && !draft.replaceOtherObservation) {
+                editorStep = 3;
+                message = 'Подтвердите замену существующего чтения состояния.';
+            } else if (!draft.observation.topic?.trim() ||
+                (draft.observation.format === 'text'
+                    ? !draft.observation.field || !draft.observation.true_payload ||
+                      !draft.observation.false_payload ||
+                      draft.observation.true_payload === draft.observation.false_payload
+                    : !draft.fields.length ||
+                      draft.fields.some(([key, field]) => !key.trim() || !field) ||
+                      new Set(draft.fields.map(([key]) => key)).size !== draft.fields.length)) {
+                editorStep = 3;
+                message = 'Завершите настройку MQTT-подписки и полей состояния.';
+            }
+        }
+        if (editorStep) {
+            // The sync watcher stores the current device and restores the
+            // offending device, so the operator sees the unsaved data.
+            targetId.value = id;
+            step.value = editorStep;
+            issues.value = [{
+                code: 'mqtt_device_draft_incomplete', path: '',
+                message: (config.devices.find(d => d.id === id)?.name ?? id) + ': ' + message
+            }];
+            return false;
+        }
+    }
+    return true;
+}
 const reviewCandidate = computed(() => project());
 const affected = computed(() => consumers(reviewCandidate.value, connection.value.id));
 const previouslyAffected = computed(() => consumers(config, connection.value.id));
 async function finish() {
-    if (!validate()) return;
+    if (!validate() || !validateEditedDevices()) return;
     Object.assign(config, project());
     if (await manual.stage()) { emit('ready'); await manual.prepare(); }
     else {
