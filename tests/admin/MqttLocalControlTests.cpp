@@ -1,5 +1,7 @@
 #include "Support.h"
+#include "SetupSession.h"
 #include "firefly/admin/LocalMqttBrokerControl.h"
+#include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -207,6 +209,91 @@ int main(int argc, char** argv) {
         const auto blocked = answer(impersonation, "GET", "/api/mqtt/local-broker",
                                     Json::object(), 503);
         check(!blocked.value("ok",true), "untrusted peer UID rejected");
+
+        // Real Api + RuntimeWorker: once Setup has started, broker mutations
+        // are denied, while status reads remain independently available.
+        {
+            Directory setupDir;
+            config::ConfigStore setupStore(setupDir.path);
+            const auto baseline = setupStore.initialize(catalog(base(argv[1])));
+            SetupCapableModel setupModel;
+            Client setupRuntime(setupModel);
+            admin::Api setupApi(setupStore, setupRuntime, nullptr, credentials, control);
+            setupApi.initializeRuntime();
+            const auto startResponse = setupApi.handle("POST", "/api/setup/start", "{}");
+            check(startResponse.status == 200, "independent Setup can enter");
+            const auto started = Json::parse(startResponse.body);
+            check(started.value("active",false) && started.contains("session_id"),
+                  "setup ownership published before external broker operations");
+            const auto refused = setupApi.handle("POST", "/api/mqtt/local-broker",
+                Json{{"operation","enable"},{"confirm",true}}.dump());
+            check(refused.status == 409 &&
+                  refused.body.find("setup_in_progress") != std::string::npos,
+                  "enable denied while AI Setup active");
+            const auto statusDuringSetup = setupApi.handle("GET",
+                "/api/mqtt/local-broker", "");
+            check(statusDuringSetup.status == 200,
+                  "broker status remains readable during Setup");
+            const auto cancellation = setupApi.handle("POST", "/api/setup/cancel",
+                Json{{"session_id",started.at("session_id")}}.dump());
+            check(cancellation.status == 200,
+                  "setup cancellation remains possible after blocked broker operation");
+            check(setupStore.current()->contentHash() == baseline->contentHash(),
+                  "setup broker-control refusal cannot mutate ConfigStore");
+        }
+
+        // Deterministic admission gate interleaving. A broker operation
+        // holding the shared mutex must complete BEFORE Setup becomes active.
+        // Once it becomes active, any later broker operation obtaining the
+        // same gate must refuse instead of using an earlier stale check.
+        {
+            Directory gateDir;
+            config::ConfigStore gateStore(gateDir.path);
+            gateStore.initialize(catalog(base(argv[1])));
+            std::mutex gate;
+            std::atomic<bool> waitingForGate{false};
+            std::atomic<bool> finishedSetup{false};
+            std::string entryError;
+            admin::SetupSession guardedSetup(gateStore,
+                [](const Json&) -> Json { return Json{{"ok",true}}; },
+                {},
+                [&]() {
+                    waitingForGate.store(true, std::memory_order_release);
+                    return std::unique_lock<std::mutex>(gate);
+                });
+            std::unique_lock<std::mutex> heldBrokerOperation(gate);
+            std::thread enterSetup([&] {
+                try {
+                    (void)guardedSetup.handle("start", Json::object());
+                    finishedSetup.store(true, std::memory_order_release);
+                } catch (const std::exception& e) {
+                    entryError = e.what();
+                }
+            });
+            bool waiting = false;
+            for (int tries = 0; tries < 2000; ++tries) {
+                if (waitingForGate.load(std::memory_order_acquire)) {
+                    waiting = true;
+                    break;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+            const bool beforeRelease = !guardedSetup.active() &&
+                !finishedSetup.load(std::memory_order_acquire);
+            heldBrokerOperation.unlock();
+            enterSetup.join();
+            check(waiting && beforeRelease && entryError.empty() &&
+                  finishedSetup.load(std::memory_order_acquire) &&
+                  guardedSetup.active(),
+                  "broker mutex gates active Setup admission and ownership transition");
+            bool wouldAuthorizeBrokerMutation = false;
+            {
+                std::lock_guard<std::mutex> gateLock(gate);
+                wouldAuthorizeBrokerMutation = !guardedSetup.active();
+            }
+            check(!wouldAuthorizeBrokerMutation,
+                  "broker operation rechecking active under gate rejects later mutation");
+        }
 
         const auto after = store.current();
         check(after->contentHash() == original->contentHash() &&
