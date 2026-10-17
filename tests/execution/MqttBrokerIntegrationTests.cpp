@@ -131,6 +131,11 @@ struct Relay {
                             static_cast<int>(state.size()), state.data(), 1, retain);
         check(result == MOSQ_ERR_SUCCESS, "relay state publication failed");
     }
+    void sendJsonState(std::string_view state) {
+        const int result = mosquitto_publish(mqtt, nullptr, "g1/json/state",
+                            static_cast<int>(state.size()), state.data(), 1, false);
+        check(result == MOSQ_ERR_SUCCESS, "JSON state publication failed");
+    }
     int commandCount() {
         std::lock_guard<std::mutex> lock(mutex);
         return static_cast<int>(commands.size());
@@ -167,6 +172,19 @@ Json addDeviceAndBindings(Json root, int port) {
         }})},
         {"metadata",Json{{"type","light"},{"description",""},{"aliases",Json::array()}}}
     });
+    // A second device subscribes to JSON observations on this broker,
+    // independent from the relay command/observation state.
+    root["devices"].push_back({
+        {"id","device_g1_json_probe"}, {"name","JSON state probe"},
+        {"kind","generic"}, {"room_id","room_kitchen"}, {"enabled",true},
+        {"spoken_aliases",Json::array({"g1 датчик"})},
+        {"action_ids",Json::array()},
+        {"state",Json::array({Json{
+            {"id","power"}, {"name","Power"}, {"type","boolean"},
+            {"required",true}, {"description",""}, {"unit",""}, {"initial",false}
+        }})},
+        {"metadata",Json{{"type","sensor"},{"description",""},{"aliases",Json::array()}}}
+    });
     root["connections"] = Json::array({Json{
         {"id","connection_g1"}, {"name","Isolated broker"}, {"type","mqtt"},
         {"enabled",true}, {"timeout_ms",3000},
@@ -185,18 +203,27 @@ Json addDeviceAndBindings(Json root, int port) {
             {"mqtt",Json{{"topic","g1/relay/set"},{"payload","OFF"},{"qos",0},{"retain",false}}}
         }
     });
-    root["observations"] = Json::array({Json{
-        {"target_id","device_g1_relay"},{"connection_id","connection_g1"},
-        {"executor","mqtt"},
-        {"mqtt",Json{{"topic","g1/relay/state"},{"format","text"},{"field","power"},
-                     {"true_payload","ON"},{"false_payload","OFF"},{"qos",1}}},
-        {"fields",Json::object()}
-    }});
+    root["observations"] = Json::array({
+        Json{
+            {"target_id","device_g1_relay"},{"connection_id","connection_g1"},
+            {"executor","mqtt"},
+            {"mqtt",Json{{"topic","g1/relay/state"},{"format","text"},{"field","power"},
+                         {"true_payload","ON"},{"false_payload","OFF"},{"qos",1}}},
+            {"fields",Json::object()}
+        },
+        Json{
+            {"target_id","device_g1_json_probe"},{"connection_id","connection_g1"},
+            {"executor","mqtt"},
+            {"mqtt",Json{{"topic","g1/json/state"},{"format","json"},{"qos",1}}},
+            {"fields",Json{{"power","power"}}}
+        }
+    });
     return root;
 }
 
-bool confirmed(execution::BoundDeviceExecutor& executor, bool value) {
-    const auto state = executor.production().device("device_g1_relay");
+bool confirmed(execution::BoundDeviceExecutor& executor, bool value,
+               const std::string& target = "device_g1_relay") {
+    const auto state = executor.production().device(target);
     if (!state) return false;
     const auto property = state->properties.find("power");
     return property != state->properties.end() &&
@@ -244,6 +271,38 @@ int main(int argc, char** argv) {
             if ((probes++ % 10) == 0) relay.sendState("OFF", false);
             return confirmed(executor, false);
         }), "fresh state topic never became Confirmed");
+
+        // Live strict JSON test: establish the JSON probe's known-good state.
+        // Bad messages would change power to true if their extra fields were
+        // silently dropped by the decoder.
+        int jsonProbes = 0;
+        check(eventually([&] {
+            if ((jsonProbes++ % 10) == 0) relay.sendJsonState(R"({"power":false})");
+            return confirmed(executor, false, "device_g1_json_probe");
+        }), "valid JSON state did not become Confirmed");
+        for (const auto* invalid : {
+                 R"({"power":true,"unmapped":7})",
+                 R"({"power":true,"unmapped":{"nested":false}})",
+                 R"({"power":true,"unmapped":[1,2]})"
+             }) {
+            // Same broker and publisher client preserve message order. A
+            // separate relay ON then OFF makes a delivery barrier: after the
+            // OFF reaches the Firefly subscriber, earlier invalid JSON has
+            // already traversed the same subscription callback thread.
+            relay.sendState("ON", false);
+            check(eventually([&] { return confirmed(executor, true); }),
+                  "live JSON rejection barrier ON was not observed");
+            relay.sendJsonState(invalid);
+            relay.sendState("OFF", false);
+            check(eventually([&] { return confirmed(executor, false); }),
+                  "live JSON rejection barrier OFF was not observed");
+            check(confirmed(executor, false, "device_g1_json_probe"),
+                  "unknown JSON field must not change Confirmed state");
+        }
+        relay.sendJsonState(R"({"power":true})");
+        check(eventually([&] {
+            return confirmed(executor, true, "device_g1_json_probe");
+        }), "valid complete JSON state should become Confirmed");
 
         check(executor.execute(on).success, "ON publish failed");
         check(eventually([&] { return relay.commandCount() == 1; }),
