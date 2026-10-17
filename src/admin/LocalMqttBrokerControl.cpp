@@ -107,6 +107,12 @@ LocalMqttBrokerStatus LocalMqttBrokerControl::request(const char* verb) const {
     // owner can explicitly disable it.
     if (reply == "STATE missing enabled stopped\n")
         return {false, true, false};
+    // A mapped running process survives removal of its on-disk executable.
+    // Both enabled and manually started orphan units must remain stoppable.
+    if (reply == "STATE missing enabled running\n")
+        return {false, true, true};
+    if (reply == "STATE missing disabled running\n")
+        return {false, false, true};
     if (reply == "STATE present enabled running\n")
         return {true, true, true};
     if (reply == "STATE present enabled stopped\n")
