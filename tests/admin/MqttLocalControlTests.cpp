@@ -91,6 +91,45 @@ int main(int argc, char** argv) {
         check(!rejected.value("ok",true), "cannot enable a missing unit");
         { std::ofstream state(fakeState); state << "disabled stopped\n"; }
 
+        // R1: a unit can remain installed even if Mosquitto was uninstalled.
+        // The real helper must not infer "installed" from systemctl alone.
+        const auto binary = std::filesystem::path(socket).parent_path() /
+                            "mosquitto-test-bin";
+        const auto parkedBinary = std::filesystem::path(socket).parent_path() /
+                                  "mosquitto-test-bin.parked";
+        check(std::filesystem::exists(binary), "test broker binary exists");
+        std::filesystem::rename(binary, parkedBinary);
+        const auto absentPackage = answer(api, "GET", "/api/mqtt/local-broker",
+                                          Json::object(), 200);
+        check(!absentPackage.value("installed", true) &&
+              !absentPackage.value("running", true) &&
+              !absentPackage.value("enabled", true),
+              "installed systemd unit without broker binary is NOT installed");
+        const auto denyWithoutBinary = answer(api, "POST", "/api/mqtt/local-broker",
+            Json{{"operation","enable"},{"confirm",true}}, 409);
+        check(!denyWithoutBinary.value("ok",true),
+              "missing broker binary cannot be enabled");
+
+        // Retain an orphan enabled unit if its binary disappeared; expose
+        // enabled state honestly and allow a separate explicit Disable.
+        { std::ofstream state(fakeState); state << "enabled stopped\n"; }
+        const auto orphan = answer(api, "GET", "/api/mqtt/local-broker",
+                                    Json::object(), 200);
+        check(!orphan.value("installed", true) &&
+              orphan.value("enabled", false) && !orphan.value("running", true),
+              "orphan autostart stays visible despite missing binary");
+        const auto disableOrphan = answer(api, "POST", "/api/mqtt/local-broker",
+            Json{{"operation","disable"},{"confirm",true}}, 200);
+        check(!disableOrphan.value("enabled",true) &&
+              !disableOrphan.value("running",true),
+              "explicit Disable can clear orphan autostart safely");
+        std::filesystem::rename(parkedBinary, binary);
+        const auto restored = answer(api, "GET", "/api/mqtt/local-broker",
+                                     Json::object(), 200);
+        check(restored.value("installed", false) &&
+              !restored.value("enabled", true),
+              "reinstalled binary restores accurate installed status");
+
         // The privileged helper must check the service's actual postcondition.
         // A systemctl command returning success while the broker crashes
         // (e.g. missing password file) must never produce a fake enabled PASS.
@@ -102,13 +141,27 @@ int main(int argc, char** argv) {
               "broker failed to run must not be reported as enabled");
         const auto unready = answer(api, "GET", "/api/mqtt/local-broker",
                                     Json::object(), 200);
-        check(unready.value("enabled",false) && !unready.value("running",true),
-              "broken startup status must disclose enabled-but-stopped");
+        check(!unready.value("enabled",true) && !unready.value("running",true),
+              "failed Enable must roll back persistent autostart automatically");
         check(std::filesystem::remove(failStart), "remove fake failure marker");
-        const auto safeDisable = answer(api, "POST", "/api/mqtt/local-broker",
-            Json{{"operation","disable"},{"confirm",true}}, 200);
-        check(!safeDisable.value("enabled",true) && !safeDisable.value("running",true),
-              "disable after failed startup restores disabled state");
+
+        // R2: systemctl itself can exit nonzero AFTER changing is-enabled.
+        // Compensation is required on both command-failure and failed-
+        // postcondition paths; no separate owner Disable should be needed.
+        const auto failCommand = std::filesystem::path(socket).parent_path() /
+                                 "fail-command";
+        { std::ofstream marker(failCommand); marker << "fail\n"; }
+        const auto partialEnable = answer(api, "POST", "/api/mqtt/local-broker",
+            Json{{"operation","enable"},{"confirm",true}}, 503);
+        check(!partialEnable.value("ok",true),
+              "failed systemctl enable must never claim success");
+        const auto compensated = answer(api, "GET", "/api/mqtt/local-broker",
+                                        Json::object(), 200);
+        check(compensated.value("installed",false) &&
+              !compensated.value("enabled",true) &&
+              !compensated.value("running",true),
+              "nonzero enable after partial side effect restores disabled/off");
+        check(std::filesystem::remove(failCommand), "remove fake command failure");
 
         // A socket endpoint owned by a different UID is not a privileged
         // broker controller, even if its bytes mimic the normal protocol.
