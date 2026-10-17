@@ -27,7 +27,7 @@ async function refresh() {
   }
 }
 async function change(enable: boolean) {
-  if (busy.value || !status.value?.installed) return;
+  if (busy.value || !status.value || (enable && !status.value.installed)) return;
   const message = enable
     ? 'Включить локальный Mosquitto? Служба будет запускаться при перезагрузке. Это отдельная операция, не Apply конфигурации.'
     : 'Отключить локальный Mosquitto и запретить его автозапуск? Устройства на этом брокере потеряют соединение.';
