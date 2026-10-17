@@ -282,42 +282,53 @@ struct Publication {
     bool connected = false, connectionFinished = false, disconnected = false;
     int acknowledgedMid = -1;
 };
-void connected(mosquitto* mosq, void* context, int code) {
-    auto& p = *static_cast<Publication*>(context);
-    bool rejectReconnect = false;
-    {
-        std::lock_guard<std::mutex> lock(p.mutex);
-        // This client is one-shot. An unexpected reconnect must never replay
-        // an unresolved QoS 1 command, or make a failed send appear healthy.
-        rejectReconnect = p.connectionFinished || p.disconnected;
-        if (!rejectReconnect) {
-            p.connected = code == 0;
+void connected(mosquitto* mosq, void* context, int code) noexcept {
+    try {
+        auto& p = *static_cast<Publication*>(context);
+        bool rejectReconnect = false;
+        {
+            std::lock_guard<std::mutex> lock(p.mutex);
+            // This client is one-shot. An unexpected reconnect must never replay
+            // an unresolved QoS 1 command, or make a failed send appear healthy.
+            rejectReconnect = p.connectionFinished || p.disconnected;
+            if (!rejectReconnect) {
+                p.connected = code == 0;
+                p.connectionFinished = true;
+            }
+        }
+        if (rejectReconnect) (void)mosquitto_disconnect(mosq);
+        p.cv.notify_all();
+    } catch (const std::exception&) {
+        // Never unwind through the libmosquitto C callback boundary.
+    }
+}
+void published(mosquitto*, void* context, int id) noexcept {
+    try {
+        auto& p = *static_cast<Publication*>(context);
+        {
+            std::lock_guard<std::mutex> lock(p.mutex);
+            if (!p.disconnected) p.acknowledgedMid = id; // may precede publish return
+        }
+        p.cv.notify_all();
+    } catch (const std::exception&) {
+        // Publish wait expires as uncertain instead of unwinding a C callback.
+    }
+}
+void disconnected(mosquitto* mosq, void* context, int code) noexcept {
+    try {
+        auto& p = *static_cast<Publication*>(context);
+        {
+            std::lock_guard<std::mutex> lock(p.mutex);
+            p.connected = false;
+            p.disconnected = true;
             p.connectionFinished = true;
         }
+        p.cv.notify_all();
+        // This client is one-shot: never reconnect/replay QoS1 after loss.
+        if (code != 0) (void)mosquitto_disconnect(mosq);
+    } catch (const std::exception&) {
+        // Fail closed: no C++ exception can cross this libmosquitto callback.
     }
-    if (rejectReconnect) (void)mosquitto_disconnect(mosq);
-    p.cv.notify_all();
-}
-void published(mosquitto*, void* context, int id) {
-    auto& p = *static_cast<Publication*>(context);
-    {
-        std::lock_guard<std::mutex> lock(p.mutex);
-        if (!p.disconnected) p.acknowledgedMid = id; // can precede publish() return
-    }
-    p.cv.notify_all();
-}
-void disconnected(mosquitto* mosq, void* context, int code) {
-    auto& p = *static_cast<Publication*>(context);
-    {
-        std::lock_guard<std::mutex> lock(p.mutex);
-        p.connected = false;
-        p.disconnected = true;
-        p.connectionFinished = true;
-    }
-    p.cv.notify_all();
-    // This client is one-shot: do not allow the background network loop to
-    // reconnect and replay an unacknowledged QoS 1 publication.
-    if (code != 0) (void)mosquitto_disconnect(mosq);
 }
 HardwareResult publish(const config::Connection& conn, const config::MqttBinding& mapping,
                        MqttObservationGate& gate, const std::string& target) {
