@@ -227,6 +227,8 @@ function validateEditedDevices(): boolean {
 const reviewCandidate = computed(() => project());
 const affected = computed(() => consumers(reviewCandidate.value, connection.value.id));
 const previouslyAffected = computed(() => consumers(config, connection.value.id));
+const editedDevices = computed(() => deviceDrafts.changed(targetId.value, currentDeviceDraft())
+    .map(([id]) => config.devices.find(d => d.id === id)?.name ?? id));
 async function finish() {
     if (!validate() || !validateEditedDevices()) return;
     Object.assign(config, project());
@@ -351,6 +353,10 @@ async function finish() {
       {{ connectionActionSummary(reviewCandidate, targetId, a.id) }}</p>
     <p>Состояние: {{ connectionObservationSummary(reviewCandidate, targetId) }}</p>
     <p>Потребители подключения: {{ affected.join(', ') || 'нет' }}</p>
+    <p v-if="editedDevices.length" class="notice">
+      Несохранённые изменения устройств: {{ editedDevices.join(', ') }}.
+      В общий Review попадут изменения каждого перечисленного устройства, даже если сейчас открыто другое.
+    </p>
     <p v-if="local" class="notice">Локальный Mosquitto:
       {{ brokerStatus ? (brokerStatus.installed && brokerStatus.running ? 'служба работает, авторизация и реле не проверены' : 'не готова к подключению устройств') : 'статус неизвестен, не проверен' }}.
     </p>
