@@ -25,11 +25,11 @@ cmake -S . -B /tmp/firefly-m20-g1-build \
   -DFIREFLY_ENABLE_MQTT=ON \
   -DBUILD_TESTING=ON
 cmake --build /tmp/firefly-m20-g1-build --parallel 4
-ctest --test-dir /tmp/firefly-m20-g1-build --output-on-failure -R 'MqttBrokerIntegration|MqttObservationSafety'
+ctest --test-dir /tmp/firefly-m20-g1-build --output-on-failure -R 'MqttBrokerIntegration|MqttInitialBrokerRecovery|MqttObservationSafety'
 ctest --test-dir /tmp/firefly-m20-g1-build --output-on-failure
 ```
 
-CMake builds the native broker test only with the real library. The `MqttBrokerIntegration` CTest is registered only if `mosquitto` is found. Confirm it is **present in `ctest -N`** before claiming any broker PASS.
+CMake builds the native broker test only with the real library. The `MqttBrokerIntegration` and `MqttInitialBrokerRecovery` CTests are registered only if `mosquitto` is found. Confirm **both** appear in `ctest -N` and actually run before claiming MQTT G1 broker PASS.
 
 ## Covered by the new loopback broker smoke
 
@@ -39,6 +39,8 @@ CMake builds the native broker test only with the real library. The `MqttBrokerI
 - Literal command topic/payload, QoS1 ON and QoS0 OFF.
 - Wrong-target reject and no extra publishes in the ordinary successful sequence.
 - Broker disconnect revokes stale Confirmed/Reachable, a subscriber reconnects, fresh telemetry restores Confirmed, and an already completed command is not replayed.
+- Separate cold-start fixture keeps the broker **absent** until the subscription actually reaches Unreachable, then starts it without issuing another Apply. Bounded subscription-only retry must reconnect, accept new non-retained telemetry and never replay a hardware command.
+- Anonymous loopback test connections omit the optional `credentials_id` entirely; do not weaken ConfigStore validation to accept an empty stable ID.
 - The test broker and its configuration are destroyed after completion.
 
 ## Resource limits
