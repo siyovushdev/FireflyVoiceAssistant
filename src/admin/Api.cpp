@@ -78,6 +78,11 @@ struct Api::Impl {
                 std::unique_lock<std::mutex> mutation(writes);
                 secrets.verifyReferences(candidate);
                 return mutation;
+            },
+            [this] {
+                // The same gate is held by broker-control operations.
+                // Setup cannot publish active=true in their critical section.
+                return std::unique_lock<std::mutex>(brokerControlOperation);
             });
         timer = std::thread([this] { while (!timerStop) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -467,6 +472,13 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
             // Save/Apply. The trusted Unix-socket helper owns the fixed unit
             // and must verify actual systemd status before acknowledging.
             std::lock_guard<std::mutex> control(impl_->brokerControlOperation);
+            // The pre-dispatch check is advisory only: Setup may have entered
+            // after that check but before acquiring brokerControlOperation.
+            // The SetupSession entry gate serializes active_=true with this
+            // recheck. No privileged mutation may pass it while Setup is active.
+            if (method == "POST" && impl_->setup->active())
+                throw ApiError(409, "setup_in_progress", "",
+                               "Настройка активна; изменение локального брокера запрещено.");
             LocalMqttBrokerStatus state;
             if (method == "GET") {
                 state = impl_->brokerControl->status();
