@@ -91,6 +91,25 @@ int main(int argc, char** argv) {
         check(!rejected.value("ok",true), "cannot enable a missing unit");
         { std::ofstream state(fakeState); state << "disabled stopped\n"; }
 
+        // The privileged helper must check the service's actual postcondition.
+        // A systemctl command returning success while the broker crashes
+        // (e.g. missing password file) must never produce a fake enabled PASS.
+        const auto failStart = std::filesystem::path(socket).parent_path() / "fail-enable";
+        { std::ofstream mark(failStart); mark << "fail\n"; }
+        const auto falseSuccess = answer(api, "POST", "/api/mqtt/local-broker",
+            Json{{"operation","enable"},{"confirm",true}}, 503);
+        check(!falseSuccess.value("ok",true),
+              "broker failed to run must not be reported as enabled");
+        const auto unready = answer(api, "GET", "/api/mqtt/local-broker",
+                                    Json::object(), 200);
+        check(unready.value("enabled",false) && !unready.value("running",true),
+              "broken startup status must disclose enabled-but-stopped");
+        check(std::filesystem::remove(failStart), "remove fake failure marker");
+        const auto safeDisable = answer(api, "POST", "/api/mqtt/local-broker",
+            Json{{"operation","disable"},{"confirm",true}}, 200);
+        check(!safeDisable.value("enabled",true) && !safeDisable.value("running",true),
+              "disable after failed startup restores disabled state");
+
         // A socket endpoint owned by a different UID is not a privileged
         // broker controller, even if its bytes mimic the normal protocol.
         auto untrusted = std::make_shared<admin::LocalMqttBrokerControl>(
