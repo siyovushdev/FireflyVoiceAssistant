@@ -609,7 +609,11 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
             members(request, {"revision", "expected"});
             if (!request["revision"].is_number_integer()) throw std::invalid_argument("Invalid revision");
             std::lock_guard<std::mutex> mutation(impl_->writes);
-            reply = describe(impl_->store.restore(request["revision"].get<std::int64_t>(), expected(request)));
+            const auto revision = request["revision"].get<std::int64_t>();
+            // Restore writes a new ConfigStore revision. It must not
+            // resurrect a broken credential reference without admission.
+            impl_->secrets.verifyReferences(impl_->store.revision(revision));
+            reply = describe(impl_->store.restore(revision, expected(request)));
             reply["ok"] = true; reply["applied"] = false;
         } else if (path == "/api/config/reconcile") {
             members(request, {});
