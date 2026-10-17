@@ -76,10 +76,18 @@ void validateLogin(const std::string& user, const std::string& password) {
 }
 MqttLogin readFile(int directory, const std::string& id) {
     const auto name = id + ".cred";
-    Fd secret(::openat(directory, name.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC));
+    // O_NONBLOCK prevents an attacker-provisioned FIFO or device special
+    // file from stalling the Admin's writes lock before fstat can reject it.
+    // It has no effect on ordinary regular-file reads.
+    Fd secret(::openat(directory, name.c_str(),
+                       O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC));
     if (secret.value < 0) reject("mqtt_credentials_missing");
     struct stat st{};
-    if (::fstat(secret.value, &st) || !S_ISREG(st.st_mode) || st.st_nlink != 1 ||
+    // A rotation uses atomic renameat(), which may unlink the old inode
+    // after the reader has opened it but before this fstat. st_nlink==0
+    // represents a consistent still-open old snapshot and is safe to read.
+    // Reject *actual* hardlinks (>1), as before.
+    if (::fstat(secret.value, &st) || !S_ISREG(st.st_mode) || st.st_nlink > 1 ||
         st.st_uid != ::geteuid() || (st.st_mode & 077) != 0 ||
         (st.st_mode & 0400) != 0400 || st.st_size < 3 || st.st_size > 4096)
         reject("mqtt_credentials_permissions");
