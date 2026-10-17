@@ -541,7 +541,15 @@ struct MqttHardwareExecutor::Impl {
             const auto* connection = config::findConnection(catalog->configuration(), o.connectionId);
             if (!connection || !connection->enabled) continue;
             auto& session = sessions[o.connectionId];
-            if (!session) session = std::make_unique<Subscription>(*this, *connection);
+            // Finite, documented per-generation limits. Reject a dangerously
+            // large subscription graph before starting any network loops.
+            if (!session) {
+                if (sessions.size() > 32)
+                    throw std::runtime_error("mqtt_subscription_client_limit");
+                session = std::make_unique<Subscription>(*this, *connection);
+            }
+            if (!session->byTopic.count(o.mqtt.topic) && session->byTopic.size() >= 128)
+                throw std::runtime_error("mqtt_subscription_topic_limit");
             session->byTopic[o.mqtt.topic].push_back(&o);
         }
         for (auto& [id, session] : sessions) {
