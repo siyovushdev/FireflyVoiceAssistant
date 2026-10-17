@@ -52,6 +52,8 @@ struct Api::Impl {
     config::ConfigStore& store;
     RuntimeClient& runtime;
     execution::MqttCredentials secrets;
+    std::shared_ptr<LocalMqttBrokerControl> brokerControl;
+    std::mutex brokerControlOperation;
     AdminTranscriber* transcriber = nullptr;
     HealthModel health;
     std::mutex writes, runtimeOperation, state;
@@ -64,8 +66,11 @@ struct Api::Impl {
     int workerPid = 0;
     std::string lastError;
     Impl(config::ConfigStore& store, RuntimeClient& runtime, AdminTranscriber* transcriber,
-         std::string credentialsDirectory)
-        : store(store), runtime(runtime), secrets(std::move(credentialsDirectory)), transcriber(transcriber) {
+         std::string credentialsDirectory,
+         std::shared_ptr<LocalMqttBrokerControl> control)
+        : store(store), runtime(runtime), secrets(std::move(credentialsDirectory)),
+          brokerControl(control ? std::move(control) : std::make_shared<LocalMqttBrokerControl>()),
+          transcriber(transcriber) {
         setup = std::make_unique<SetupSession>(
             store,
             [this](const Json& value) { return invoke(value); },
@@ -188,8 +193,11 @@ struct Api::Impl {
     }
 };
 Api::Api(config::ConfigStore& store, RuntimeClient& runtime, AdminTranscriber* transcriber,
-         std::string mqttCredentialsDirectory)
-    : impl_(std::make_unique<Impl>(store, runtime, transcriber, std::move(mqttCredentialsDirectory))) {}
+         std::string mqttCredentialsDirectory,
+         std::shared_ptr<LocalMqttBrokerControl> mqttBrokerControl)
+    : impl_(std::make_unique<Impl>(store, runtime, transcriber,
+                                   std::move(mqttCredentialsDirectory),
+                                   std::move(mqttBrokerControl))) {}
 Api::~Api() = default;
 HealthModel& Api::health() { return impl_->health; }
 const HealthModel& Api::health() const { return impl_->health; }
@@ -332,7 +340,7 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
         const std::map<std::string, std::string> routes{{"/api/admin/language-profile", "POST"}, {"/api/admin/plan", "POST"}, {"/api/admin/copilot", "POST"}, {"/api/admin/copilot/accept", "POST"}, {"/api/admin/transcribe", "POST"}, {"/api/admin/action-draft", "POST"}, {"/api/admin/templates", "GET"}, {"/api/admin/draft", "POST"}, {"/api/config/migrate", "POST"}, {"/api/admin/id", "POST"}, {"/api/admin/suggest", "POST"}, {"/api/config/diff", "POST"},
             {"/api/config/export", "GET"}, {"/api/config/import", "POST"}, {"/api/config/revision", "POST"},
             {"/api/config/restore-candidate", "POST"}, {"/api/dashboard", "GET"}, {"/api/devices/state", "GET"},
-            {"/api/connections/test", "POST"}, {"/api/connections/probe", "POST"}, {"/api/mqtt/credentials", "GET POST PUT DELETE"}, {"/api/devices/command", "POST"}, {"/api/devices/poll", "POST"},
+            {"/api/connections/test", "POST"}, {"/api/connections/probe", "POST"}, {"/api/mqtt/credentials", "GET POST PUT DELETE"}, {"/api/mqtt/local-broker", "GET POST"}, {"/api/devices/command", "POST"}, {"/api/devices/poll", "POST"},
             {"/api/executions", "GET"}, {"/api/status", "GET"}, {"/api/config", "GET PUT"},
             {"/api/config/active", "GET"}, {"/api/config/validate", "POST"}, {"/api/config/apply", "POST"},
             {"/api/config/revisions", "GET"}, {"/api/config/restore", "POST"}, {"/api/config/reconcile", "POST"}, {"/api/test-command", "POST"}};
@@ -353,7 +361,8 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
         }
         Json request = method == "GET" ? Json::object() : parseMessage(body,true);
         if (impl_->setup->active() && method != "GET") {
-            if (path == "/api/config" || path == "/api/config/apply" || path == "/api/config/restore" || path == "/api/config/reconcile" || path == "/api/test-command" || path == "/api/devices/command")
+            if (path == "/api/config" || path == "/api/config/apply" || path == "/api/config/restore" || path == "/api/config/reconcile" || path == "/api/test-command" || path == "/api/devices/command" ||
+                path == "/api/mqtt/local-broker")
                 throw ApiError(409,"setup_in_progress","","Настройка активна; используйте её подтверждение или отмену.");
             if (path == "/api/connections/probe") {
                 try { impl_->setup->handle("authorize", request); }
@@ -453,6 +462,29 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
             reply = {{"ok",true},{key,live.at(key)},{"active",live.at("active")}};
             if (path == "/api/devices/state" && live.contains("playground_devices"))
                 reply["playground_devices"] = live.at("playground_devices");
+        } else if (path == "/api/mqtt/local-broker") {
+            // Broker enable/disable is operational, never part of config
+            // Save/Apply. The trusted Unix-socket helper owns the fixed unit
+            // and must verify actual systemd status before acknowledging.
+            std::lock_guard<std::mutex> control(impl_->brokerControlOperation);
+            LocalMqttBrokerStatus state;
+            if (method == "GET") {
+                state = impl_->brokerControl->status();
+            } else {
+                members(request, {"operation", "confirm"});
+                if (!request.at("confirm").is_boolean() ||
+                    !request.at("confirm").get<bool>())
+                    throw ApiError(422, "mqtt_broker_confirmation_required", "/confirm",
+                                   "Explicit confirmation is required.");
+                const auto operation = request.at("operation").get<std::string>();
+                if (operation == "enable") state = impl_->brokerControl->enable();
+                else if (operation == "disable") state = impl_->brokerControl->disable();
+                else throw ApiError(422, "mqtt_broker_invalid_operation", "/operation",
+                                    "Only enable or disable are allowed.");
+            }
+            reply = {{"ok", true}, {"installed", state.installed},
+                     {"enabled", state.enabled}, {"running", state.running},
+                     {"scope", "local_mosquitto_only"}};
         } else if (path == "/api/mqtt/credentials") {
             // Browser/API operations use the existing loopback-only Admin
             // Host/Origin/custom-header policy. Do not echo secret contents,
@@ -631,7 +663,16 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
         // These error codes are emitted by MqttCredentials as fixed literals:
         // never reflect a file path, account name or password in an API error.
         const std::string code(error.what());
-        if (code.rfind("mqtt_credentials_", 0) == 0) {
+        if (code.rfind("mqtt_broker_", 0) == 0) {
+            status = code == "mqtt_broker_not_installed" ? 409 : 503;
+            const auto safeCode = (code == "mqtt_broker_control_unavailable" ||
+                                   code == "mqtt_broker_not_installed" ||
+                                   code == "mqtt_broker_invalid_state" ||
+                                   code == "mqtt_broker_control_failed")
+                ? code : std::string("mqtt_broker_control_unavailable");
+            reply = failure(safeCode, "/api/mqtt/local-broker",
+                            "Локальный Mosquitto недоступен или не подтвердил изменение состояния.");
+        } else if (code.rfind("mqtt_credentials_", 0) == 0) {
             const bool exists = code == "mqtt_credentials_exists";
             const bool unavailable = code == "mqtt_credentials_directory_unavailable" ||
                 code == "mqtt_credentials_directory_permissions" ||
