@@ -27,6 +27,14 @@ struct Fd {
     Fd(const Fd&) = delete;
     Fd& operator=(const Fd&) = delete;
     Fd(Fd&& other) noexcept : value(other.value) { other.value = -1; }
+    Fd& operator=(Fd&& other) noexcept {
+        if (this != &other) {
+            if (value >= 0) (void)::close(value);
+            value = other.value;
+            other.value = -1;
+        }
+        return *this;
+    }
 };
 Fd openDirectory(const std::string& path) {
     // Traverse every path component using no-follow directory FDs. A symlink
