@@ -40,8 +40,7 @@ struct Relay {
     std::condition_variable ready;
     bool subscribed = false;
     int published = 0;
-    static void onConnect(mosquitto* client, void* pointer, int code) noexcept {
-        auto& relay = *static_cast<Relay*>(pointer);
+    static void onConnect(mosquitto* client, void*, int code) noexcept {
         if (code != 0) return;
         // Re-subscribe after clean-session reconnect; never publish commands.
         (void)mosquitto_subscribe(client, nullptr, "g1/relay/set", 1);
