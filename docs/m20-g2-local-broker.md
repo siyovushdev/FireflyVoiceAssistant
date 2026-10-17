@@ -23,6 +23,16 @@ Admin не запускает shell, `sudo` или `systemctl`; он пишет 
 
 Все единицы, бинарники и user identities вне временных test fixtures **не изменяются**. Ни helper, ни broker не устанавливаются или включаются этим commit. Итоговый `READY_TO_CLOSE` требует отдельного независимого native/runtime/systemd acceptance и согласованных #36/#37.
 
+## Follow-up — независимый G2 review на 8f8f849 (17.10.2026)
+
+Следующее независимое ревью подтвердило прежние R2–R4, но нашло три P2. Новый код-кандидат исправляет:
+
+- **R1 (новая грань missing executable + running process):** Linux продолжает исполнять уже отображённый в память Mosquitto после удаления его бинарника с диска. Наличие executable (`installed`), прежний `systemctl is-enabled` и `is-active` теперь считаются **независимыми** признаками. Даже для `installed=false, running=true` статус доступен, `Enable` запрещён, но пользователь может явно `Disable` фиксированную service unit, включая `disabled/running`, чтобы остановить работающий процесс. Добавлены регрессии обоих running orphan состояний.
+- **TOCTOU между AI Setup и Enable/Disable:** запуск SetupSession и broker-control POST используют один `brokerControlOperation` mutex как admission gate. Setup публикует `active=true` под gate и освобождает его **до** тяжёлого model setup. Broker POST после захвата gate повторно проверяет `setup->active()`: при активном Setup возвращает 409 без вызова системного помощника. Порядок блокировок: `SetupSession::mutex_` → `brokerControlOperation`; broker POST при удержании `brokerControlOperation` читает только атомарный флаг и не захватывает session mutex. Новая регрессия проверяет и настоящий Api/RuntimeWorker с model seam, и принудительную блокировку на gate перед публикацией владения Setup.
+- **UI stale success:** `LocalMqttBrokerPanel.refresh()` очищает старое уведомление о включении/выключении **до** GET status. Неудачное обновление показывает только `status unknown` и ошибку, но не прошлое утверждение об успешной работе.
+
+Изменения предназначены только для test/dev branch. Текущий `SOURCE_SELF_REVIEW_PASS_CANDIDATE` **не** заменяет новую сборку, Chromium и независимые негативные проверки; прежние 68/68 и 70/70 CTest относились к старому HEAD `8f8f849`. Основание: GitHub Issue #35 comment `6234856963`.
+
 ## 2. Offline staging (не установка)
 
 Оператор в тестовом PC-каталоге может подготовить **только файлы**:
