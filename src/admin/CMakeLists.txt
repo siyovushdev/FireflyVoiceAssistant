@@ -120,6 +120,13 @@ if(BUILD_TESTING)
     target_include_directories(admin_tests SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
     target_compile_options(admin_tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME AdminGenerationApi COMMAND admin_tests "${PROJECT_SOURCE_DIR}")
+    add_executable(mqtt_credential_tests
+        "${PROJECT_SOURCE_DIR}/tests/admin/MqttCredentialTests.cpp")
+    target_link_libraries(mqtt_credential_tests PRIVATE firefly_admin_core)
+    target_include_directories(mqtt_credential_tests SYSTEM PRIVATE
+        "${PROJECT_SOURCE_DIR}/third_party")
+    target_compile_options(mqtt_credential_tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME MqttCredentialLifecycle COMMAND mqtt_credential_tests "${PROJECT_SOURCE_DIR}")
     add_executable(health_reliability_tests "${PROJECT_SOURCE_DIR}/tests/admin/HealthReliabilityTests.cpp")
     target_link_libraries(health_reliability_tests PRIVATE firefly_admin_core)
     target_include_directories(health_reliability_tests PRIVATE "${PROJECT_SOURCE_DIR}/tests/admin")
