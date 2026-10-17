@@ -603,9 +603,36 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
     catch (const config::ConfigError& error) {
         status = error.code == "revision_conflict" ? 409 : error.code == "io_error" || error.code == "durability_indeterminate" || error.code == "recovery_required" ? 503 : 422;
         reply = failure(error.code, error.path, error.what());
-    } catch (const std::exception& error) {
-        std::cerr << "Admin request: " << error.what() << '\n';
-        status = 400; reply = failure("invalid_request", "", "Request must be one JSON object with the documented fields and types.");
+    } catch (const std::runtime_error& error) {
+        // These error codes are emitted by MqttCredentials as fixed literals:
+        // never reflect a file path, account name or password in an API error.
+        const std::string code(error.what());
+        if (code.rfind("mqtt_credentials_", 0) == 0) {
+            const bool missing = code == "mqtt_credentials_missing";
+            const bool exists = code == "mqtt_credentials_exists";
+            const bool unavailable = code == "mqtt_credentials_directory_unavailable" ||
+                code == "mqtt_credentials_directory_permissions" ||
+                code == "mqtt_credentials_write" ||
+                code == "mqtt_credentials_read" ||
+                code == "mqtt_credentials_delete" ||
+                code == "mqtt_credentials_list" ||
+                code == "mqtt_credentials_random_unavailable" ||
+                code == "mqtt_credentials_atomic_create_unavailable" ||
+                code == "mqtt_credentials_durability_uncertain";
+            status = exists ? 409 : unavailable ? 503 : missing ? 422 : 422;
+            reply = failure(code, "/mqtt/credentials",
+                            exists ? "Этот ID уже существует." :
+                            unavailable ? "Защищённое хранилище MQTT недоступно. Проверьте владельца и права каталога." :
+                            "Учётные данные MQTT отсутствуют, повреждены или имеют недопустимый формат.");
+        } else {
+            std::cerr << "Admin request failed\n";
+            status = 400;
+            reply = failure("invalid_request", "", "Request must be one JSON object with the documented fields and types.");
+        }
+    } catch (const std::exception&) {
+        // Never log or reflect user-controlled request body or secret content.
+        status = 400;
+        reply = failure("invalid_request", "", "Request must be one JSON object with the documented fields and types.");
     }
     return {status, "application/json; charset=utf-8", reply.dump(-1, ' ', false, Json::error_handler_t::replace)};
 }
