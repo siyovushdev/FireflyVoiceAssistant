@@ -608,7 +608,6 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
         // never reflect a file path, account name or password in an API error.
         const std::string code(error.what());
         if (code.rfind("mqtt_credentials_", 0) == 0) {
-            const bool missing = code == "mqtt_credentials_missing";
             const bool exists = code == "mqtt_credentials_exists";
             const bool unavailable = code == "mqtt_credentials_directory_unavailable" ||
                 code == "mqtt_credentials_directory_permissions" ||
@@ -619,7 +618,7 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
                 code == "mqtt_credentials_random_unavailable" ||
                 code == "mqtt_credentials_atomic_create_unavailable" ||
                 code == "mqtt_credentials_durability_uncertain";
-            status = exists ? 409 : unavailable ? 503 : missing ? 422 : 422;
+            status = exists ? 409 : unavailable ? 503 : 422;
             reply = failure(code, "/mqtt/credentials",
                             exists ? "Этот ID уже существует." :
                             unavailable ? "Защищённое хранилище MQTT недоступно. Проверьте владельца и права каталога." :
