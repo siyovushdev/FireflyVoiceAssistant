@@ -302,7 +302,7 @@ int main(int argc, char** argv) {
             bootApi.initializeRuntime();
             const auto status = Json::parse(bootApi.handle("GET","/api/status","").body);
             check(status.at("active").is_null() &&
-                  status.value("startup_phase", "") == "recovery_mode" &&
+                  status.value("startup_phase", std::string()) == "recovery_mode" &&
                   !status.value("runtime_ready", true),
                   "startup cannot READY an invalid current or LKG credential ref");
             check(bootStore.current()->contentHash() == malformed->contentHash(),
@@ -332,7 +332,7 @@ int main(int argc, char** argv) {
         // secret file. The full file validation must occur before publication.
         {
             const auto malformedPath = privateDir + "/malformed_reference.cred";
-            { std::ofstream out(malformedPath); out << "broken\\n"; }
+            { std::ofstream out(malformedPath); out << "broken\n"; }
             check(::chmod(malformedPath.c_str(),0600) == 0,
                   "private malformed secret fixture permissions");
             auto broken = missingBoot;
@@ -346,7 +346,7 @@ int main(int argc, char** argv) {
             bootApi.initializeRuntime();
             const auto status = Json::parse(bootApi.handle("GET","/api/status","").body);
             check(status.at("active").is_null() &&
-                  status.value("startup_phase","") == "recovery_mode",
+                  status.value("startup_phase",std::string()) == "recovery_mode",
                   "malformed private credential cannot READY a runtime");
         }
 #endif
