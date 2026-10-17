@@ -1,4 +1,5 @@
 #include "firefly/execution/MqttHardwareExecutor.h"
+#include "firefly/execution/MqttCredentials.h"
 #include "firefly/execution/DeviceStateStore.h"
 #include "firefly/config/Connectivity.h"
 #include "firefly/actions/ScalarJson.h"
@@ -209,36 +210,10 @@ void initializeLibrary() {
     std::call_once(once, [] { initialized = mosquitto_lib_init() == MOSQ_ERR_SUCCESS; });
     if (!initialized) throw std::runtime_error("mosquitto library initialization failed");
 }
-struct Login { std::string user, password; };
-Login readLogin(const std::string& id) {
-    if (id.empty()) return {};
-    // Fixed, operator-provisioned private directory. Never accept a file path from
-    // ConfigStore. No symlink, world/group permission or foreign-owned secret.
-    const std::string name = "/var/lib/firefly/mqtt/credentials/" + id + ".cred";
-    const int fd = ::open(name.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
-    if (fd < 0) throw std::runtime_error("mqtt_credentials_missing");
-    struct Descriptor { int fd; ~Descriptor() { ::close(fd); } } guard{fd};
-    struct stat st{};
-    if (::fstat(fd, &st) || !S_ISREG(st.st_mode) || st.st_uid != ::geteuid() ||
-        (st.st_mode & 077) != 0 || st.st_size < 3 || st.st_size > 4096)
-        throw std::runtime_error("mqtt_credentials_permissions");
-    std::string content;
-    char bytes[256];
-    for (;;) {
-        const auto count = ::read(fd, bytes, sizeof(bytes));
-        if (count < 0) throw std::runtime_error("mqtt_credentials_read");
-        if (count == 0) break;
-        content.append(bytes, static_cast<std::size_t>(count));
-        if (content.size() > 4096) throw std::runtime_error("mqtt_credentials_size");
-    }
-    const auto first = content.find('\n');
-    if (first == std::string::npos) throw std::runtime_error("mqtt_credentials_format");
-    const auto second = content.find('\n', first + 1);
-    if (second != content.size() - 1 || first == 0 || first > 256 ||
-        second == std::string::npos || second - first < 2 || second - first > 257 ||
-        content.find('\0') != std::string::npos || content.find('\r') != std::string::npos)
-        throw std::runtime_error("mqtt_credentials_format");
-    return {content.substr(0, first), content.substr(first + 1, second - first - 1)};
+// Admin and runtime use the same strict on-disk reader. Never trust a
+// credentials_id as a path or bypass a private-directory permission check.
+MqttLogin readLogin(const std::string& id) {
+    return MqttCredentials{}.read(id);
 }
 struct Client {
     mosquitto* ptr = nullptr;
