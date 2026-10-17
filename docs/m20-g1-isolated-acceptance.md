@@ -41,6 +41,10 @@ CMake builds the native broker test only with the real library. The `MqttBrokerI
 - Broker disconnect revokes stale Confirmed/Reachable, a subscriber reconnects, fresh telemetry restores Confirmed, and an already completed command is not replayed.
 - The test broker and its configuration are destroyed after completion.
 
+## Resource limits
+
+The candidate bounds simultaneously executing one-shot publish clients to 16 per process and allows at most 32 subscription clients per active runtime generation, with at most 128 topics per subscription client. Overflow must fail closed (never launch extra network threads or fabricate state). These limits are implementation policy in G1 and should be independently tested, including concurrent busy returns and clean lifecycle shutdown.
+
 ## Still required for full G1 acceptance
 
 The loopback smoke does **not** replace independent review and controlled failure injection: TLS CA/hostname validation, auth/credential references, different external brokers, QoS1 unacknowledged network loss/no replay, subscribe refusal/ACL, malformed state fields and duplicate JSON, multi-target concurrency and bound resources, delayed SUBACK/PUBACK, transition across Apply/recovery, and release packaging. Record each as PASS/FAIL/NOT_RUN with evidence. #36 will extend this into complete isolated E2E; #38 is physical hardware acceptance.
