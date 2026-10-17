@@ -207,6 +207,65 @@ test('Simple review shows HTTP contract without internals; exact data and techni
     assert.equal(diff.length, 1); assert.match(diff[0].afterText, /Изменены технические параметры/);
 });
 
+
+test('M20 MQTT broker-only TaskBuffer Cancel/review requires one explicit CAS Save and one Apply', async () => {
+    const { newMqttConnection, projectMqttWizard } =
+        await import('../.test-build/adapters/editing.js');
+    const h = harness(), baseline = clone(h.stored.configuration);
+    await h.store.begin('connection');
+    let connection = newMqttConnection(h.store.task.value.buffer);
+    connection.name = 'Local MQTT test';
+    Object.assign(h.store.task.value.buffer, projectMqttWizard({
+        config: h.store.task.value.buffer, connection, local: true, host: 'ignored',
+        port: 1883, tls: false, credentialsId: '', targetId: '', mappings: [],
+        replaceOtherObservation: false
+    }));
+    assert.equal(writes(h).length, 0);
+    h.store.cancel();
+    assert.deepEqual(h.store.candidate.value, baseline);
+    assert.deepEqual(h.stored.configuration, baseline, 'Cancel cannot alter persisted configuration');
+
+    await h.store.begin('connection');
+    connection = newMqttConnection(h.store.task.value.buffer);
+    connection.name = 'Local MQTT staged';
+    Object.assign(h.store.task.value.buffer, projectMqttWizard({
+        config: h.store.task.value.buffer, connection, local: true, host: '',
+        port: 1883, tls: false, credentialsId: '', targetId: '', mappings: [],
+        replaceOtherObservation: false
+    }));
+    assert.equal(await h.store.stage(), true);
+    assert.equal(writes(h).length, 0, 'stage only validates candidate');
+    await h.store.prepare();
+    assert.equal(writes(h).length, 0, 'Review must perform zero persistence or hardware mutations');
+    assert.equal(h.store.canConfirm.value, true);
+    await h.store.confirm();
+    assert.deepEqual(writes(h).map(x => (x.method ?? 'POST') + ' ' + x.path),
+        ['PUT /api/config', 'POST /api/config/apply']);
+    assert.equal(h.stored.configuration.connections.at(-1).name, 'Local MQTT staged');
+    assert.equal(h.active.hash, h.stored.hash);
+    assert.match(h.store.outcome.value, /Активная версия проверена/);
+});
+
+test('M20 MQTT candidate cannot bypass CAS when stored changes after review', async () => {
+    const { newMqttConnection, projectMqttWizard } =
+        await import('../.test-build/adapters/editing.js');
+    const h = harness();
+    await h.store.begin('connection');
+    const connection = newMqttConnection(h.store.task.value.buffer);
+    connection.name = 'External MQTT';
+    Object.assign(h.store.task.value.buffer, projectMqttWizard({
+        config: h.store.task.value.buffer, connection, local: false,
+        host: 'mqtt.example.invalid', port: 8883, tls: true, credentialsId: '',
+        targetId: '', mappings: [], replaceOtherObservation: false
+    }));
+    assert.equal(await h.store.stage(), true);
+    await h.store.prepare();
+    h.stored = { ...h.stored, revision: 2, hash: 'c'.repeat(64) };
+    await h.store.confirm();
+    assert.equal(writes(h).length, 0, 'stale MQTT Review never executes Save or Apply');
+    assert.ok(h.store.issues.value.length);
+});
+
 test('opening final review clears obsolete task-staged status while preserving pending changes', async () => {
     const h = harness(); await h.store.begin('system'); h.store.task.value.buffer.system.name = 'Склад'; await h.store.stage();
     assert.match(h.store.outcome.value, /добавлены в план/);
