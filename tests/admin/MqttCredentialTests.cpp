@@ -84,6 +84,7 @@ int main(int argc, char** argv) {
         const auto baseV2 = config::ConfigValidator::validate(
             config::migrateV2(catalog(base(argv[1]))->configuration()));
         const auto storeDir = workspace.path + "/store";
+        std::filesystem::create_directory(storeDir);
         config::ConfigStore store(storeDir);
         store.initialize(baseV2);
         Model model;
