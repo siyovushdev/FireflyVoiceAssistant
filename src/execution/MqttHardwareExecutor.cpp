@@ -543,7 +543,14 @@ struct MqttHardwareExecutor::Impl {
 };
 
 MqttHardwareExecutor::MqttHardwareExecutor(config::Catalog catalog, DeviceStateStore& state)
-    : impl_(std::make_unique<Impl>(std::move(catalog), state)) {}
+    : impl_(std::make_unique<Impl>(std::move(catalog), state)) {
+#ifdef FIREFLY_WITH_MOSQUITTO
+    // Initialise the library once, before any subscription or publisher loop
+    // is started. This is process-local library setup, not a broker connection:
+    // constructing/preflighting a draft still performs no MQTT network I/O.
+    initializeLibrary();
+#endif
+}
 MqttHardwareExecutor::~MqttHardwareExecutor() = default;
 
 HardwareResult MqttHardwareExecutor::execute(const config::Binding& binding,
