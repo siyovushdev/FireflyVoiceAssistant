@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { decodeResponse, readApi } from '../.test-build/api/client.js';
 import { devices, zones, properties, sameGeneration } from '../.test-build/adapters/catalog.js';
 import { createSystemStore } from '../.test-build/stores/system.js';
-import { newMqttConnection, defaultMqttMapping, projectConnectivity, readableDiff,
+import { newMqttConnection, defaultMqttMapping, projectConnectivity, projectMqttWizard, readableDiff,
     connectionActionSummary, connectionObservationSummary } from '../.test-build/adapters/editing.js';
 
 const fixture = JSON.parse(readFileSync(new URL('../../../../tests/admin/v2/system.json', import.meta.url)));
@@ -210,4 +210,120 @@ test('M20 MQTT Review shows preserved HTTP actions, GET and distinct brokers', (
     candidate.observations = [{ target_id: 'device_bench', executor: 'mqtt',
         connection_id: 'broker_b', mqtt: { topic: 'relay/state', format: 'text', qos: 0 }, fields: {} }];
     assert.match(connectionObservationSummary(candidate, 'device_bench'), /MQTT-B.*relay\/state/);
+});
+
+test('M20 MQTT wizard switching to broker B preserves independent A and HTTP actions without side effects', () => {
+    const base = structuredClone(fixture);
+    const target = base.devices.at(-1).id, other = base.devices[0].id;
+    base.connections = [
+        { id: 'broker_a', name: 'MQTT A', enabled: true, type: 'mqtt',
+          timeout_ms: 2000, network: { host: 'broker-a.local', port: 1883 }, mqtt: { tls: false } },
+        { id: 'broker_b', name: 'MQTT B', enabled: true, type: 'mqtt',
+          timeout_ms: 2000, network: { host: 'broker-b.local', port: 1884 },
+          mqtt: { tls: false, credentials_id: 'stale_b', future_option: 'retain in candidate' } },
+        { id: 'http_control', name: 'HTTP shared', enabled: true, type: 'http',
+          http: { base_url: 'http://127.0.0.1:8765' }, timeout_ms: 2000 },
+    ];
+    base.bindings = [
+        { target_id: target, action_id: 'on_mqtt', executor: 'mqtt',
+          connection_id: 'broker_a', mqtt: { topic: 'a/set', payload: 'ON', qos: 1, retain: false } },
+        { target_id: target, action_id: 'off_mqtt', executor: 'mqtt',
+          connection_id: 'broker_b', mqtt: { topic: 'b/set', payload: 'OFF', qos: 0, retain: false } },
+        { target_id: target, action_id: 'http_reset', executor: 'http',
+          connection_id: 'http_control', http: { method: 'POST', path: '/reset', body: { reset: true } } },
+        { target_id: other, action_id: 'another_device', executor: 'mqtt',
+          connection_id: 'broker_a', mqtt: { topic: 'other/set', payload: 'ON', qos: 0, retain: false } },
+    ];
+    base.observations = [{ target_id: target, connection_id: 'http_control', executor: 'http',
+                           http: { method: 'GET', path: '/state' }, fields: { on: 'power' } }];
+    const frozen = structuredClone(base);
+    const draft = projectMqttWizard({
+        config: base, connection: base.connections[1], local: false,
+        host: 'new-broker-b.example', port: 8883, tls: true, credentialsId: ' ',
+        targetId: target, mappings: base.bindings.filter(b => b.executor === 'mqtt' && b.target_id === target),
+        replaceOtherObservation: false
+    });
+    assert.deepEqual(base, frozen, 'Preview may not mutate any existing catalog');
+    assert.deepEqual(draft.bindings.filter(b => b.executor === 'http'), base.bindings.filter(b => b.executor === 'http'));
+    assert.deepEqual(draft.bindings.find(b => b.action_id === 'on_mqtt'), base.bindings[0],
+                     'A stays on broker A without explicit transfer');
+    assert.deepEqual(draft.bindings.find(b => b.action_id === 'off_mqtt'), base.bindings[1],
+                     'B remains on broker B');
+    assert.deepEqual(draft.bindings.find(b => b.action_id === 'another_device'), base.bindings[3],
+                     'another device consumer of broker A is untouched');
+    assert.deepEqual(draft.observations, base.observations, 'HTTP GET stays configured');
+    assert.deepEqual(draft.connections[0], base.connections[0]);
+    assert.equal(draft.connections[1].network.host, 'new-broker-b.example');
+    assert.equal(draft.connections[1].network.port, 8883);
+    assert.equal(draft.connections[1].mqtt.tls, true);
+    assert.equal('credentials_id' in draft.connections[1].mqtt, false, 'explicitly empty credentials reference clears stale secret');
+    assert.equal(draft.connections[1].mqtt.future_option, 'retain in candidate');
+    assert.deepEqual(consumers(draft, 'broker_a').sort(),
+                     [base.devices[0].name, base.devices.at(-1).name].sort());
+    assert.match(connectionActionSummary(draft, target, 'on_mqtt'), /MQTT A.*a\/set/);
+    assert.match(connectionActionSummary(draft, target, 'off_mqtt'), /MQTT B.*b\/set/);
+    assert.match(connectionObservationSummary(draft, target), /HTTP shared/);
+});
+
+test('M20 MQTT wizard attaches only new bindings to chosen broker and transfers existing bindings explicitly', () => {
+    const base = structuredClone(fixture), target = base.devices.at(-1).id;
+    const a = { id: 'broker_a', name: 'Broker A', type: 'mqtt', enabled: true,
+                timeout_ms: 2000, network: { host: '127.0.0.1', port: 1883 }, mqtt: { tls: false } };
+    const b = { id: 'broker_b', name: 'Broker B', type: 'mqtt', enabled: true,
+                timeout_ms: 2000, network: { host: '127.0.0.1', port: 1884 }, mqtt: { tls: false } };
+    base.connections = [a, b];
+    base.bindings = [{ target_id: target, action_id: 'previous', executor: 'mqtt',
+                       connection_id: a.id, mqtt: { topic: 'a/set', payload: 'ON', qos: 0, retain: false } }];
+    const added = { target_id: target, action_id: 'new', executor: 'mqtt',
+                    mqtt: { topic: 'b/set', payload: 'OFF', qos: 1, retain: false } };
+    const input = { config: base, connection: b, local: true, host: 'ignored-host',
+        port: 1884, tls: false, credentialsId: ' relay_user ', targetId: target,
+        mappings: [...base.bindings, added], replaceOtherObservation: false };
+    const candidate = projectMqttWizard(input);
+    assert.equal(candidate.bindings.find(x => x.action_id === 'previous').connection_id, 'broker_a');
+    assert.equal(candidate.bindings.find(x => x.action_id === 'new').connection_id, 'broker_b');
+    assert.equal(candidate.connections[1].network.host, '127.0.0.1');
+    assert.equal(candidate.connections[1].mqtt.credentials_id, 'relay_user');
+    assert.equal(base.bindings.length, 1, 'only the projected candidate contains new command');
+    const transferred = projectMqttWizard({
+        ...input, mappings: [{ ...base.bindings[0], connection_id: b.id }, added]
+    });
+    assert.equal(transferred.bindings.find(x => x.action_id === 'previous').connection_id, 'broker_b');
+    assert.equal(base.bindings[0].connection_id, 'broker_a', 'transfer never mutates source or the old active broker');
+});
+
+test('M20 MQTT wizard observation replaces HTTP GET only on explicitly approved choice', () => {
+    const base = structuredClone(fixture), target = base.devices.at(-1).id;
+    const mqtt = newMqttConnection(base);
+    mqtt.name = 'Local'; base.connections = [mqtt];
+    const http = { target_id: target, connection_id: 'http_read', executor: 'http',
+                   http: { method: 'GET', path: '/state' }, fields: { on: 'power' } };
+    base.observations = [http];
+    const projection = { config: base, connection: mqtt, local: true, host: '127.0.0.1',
+        port: 1883, tls: false, credentialsId: '', targetId: target, mappings: [] };
+    const noChange = projectMqttWizard({ ...projection, replaceOtherObservation: false });
+    assert.deepEqual(noChange.observations, [http], 'selecting MQTT connection alone must not remove HTTP observe');
+    const next = { target_id: target, connection_id: mqtt.id, executor: 'mqtt',
+        mqtt: { topic: 'relay/state', format: 'json', qos: 1 }, fields: { on: 'power' } };
+    const replaced = projectMqttWizard({
+        ...projection, observation: next, replaceOtherObservation: true
+    });
+    assert.deepEqual(replaced.observations, [next]);
+    assert.deepEqual(base.observations, [http], 'HTTP observation in stored candidate remains intact');
+});
+
+test('M20 MQTT wizard can draft broker-only connection in empty catalog without hardware effects', () => {
+    const base = structuredClone(fixture);
+    base.connections = []; base.bindings = []; base.observations = [];
+    const mqtt = newMqttConnection(base);
+    mqtt.name = 'Broker only';
+    const draft = projectMqttWizard({
+        config: base, connection: mqtt, local: true, host: '', port: 1883,
+        tls: false, credentialsId: '', targetId: '', mappings: [],
+        replaceOtherObservation: false
+    });
+    assert.equal(draft.connections.length, 1);
+    assert.deepEqual(draft.bindings, []);
+    assert.deepEqual(draft.observations, []);
+    assert.equal(base.connections.length, 0, 'wizard preview never writes the source graph');
 });
