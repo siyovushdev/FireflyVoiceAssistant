@@ -93,6 +93,7 @@ int main(int argc, char** argv) {
             config::migrateV2(catalog(base(argv[1]))->configuration()));
         const auto storeDir = workspace.path + "/store";
         std::filesystem::create_directory(storeDir);
+        check(::chmod(storeDir.c_str(), 0700) == 0, "private ConfigStore test directory");
         config::ConfigStore store(storeDir);
         store.initialize(baseV2);
         Model model;
