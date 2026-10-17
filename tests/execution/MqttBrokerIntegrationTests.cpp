@@ -12,6 +12,7 @@
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -56,8 +57,8 @@ struct Relay {
     static void onMessage(mosquitto* client, void* pointer, const mosquitto_message* message) {
         auto& relay = *static_cast<Relay*>(pointer);
         if (!message || !message->topic || std::string(message->topic) != "g1/relay/set" ||
-            !message->payload || message->payloadlen != 2 &&
-                message->payloadlen != 3) return;
+            !message->payload || (message->payloadlen != 2 &&
+                message->payloadlen != 3)) return;
         std::string payload(static_cast<const char*>(message->payload),
                             static_cast<std::size_t>(message->payloadlen));
         if (payload != "ON" && payload != "OFF") return;
@@ -117,16 +118,19 @@ Json addDeviceAndBindings(Json root, int port) {
     root["actions"].push_back({
         {"id","action_g1_on"}, {"name","Relay ON"}, {"operation","mock.assign.v1"},
         {"enabled",true}, {"parameters",Json::array()},
+        {"speech_aliases",Json::array({"включи g1 реле"})},
         {"assignments",Json::array({Json{{"field","power"},{"value",true}}})}
     });
     root["actions"].push_back({
         {"id","action_g1_off"}, {"name","Relay OFF"}, {"operation","mock.assign.v1"},
         {"enabled",true}, {"parameters",Json::array()},
+        {"speech_aliases",Json::array({"выключи g1 реле"})},
         {"assignments",Json::array({Json{{"field","power"},{"value",false}}})}
     });
     root["devices"].push_back({
         {"id","device_g1_relay"}, {"name","Test relay"}, {"kind","generic"},
         {"room_id","room_kitchen"}, {"enabled",true},
+        {"spoken_aliases",Json::array({"g1 реле"})},
         {"action_ids",Json::array({"action_g1_on","action_g1_off"})},
         {"state",Json::array({Json{
             {"id","power"}, {"name","Power"}, {"type","boolean"},
@@ -156,7 +160,8 @@ Json addDeviceAndBindings(Json root, int port) {
         {"target_id","device_g1_relay"},{"connection_id","connection_g1"},
         {"executor","mqtt"},
         {"mqtt",Json{{"topic","g1/relay/state"},{"format","text"},{"field","power"},
-                     {"true_payload","ON"},{"false_payload","OFF"},{"qos",1}}}
+                     {"true_payload","ON"},{"false_payload","OFF"},{"qos",1}}},
+        {"fields",Json::object()}
     }});
     return root;
 }
@@ -183,6 +188,9 @@ int main(int argc, char** argv) {
             config::migrateV2(baseline->configuration()));
         const auto proposed = addDeviceAndBindings(Json::parse(migrated->canonicalJson()), port);
         const auto catalog = config::ConfigLoader::fromJson(proposed.dump());
+        // Initialise libmosquitto through Firefly before creating the test
+        // relay client. Never call library init twice from competing threads.
+        execution::BoundDeviceExecutor executor(catalog);
         Relay relay(port);
 
         // Retained initial state must not make an unproven device Confirmed.
@@ -192,7 +200,6 @@ int main(int argc, char** argv) {
             return relay.published >= 1;
         }), "retained state did not reach test broker");
 
-        execution::BoundDeviceExecutor executor(catalog);
         check(!confirmed(executor, true), "state cannot be Confirmed before Apply");
         const auto on = actions::GenericAction("action_g1_on","device_g1_relay",{});
         const auto off = actions::GenericAction("action_g1_off","device_g1_relay",{});
@@ -203,8 +210,9 @@ int main(int argc, char** argv) {
         check(!confirmed(executor, true), "retained MQTT payload must not confirm state");
 
         // Send independent fresh telemetry until SUBACK/observer are ready.
+        int probes = 0;
         check(eventually([&] {
-            relay.sendState("OFF", false);
+            if ((probes++ % 10) == 0) relay.sendState("OFF", false);
             return confirmed(executor, false);
         }), "fresh state topic never became Confirmed");
 
