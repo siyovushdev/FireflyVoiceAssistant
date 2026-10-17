@@ -29,6 +29,25 @@ int main(int argc, char** argv) {
         rejects([&] { (void)execution::decodeMqttObservationPayload(observation, R"({"power":false,"power":true})"); });
         rejects([&] { (void)execution::decodeMqttObservationPayload(observation, R"({"power":{} })"); });
         rejects([&] { (void)execution::decodeMqttObservationPayload(observation, R"({"power":true,"nested":{"a":1,"a":2}})"); });
+        // Every top-level JSON member must be explicitly mapped. Otherwise
+        // a malicious/incorrect payload can be partially applied as Confirmed.
+        rejects([&] { (void)execution::decodeMqttObservationPayload(observation, R"({"power":true,"unmapped":7})"); });
+        rejects([&] { (void)execution::decodeMqttObservationPayload(observation, R"({"power":true,"unmapped":{"nested":false}})"); });
+        rejects([&] { (void)execution::decodeMqttObservationPayload(observation, R"({"power":true,"unmapped":[1,2]})"); });
+        rejects([&] { (void)execution::decodeMqttObservationPayload(observation, R"({"power":true,"unmapped":null})"); });
+        rejects([&] { (void)execution::decodeMqttObservationPayload(observation, R"({"power":true,"unmapped":"text"})"); });
+        rejects([&] { (void)execution::decodeMqttObservationPayload(observation, R"({"unexpected":true})"); });
+        // Still accept fully declared multi-property JSON without coercion.
+        observation.fields = {{"power","power"},{"brightness","brightness"}};
+        const auto both = execution::decodeMqttObservationPayload(
+            observation, R"({"power":true,"brightness":55})");
+        check(both.size() == 2 &&
+              both.at("power") == actions::Scalar(true) &&
+              both.at("brightness") == actions::Scalar(std::int64_t{55}),
+              "fully mapped two-property JSON is accepted");
+        rejects([&] { (void)execution::decodeMqttObservationPayload(
+            observation, R"({"power":true,"unknown":55})"); });
+        observation.fields = {{"power","power"}};
         observation.mqtt.format = "text";
         observation.mqtt.field = "power";
         observation.mqtt.truePayload = "ON";
@@ -44,6 +63,45 @@ int main(int argc, char** argv) {
         execution::DeviceStateStore state(base, [&] { return instant; }, [&] { return instant; });
         execution::MqttObservationGate gate;
         const std::string target = "device_kitchen_light";
+        // Check the exact Decode -> DeviceStateStore boundary on real classes:
+        // malformed or extra JSON must not partially mutate Unknown/Confirmed.
+        config::ObservationBinding strictBrightness;
+        strictBrightness.executor = config::ExecutorKind::Mqtt;
+        strictBrightness.targetId = target;
+        strictBrightness.mqtt.format = "json";
+        strictBrightness.fields = {{"brightness", "brightness"}};
+        execution::DeviceStateStore strictStore(base, [&] { return instant; }, [&] { return instant; });
+        const auto assertStrictState = [&](execution::StateKnowledge expectedKnowledge,
+                                           std::optional<actions::Scalar> expectedValue) {
+            const auto snapshot = strictStore.device(target);
+            check(snapshot.has_value(), "strict JSON target exists");
+            const auto& property = snapshot->properties.at("brightness");
+            check(property.knowledge == expectedKnowledge && property.value == expectedValue,
+                  "strict JSON reject must not mutate state");
+        };
+        assertStrictState(execution::StateKnowledge::Unknown, std::nullopt);
+        for (const std::string& payload : {
+                 R"({"brightness":55,"unmapped":7})",
+                 R"({"brightness":55,"unmapped":{"nested":false}})",
+                 R"({"brightness":55,"unmapped":[1,2]})",
+                 R"({"brightness":55,"unmapped":null})"
+             }) {
+            rejects([&] {
+                const auto props = execution::decodeMqttObservationPayload(strictBrightness, payload);
+                strictStore.applyObservation({target, props, 0, std::nullopt});
+            });
+            assertStrictState(execution::StateKnowledge::Unknown, std::nullopt);
+        }
+        const auto strictValid = execution::decodeMqttObservationPayload(
+            strictBrightness, R"({"brightness":55})");
+        strictStore.applyObservation({target, strictValid, 0, std::nullopt});
+        assertStrictState(execution::StateKnowledge::Confirmed, actions::Scalar(std::int64_t{55}));
+        rejects([&] {
+            const auto props = execution::decodeMqttObservationPayload(
+                strictBrightness, R"({"brightness":80,"unmapped":false})");
+            strictStore.applyObservation({target, props, 0, std::nullopt});
+        });
+        assertStrictState(execution::StateKnowledge::Confirmed, actions::Scalar(std::int64_t{55}));
         const std::map<std::string, actions::Scalar> target80{
             {"brightness", actions::Scalar(std::int64_t{80})}};
         const std::map<std::string, actions::Scalar> old0{
