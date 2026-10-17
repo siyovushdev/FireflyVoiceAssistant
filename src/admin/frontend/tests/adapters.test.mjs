@@ -6,6 +6,7 @@ import { devices, zones, properties, sameGeneration } from '../.test-build/adapt
 import { createSystemStore } from '../.test-build/stores/system.js';
 import { newMqttConnection, defaultMqttMapping, projectConnectivity, projectMqttWizard, readableDiff,
     consumers, connectionActionSummary, connectionObservationSummary } from '../.test-build/adapters/editing.js';
+import { MqttDeviceDrafts, observationFromMqttDraft } from '../.test-build/adapters/mqttDeviceDrafts.js';
 
 const fixture = JSON.parse(readFileSync(new URL('../../../../tests/admin/v2/system.json', import.meta.url)));
 const catalog = () => ({ ok: true, configuration: structuredClone(fixture), hash: 'a'.repeat(64), revision: 1, generation_id: 3 });
@@ -326,4 +327,110 @@ test('M20 MQTT wizard can draft broker-only connection in empty catalog without 
     assert.deepEqual(draft.bindings, []);
     assert.deepEqual(draft.observations, []);
     assert.equal(base.connections.length, 0, 'wizard preview never writes the source graph');
+});
+
+test('M20 MQTT R2 retains per-device unsaved topic and observation across A→B→A', () => {
+    const base = structuredClone(fixture);
+    const idA = base.devices.at(-1).id, idB = base.devices[0].id;
+    const selected = { id: 'broker_b', name: 'Broker B', enabled: true, type: 'mqtt',
+        timeout_ms: 2000, network: { host: '127.0.0.1', port: 1884 }, mqtt: { tls: false } };
+    base.connections = [
+        { id: 'broker_a', name: 'Broker A', enabled: true, type: 'mqtt',
+          timeout_ms: 2000, network: { host: '127.0.0.1', port: 1883 }, mqtt: { tls: false } },
+        selected
+    ];
+    base.bindings = [
+        { target_id: idA, action_id: 'action_on_a', executor: 'mqtt',
+          connection_id: 'broker_a', mqtt: { topic: 'cmd/a', payload: 'ON', qos: 0, retain: false } },
+        { target_id: idB, action_id: 'action_on_b', executor: 'mqtt',
+          connection_id: 'broker_b', mqtt: { topic: 'cmd/b', payload: 'ON', qos: 1, retain: false } }
+    ];
+    base.observations = [
+        { target_id: idA, connection_id: 'broker_a', executor: 'mqtt',
+          mqtt: { topic: 'state/a', format: 'text', field: 'power', qos: 0,
+                  true_payload: 'ON', false_payload: 'OFF' }, fields: {} },
+        { target_id: idB, connection_id: 'http_reader', executor: 'http',
+          http: { method: 'GET', path: '/state' }, fields: { on: 'power' } }
+    ];
+    const before = structuredClone(base);
+    const stash = new MqttDeviceDrafts(base);
+    const editedA = stash.restore(idA);
+    editedA.mappings[0].mqtt.topic = 'cmd/edited';
+    editedA.observation.topic = 'state/edited';
+    stash.remember(idA, editedA);
+    const editedB = stash.restore(idB);
+    editedB.mappings[0].mqtt.topic = 'cmd/b-edited';
+    const restoredA = stash.restore(idA);
+    assert.equal(restoredA.mappings[0].mqtt.topic, 'cmd/edited');
+    assert.equal(restoredA.observation.topic, 'state/edited');
+    // A user may edit the current form after the last stash; its live value
+    // must win over the stale per-device snapshot.
+    editedB.mappings[0].mqtt.payload = 'OFF';
+    const modified = stash.changed(idB, editedB);
+    assert.deepEqual(modified.map(([id]) => id), [idA, idB]);
+    let candidate = projectMqttWizard({
+        config: base, connection: selected, local: false,
+        host: '127.0.0.1', port: 1884, tls: false, credentialsId: '',
+        targetId: '', mappings: [], replaceOtherObservation: false
+    });
+    for (const [id, draft] of modified) {
+        candidate = projectMqttWizard({
+            config: candidate, connection: selected, local: false,
+            host: '127.0.0.1', port: 1884, tls: false, credentialsId: '',
+            targetId: id, mappings: draft.mappings,
+            observation: observationFromMqttDraft(id, draft, selected.id),
+            replaceOtherObservation: draft.observing && draft.replaceOtherObservation
+        });
+    }
+    assert.deepEqual(base, before, 'draft navigation and projection cannot touch stored source');
+    assert.equal(candidate.bindings.find(x => x.target_id === idA).mqtt.topic, 'cmd/edited');
+    assert.equal(candidate.bindings.find(x => x.target_id === idA).connection_id, 'broker_a');
+    assert.equal(candidate.bindings.find(x => x.target_id === idB).mqtt.topic, 'cmd/b-edited');
+    assert.equal(candidate.bindings.find(x => x.target_id === idB).mqtt.payload, 'OFF');
+    assert.equal(candidate.observations.find(x => x.target_id === idA).mqtt.topic, 'state/edited');
+    assert.deepEqual(candidate.observations.find(x => x.target_id === idB),
+                     before.observations[1], 'other HTTP GET remains intact');
+});
+
+test('M20 MQTT R2 preserves partially edited JSON observation and never rewrites unvisited devices', () => {
+    const base = structuredClone(fixture), idA = base.devices.at(-1).id;
+    const idB = base.devices[0].id;
+    const unknownFuture = { vendor_mapping: { future: 'must not change' } };
+    base.observations = [{
+        target_id: idB, connection_id: 'broker_b', executor: 'mqtt',
+        mqtt: { topic: 'state/b', format: 'text', field: 'power', qos: 0,
+                true_payload: 'ON', false_payload: 'OFF', ...unknownFuture },
+        fields: {}
+    }];
+    const stash = new MqttDeviceDrafts(base);
+    const untouchedB = stash.restore(idB);
+    stash.remember(idB, untouchedB); // merely visiting must not modify it
+    const editedA = stash.restore(idA);
+    editedA.observing = true;
+    editedA.observation.format = 'json';
+    editedA.observation.topic = 'state/new';
+    editedA.fields = [['on', 'power']];
+    stash.remember(idA, editedA);
+    assert.deepEqual(stash.restore(idA).fields, [['on', 'power']],
+                     'JSON state fields must survive a device navigation');
+    assert.deepEqual(stash.changed(idB, untouchedB).map(([id]) => id), [idA],
+                     'untouched B excluded from Review projection');
+    assert.deepEqual(base.observations[0].mqtt.vendor_mapping, unknownFuture.vendor_mapping);
+    assert.deepEqual(observationFromMqttDraft(idA, editedA, 'broker_a').fields,
+                     { on: 'power' });
+});
+
+test('M20 MQTT R3 caches wizard component across protocol navigation without early Apply', () => {
+    const shell = readFileSync(new URL('../src/components/ConnectionWizard.vue', import.meta.url), 'utf8');
+    assert.match(shell, /<KeepAlive>\s*<MqttWizard v-if="transport === 'mqtt'"/,
+        'MQTT instance must not be torn down by protocol chooser');
+    assert.match(shell, /<div v-if="transport !== 'mqtt'"/,
+        'HTTP wizard is independent and still visible after leaving MQTT');
+    const wizard = readFileSync(new URL('../src/components/MqttWizard.vue', import.meta.url), 'utf8');
+    assert.match(wizard, /watch\(targetId, \(next, previous\) => \{/,
+        'outgoing per-device state is captured before loading another device');
+    assert.match(wizard, /deviceDrafts\.changed\(targetId\.value, currentDeviceDraft\(\)\)/,
+        'Review projects all changed devices, not merely the last visible one');
+    assert.match(wizard, /В общий Review \(без Apply\)/,
+        'navigation back and forward must never perform implicit Apply');
 });
