@@ -1,0 +1,27 @@
+# Separate root helper for one allowlisted systemd unit; no shell interpreter.
+# Activation/provisioning requires independent owner authorization.
+[Unit]
+Description=Firefly Fixed Mosquitto Controller
+Requires=firefly-mqtt-control.socket
+After=firefly-mqtt-control.socket
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/usr/libexec/firefly-mqtt-control-helper
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=firefly-mqtt-control
