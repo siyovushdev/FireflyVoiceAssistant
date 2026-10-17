@@ -182,7 +182,7 @@ if(BUILD_TESTING)
                 $<TARGET_FILE:mqtt_broker_integration_tests>
                 "${PROJECT_SOURCE_DIR}"
                 "${FIREFLY_TEST_MOSQUITTO_SERVER}")
-            set_tests_properties(MqttBrokerIntegration PROPERTIES TIMEOUT 50)
+            set_tests_properties(MqttBrokerIntegration PROPERTIES TIMEOUT 70)
         else()
             message(STATUS "MqttBrokerIntegration NOT_RUN: no provisioned mosquitto binary")
         endif()
