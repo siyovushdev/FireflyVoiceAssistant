@@ -147,6 +147,12 @@ std::string executeRequest(const std::string& request) {
         ? runSystemctl({"--system", "enable", "--now", Unit})
         : runSystemctl({"--system", "disable", "--now", Unit});
     if (!result.success) return "ERROR broker_control_failed\n";
+    // Type=exec confirms process exec, not broker config readiness. Give
+    // fast-failing misconfigured Mosquitto time to exit before claiming that
+    // enabling succeeded. The next status remains authoritative; this is
+    // a bounded startup check, not a guarantee against future failures.
+    if (request == "ENABLE\n")
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
     const auto after = inspect();
     if (!after.valid) return "ERROR broker_invalid_state\n";
     if (!after.installed) return "ERROR broker_control_failed\n";
