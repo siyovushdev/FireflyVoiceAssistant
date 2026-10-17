@@ -51,6 +51,7 @@ std::shared_ptr<const RuntimeGeneration> candidate(const Json& root) {
 struct Api::Impl {
     config::ConfigStore& store;
     RuntimeClient& runtime;
+    execution::MqttCredentials secrets;
     AdminTranscriber* transcriber = nullptr;
     HealthModel health;
     std::mutex writes, runtimeOperation, state;
@@ -62,8 +63,9 @@ struct Api::Impl {
     bool ready = false;
     int workerPid = 0;
     std::string lastError;
-    Impl(config::ConfigStore& store, RuntimeClient& runtime, AdminTranscriber* transcriber)
-        : store(store), runtime(runtime), transcriber(transcriber) {
+    Impl(config::ConfigStore& store, RuntimeClient& runtime, AdminTranscriber* transcriber,
+         std::string credentialsDirectory)
+        : store(store), runtime(runtime), secrets(std::move(credentialsDirectory)), transcriber(transcriber) {
         setup = std::make_unique<SetupSession>(store,[this](const Json& value) { return invoke(value); });
         timer = std::thread([this] { while (!timerStop) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -134,6 +136,7 @@ struct Api::Impl {
     }
     Json validate(const Json& root, bool preflight) {
         const auto generation = candidate(root);
+        secrets.verifyReferences(generation->domain.snapshot());
         Json result{{"ok", true}, {"valid", true}, {"context_bytes", generation->prompt.size()}, {"context", generation->prompt}, {"runtime_preflight", "unavailable"}};
         bool modelReady;
         { std::lock_guard<std::mutex> lock(state); modelReady = ready; }
@@ -177,8 +180,9 @@ struct Api::Impl {
         return result;
     }
 };
-Api::Api(config::ConfigStore& store, RuntimeClient& runtime, AdminTranscriber* transcriber)
-    : impl_(std::make_unique<Impl>(store, runtime, transcriber)) {}
+Api::Api(config::ConfigStore& store, RuntimeClient& runtime, AdminTranscriber* transcriber,
+         std::string mqttCredentialsDirectory)
+    : impl_(std::make_unique<Impl>(store, runtime, transcriber, std::move(mqttCredentialsDirectory))) {}
 Api::~Api() = default;
 HealthModel& Api::health() { return impl_->health; }
 const HealthModel& Api::health() const { return impl_->health; }
@@ -215,6 +219,7 @@ void Api::initializeRuntime() {
         std::string configError;
         try {
             catalog = impl_->store.current();
+            impl_->secrets.verifyReferences(catalog);
             (void)std::make_shared<const RuntimeGeneration>(catalog);
             impl_->health.setSubsystem("configuration", SubsystemStatus::Ready);
         } catch (const std::exception& error) {
@@ -307,7 +312,7 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
         const std::map<std::string, std::string> routes{{"/api/admin/language-profile", "POST"}, {"/api/admin/plan", "POST"}, {"/api/admin/copilot", "POST"}, {"/api/admin/copilot/accept", "POST"}, {"/api/admin/transcribe", "POST"}, {"/api/admin/action-draft", "POST"}, {"/api/admin/templates", "GET"}, {"/api/admin/draft", "POST"}, {"/api/config/migrate", "POST"}, {"/api/admin/id", "POST"}, {"/api/admin/suggest", "POST"}, {"/api/config/diff", "POST"},
             {"/api/config/export", "GET"}, {"/api/config/import", "POST"}, {"/api/config/revision", "POST"},
             {"/api/config/restore-candidate", "POST"}, {"/api/dashboard", "GET"}, {"/api/devices/state", "GET"},
-            {"/api/connections/test", "POST"}, {"/api/connections/probe", "POST"}, {"/api/devices/command", "POST"}, {"/api/devices/poll", "POST"},
+            {"/api/connections/test", "POST"}, {"/api/connections/probe", "POST"}, {"/api/mqtt/credentials", "GET POST PUT DELETE"}, {"/api/devices/command", "POST"}, {"/api/devices/poll", "POST"},
             {"/api/executions", "GET"}, {"/api/status", "GET"}, {"/api/config", "GET PUT"},
             {"/api/config/active", "GET"}, {"/api/config/validate", "POST"}, {"/api/config/apply", "POST"},
             {"/api/config/revisions", "GET"}, {"/api/config/restore", "POST"}, {"/api/config/reconcile", "POST"}, {"/api/test-command", "POST"}};
@@ -381,6 +386,7 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
         } else if (path == "/api/config/import") {
             members(request, {"document"});
             const auto imported = config::ConfigLoader::fromJson(request.at("document").get<std::string>());
+            impl_->secrets.verifyReferences(imported);
             RuntimeGeneration admission(imported);
             reply = describe(imported);
             reply["ok"] = true; reply["saved"] = false; reply["applied"] = false;
@@ -427,6 +433,61 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
             reply = {{"ok",true},{key,live.at(key)},{"active",live.at("active")}};
             if (path == "/api/devices/state" && live.contains("playground_devices"))
                 reply["playground_devices"] = live.at("playground_devices");
+        } else if (path == "/api/mqtt/credentials") {
+            // Browser/API operations use the existing loopback-only Admin
+            // Host/Origin/custom-header policy. Do not echo secret contents,
+            // username or password to the browser after write, even on error.
+            if (method == "GET") {
+                reply = {{"ok", true}, {"ids", impl_->secrets.ids()}};
+            } else {
+                if (method == "POST" || method == "PUT") {
+                    members(request, {"id", "username", "password"});
+                    const auto id = request.at("id").get<std::string>();
+                    const auto username = request.at("username").get<std::string>();
+                    const auto password = request.at("password").get<std::string>();
+                    std::lock_guard<std::mutex> mutation(impl_->writes);
+                    if (method == "POST") impl_->secrets.create(id, username, password);
+                    else impl_->secrets.rotate(id, username, password);
+                    reply = {{"ok", true}, {"id", id},
+                             {"operation", method == "POST" ? "created" : "rotated"},
+                             {"requires_apply", true}};
+                } else {
+                    members(request, {"id"});
+                    const auto id = request.at("id").get<std::string>();
+                    std::lock_guard<std::mutex> mutation(impl_->writes);
+                    const auto inUse = [&](const config::Catalog& catalog) {
+                        if (!catalog) return false;
+                        for (const auto& c : catalog->configuration().connections)
+                            if (c.type == config::ExecutorKind::Mqtt &&
+                                c.mqtt.credentialsId == id) return true;
+                        return false;
+                    };
+                    // Protect not only stored/active graphs but retained
+                    // history and LKG: a future restore must remain valid.
+                    if (inUse(impl_->store.current()))
+                        throw ApiError(409, "mqtt_credentials_in_use", "/id",
+                                       "Remove credential references from configuration first.");
+                    for (const auto& history : impl_->store.revisions())
+                        if (inUse(impl_->store.revision(history.revision)))
+                            throw ApiError(409, "mqtt_credentials_in_use", "/id",
+                                           "A retained configuration revision still uses this credential.");
+                    if (const auto lkg = impl_->store.lastKnownGood())
+                        if (inUse(*lkg))
+                            throw ApiError(409, "mqtt_credentials_in_use", "/id",
+                                           "Last Known Good still uses this credential.");
+                    Json active;
+                    {
+                        std::lock_guard<std::mutex> lock(impl_->state);
+                        active = impl_->active;
+                    }
+                    if (active.is_object() && active.contains("configuration") &&
+                        inUse(config::ConfigLoader::fromJson(active.at("configuration").dump())))
+                        throw ApiError(409, "mqtt_credentials_in_use", "/id",
+                                       "The active runtime still uses this credential.");
+                    impl_->secrets.erase(id);
+                    reply = {{"ok", true}, {"id", id}, {"operation", "deleted"}};
+                }
+            }
         } else if (path == "/api/connections/probe") {
             members(request, {"connection"});
             const auto connection = config::ConfigLoader::connectionFromJson(request.at("connection").dump());
@@ -486,6 +547,7 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
         } else if (path == "/api/config" && method == "PUT") {
             members(request, {"configuration", "expected"});
             const auto generation = candidate(request);
+            impl_->secrets.verifyReferences(generation->domain.snapshot());
             std::lock_guard<std::mutex> mutation(impl_->writes);
             const auto saved = impl_->store.save(generation->domain.snapshot(), expected(request));
             reply = describe(saved); reply["ok"] = true; reply["applied"] = false;
@@ -493,6 +555,7 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
             members(request, {"expected"});
             std::lock_guard<std::mutex> mutation(impl_->writes);
             const auto stored = impl_->store.current(); checkExpected(stored, expected(request));
+            impl_->secrets.verifyReferences(stored);
             reply = impl_->invoke({{"method", "apply"}, {"configuration", Json::parse(stored->canonicalJson())}});
             if (!reply.value("ok", false)) status = 422;
             else {
