@@ -8,6 +8,7 @@
 #include <nlohmann/json.hpp>
 #include <chrono>
 #include <condition_variable>
+#include <fstream>
 #include <iostream>
 #include <mutex>
 #include <stdexcept>
@@ -39,6 +40,19 @@ struct Relay {
     std::condition_variable ready;
     bool subscribed = false;
     int published = 0;
+    static void onConnect(mosquitto* client, void* pointer, int code) noexcept {
+        auto& relay = *static_cast<Relay*>(pointer);
+        if (code != 0) return;
+        // Re-subscribe after clean-session reconnect; never publish commands.
+        (void)mosquitto_subscribe(client, nullptr, "g1/relay/set", 1);
+    }
+    static void onDisconnect(mosquitto*, void* pointer, int) noexcept {
+        auto& relay = *static_cast<Relay*>(pointer);
+        try {
+            std::lock_guard<std::mutex> lock(relay.mutex);
+            relay.subscribed = false;
+        } catch (const std::exception&) {}
+    }
     std::vector<std::string> commands;
     static void onSubscribe(mosquitto*, void* pointer, int, int count, const int* granted) {
         auto& relay = *static_cast<Relay*>(pointer);
@@ -77,6 +91,8 @@ struct Relay {
         try {
             mqtt = mosquitto_new(nullptr, true, this);
             if (!mqtt) throw std::runtime_error("relay allocation");
+            mosquitto_connect_callback_set(mqtt, onConnect);
+            mosquitto_disconnect_callback_set(mqtt, onDisconnect);
             mosquitto_subscribe_callback_set(mqtt, onSubscribe);
             mosquitto_publish_callback_set(mqtt, onPublished);
             mosquitto_message_callback_set(mqtt, onMessage);
@@ -85,8 +101,6 @@ struct Relay {
             check(mosquitto_loop_start(mqtt) == MOSQ_ERR_SUCCESS,
                   "relay loop cannot start");
             running = true;
-            check(mosquitto_subscribe(mqtt, nullptr, "g1/relay/set", 1) == MOSQ_ERR_SUCCESS,
-                  "relay subscribe request failed");
             std::unique_lock<std::mutex> lock(mutex);
             check(ready.wait_for(lock, std::chrono::seconds(4), [&] { return subscribed; }),
                   "relay did not receive accepted SUBACK");
@@ -195,7 +209,7 @@ bool confirmed(execution::BoundDeviceExecutor& executor, bool value) {
 
 int main(int argc, char** argv) {
     try {
-        if (argc != 3) return 2;
+        if (argc != 4) return 2;
         const int port = std::stoi(argv[2]);
         check(port > 0 && port <= 65535, "invalid isolated broker port");
         const auto baseline = config::ConfigLoader::fromFile(
@@ -251,8 +265,38 @@ int main(int argc, char** argv) {
               "wrong target cannot publish");
         std::this_thread::sleep_for(std::chrono::milliseconds(250));
         check(relay.commandCount() == 2, "unexpected command replay or extra publish");
+
+        // Ask the external loopback-only fixture to stop/restart its broker.
+        // Verify that the live subscriber invalidates stale evidence and
+        // recovers using a NEW state message, without replaying a command.
+        const std::string controlDir(argv[3]);
+        { std::ofstream request(controlDir + "/drop-request");
+          check(static_cast<bool>(request << "drop\n"), "failed to request broker restart"); }
+        check(eventually([&] {
+            const auto state = executor.production().device("device_g1_relay");
+            return state && state->connectivity == execution::Connectivity::Unreachable &&
+                   state->properties.at("power").knowledge == execution::StateKnowledge::Unknown;
+        }, 7000), "subscriber disconnect did not invalidate stale Confirmed state");
+
+        check(eventually([&] {
+            std::ifstream marker(controlDir + "/broker-restarted");
+            return marker.good();
+        }, 7000), "isolated broker fixture did not restart");
+        check(eventually([&] {
+            std::lock_guard<std::mutex> lock(relay.mutex);
+            return relay.subscribed;
+        }, 10000), "simulated relay did not re-subscribe after broker restart");
+
+        // The device, not the command executor, supplies a fresh state sample.
+        int restoreProbes = 0;
+        check(eventually([&] {
+            if ((restoreProbes++ % 10) == 0) relay.sendState("OFF", false);
+            return confirmed(executor, false);
+        }, 8000), "Firefly subscriber did not recover with new state telemetry");
+        std::this_thread::sleep_for(std::chrono::milliseconds(1200));
+        check(relay.commandCount() == 2, "command replayed when broker reconnected");
         std::cout << "PASS isolated MQTT 3.1.1 broker ON QoS1 / OFF QoS0, "
-                  << "state subscription, retained ignored, no extra publishes\n";
+                  << "retained ignored, subscribe reconnect, no command replay\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "MQTT integration FAIL: " << e.what() << '\n';
