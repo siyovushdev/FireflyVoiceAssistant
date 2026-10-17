@@ -177,24 +177,29 @@ void serve(int client, unsigned uid) {
     socklen_t size = sizeof(peer);
     if (::getsockopt(client, SOL_SOCKET, SO_PEERCRED, &peer, &size) ||
         size != sizeof(peer) || peer.uid != uid) return;
-    // AF_UNIX/SOCK_STREAM is not record-framed. Accumulate a very short
-    // complete request with one absolute deadline; never accept a partial
-    // STATUS/ENABLE/DISABLE because the kernel split a single send().
+    // AF_UNIX/SOCK_STREAM is not record-framed. Require the client to
+    // half-close its write side, then validate the *entire* request. Waiting
+    // until EOF (bounded by one absolute deadline) prevents a first valid
+    // "ENABLE\\n" from authorizing a later injected second line, regardless
+    // of stream fragmentation or packet coalescing.
     std::string message;
     const auto deadline = std::chrono::steady_clock::now() +
                           std::chrono::milliseconds(RequestTimeoutMs);
-    while (message.find('\n') == std::string::npos && message.size() < 32) {
+    for (;;) {
         const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(
             deadline - std::chrono::steady_clock::now()).count();
         if (left <= 0 || !waitFor(client, POLLIN, static_cast<int>(left))) return;
-        std::array<char, 32> request{};
-        const auto got = ::recv(client, request.data(),
-                                std::min(request.size(), 32-message.size()), MSG_DONTWAIT);
+        std::array<char, 33> bytes{};
+        const auto got = ::recv(client, bytes.data(), bytes.size(), MSG_DONTWAIT);
         if (got < 0 && (errno == EINTR || errno == EAGAIN)) continue;
-        if (got <= 0) return;
-        message.append(request.data(), static_cast<std::size_t>(got));
+        if (got < 0) return;
+        if (got == 0) break;
+        if (message.size() + static_cast<std::size_t>(got) > 32) {
+            message = "INVALID"; // bounded fail closed without more reads
+            break;
+        }
+        message.append(bytes.data(), static_cast<std::size_t>(got));
     }
-    // Reject injected extra lines, NULs, suffixes and unknown operations.
     const auto response = executeRequest(message);
     if (waitFor(client, POLLOUT, RequestTimeoutMs)) {
         std::size_t offset = 0;
