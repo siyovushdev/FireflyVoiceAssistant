@@ -265,7 +265,7 @@ int main(int argc, char** argv) {
             executor.startSubscriptions();
             const std::string directory(argv[3]);
             { std::ofstream signal(directory + "/startup-request");
-              check(static_cast<bool>(signal << "start\\n"), "cannot request test broker startup"); }
+              check(static_cast<bool>(signal << "start\n"), "cannot request test broker startup"); }
             check(eventually([&] {
                 std::ifstream marker(directory + "/broker-ready");
                 return marker.good();
@@ -278,7 +278,7 @@ int main(int argc, char** argv) {
                 return confirmed(executor, true);
             }, 14000), "initial offline subscription failed to recover with fresh state");
             check(relay.commandCount() == 0, "subscriber recovery replayed a hardware command");
-            std::cout << "PASS initial broker absent -> retry -> subscribe -> fresh Confirmed\\n";
+            std::cout << "PASS initial broker absent -> retry -> subscribe -> fresh Confirmed\n";
             return 0;
         }
         Relay relay(port);
