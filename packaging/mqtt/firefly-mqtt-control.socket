@@ -1,0 +1,16 @@
+# M20 G2 socket-activated privileged adapter, separately provisioned.
+# The broker unit is *not* enabled when this control socket is enabled.
+[Unit]
+Description=Firefly Fixed Mosquitto Controller Socket
+
+[Socket]
+ListenStream=/run/firefly-mqtt-control/control.sock
+SocketMode=0660
+SocketUser=root
+SocketGroup=firefly
+DirectoryMode=0750
+Service=firefly-mqtt-control.service
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target
