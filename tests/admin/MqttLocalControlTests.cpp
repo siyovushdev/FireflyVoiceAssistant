@@ -13,6 +13,13 @@ using namespace firefly;
 using namespace admin_test;
 
 namespace {
+// Use the real Api/RuntimeWorker/SetupSession lifecycle with only the vendor
+// model entry seam replaced. No privileged broker or ConfigStore is mocked.
+struct SetupCapableModel final : Model {
+    bool setupRequired() const override { return true; }
+    void enterSetup() override {}
+    void leaveSetup(const std::string& prompt) override { useContext(prompt); }
+};
 int checks = 0;
 void check(bool correct, const char* message) {
     ++checks;
@@ -123,6 +130,35 @@ int main(int argc, char** argv) {
         check(!disableOrphan.value("enabled",true) &&
               !disableOrphan.value("running",true),
               "explicit Disable can clear orphan autostart safely");
+
+        // New R1 regression: unlinking an executable does not terminate the
+        // running service. Keep the running state visible and allow a safe
+        // explicit fixed-unit Disable. The fake systemctl only models unit
+        // state; independent broker E2E must also test a real unlinked process.
+        { std::ofstream state(fakeState); state << "enabled running\n"; }
+        const auto orphanRunning = answer(api, "GET", "/api/mqtt/local-broker",
+                                          Json::object(), 200);
+        check(!orphanRunning.value("installed",true) &&
+              orphanRunning.value("enabled",false) &&
+              orphanRunning.value("running",false),
+              "unlinked binary with existing running process is visible");
+        const auto disableRunning = answer(api, "POST", "/api/mqtt/local-broker",
+            Json{{"operation","disable"},{"confirm",true}}, 200);
+        check(!disableRunning.value("enabled",true) &&
+              !disableRunning.value("running",true),
+              "Disable stops an enabled/running orphan process");
+        { std::ofstream state(fakeState); state << "disabled running\n"; }
+        const auto manuallyRunning = answer(api, "GET", "/api/mqtt/local-broker",
+                                             Json::object(), 200);
+        check(!manuallyRunning.value("installed",true) &&
+              !manuallyRunning.value("enabled",true) &&
+              manuallyRunning.value("running",false),
+              "manual running process survives missing executable detection");
+        const auto stopManual = answer(api, "POST", "/api/mqtt/local-broker",
+            Json{{"operation","disable"},{"confirm",true}}, 200);
+        check(!stopManual.value("running",true) &&
+              !stopManual.value("enabled",true),
+              "Disable stops manually started orphan process");
         std::filesystem::rename(parkedBinary, binary);
         const auto restored = answer(api, "GET", "/api/mqtt/local-broker",
                                      Json::object(), 200);
