@@ -66,7 +66,14 @@ struct Api::Impl {
     Impl(config::ConfigStore& store, RuntimeClient& runtime, AdminTranscriber* transcriber,
          std::string credentialsDirectory)
         : store(store), runtime(runtime), secrets(std::move(credentialsDirectory)), transcriber(transcriber) {
-        setup = std::make_unique<SetupSession>(store,[this](const Json& value) { return invoke(value); });
+        setup = std::make_unique<SetupSession>(
+            store,
+            [this](const Json& value) { return invoke(value); },
+            [this](const config::Catalog& candidate) {
+                std::unique_lock<std::mutex> mutation(writes);
+                secrets.verifyReferences(candidate);
+                return mutation;
+            });
         timer = std::thread([this] { while (!timerStop) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
             if (!timerStop) try { setup->tick(); } catch (const std::exception&) { /* explicit setup status remains unavailable */ }
@@ -206,6 +213,10 @@ void Api::beginShutdown() {
     impl_->health.setStopping(true);
 }
 void Api::initializeRuntime() {
+    // Serialize boot-time credential admission, runtime publication and LKG
+    // selection against concurrent Admin credential DELETE / Save / Apply.
+    // Otherwise a checked secret could disappear before being used.
+    std::lock_guard<std::mutex> mutation(impl_->writes);
     impl_->health.setPhase("configuration_loading");
     std::cerr << "STARTUP configuration loading\n";
     try {
@@ -218,9 +229,13 @@ void Api::initializeRuntime() {
         bool recovered = false;
         std::string configError;
         try {
-            catalog = impl_->store.current();
-            impl_->secrets.verifyReferences(catalog);
-            (void)std::make_shared<const RuntimeGeneration>(catalog);
+            // A Catalog only becomes selected AFTER all admission checks.
+            // A failed secret check must not leave a truthy rejected candidate
+            // for the later 'if (!catalog)' gate.
+            auto checkedCurrent = impl_->store.current();
+            impl_->secrets.verifyReferences(checkedCurrent);
+            (void)std::make_shared<const RuntimeGeneration>(checkedCurrent);
+            catalog = std::move(checkedCurrent);
             impl_->health.setSubsystem("configuration", SubsystemStatus::Ready);
         } catch (const std::exception& error) {
             configError = error.what();
@@ -228,6 +243,9 @@ void Api::initializeRuntime() {
             try {
                 auto lkg = impl_->store.lastKnownGood();
                 if (lkg) {
+                    // LKG is an independent admission candidate, not a bypass.
+                    // It may itself reference a deleted/malformed secret.
+                    impl_->secrets.verifyReferences(*lkg);
                     (void)std::make_shared<const RuntimeGeneration>(*lkg);
                     catalog = *lkg;
                     recovered = true;
