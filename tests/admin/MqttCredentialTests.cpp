@@ -30,6 +30,11 @@ Json answer(admin::Api& api, const char* method, const char* route, const Json& 
     check(result.status == expectedStatus, "HTTP status mismatch");
     return Json::parse(result.body);
 }
+// Setup must be able to enter/leave without a physical model/NPU.
+struct SetupModel final : admin_test::Model {
+    void enterSetup() override {}
+    void leaveSetup(const std::string& prompt) override { useContext(prompt); }
+};
 } // namespace
 int main(int argc, char** argv) {
     try {
@@ -155,6 +160,22 @@ int main(int argc, char** argv) {
         Client runtime(model);
         admin::Api api(store, runtime, nullptr, privateDir);
         auto listed = answer(api, "GET", "/api/mqtt/credentials", Json::object(), 200);
+        // Reproduce R4 at the actual Admin mutation boundary: the malformed
+        // local FIFO cannot keep writes locked and block a second operation.
+        check(::mkfifo(pipePath.c_str(), 0600) == 0, "create API FIFO fixture");
+        const auto adminFifoStart = std::chrono::steady_clock::now();
+        auto fifoApi = answer(api, "PUT", "/api/mqtt/credentials",
+            Json{{"id","fifo"},{"username","user"},{"password","password"}}, 422);
+        check(!fifoApi.value("ok", true), "Admin FIFO rotation rejected");
+        check(std::chrono::steady_clock::now() - adminFifoStart < std::chrono::seconds(2),
+              "Admin FIFO error returned without blocking writes mutex");
+        const auto unrelated = answer(api, "POST", "/api/mqtt/credentials",
+            Json{{"id","unrelated"},{"username","user"},{"password","password"}}, 200);
+        check(unrelated.value("ok",false), "other Admin mutations remain available after FIFO reject");
+        check(answer(api, "DELETE", "/api/mqtt/credentials",
+              Json{{"id","unrelated"}}, 200).value("ok",false),
+              "cleanup unaffected credential");
+        check(::unlink(pipePath.c_str()) == 0, "remove API FIFO fixture");
         check(listed.at("ids").size() == 1 && listed.at("ids").at(0) == "relay_secret",
               "list only valid private IDs, not malformed files");
         const Json create{{"id","other_secret"},{"username","another"},{"password","opaque-web-password"}};
@@ -223,6 +244,113 @@ int main(int argc, char** argv) {
         check(invalid.status == 422 && invalid.body.find("private-password") == std::string::npos,
               "missing reference is fail-closed at Admin Validate");
 #endif
+#ifdef FIREFLY_G2_MQTT_AVAILABLE
+        // G2-R1: SetupSession Apply must share the ordinary admission gate,
+        // without saving, publishing or recording an invalid LKG.
+        {
+            Directory workspaceSetup;
+            config::ConfigStore privateStore(workspaceSetup.path);
+            privateStore.initialize(baseV2);
+            SetupModel setupModel;
+            Client setupRuntime(setupModel);
+            admin::Api setupApi(privateStore, setupRuntime, nullptr, privateDir);
+            setupApi.initializeRuntime();
+            const auto before = privateStore.current();
+            const auto lkgBefore = privateStore.lastKnownGood();
+            const auto statusBefore = Json::parse(setupApi.handle("GET", "/api/status", "").body);
+            check(statusBefore.at("active").is_object(), "setup regression active baseline ready");
+
+            auto setup = Json::parse(setupApi.handle("POST", "/api/setup/start", "{}").body);
+            check(setup.value("ok",false) && setup.contains("session_id"),
+                  "setup start accepted in isolated runtime");
+            auto setupDraft = Json::parse(setupApi.handle("POST", "/api/setup/draft", Json{
+                {"session_id",setup.at("session_id")},
+                {"version",setup.at("version")},
+                {"configuration",configured}
+            }.dump()).body);
+            check(setupDraft.value("ok",false), "invalid credential link may remain an editable draft");
+            auto setupResult = setupApi.handle("POST", "/api/setup/apply", Json{
+                {"session_id",setup.at("session_id")},
+                {"version",setupDraft.at("version")}
+            }.dump());
+            check(setupResult.status != 200 &&
+                  setupResult.body.find("mqtt_credentials_missing") != std::string::npos,
+                  "setup rejects unavailable credentials before Save/Apply");
+            check(privateStore.current()->contentHash() == before->contentHash() &&
+                  privateStore.current()->configuration().revision == before->configuration().revision,
+                  "invalid Setup candidate never saved");
+            check(privateStore.lastKnownGood() && lkgBefore &&
+                  (*privateStore.lastKnownGood())->contentHash() == (*lkgBefore)->contentHash(),
+                  "invalid Setup candidate never recorded as LKG");
+            const auto statusAfter = Json::parse(setupApi.handle("GET","/api/status","").body);
+            check(statusAfter.at("active") == statusBefore.at("active"),
+                  "invalid Setup candidate never published as active");
+        }
+
+        // G2-R2: current and LKG are separate *untrusted* boot candidates.
+        // Neither may become READY if referenced secret files are absent.
+        auto missingBoot = configured;
+        {
+            Directory boot;
+            config::ConfigStore bootStore(boot.path);
+            auto malformed = config::ConfigLoader::fromJson(missingBoot.dump());
+            bootStore.initialize(malformed);
+            bootStore.recordLastKnownGood(malformed);
+            Model bootModel;
+            Client bootRuntime(bootModel);
+            admin::Api bootApi(bootStore, bootRuntime, nullptr, privateDir);
+            bootApi.initializeRuntime();
+            const auto status = Json::parse(bootApi.handle("GET","/api/status","").body);
+            check(status.at("active").is_null() &&
+                  status.value("startup_phase", "") == "recovery_mode" &&
+                  !status.value("runtime_ready", true),
+                  "startup cannot READY an invalid current or LKG credential ref");
+            check(bootStore.current()->contentHash() == malformed->contentHash(),
+                  "rejecting invalid boot does not corrupt current ConfigStore");
+        }
+        // If current is invalid but LKG has no credential dependency, select
+        // only validated LKG and label recovery (not normal READY).
+        {
+            Directory boot;
+            config::ConfigStore bootStore(boot.path);
+            bootStore.initialize(baseV2);
+            bootStore.recordLastKnownGood(baseV2);
+            const auto oldCurrent = bootStore.current();
+            bootStore.save(config::ConfigLoader::fromJson(missingBoot.dump()),
+                {oldCurrent->configuration().revision,oldCurrent->contentHash()});
+            Model bootModel;
+            Client bootRuntime(bootModel);
+            admin::Api bootApi(bootStore, bootRuntime, nullptr, privateDir);
+            bootApi.initializeRuntime();
+            const auto status = Json::parse(bootApi.handle("GET","/api/status","").body);
+            check(status.at("active").is_object() &&
+                  status.at("active").at("hash") == baseV2->contentHash() &&
+                  status.value("config_recovered", false),
+                  "startup rejects invalid current and admits only validated LKG");
+        }
+        // Structurally valid credentials may still contain a malformed local
+        // secret file. The full file validation must occur before publication.
+        {
+            const auto malformedPath = privateDir + "/malformed_reference.cred";
+            { std::ofstream out(malformedPath); out << "broken\\n"; }
+            check(::chmod(malformedPath.c_str(),0600) == 0,
+                  "private malformed secret fixture permissions");
+            auto broken = missingBoot;
+            broken["connections"][0]["mqtt"]["credentials_id"] = "malformed_reference";
+            Directory boot;
+            config::ConfigStore bootStore(boot.path);
+            bootStore.initialize(config::ConfigLoader::fromJson(broken.dump()));
+            Model bootModel;
+            Client bootRuntime(bootModel);
+            admin::Api bootApi(bootStore, bootRuntime, nullptr, privateDir);
+            bootApi.initializeRuntime();
+            const auto status = Json::parse(bootApi.handle("GET","/api/status","").body);
+            check(status.at("active").is_null() &&
+                  status.value("startup_phase","") == "recovery_mode",
+                  "malformed private credential cannot READY a runtime");
+        }
+#endif
+
         // Configuration export and ordinary Admin GET never expose secret bytes.
         for (const auto* route : {"/api/config", "/api/config/export", "/api/mqtt/credentials"}) {
             const auto response = api.handle("GET", route, "");
