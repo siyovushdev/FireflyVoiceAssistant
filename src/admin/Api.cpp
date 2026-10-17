@@ -266,6 +266,7 @@ void Api::initializeRuntime() {
             impl_->health.setSubsystem("hardware_execution", SubsystemStatus::Unavailable, "config_unusable");
             impl_->health.setSubsystem("llm", SubsystemStatus::Unavailable, "config_unusable");
             impl_->health.setPhase("recovery_mode");
+            impl_->health.refreshOverall();
             std::cerr << "STARTUP recovery mode: Admin available, execution disabled\n";
             return;
         }
@@ -279,6 +280,7 @@ void Api::initializeRuntime() {
                 impl_->health.setSubsystem("llm", SubsystemStatus::Failed, "apply_rejected");
                 impl_->health.setSubsystem("hardware_execution", SubsystemStatus::Unavailable);
                 impl_->health.setPhase("degraded_startup");
+                impl_->health.refreshOverall();
                 std::cerr << "STARTUP apply rejected; Admin remains available\n";
                 return;
             }
