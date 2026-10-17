@@ -2,6 +2,7 @@
 #include "firefly/execution/HttpHardwareExecutor.h"
 #include "firefly/execution/MqttHardwareExecutor.h"
 #include <nlohmann/json.hpp>
+#include <stdexcept>
 
 namespace firefly::execution {
 namespace {
