@@ -12,10 +12,10 @@ export interface AdminReply extends WireObject {
 }
 export type CatalogReply = CatalogDto & AdminReply;
 export interface SetupStatus extends AdminReply { readonly active: boolean; readonly status: string }
-const reads = ['/api/setup/status', '/api/config/revisions', '/api/config/export', '/api/dashboard'];
-const posts = ['/api/setup/start', '/api/setup/resume', '/api/setup/heartbeat', '/api/setup/message', '/api/setup/draft', '/api/setup/apply', '/api/setup/cancel', '/api/admin/copilot', '/api/admin/copilot/accept', '/api/admin/language-profile', '/api/admin/action-draft', '/api/admin/draft', '/api/config/validate', '/api/config/diff', '/api/config/apply', '/api/config/import', '/api/config/restore-candidate', '/api/config/reconcile', '/api/config/migrate', '/api/connections/probe', '/api/devices/command', '/api/devices/poll', '/api/test-command'];
+const reads = ['/api/setup/status', '/api/config/revisions', '/api/config/export', '/api/dashboard', '/api/mqtt/credentials'];
+const posts = ['/api/mqtt/credentials', '/api/setup/start', '/api/setup/resume', '/api/setup/heartbeat', '/api/setup/message', '/api/setup/draft', '/api/setup/apply', '/api/setup/cancel', '/api/admin/copilot', '/api/admin/copilot/accept', '/api/admin/language-profile', '/api/admin/action-draft', '/api/admin/draft', '/api/config/validate', '/api/config/diff', '/api/config/apply', '/api/config/import', '/api/config/restore-candidate', '/api/config/reconcile', '/api/config/migrate', '/api/connections/probe', '/api/devices/command', '/api/devices/poll', '/api/test-command'];
 export async function adminRequest<T = AdminReply>(path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST'): Promise<T> {
-    if (!(method === 'GET' && reads.includes(path) || method === 'POST' && posts.includes(path) || method === 'PUT' && path === '/api/config')) throw Error('Недопустимая операция Admin');
+    if (!(method === 'GET' && reads.includes(path) || method === 'POST' && posts.includes(path) || (method === 'PUT' && (path === '/api/config' || path === '/api/mqtt/credentials') || method === 'DELETE' && path === '/api/mqtt/credentials'))) throw Error('Недопустимая операция Admin');
     if (setupAuth.token && body && typeof body === 'object' && !path.startsWith('/api/setup/')) body = { ...body, session_id: setupAuth.token };
     return queued(async () => {
         let response: Response;
