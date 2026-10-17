@@ -102,6 +102,11 @@ LocalMqttBrokerStatus LocalMqttBrokerControl::request(const char* verb) const {
                                     StatusTimeoutMs : MutationTimeoutMs);
     if (reply == "STATE missing disabled stopped\n")
         return {false, false, false};
+    // A missing broker binary with an orphan enabled systemd unit is not
+    // installed, but the stale autostart policy must remain visible so the
+    // owner can explicitly disable it.
+    if (reply == "STATE missing enabled stopped\n")
+        return {false, true, false};
     if (reply == "STATE present enabled running\n")
         return {true, true, true};
     if (reply == "STATE present enabled stopped\n")
