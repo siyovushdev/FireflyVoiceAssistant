@@ -24,7 +24,15 @@ namespace firefly::admin {
 class SetupSession final {
 public:
     using Call = std::function<Json(const Json&)>;
-    SetupSession(config::ConfigStore& store, Call call) : store_(store), call_(std::move(call)), path_(store.directory()+"/setup-draft.json") {
+    // The production API injects an admission guard that validates MQTT
+    // credential references while holding the same write mutex used for
+    // ordinary Save/CAS and DELETE. Its lifetime covers Save, runtime Apply,
+    // LKG record and compensation, so a secret cannot disappear between
+    // checking a candidate and publishing it.
+    using CommitGuard = std::function<std::unique_lock<std::mutex>(const config::Catalog&)>;
+    SetupSession(config::ConfigStore& store, Call call, CommitGuard commitGuard = {})
+        : store_(store), call_(std::move(call)), commitGuard_(std::move(commitGuard)),
+          path_(store.directory()+"/setup-draft.json") {
         disconnectSeconds_=limit("FIREFLY_SETUP_DISCONNECT_SECONDS",120,30,1800);
         inactivitySeconds_=limit("FIREFLY_SETUP_INACTIVITY_SECONDS",1800,300,7200);
         const int fd=::open(path_.c_str(),O_RDONLY|O_CLOEXEC|O_NOFOLLOW);
@@ -233,6 +241,10 @@ public:
                 if(entity.contains("metadata") && entity["metadata"].value("origin",std::string())=="local_ai")entity["metadata"]["confirmed"]=true;
             const auto candidate=config::ConfigLoader::fromJson(data_.at("configuration").dump());
             RuntimeGeneration admission(candidate);
+            // Fail before setup_restore, preflight, Save or LKG publication.
+            // Keep the guard live throughout the transaction and rollback.
+            auto commitGuard = commitGuard_
+                ? commitGuard_(candidate) : std::unique_lock<std::mutex>{};
             const auto old=store_.current();
             data_["status"]="restoring_for_admission"; persist();
             config::Catalog saved;
@@ -278,7 +290,8 @@ public:
 private:
     int disconnectSeconds_=120, inactivitySeconds_=1800;
     using Clock=std::chrono::steady_clock;
-    config::ConfigStore& store_; Call call_; std::string path_,owner_;
+    config::ConfigStore& store_; Call call_; CommitGuard commitGuard_;
+    std::string path_,owner_;
     mutable std::mutex mutex_; std::atomic<bool> active_{false};
     std::thread entryWorker_;
     bool entryRunning_=false; // Protected by mutex_; heavy runtime entry holds no session lock.
