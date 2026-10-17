@@ -51,6 +51,10 @@ std::string exchange(int fd, std::string_view request, int timeoutMs) {
         if (n <= 0) unavailable();
         sent += static_cast<std::size_t>(n);
     }
+    // Frame exactly one operation by ending the write half. The privileged
+    // server must examine the *entire* request up to EOF, so an injected
+    // second line cannot be smuggled after a valid ENABLE prefix.
+    if (::shutdown(fd, SHUT_WR)) unavailable();
     std::string reply;
     reply.reserve(72);
     while (reply.find('\n') == std::string::npos) {
