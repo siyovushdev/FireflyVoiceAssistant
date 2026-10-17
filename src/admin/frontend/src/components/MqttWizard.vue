@@ -154,7 +154,8 @@ async function finish() {
     <label>Порт *<input v-model.number="port" type="number" min="1" max="65535" required /></label>
     <label class="check"><input v-model="tls" type="checkbox" :disabled="local" />TLS (проверка сертификата)</label>
     <label>ID учётных данных (необязательно)<input v-model="credentials" placeholder="relay_user" /></label>
-    <p class="muted">Только ссылка на предварительно защищённый секрет; пароль в открытом JSON не хранится.</p>
+    <p class="muted">Указывайте ID, созданный в разделе «Подключения → Учётные данные MQTT». Пароль не хранится в конфигурации и не включается в экспорт.</p>
+    <p v-if="!local && !tls" class="notice warning">Без TLS учётные данные могут передаваться по сети открытым текстом. Используйте только доверенную локальную сеть, не подключайте неизвестный WAN-брокер.</p>
     <details><summary>Дополнительно</summary><label>Тайм-аут, мс<input v-model.number="connection.timeout_ms" type="number" min="50" max="10000" /></label></details>
   </div>
   <div v-if="step === 2">
