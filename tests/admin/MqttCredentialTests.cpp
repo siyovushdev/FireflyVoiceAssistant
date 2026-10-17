@@ -2,10 +2,12 @@
 #include "firefly/execution/MqttCredentials.h"
 #include "firefly/config/ConfigValidator.h"
 #include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <thread>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -88,6 +90,59 @@ int main(int argc, char** argv) {
         check(::chmod(privateDir.c_str(), 0755) == 0, "make world-readable directory");
         rejects([&] { secrets.read("relay_secret"); }, "unsafe private directory refused");
         check(::chmod(privateDir.c_str(), 0700) == 0, "restore private directory");
+
+        // G2-R4: opening a local FIFO must not block before fstat can reject
+        // it. Both file read and Admin rotation use the exact same reader.
+        const auto pipePath = privateDir + "/fifo.cred";
+        check(::mkfifo(pipePath.c_str(), 0600) == 0, "create corrupt FIFO secret");
+        auto fifoStarted = std::chrono::steady_clock::now();
+        rejects([&] { (void)secrets.read("fifo"); },
+                "FIFO rejected without waiting for a writer");
+        check(std::chrono::steady_clock::now() - fifoStarted < std::chrono::seconds(2),
+              "FIFO read must not block");
+        fifoStarted = std::chrono::steady_clock::now();
+        rejects([&] { secrets.rotate("fifo", "user", "password"); },
+                "FIFO rotation rejected without waiting for a writer");
+        check(std::chrono::steady_clock::now() - fifoStarted < std::chrono::seconds(2),
+              "FIFO rotation must not block");
+        check(::unlink(pipePath.c_str()) == 0, "remove corrupt FIFO fixture");
+
+        // G2-R3: runtime and Admin own separate store instances. Atomic
+        // rename may unlink the *old* inode between openat and fstat, but
+        // it remains a complete/validated readable snapshot via its fd.
+        execution::MqttCredentials concurrentReader(privateDir);
+        secrets.create("raced", "user_a", "password_a");
+        std::atomic<bool> rotating{true};
+        std::atomic<int> snapshots{0};
+        std::string readFailure;
+        std::thread reading([&] {
+            try {
+                while (rotating.load(std::memory_order_acquire)) {
+                    const auto login = concurrentReader.read("raced");
+                    check((login.user == "user_a" && login.password == "password_a") ||
+                          (login.user == "user_b" && login.password == "password_b"),
+                          "atomic credential snapshot is neither old nor new");
+                    snapshots.fetch_add(1, std::memory_order_relaxed);
+                }
+            } catch (const std::exception& error) { readFailure = error.what(); }
+        });
+        try {
+            for (int i = 0; i < 300; ++i) {
+                if ((i % 2) == 0) secrets.rotate("raced", "user_b", "password_b");
+                else secrets.rotate("raced", "user_a", "password_a");
+            }
+        } catch (...) {
+            rotating.store(false, std::memory_order_release);
+            reading.join();
+            throw;
+        }
+        rotating.store(false, std::memory_order_release);
+        reading.join();
+        check(readFailure.empty() && snapshots.load() > 0,
+              "concurrent rotation must never produce a transient credential error");
+        check(concurrentReader.read("raced").user == "user_a",
+              "final credential after 300 rotations is readable");
+        secrets.erase("raced");
 
         const auto baseV2 = config::ConfigValidator::validate(
             config::migrateV2(catalog(base(argv[1]))->configuration()));
