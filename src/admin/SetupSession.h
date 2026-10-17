@@ -241,6 +241,16 @@ public:
                 if(entity.contains("metadata") && entity["metadata"].value("origin",std::string())=="local_ai")entity["metadata"]["confirmed"]=true;
             const auto candidate=config::ConfigLoader::fromJson(data_.at("configuration").dump());
             RuntimeGeneration admission(candidate);
+            // Direct legacy SetupSession instances without a credential guard
+            // may handle non-MQTT test graphs, but MUST fail closed if a draft
+            // references any MQTT secret. Production Api always injects the
+            // shared writer lock + credential verifier.
+            if (!commitGuard_) {
+                for (const auto& connection : candidate->configuration().connections)
+                    if (connection.type == config::ExecutorKind::Mqtt &&
+                        connection.enabled && !connection.mqtt.credentialsId.empty())
+                        throw std::runtime_error("setup_credentials_verifier_unavailable");
+            }
             // Fail before setup_restore, preflight, Save or LKG publication.
             // Keep the guard live throughout the transaction and rollback.
             auto commitGuard = commitGuard_
