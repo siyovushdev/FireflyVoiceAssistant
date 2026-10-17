@@ -37,6 +37,8 @@ def runner():
             "    print('active' if now.split()[1]=='running' else 'inactive')\n"
             "    sys.exit(0 if now.split()[1]=='running' else 3)\n"
             "if args[1:3]==['enable','--now'] and len(args)==4:\n"
+            "    if (p/'fail-enable').exists():\n"
+            "        state.write_text('enabled stopped\\n'); sys.exit(0)\n"
             "    state.write_text('enabled running\\n'); sys.exit(0)\n"
             "if args[1:3]==['disable','--now'] and len(args)==4:\n"
             "    state.write_text('disabled stopped\\n'); sys.exit(0)\n"
@@ -89,8 +91,8 @@ def runner():
             }
             if set(operations) - allowed:
                 raise RuntimeError("disallowed commands reached systemctl")
-            if operations.count("--system enable --now firefly-mqtt-broker.service") != 1 or \
-               operations.count("--system disable --now firefly-mqtt-broker.service") != 1:
+            if operations.count("--system enable --now firefly-mqtt-broker.service") != 2 or \
+               operations.count("--system disable --now firefly-mqtt-broker.service") != 2:
                 raise RuntimeError("broker enabled/disabled incorrect number of times")
             if (work / "state.txt").read_text().strip() != "disabled stopped":
                 raise RuntimeError("final simulated service not stopped and disabled")
