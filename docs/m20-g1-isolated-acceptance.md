@@ -41,6 +41,8 @@ CMake builds the native broker test only with the real library. The `MqttBrokerI
 - Broker disconnect revokes stale Confirmed/Reachable, a subscriber reconnects, fresh telemetry restores Confirmed, and an already completed command is not replayed.
 - Separate cold-start fixture keeps the broker **absent** until the subscription actually reaches Unreachable, then starts it without issuing another Apply. Bounded subscription-only retry must reconnect, accept new non-retained telemetry and never replay a hardware command.
 - Anonymous loopback test connections omit the optional `credentials_id` entirely; do not weaken ConfigStore validation to accept an empty stable ID.
+- Real `RuntimeGenerations::apply` remaps an MQTT state topic while callers intentionally retain old generation references: the old subscription must stop immediately after successful Apply. Removal of an observation must also retire the prior subscription; rollback creates a new generation that only accepts fresh telemetry from the restored topic.
+- `RuntimeGenerations::preflight` and failed Apply must *not* retire the currently active subscriber. These cases run in the same broker integration smoke through a lightweight CPU-only `ContextModel` seam and actual MQTT-enabled generation/executor classes.
 - The test broker and its configuration are destroyed after completion.
 
 ## Resource limits
@@ -49,7 +51,7 @@ The candidate bounds simultaneously executing one-shot publish clients to 16 per
 
 ## Still required for full G1 acceptance
 
-The loopback smoke does **not** replace independent review and controlled failure injection: TLS CA/hostname validation, auth/credential references, different external brokers, QoS1 unacknowledged network loss/no replay, subscribe refusal/ACL, malformed state fields and duplicate JSON, multi-target concurrency and bound resources, delayed SUBACK/PUBACK, transition across Apply/recovery, and release packaging. Record each as PASS/FAIL/NOT_RUN with evidence. #36 will extend this into complete isolated E2E; #38 is physical hardware acceptance.
+The loopback smoke exercises runtime generation remap/removal/rollback, but it does **not** prove full Web Admin Save→CAS→Apply/recovery with persisted ConfigStore, HTTP server and all owner acceptance paths. It also does **not** replace independent review and controlled failure injection: TLS CA/hostname validation, auth/credential references, different external brokers, QoS1 unacknowledged network loss/no replay, subscribe refusal/ACL, malformed state fields and duplicate JSON, multi-target concurrency and bound resources, delayed SUBACK/PUBACK, transition across Apply/recovery, and release packaging. Record each as PASS/FAIL/NOT_RUN with evidence. #36 will extend this into complete isolated E2E; #38 is physical hardware acceptance.
 
 ## Review gates
 
