@@ -9,6 +9,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <fcntl.h>
+#include <iostream>
 #include <pwd.h>
 #include <poll.h>
 #include <stdexcept>
@@ -119,6 +120,18 @@ struct Status {
     bool running = false;
     bool valid = false;
 };
+// A systemd unit can remain on disk when the Mosquitto package/binary has
+// disappeared. Unit state is not proof that the executable is installed.
+bool brokerExecutablePresent() {
+    const char* path = "/usr/sbin/mosquitto";
+#ifdef FIREFLY_MQTT_CONTROL_TEST_ONLY
+    path = ::getenv("FIREFLY_TEST_MOSQUITTO_BINARY");
+    if (!path || path[0] != '/') return false;
+#endif
+    struct stat st{};
+    return ::stat(path, &st) == 0 && S_ISREG(st.st_mode) &&
+           ::access(path, X_OK) == 0;
+}
 Status inspect() {
     const auto enablement = runSystemctl({"--system", "is-enabled", Unit});
     if (enablement.output == "not-found") return {false, false, false, true};
@@ -127,14 +140,34 @@ Status inspect() {
     const auto activity = runSystemctl({"--system", "is-active", Unit});
     if (activity.output != "active" && activity.output != "inactive" &&
         activity.output != "failed") return {};
-    return {true, enablement.output == "enabled", activity.output == "active", true};
+    const bool enabled = enablement.output == "enabled";
+    const bool running = activity.output == "active";
+    const bool installed = brokerExecutablePresent();
+    // A unit reporting active while its executable is missing is an
+    // inconsistent state. Do not fabricate a healthy or stopped broker.
+    if (!installed && running) return {};
+    // Preserve enabled=true when the binary is absent, so the operator can
+    // safely clear a stale boot-time enablement instead of hiding it.
+    return {installed, enabled, running, true};
 }
 std::string stateLine(const Status& s) {
     if (!s.valid) return "ERROR broker_invalid_state\n";
-    if (!s.installed) return "STATE missing disabled stopped\n";
-    return std::string("STATE present ") +
+    return std::string(s.installed ? "STATE present " : "STATE missing ") +
            (s.enabled ? "enabled " : "disabled ") +
            (s.running ? "running\n" : "stopped\n");
+}
+// Enabling may change persistent boot state before the broker actually runs.
+// If a newly enabled service fails, restore the original disabled state
+// without touching an already-running service which was manually started.
+void rollbackFailedEnable(const Status& before) {
+    if (before.enabled) return; // retain pre-existing autostart policy
+    const auto action = before.running
+        ? runSystemctl({"--system", "disable", Unit})
+        : runSystemctl({"--system", "disable", "--now", Unit});
+    const auto after = inspect();
+    if (!action.success || !after.valid || after.enabled ||
+        after.running != before.running)
+        std::cerr << "mqtt broker rollback indeterminate; recheck status\n";
 }
 std::string executeRequest(const std::string& request) {
     if (request != "STATUS\n" && request != "ENABLE\n" && request != "DISABLE\n")
@@ -142,24 +175,29 @@ std::string executeRequest(const std::string& request) {
     if (request == "STATUS\n") return stateLine(inspect());
     const auto before = inspect();
     if (!before.valid) return "ERROR broker_invalid_state\n";
-    if (!before.installed) return "ERROR broker_not_installed\n";
-    const auto result = request == "ENABLE\n"
+    const bool enabling = request == "ENABLE\n";
+    if (enabling && !before.installed) return "ERROR broker_not_installed\n";
+    // A missing binary but still-enabled orphan unit may be disabled, but
+    // cannot be started. A truly missing/disabled unit has no operation.
+    if (!enabling && !before.installed && !before.enabled)
+        return "ERROR broker_not_installed\n";
+    const auto result = enabling
         ? runSystemctl({"--system", "enable", "--now", Unit})
         : runSystemctl({"--system", "disable", "--now", Unit});
-    if (!result.success) return "ERROR broker_control_failed\n";
-    // Type=exec confirms process exec, not broker config readiness. Give
-    // fast-failing misconfigured Mosquitto time to exit before claiming that
-    // enabling succeeded. The next status remains authoritative; this is
-    // a bounded startup check, not a guarantee against future failures.
-    if (request == "ENABLE\n")
+    // Type=exec confirms process exec, not broker config readiness.
+    if (enabling && result.success)
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
     const auto after = inspect();
-    if (!after.valid) return "ERROR broker_invalid_state\n";
-    if (!after.installed) return "ERROR broker_control_failed\n";
-    if (request == "ENABLE\n" && (!after.enabled || !after.running))
+    if (enabling) {
+        if (!result.success || !after.valid || !after.installed ||
+            !after.enabled || !after.running) {
+            rollbackFailedEnable(before);
+            return "ERROR broker_control_failed\n";
+        }
+    } else if (!result.success || !after.valid || after.enabled ||
+               after.running) {
         return "ERROR broker_control_failed\n";
-    if (request == "DISABLE\n" && (after.enabled || after.running))
-        return "ERROR broker_control_failed\n";
+    }
     return stateLine(after);
 }
 unsigned allowedUid() {
@@ -221,6 +259,12 @@ int main() {
         constexpr int listenFd = 3;
         struct stat st{};
         if (::fstat(listenFd, &st) || !S_ISSOCK(st.st_mode))
+            return 2;
+        // systemd's inherited listening socket is not needed by systemctl.
+        // Set FD_CLOEXEC BEFORE any fork/exec so a child cannot inherit a
+        // privileged listening endpoint (including failure paths).
+        const int fdFlags = ::fcntl(listenFd, F_GETFD);
+        if (fdFlags < 0 || ::fcntl(listenFd, F_SETFD, fdFlags | FD_CLOEXEC))
             return 2;
         const unsigned uid = allowedUid();
         ::signal(SIGTERM, terminate);
