@@ -183,6 +183,14 @@ std::map<std::string, actions::Scalar> decodeMqttObservationPayload(
             return true;
         });
     if (!json.is_object()) throw std::runtime_error("mqtt_state_requires_json_object");
+    // Validate the *entire* declared flat state contract before projecting any
+    // properties. Previously an extra JSON key was silently ignored, letting
+    // {"power":true,"unknown":...} establish false Confirmed knowledge.
+    // Unknown keys (including nested objects and arrays) must reject the
+    // complete observation, not merely disappear from the mapped result.
+    for (auto it = json.begin(); it != json.end(); ++it)
+        if (binding.fields.find(it.key()) == binding.fields.end())
+            throw std::runtime_error("mqtt_unknown_json_state_field");
     for (const auto& [source, destination] : binding.fields) {
         if (!json.contains(source)) throw std::runtime_error("mqtt_missing_json_state_field");
         result.emplace(destination, actions::decodeScalar(json.at(source)));
@@ -251,7 +259,7 @@ void configure(Client& client, const config::Connection& connection) {
     if (connection.mqtt.tls) {
         // Validate server certificate against system CA roots. Never disable hostname
         // verification or trust self-signed certificates implicitly.
-        if (mosquitto_tls_set(client.ptr, nullptr, "/etc/ssl/certs", nullptr, nullptr) != MOSQ_ERR_SUCCESS)
+        if (mosquitto_tls_set(client.ptr, nullptr, "/etc/ssl/certs", nullptr, nullptr, nullptr) != MOSQ_ERR_SUCCESS)
             throw std::runtime_error("mqtt_tls_configuration");
     }
     auto login = readLogin(connection.mqtt.credentialsId);
