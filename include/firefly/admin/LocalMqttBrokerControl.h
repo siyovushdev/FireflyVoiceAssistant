@@ -12,12 +12,14 @@ struct LocalMqttBrokerStatus final {
 class LocalMqttBrokerControl final {
 public:
     static constexpr const char* DefaultSocket = "/run/firefly-mqtt-control/control.sock";
-    explicit LocalMqttBrokerControl(std::string socketPath = DefaultSocket);
+    explicit LocalMqttBrokerControl(std::string socketPath = DefaultSocket,
+                                    unsigned trustedPeerUid = 0);
     LocalMqttBrokerStatus status() const;
     LocalMqttBrokerStatus enable() const;
     LocalMqttBrokerStatus disable() const;
 private:
     LocalMqttBrokerStatus request(const char* verb) const;
     std::string socketPath_;
+    unsigned trustedPeerUid_ = 0;
 };
 }
