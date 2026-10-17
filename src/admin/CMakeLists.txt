@@ -55,7 +55,7 @@ if(FIREFLY_ENABLE_MQTT)
 endif()
 target_include_directories(firefly_execution SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
 target_compile_options(firefly_execution PRIVATE -Wall -Wextra -Wpedantic)
-add_library(firefly_admin_core RuntimeGeneration.cpp RuntimeWorker.cpp Api.cpp AdminLanguage.cpp AdminDraft.cpp AdminPlan.cpp AdminCopilot.cpp AdminTranscriber.cpp HealthModel.cpp)
+add_library(firefly_admin_core RuntimeGeneration.cpp RuntimeWorker.cpp Api.cpp LocalMqttBrokerControl.cpp AdminLanguage.cpp AdminDraft.cpp AdminPlan.cpp AdminCopilot.cpp AdminTranscriber.cpp HealthModel.cpp)
 target_link_libraries(firefly_admin_core PUBLIC firefly_core firefly_execution firefly_voice_core Threads::Threads)
 target_include_directories(firefly_admin_core SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
 target_include_directories(firefly_admin_core PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
@@ -92,6 +92,14 @@ add_custom_command(OUTPUT "${v2_assets}"
 target_sources(firefly_admin_transport PRIVATE "${v2_assets}")
 file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/AdminV2Assets.h" CONTENT "#pragma once\n#include \"AdminV2Bundle.h\"\n")
 target_compile_options(firefly_admin_transport PRIVATE -Wall -Wextra -Wpedantic)
+# The privileged broker-controller is a separate executable. Never run this
+# service from the unprivileged Web Admin process; do not install/enable it
+# through CMake or the generic Firefly voice release tool.
+option(FIREFLY_BUILD_LOCAL_MQTT_CONTROLLER "Build separate Mosquitto control helper (manual provisioning only)" OFF)
+if(FIREFLY_BUILD_LOCAL_MQTT_CONTROLLER)
+    add_executable(firefly-mqtt-control-helper MqttBrokerControlHelper.cpp)
+    target_compile_options(firefly-mqtt-control-helper PRIVATE -Wall -Wextra -Wpedantic)
+endif()
 add_executable(firefly-admin Main.cpp)
 target_link_libraries(firefly-admin PRIVATE firefly_admin_transport)
 set_target_properties(firefly-admin PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}")
@@ -120,6 +128,29 @@ if(BUILD_TESTING)
     target_include_directories(admin_tests SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
     target_compile_options(admin_tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME AdminGenerationApi COMMAND admin_tests "${PROJECT_SOURCE_DIR}")
+    # A separate unprivileged helper test binary is compiled with explicit
+    # test-only systemctl injection. The production helper does not recognize
+    # these runtime overrides.
+    add_executable(firefly-mqtt-control-helper-test MqttBrokerControlHelper.cpp)
+    target_compile_definitions(firefly-mqtt-control-helper-test
+        PRIVATE FIREFLY_MQTT_CONTROL_TEST_ONLY=1)
+    target_compile_options(firefly-mqtt-control-helper-test
+        PRIVATE -Wall -Wextra -Wpedantic)
+    add_executable(mqtt_local_control_tests
+        "${PROJECT_SOURCE_DIR}/tests/admin/MqttLocalControlTests.cpp")
+    target_link_libraries(mqtt_local_control_tests PRIVATE firefly_admin_core)
+    target_include_directories(mqtt_local_control_tests PRIVATE
+        "${PROJECT_SOURCE_DIR}/tests/admin")
+    target_include_directories(mqtt_local_control_tests SYSTEM PRIVATE
+        "${PROJECT_SOURCE_DIR}/third_party")
+    target_compile_options(mqtt_local_control_tests PRIVATE -Wall -Wextra -Wpedantic)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_test(NAME MqttLocalBrokerControl COMMAND "${Python3_EXECUTABLE}"
+        "${PROJECT_SOURCE_DIR}/tests/admin/MqttLocalControlFixture.py"
+        $<TARGET_FILE:firefly-mqtt-control-helper-test>
+        $<TARGET_FILE:mqtt_local_control_tests>
+        "${PROJECT_SOURCE_DIR}")
+    set_tests_properties(MqttLocalBrokerControl PROPERTIES TIMEOUT 40)
     add_executable(mqtt_credential_tests
         "${PROJECT_SOURCE_DIR}/tests/admin/MqttCredentialTests.cpp")
     target_link_libraries(mqtt_credential_tests PRIVATE firefly_admin_core)
