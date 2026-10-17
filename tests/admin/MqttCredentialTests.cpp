@@ -285,6 +285,33 @@ int main(int argc, char** argv) {
             const auto statusAfter = Json::parse(setupApi.handle("GET","/api/status","").body);
             check(statusAfter.at("active") == statusBefore.at("active"),
                   "invalid Setup candidate never published as active");
+
+            // The missing-secret refusal must not poison the session. The
+            // same owner can replace the reference with a valid credential
+            // and complete the normal Save -> Apply -> LKG transaction.
+            auto repaired = configured;
+            repaired["connections"][0]["mqtt"]["credentials_id"] = "relay_secret";
+            const auto correctedDraft = setupApi.handle("POST", "/api/setup/draft", Json{
+                {"session_id",setup.at("session_id")},
+                {"version",setupDraft.at("version")},
+                {"configuration",repaired}
+            }.dump());
+            check(correctedDraft.status == 200,
+                  "valid follow-up Setup draft accepted after missing-secret reject");
+            const auto corrected = Json::parse(correctedDraft.body);
+            const auto acceptedSetup = setupApi.handle("POST", "/api/setup/apply", Json{
+                {"session_id",setup.at("session_id")},
+                {"version",corrected.at("version")}
+            }.dump());
+            check(acceptedSetup.status == 200,
+                  "Setup with an available credential completes successfully");
+            check(privateStore.current()->configuration().connections.size() == 1 &&
+                  privateStore.current()->configuration().connections[0].mqtt.credentialsId == "relay_secret",
+                  "valid Setup credential reference saved");
+            const auto finalStatus = Json::parse(setupApi.handle("GET","/api/status","").body);
+            check(finalStatus.at("active").is_object() &&
+                  finalStatus.at("active").at("hash") == privateStore.current()->contentHash(),
+                  "valid Setup admission published the saved generation");
         }
 
         // G2-R2: current and LKG are separate *untrusted* boot candidates.
