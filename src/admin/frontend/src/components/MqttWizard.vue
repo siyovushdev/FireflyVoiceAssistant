@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { manual } from '../stores/manual.js';
-import { clone, consumers, defaultMqttMapping, newMqttConnection, projectConnectivity,
+import { clone, consumers, defaultMqttMapping, newMqttConnection, projectMqttWizard,
     connectionActionSummary, connectionObservationSummary, type Mutable } from '../adapters/editing.js';
 import type { BindingDto, ConnectionDto, MqttObservationDto, ConfigurationDto } from '../types/wire.js';
 import TaskErrors from './forms/TaskErrors.vue';
-import type { Issue } from '../api/admin.js';
+import { adminRequest, issuesOf, type Issue } from '../api/admin.js';
 
 const emit = defineEmits<{ ready: []; back: [] }>();
 const task = manual.task.value!;
@@ -23,6 +23,35 @@ const port = ref(connection.value.network?.port ?? 1883);
 const tls = ref(connection.value.mqtt?.tls ?? false);
 const credentials = ref(connection.value.mqtt?.credentials_id ?? '');
 const local = ref(host.value === '127.0.0.1');
+// Inspect the configured local service using the existing read-only Admin
+// status route. This never enables a broker, contacts a relay or publishes.
+interface LocalBrokerStatus { ok: true; installed: boolean; enabled: boolean; running: boolean }
+const brokerStatus = ref<LocalBrokerStatus | null>(null);
+const brokerStatusBusy = ref(false);
+const brokerStatusError = ref('');
+let brokerStatusGeneration = 0;
+async function inspectLocalBroker() {
+    if (!local.value || brokerStatusBusy.value) return;
+    const generation = ++brokerStatusGeneration;
+    brokerStatus.value = null;
+    brokerStatusError.value = '';
+    brokerStatusBusy.value = true;
+    try {
+        const status = await adminRequest<LocalBrokerStatus>('/api/mqtt/local-broker');
+        if (generation === brokerStatusGeneration && local.value) brokerStatus.value = status;
+    } catch (error) {
+        if (generation === brokerStatusGeneration && local.value)
+            brokerStatusError.value = issuesOf(error).map(issue => issue.message).join(' ');
+    } finally {
+        brokerStatusBusy.value = false;
+    }
+}
+function clearLocalBrokerEvidence() {
+    ++brokerStatusGeneration;
+    brokerStatus.value = null;
+    brokerStatusError.value = '';
+}
+onMounted(() => { if (local.value) void inspectLocalBroker(); });
 const device = computed(() => config.devices.find(d => d.id === targetId.value));
 const actions = computed(() => config.actions.filter(a => device.value?.action_ids.includes(a.id)));
 const mappings = ref<Mutable<BindingDto>[]>([]);
@@ -44,6 +73,8 @@ function chooseConnection() {
     host.value = c.network?.host ?? '127.0.0.1'; port.value = c.network?.port ?? 1883;
     tls.value = c.mqtt?.tls ?? false; credentials.value = c.mqtt?.credentials_id ?? '';
     local.value = host.value === '127.0.0.1';
+    clearLocalBrokerEvidence();
+    if (local.value) void inspectLocalBroker();
 }
 function loadDevice() {
     mappings.value = config.bindings.filter(b => b.target_id === targetId.value && b.executor === 'mqtt').map(clone);
@@ -70,8 +101,16 @@ function toggle(actionId: string, enabled: boolean) {
         executor: 'mqtt', mqtt });
 }
 function chooseLocal(value: boolean) {
+    if (local.value === value) return;
     local.value = value;
-    if (value) { host.value = '127.0.0.1'; port.value = 1883; tls.value = false; }
+    clearLocalBrokerEvidence();
+    if (value) {
+        host.value = '127.0.0.1'; port.value = 1883; tls.value = false;
+        void inspectLocalBroker();
+    } else if (host.value === '127.0.0.1') {
+        // "External broker" cannot silently keep the old local address.
+        host.value = '';
+    }
 }
 function validate(): boolean {
     issues.value = [];
@@ -101,14 +140,6 @@ function validate(): boolean {
 }
 function next() { if (validate()) step.value++; }
 function project(): Mutable<ConfigurationDto> {
-    const c = clone(connection.value);
-    c.enabled = true;
-    c.network = { host: local.value ? '127.0.0.1' : host.value.trim(), port: port.value };
-    c.mqtt = { tls: tls.value, ...(credentials.value.trim() ? { credentials_id: credentials.value.trim() } : {}) };
-    // Preserve each action's existing broker. Only newly added mappings and
-    // explicit "Use selected broker" buttons change the connection reference.
-    const nextMappings = mappings.value.map(m => ({ ...clone(m), executor: 'mqtt',
-        connection_id: m.connection_id || c.id }));
     let nextObservation: NonNullable<ConfigurationDto['observations']>[number] | undefined;
     if (observing.value && targetId.value) {
         const m = clone(observation.value);
@@ -120,8 +151,13 @@ function project(): Mutable<ConfigurationDto> {
                 : { topic: m.topic, format: 'json', qos: m.qos },
             fields: m.format === 'json' ? Object.fromEntries(fields.value) : {} };
     }
-    return projectConnectivity(config, c, targetId.value, nextMappings, nextObservation,
-        'mqtt', observing.value && replaceOtherObservation.value);
+    return projectMqttWizard({
+        config, connection: connection.value, local: local.value, host: host.value,
+        port: port.value, tls: tls.value, credentialsId: credentials.value,
+        targetId: targetId.value, mappings: mappings.value,
+        observation: nextObservation,
+        replaceOtherObservation: observing.value && replaceOtherObservation.value
+    });
 }
 const reviewCandidate = computed(() => project());
 const affected = computed(() => consumers(reviewCandidate.value, connection.value.id));
