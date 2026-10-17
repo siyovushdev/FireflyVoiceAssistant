@@ -58,6 +58,14 @@ int main(int argc, char** argv) {
               "atomic rotate immediately readable");
         rejects([&] { secrets.rotate("missing_id", "user", "password"); },
                 "rotate requires existing secret");
+        // Backward-compatible, operator-provisioned read-only secret files
+        // remain readable; only new/rotated files need write permission.
+        check(::chmod((privateDir + "/relay_secret.cred").c_str(), 0400) == 0,
+              "legacy private read-only secret mode");
+        check(secrets.read("relay_secret").user == "broker_user_2",
+              "old 0400 credential remains usable");
+        check(::chmod((privateDir + "/relay_secret.cred").c_str(), 0600) == 0,
+              "restore writable mode for rotation tests");
 
         const auto loose = privateDir + "/loose.cred";
         { std::ofstream out(loose); out << "user\npassword\n"; }
@@ -100,7 +108,7 @@ int main(int argc, char** argv) {
               created.dump().find("opaque-web-password") == std::string::npos,
               "create does not echo secrets");
         check(secrets.read("other_secret").password == "opaque-web-password",
-              "Admin created encrypted-channel-only secret entry");
+              "Admin created private credential entry");
         const Json rotate{{"id","other_secret"},{"username","another"},{"password","new-web-password"}};
         auto changed = answer(api, "PUT", "/api/mqtt/credentials", rotate, 200);
         check(changed.value("operation","") == "rotated" &&
@@ -129,6 +137,16 @@ int main(int argc, char** argv) {
                             Json{{"id","relay_secret"}}, 409);
         check(inUse.at("errors").dump().find("private-password") == std::string::npos,
               "in-use refusal does not leak credentials");
+        // Removing the active reference from the next saved configuration
+        // does not invalidate durable backup/LKG snapshots.
+        auto unlinked = configured;
+        unlinked["connections"] = Json::array();
+        const auto inUseCurrent = store.current();
+        store.save(config::ConfigLoader::fromJson(unlinked.dump()),
+                   {inUseCurrent->configuration().revision, inUseCurrent->contentHash()});
+        check(answer(api, "DELETE", "/api/mqtt/credentials",
+                     Json{{"id","relay_secret"}}, 409).value("ok", true) == false,
+              "historical revision still protects referenced secret");
 
         const auto valid = answer(api, "POST", "/api/config/validate",
                                   Json{{"configuration",configured}}, 200);
