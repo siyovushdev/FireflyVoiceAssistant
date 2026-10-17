@@ -16,6 +16,9 @@ const notice = ref('');
 async function refresh() {
   if (busy.value) return;
   busy.value = true;
+  // A status refresh supersedes any earlier Enable/Disable success.
+  // If GET fails, status is unknown: never show an old success claim.
+  notice.value = '';
   try {
     status.value = await adminRequest<BrokerState>('/api/mqtt/local-broker');
     error.value = '';
