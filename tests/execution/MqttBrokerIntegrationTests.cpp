@@ -235,7 +235,9 @@ bool confirmed(execution::BoundDeviceExecutor& executor, bool value,
 
 int main(int argc, char** argv) {
     try {
-        if (argc != 4) return 2;
+        if (argc != 4 && argc != 5) return 2;
+        const bool initialDown = argc == 5 && std::string(argv[4]) == "--initial-offline";
+        if (argc == 5 && !initialDown) return 2;
         const int port = std::stoi(argv[2]);
         check(port > 0 && port <= 65535, "invalid isolated broker port");
         const auto baseline = config::ConfigLoader::fromFile(
@@ -247,6 +249,38 @@ int main(int argc, char** argv) {
         // Initialise libmosquitto through Firefly before creating the test
         // relay client. Never call library init twice from competing threads.
         execution::BoundDeviceExecutor executor(catalog);
+        if (initialDown) {
+            // A previously unavailable broker must recover without a new
+            // Apply/generation or manual second startSubscriptions call.
+            // Python starts the isolated broker ONLY after this client has
+            // entered Unreachable via its initial failed connection.
+            executor.startSubscriptions();
+            check(eventually([&] {
+                const auto snapshot = executor.production().device("device_g1_relay");
+                return snapshot && snapshot->connectivity == execution::Connectivity::Unreachable &&
+                    snapshot->properties.at("power").knowledge == execution::StateKnowledge::Unknown;
+            }, 4000), "initial offline subscription never reached Unreachable");
+            // Repeated calls must not spawn another connection or retry loop.
+            executor.startSubscriptions();
+            executor.startSubscriptions();
+            const std::string directory(argv[3]);
+            { std::ofstream signal(directory + "/startup-request");
+              check(static_cast<bool>(signal << "start\\n"), "cannot request test broker startup"); }
+            check(eventually([&] {
+                std::ifstream marker(directory + "/broker-ready");
+                return marker.good();
+            }, 7000), "test broker did not become available");
+            Relay relay(port);
+            check(!confirmed(executor, true), "reconnect alone must not create Confirmed");
+            int attempts = 0;
+            check(eventually([&] {
+                if ((attempts++ % 10) == 0) relay.sendState("ON", false);
+                return confirmed(executor, true);
+            }, 14000), "initial offline subscription failed to recover with fresh state");
+            check(relay.commandCount() == 0, "subscriber recovery replayed a hardware command");
+            std::cout << "PASS initial broker absent -> retry -> subscribe -> fresh Confirmed\\n";
+            return 0;
+        }
         Relay relay(port);
 
         // Retained initial state must not make an unproven device Confirmed.
