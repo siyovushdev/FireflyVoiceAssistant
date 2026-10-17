@@ -3,6 +3,7 @@
 #include "firefly/admin/AdminTranscriber.h"
 #include "firefly/admin/HealthModel.h"
 #include "firefly/config/ConfigStore.h"
+#include "firefly/execution/MqttCredentials.h"
 #include <memory>
 #include <string>
 namespace firefly::admin {
@@ -13,7 +14,8 @@ struct HttpReply {
 };
 class Api final {
 public:
-    Api(config::ConfigStore& store, RuntimeClient& runtime, AdminTranscriber* transcriber = nullptr);
+    Api(config::ConfigStore& store, RuntimeClient& runtime, AdminTranscriber* transcriber = nullptr,
+        std::string mqttCredentialsDirectory = execution::MqttCredentials::DefaultDirectory);
     ~Api();
     HttpReply handle(std::string_view method, std::string_view path, std::string_view body, std::string_view setupOwner = {});
     // Boot: reconcile store, apply current or Last Known Good, update health.
