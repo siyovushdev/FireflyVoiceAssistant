@@ -183,6 +183,13 @@ if(BUILD_TESTING)
                 "${PROJECT_SOURCE_DIR}"
                 "${FIREFLY_TEST_MOSQUITTO_SERVER}")
             set_tests_properties(MqttBrokerIntegration PROPERTIES TIMEOUT 70)
+            add_test(NAME MqttInitialBrokerRecovery COMMAND
+                "${Python3_EXECUTABLE}"
+                "${PROJECT_SOURCE_DIR}/tests/execution/MqttInitialRecoveryFixture.py"
+                $<TARGET_FILE:mqtt_broker_integration_tests>
+                "${PROJECT_SOURCE_DIR}"
+                "${FIREFLY_TEST_MOSQUITTO_SERVER}")
+            set_tests_properties(MqttInitialBrokerRecovery PROPERTIES TIMEOUT 55)
         else()
             message(STATUS "MqttBrokerIntegration NOT_RUN: no provisioned mosquitto binary")
         endif()
