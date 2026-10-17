@@ -30,8 +30,14 @@ public:
     // LKG record and compensation, so a secret cannot disappear between
     // checking a candidate and publishing it.
     using CommitGuard = std::function<std::unique_lock<std::mutex>(const config::Catalog&)>;
-    SetupSession(config::ConfigStore& store, Call call, CommitGuard commitGuard = {})
+    // Establish setup ownership atomically against external broker control.
+    // The shared gate protects the active_=true transition, NOT the entire
+    // inference/voice setup. It must never require locking session mutex_.
+    using EntryGuard = std::function<std::unique_lock<std::mutex>()>;
+    SetupSession(config::ConfigStore& store, Call call, CommitGuard commitGuard = {},
+                 EntryGuard entryGuard = {})
         : store_(store), call_(std::move(call)), commitGuard_(std::move(commitGuard)),
+          entryGuard_(std::move(entryGuard)),
           path_(store.directory()+"/setup-draft.json") {
         disconnectSeconds_=limit("FIREFLY_SETUP_DISCONNECT_SECONDS",120,30,1800);
         inactivitySeconds_=limit("FIREFLY_SETUP_INACTIVITY_SECONDS",1800,300,7200);
@@ -101,8 +107,20 @@ public:
             } else data_ = {{"base_hash",base->contentHash()},{"base_revision",base->configuration().revision},
                 {"configuration",Json::parse(base->canonicalJson())},{"messages",Json::array()},
                 {"focus",Json::array()},{"version",0},{"last_request",""},{"questions",Json::array()},{"trace",Json::array()}};
-            owner_ = token(); std::atomic_store(&publishedOwner_,std::make_shared<const std::string>(owner_));std::atomic_store(&cancelOwner_,std::shared_ptr<const std::string>()); active_ = true; data_["status"]="entering";
-            heartbeat_ = activity_ = Clock::now(); persist();
+            {
+                // Lock order: session mutex_ -> broker control gate. Broker
+                // control holds only the gate and checks active_ atomically;
+                // it never acquires session mutex_, avoiding inversion.
+                // Whichever operation gets the gate first completes BEFORE
+                // Setup admission, or is rejected once Setup is active.
+                auto admission = entryGuard_
+                    ? entryGuard_() : std::unique_lock<std::mutex>{};
+                owner_ = token();
+                std::atomic_store(&publishedOwner_,std::make_shared<const std::string>(owner_));
+                std::atomic_store(&cancelOwner_,std::shared_ptr<const std::string>());
+                active_ = true; data_["status"]="entering";
+                heartbeat_ = activity_ = Clock::now(); persist();
+            }
             if(asyncEntry) {
                 // Publish ownership immediately. The joined server worker owns
                 // entry even if the initiating HTTP connection is closed/reloaded.
@@ -301,6 +319,7 @@ private:
     int disconnectSeconds_=120, inactivitySeconds_=1800;
     using Clock=std::chrono::steady_clock;
     config::ConfigStore& store_; Call call_; CommitGuard commitGuard_;
+    EntryGuard entryGuard_;
     std::string path_,owner_;
     mutable std::mutex mutex_; std::atomic<bool> active_{false};
     std::thread entryWorker_;
