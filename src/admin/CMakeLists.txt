@@ -151,6 +151,10 @@ if(BUILD_TESTING)
         $<TARGET_FILE:mqtt_local_control_tests>
         "${PROJECT_SOURCE_DIR}")
     set_tests_properties(MqttLocalBrokerControl PROPERTIES TIMEOUT 40)
+    add_test(NAME MqttLocalBrokerStaging COMMAND "${Python3_EXECUTABLE}"
+        "${PROJECT_SOURCE_DIR}/tests/admin/MqttLocalStagingTests.py"
+        "${PROJECT_SOURCE_DIR}")
+    set_tests_properties(MqttLocalBrokerStaging PROPERTIES TIMEOUT 20)
     add_executable(mqtt_credential_tests
         "${PROJECT_SOURCE_DIR}/tests/admin/MqttCredentialTests.cpp")
     target_link_libraries(mqtt_credential_tests PRIVATE firefly_admin_core)
