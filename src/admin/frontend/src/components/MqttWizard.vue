@@ -162,6 +162,7 @@ function project(): Mutable<ConfigurationDto> {
 }
 const reviewCandidate = computed(() => project());
 const affected = computed(() => consumers(reviewCandidate.value, connection.value.id));
+const previouslyAffected = computed(() => consumers(config, connection.value.id));
 async function finish() {
     if (!validate()) return;
     Object.assign(config, project());
@@ -182,6 +183,11 @@ async function finish() {
       <option v-for="c in (config.connections ?? []).filter(c => c.type === 'mqtt')" :key="c.id" :value="c.id">{{ c.name }}</option>
     </select></label>
     <label>Название *<input v-model="connection.name" required /></label>
+    <p v-if="selected && previouslyAffected.length > 1" class="notice">
+      Это общее подключение уже используют устройства: {{ previouslyAffected.join(', ') }}.
+      Изменение адреса, порта, TLS или credentials для него затронет их все.
+      Все изменения будут показаны в общем Review до одного финального Apply.
+    </p>
     <div class="inline-actions">
       <button type="button" :class="{ primary: local }" @click="chooseLocal(true)">Брокер Firefly</button>
       <button type="button" :class="{ primary: !local }" @click="chooseLocal(false)">Внешний брокер</button>
@@ -202,7 +208,7 @@ async function finish() {
     <label>Порт *<input v-model.number="port" type="number" min="1" max="65535" required /></label>
     <label class="check"><input v-model="tls" type="checkbox" :disabled="local" />TLS (проверка сертификата)</label>
     <label>ID учётных данных (необязательно)<input v-model="credentials" placeholder="relay_user" /></label>
-    <p class="muted">Указывайте ID, созданный в разделе «Подключения → Учётные данные MQTT». Пароль не хранится в конфигурации и не включается в экспорт.</p>
+    <p class="muted">Указывайте ID, созданный в разделе «Подключения → Учётные данные MQTT». Пароль не хранится в конфигурации и не включается в экспорт. Локальный Mosquitto требует авторизацию, поэтому без подходящего ID подключение Firefly не будет подтверждено.</p>
     <p v-if="!local && !tls" class="notice warning">Без TLS учётные данные могут передаваться по сети открытым текстом. Используйте только доверенную локальную сеть, не подключайте неизвестный WAN-брокер.</p>
     <details><summary>Дополнительно</summary><label>Тайм-аут, мс<input v-model.number="connection.timeout_ms" type="number" min="50" max="10000" /></label></details>
   </div>
@@ -228,6 +234,9 @@ async function finish() {
         <label>QoS<select v-model.number="mapping.mqtt!.qos"><option :value="0">0 — без подтверждения</option>
           <option :value="1">1 — возможен дубль</option></select></label>
         <label class="check"><input v-model="mapping.mqtt!.retain" type="checkbox" />Retain (может быть опасно)</label>
+        <p v-if="mapping.mqtt!.retain" class="notice warning">
+          Broker сохранит эту команду и может передать её устройству при повторной подписке. Для команд включения/выключения обычно оставляют Retain выключенным.
+        </p>
       </template>
     </article>
     <p class="muted">MVP — фиксированные payload, без динамических подстановок параметров действия.</p>
