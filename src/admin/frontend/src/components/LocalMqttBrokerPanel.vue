@@ -69,7 +69,7 @@ onMounted(() => { void refresh(); });
       <button type="button" :disabled="busy" @click="refresh">Проверить статус</button>
       <button type="button" :disabled="busy || !status?.installed || (status.enabled && status.running)"
               @click="change(true)">Включить Mosquitto</button>
-      <button type="button" :disabled="busy || !status?.installed || (!status.enabled && !status.running)"
+      <button type="button" :disabled="busy || !status || (!status.enabled && !status.running)"
               @click="change(false)">Отключить Mosquitto</button>
     </div>
     <p v-if="notice" role="status">{{ notice }}</p>
