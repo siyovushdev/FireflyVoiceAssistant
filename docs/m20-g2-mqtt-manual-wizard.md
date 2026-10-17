@@ -61,6 +61,8 @@
 
 **Developer evidence:** отдельная модель `mqttDeviceDrafts.ts` скомпилирована в TypeScript strict, 300 независимых cycles draft save/restore/projection-immutable checks PASS. **NOT_RUN на новом HEAD:** полный Vue typecheck, frontend tests/build, C++ CTest OFF/ON, Chromium navigation/review с настоящим HttpServer и реальный broker E2E. Прежний 49/50 относится к старому SHA `0603aa8`.
 
+**Незакрытый acceptance gap:** external authenticated broker probe (live MQTT connect/auth/TLS через Web Admin) **NOT_IMPLEMENTED**. Проверка статуса локального systemd-брокера не заменяет эту операцию. Отдельный #33/#36 gate либо явное решение владельца о границе DoD обязательны до `READY_TO_CLOSE`.
+
 ## Приёмка, которую ещё предстоит выполнить на новом HEAD
 
 Для Issue #33 независимый Codex должен предъявить:
