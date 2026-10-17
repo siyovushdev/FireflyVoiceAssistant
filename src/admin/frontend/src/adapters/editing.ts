@@ -74,6 +74,41 @@ export function projectConnectivity(config: ConfigurationDto, connection: Connec
     }
     return next;
 }
+// Pure MQTT wizard projection shared by preview and final staging. Preserve
+// every binding's existing broker unless the operator explicitly changes its
+// connection_id. This must never mutate the caller's TaskBuffer/ConfigStore
+// snapshot and must never publish hardware commands.
+export interface MqttWizardProjection {
+    readonly config: ConfigurationDto;
+    readonly connection: ConnectionDto;
+    readonly local: boolean;
+    readonly host: string;
+    readonly port: number;
+    readonly tls: boolean;
+    readonly credentialsId: string;
+    readonly targetId: string;
+    readonly mappings: readonly BindingDto[];
+    readonly observation?: NonNullable<ConfigurationDto['observations']>[number];
+    readonly replaceOtherObservation: boolean;
+}
+export function projectMqttWizard(input: MqttWizardProjection): Draft {
+    const chosen = clone(input.connection);
+    chosen.enabled = true;
+    chosen.network = { ...(chosen.network ?? {}), host: input.local ? '127.0.0.1' : input.host.trim(), port: input.port };
+    // Retain future/opaque transport fields from an existing connection, but
+    // explicitly clearing the credential ID must remove that secret reference.
+    chosen.mqtt = { ...(chosen.mqtt ?? {}), tls: input.tls };
+    if (input.credentialsId.trim()) chosen.mqtt.credentials_id = input.credentialsId.trim();
+    else delete chosen.mqtt.credentials_id;
+    const actions = input.mappings.map(mapping => {
+        const current = clone(mapping);
+        current.executor = 'mqtt';
+        if (!current.connection_id) current.connection_id = chosen.id;
+        return current;
+    });
+    return projectConnectivity(input.config, chosen, input.targetId, actions,
+        input.observation, 'mqtt', input.replaceOtherObservation);
+}
 // A transport editor's Review must describe the complete projected candidate,
  // including actions/observation belonging to another transport.
 export function connectionActionSummary(config: ConfigurationDto, targetId: string, actionId: string): string {
