@@ -5,7 +5,7 @@ import { decodeResponse, readApi } from '../.test-build/api/client.js';
 import { devices, zones, properties, sameGeneration } from '../.test-build/adapters/catalog.js';
 import { createSystemStore } from '../.test-build/stores/system.js';
 import { newMqttConnection, defaultMqttMapping, projectConnectivity, projectMqttWizard, readableDiff,
-    connectionActionSummary, connectionObservationSummary } from '../.test-build/adapters/editing.js';
+    consumers, connectionActionSummary, connectionObservationSummary } from '../.test-build/adapters/editing.js';
 
 const fixture = JSON.parse(readFileSync(new URL('../../../../tests/admin/v2/system.json', import.meta.url)));
 const catalog = () => ({ ok: true, configuration: structuredClone(fixture), hash: 'a'.repeat(64), revision: 1, generation_id: 3 });
