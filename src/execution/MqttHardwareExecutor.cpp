@@ -663,7 +663,6 @@ void MqttHardwareExecutor::startSubscriptions() {
         }
     });
 }
-}
 void MqttHardwareExecutor::stopSubscriptions() noexcept {
 #ifdef FIREFLY_WITH_MOSQUITTO
     // Stop/join each subscription callback thread before releasing byTopic,
@@ -671,4 +670,5 @@ void MqttHardwareExecutor::stopSubscriptions() noexcept {
     // cancelled here: one-shot command clients have separate ownership.
     impl_->subscriptions.clear();
 #endif
+}
 }
