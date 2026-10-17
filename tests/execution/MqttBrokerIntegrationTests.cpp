@@ -117,12 +117,14 @@ struct Relay {
 Json addDeviceAndBindings(Json root, int port) {
     root["actions"].push_back({
         {"id","action_g1_on"}, {"name","Relay ON"}, {"operation","mock.assign.v1"},
+        {"description","Turns on the isolated test relay"},
         {"enabled",true}, {"parameters",Json::array()},
         {"speech_aliases",Json::array({"включи g1 реле"})},
         {"assignments",Json::array({Json{{"field","power"},{"value",true}}})}
     });
     root["actions"].push_back({
         {"id","action_g1_off"}, {"name","Relay OFF"}, {"operation","mock.assign.v1"},
+        {"description","Turns off the isolated test relay"},
         {"enabled",true}, {"parameters",Json::array()},
         {"speech_aliases",Json::array({"выключи g1 реле"})},
         {"assignments",Json::array({Json{{"field","power"},{"value",false}}})}
