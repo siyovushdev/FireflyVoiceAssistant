@@ -383,6 +383,25 @@ int main(int argc, char** argv) {
         }
 #endif
 
+        // Restore also creates a new stored revision. Do not silently revive
+        // historical credentials whose backing file disappeared meanwhile.
+        {
+            const auto source = privateDir + "/relay_secret.cred";
+            const auto parked = privateDir + "/relay_secret.parked";
+            std::filesystem::rename(source, parked);
+            const auto unchanged = store.current();
+            const Json restoreRequest{
+                {"revision",2},
+                {"expected",Json{{"revision",unchanged->configuration().revision},
+                                 {"hash",unchanged->contentHash()}}}
+            };
+            const auto blocked = api.handle("POST", "/api/config/restore", restoreRequest.dump());
+            check(blocked.status == 422 &&
+                  store.current()->contentHash() == unchanged->contentHash(),
+                  "restore cannot reintroduce a now-missing credential into ConfigStore");
+            std::filesystem::rename(parked, source);
+        }
+
         // Configuration export and ordinary Admin GET never expose secret bytes.
         for (const auto* route : {"/api/config", "/api/config/export", "/api/mqtt/credentials"}) {
             const auto response = api.handle("GET", route, "");
