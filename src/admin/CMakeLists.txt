@@ -123,6 +123,9 @@ if(BUILD_TESTING)
     add_executable(mqtt_credential_tests
         "${PROJECT_SOURCE_DIR}/tests/admin/MqttCredentialTests.cpp")
     target_link_libraries(mqtt_credential_tests PRIVATE firefly_admin_core)
+    if(FIREFLY_ENABLE_MQTT)
+        target_compile_definitions(mqtt_credential_tests PRIVATE FIREFLY_G2_MQTT_AVAILABLE=1)
+    endif()
     target_include_directories(mqtt_credential_tests SYSTEM PRIVATE
         "${PROJECT_SOURCE_DIR}/third_party")
     target_compile_options(mqtt_credential_tests PRIVATE -Wall -Wextra -Wpedantic)
