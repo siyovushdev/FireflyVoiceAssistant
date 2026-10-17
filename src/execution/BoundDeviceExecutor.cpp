@@ -147,7 +147,18 @@ ExecutionResult BoundDeviceExecutor::execute(const actions::GenericAction& actio
     } window;
     if (lookup.binding->executor == config::ExecutorKind::Mqtt && mqtt_) {
         window.target = action.targetId();
-        mqtt_->beginCommand(window.target, expected);
+        try {
+            mqtt_->beginCommand(window.target, expected);
+        } catch (const std::logic_error&) {
+            // The per-target barrier rejects concurrent MQTT commands. Report
+            // a normal failed execution rather than letting a second request
+            // unwind through the Admin/voice runtime.
+            predicted.success = false;
+            predicted.status = ExecutionStatus::Failed;
+            predicted.error = "mqtt_target_busy";
+            predicted.current = std::nullopt;
+            return predicted;
+        }
         window.owner = mqtt_.get();
     }
     const auto hardware = registry_.execute(*lookup.binding, action);
