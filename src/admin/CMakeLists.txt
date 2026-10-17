@@ -161,6 +161,32 @@ if(BUILD_TESTING)
     target_link_libraries(mqtt_observation_tests PRIVATE firefly_admin_core)
     target_include_directories(mqtt_observation_tests SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
     add_test(NAME MqttObservationSafety COMMAND mqtt_observation_tests "${PROJECT_SOURCE_DIR}")
+    if(FIREFLY_ENABLE_MQTT)
+        # Compiles only with the actual pre-provisioned libmosquitto headers and
+        # library. The broker test is registered only when the real broker binary
+        # exists; it never starts a system or production service.
+        add_executable(mqtt_broker_integration_tests
+            "${PROJECT_SOURCE_DIR}/tests/execution/MqttBrokerIntegrationTests.cpp")
+        target_link_libraries(mqtt_broker_integration_tests
+            PRIVATE firefly_admin_core "${FIREFLY_MOSQUITTO_LIBRARY}")
+        target_include_directories(mqtt_broker_integration_tests PRIVATE
+            "${FIREFLY_MOSQUITTO_INCLUDE_DIR}")
+        target_include_directories(mqtt_broker_integration_tests SYSTEM PRIVATE
+            "${PROJECT_SOURCE_DIR}/third_party")
+        target_compile_options(mqtt_broker_integration_tests PRIVATE -Wall -Wextra -Wpedantic)
+        find_program(FIREFLY_TEST_MOSQUITTO_SERVER NAMES mosquitto)
+        if(FIREFLY_TEST_MOSQUITTO_SERVER)
+            add_test(NAME MqttBrokerIntegration COMMAND
+                "${Python3_EXECUTABLE}"
+                "${PROJECT_SOURCE_DIR}/tests/execution/MqttBrokerFixture.py"
+                $<TARGET_FILE:mqtt_broker_integration_tests>
+                "${PROJECT_SOURCE_DIR}"
+                "${FIREFLY_TEST_MOSQUITTO_SERVER}")
+            set_tests_properties(MqttBrokerIntegration PROPERTIES TIMEOUT 50)
+        else()
+            message(STATUS "MqttBrokerIntegration NOT_RUN: no provisioned mosquitto binary")
+        endif()
+    endif()
     add_executable(device_state_tests "${PROJECT_SOURCE_DIR}/tests/execution/DeviceStateTests.cpp")
     target_link_libraries(device_state_tests PRIVATE firefly_admin_core)
     target_include_directories(device_state_tests SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
