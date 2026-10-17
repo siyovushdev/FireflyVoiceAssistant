@@ -71,6 +71,7 @@ def runner():
                     connection.settimeout(3.0)
                     connection.connect(socket_path)
                     connection.sendall(command.encode("utf-8"))
+                    connection.shutdown(socket.SHUT_WR)
                     reply = connection.recv(96).decode("ascii", errors="replace")
                 if reply != "ERROR broker_invalid_state\n":
                     raise RuntimeError(f"unknown operation accepted: {command!r}")
