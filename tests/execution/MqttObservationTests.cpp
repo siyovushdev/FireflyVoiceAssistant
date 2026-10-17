@@ -317,6 +317,20 @@ int main(int argc, char** argv) {
         check(newestState.device(target)->properties.at("brightness").knowledge ==
                   execution::StateKnowledge::Confirmed,
               "newest ON remains Confirmed");
+        // A second command for the same MQTT target is refused without
+        // replacing the first command's expected state or opening a new phase.
+        execution::MqttObservationGate busyGate;
+        busyGate.begin(target, target80);
+        const auto originalBusyTicket = busyGate.snapshot(target);
+        rejects([&] { busyGate.begin(target, old0); });
+        check(busyGate.submitPublication(target, [] { return 0; }) == 0,
+              "busy rejection does not damage original publication phase");
+        const auto latestBusyTicket = busyGate.snapshot(target);
+        check(latestBusyTicket > originalBusyTicket, "busy publication opened one new phase");
+        check(busyGate.accept(target, latestBusyTicket, target80, state),
+              "original ON command still owns its MQTT observation window");
+        busyGate.end(target, state, false);
+
         std::cout << "PASS MQTT codec duplicates and command/observation barrier\n";
         return 0;
     } catch (const std::exception& exception) {
