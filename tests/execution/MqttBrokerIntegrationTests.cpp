@@ -189,7 +189,7 @@ Json addDeviceAndBindings(Json root, int port) {
         {"id","connection_g1"}, {"name","Isolated broker"}, {"type","mqtt"},
         {"enabled",true}, {"timeout_ms",3000},
         {"network",Json{{"host","127.0.0.1"},{"port",port}}},
-        {"mqtt",Json{{"tls",false},{"credentials_id",""}}}
+        {"mqtt",Json{{"tls",false}}}
     }});
     root["bindings"] = Json::array({
         Json{
