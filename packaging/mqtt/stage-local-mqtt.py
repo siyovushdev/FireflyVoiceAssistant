@@ -8,10 +8,7 @@ import argparse
 import hashlib
 import ipaddress
 import json
-import os
 import pathlib
-import shutil
-import stat
 import sys
 
 
