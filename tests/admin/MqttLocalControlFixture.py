@@ -24,8 +24,13 @@ def runner():
         fake = work / "synthetic-systemctl"
         fake.write_text(
             "#!/usr/bin/env python3\n"
-            "import pathlib,sys\n"
+            "import os,pathlib,stat,sys\n"
             "p=pathlib.Path(__file__).parent\n"
+            "# FD 3 must never leak from the privileged broker controller.\n"
+            "try:\n"
+            "    if stat.S_ISSOCK(os.fstat(3).st_mode):\n"
+            "        (p/'leaked-listening-fd').write_text('leaked')\n"
+            "except OSError: pass\n"
             "args=sys.argv[1:]\n"
             "with (p/'calls.txt').open('a') as log: log.write(' '.join(args)+'\\n')\n"
             "if len(args)<3 or args[0]!='--system' or args[-1]!='firefly-mqtt-broker.service': sys.exit(99)\n"
@@ -39,30 +44,47 @@ def runner():
             "if args[1:3]==['enable','--now'] and len(args)==4:\n"
             "    if (p/'fail-enable').exists():\n"
             "        state.write_text('enabled stopped\\n'); sys.exit(0)\n"
+            "    if (p/'fail-command').exists():\n"
+            "        state.write_text('enabled stopped\\n'); sys.exit(1)\n"
             "    state.write_text('enabled running\\n'); sys.exit(0)\n"
             "if args[1:3]==['disable','--now'] and len(args)==4:\n"
             "    state.write_text('disabled stopped\\n'); sys.exit(0)\n"
             "sys.exit(99)\n", encoding="utf-8")
         fake.chmod(0o700)
+        binary = work / "mosquitto-test-bin"
+        binary.write_text("#!/bin/sh\nexit 0\n", encoding="ascii")
+        binary.chmod(0o700)
         (work / "state.txt").write_text("disabled stopped\n", encoding="ascii")
         socket_path = str(work / "helper.sock")
+
+        # Force FD4+: reserve the normally available FD3 first. The test
+        # must prove socket activation even when the parent's socket is NOT 3.
+        reserved = os.open(os.devnull, os.O_RDONLY)
         listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        listener.bind(socket_path)
-        listener.listen(16)
-        listener.set_inheritable(True)
-        # The helper uses systemd's fd 3, and test mode permits only a
-        # synthetic executable (never /usr/bin/systemctl).
-        def child_setup():
-            os.dup2(listener.fileno(), 3)
-            os.set_inheritable(3, True)
-        env = dict(os.environ, FIREFLY_TEST_SYSTEMCTL=str(fake))
-        proc = subprocess.Popen([helper], env=env, pass_fds=(listener.fileno(),),
-                                preexec_fn=child_setup, cwd=work,
-                                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        try:
+            if listener.fileno() <= 3:
+                raise RuntimeError("test did not allocate listener on FD4+")
+            listener.bind(socket_path)
+            listener.listen(16)
+            # File actions execute atomically in the spawned process and keep
+            # the new FD3 alive across exec; pass_fds+preexec_fn could close it.
+            actions = [(os.POSIX_SPAWN_DUP2, listener.fileno(), 3),
+                       (os.POSIX_SPAWN_CLOSE, listener.fileno()),
+                       (os.POSIX_SPAWN_OPEN, 1, os.devnull, os.O_WRONLY, 0o600),
+                       (os.POSIX_SPAWN_OPEN, 2, os.devnull, os.O_WRONLY, 0o600)]
+            env = dict(os.environ, FIREFLY_TEST_SYSTEMCTL=str(fake),
+                       FIREFLY_TEST_MOSQUITTO_BINARY=str(binary))
+            pid = os.posix_spawn(helper, [helper], env, file_actions=actions)
+        finally:
+            os.close(reserved)
+        reaped = False
         try:
             time.sleep(0.2)
-            if proc.poll() is not None:
-                raise RuntimeError(f"isolated helper unexpectedly exited: {proc.returncode}")
+            waited, code = os.waitpid(pid, os.WNOHANG)
+            if waited:
+                reaped = True
+                raise RuntimeError(
+                    f"isolated helper exited before FD4 test: {os.waitstatus_to_exitcode(code)}")
             # Direct low-level unauthorized commands never reach systemctl.
             direct_tests = ["RESTART\n", "ENABLE serviceX\n",
                             "ENABLE\nDISABLE\n", "ENABLE\x00\n", "STATUS extra\n"]
@@ -92,19 +114,33 @@ def runner():
             }
             if set(operations) - allowed:
                 raise RuntimeError("disallowed commands reached systemctl")
-            if operations.count("--system enable --now firefly-mqtt-broker.service") != 2 or \
-               operations.count("--system disable --now firefly-mqtt-broker.service") != 2:
-                raise RuntimeError("broker enabled/disabled incorrect number of times")
+            if (work / "leaked-listening-fd").exists():
+                raise RuntimeError("privileged AF_UNIX listener FD3 leaked into execve child")
+            if operations.count("--system enable --now firefly-mqtt-broker.service") != 3 or \
+               operations.count("--system disable --now firefly-mqtt-broker.service") != 4:
+                raise RuntimeError("broker enabled/disabled or compensation incorrect number of times")
             if (work / "state.txt").read_text().strip() != "disabled stopped":
                 raise RuntimeError("final simulated service not stopped and disabled")
             print("PASS rootless fixed-operation MQTT broker helper / API integration")
         finally:
-            proc.send_signal(signal.SIGTERM) if proc.poll() is None else None
-            try:
-                proc.communicate(timeout=3)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.communicate(timeout=3)
+            if not reaped:
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+                deadline = time.monotonic() + 3
+                while time.monotonic() < deadline:
+                    waited, _ = os.waitpid(pid, os.WNOHANG)
+                    if waited:
+                        reaped = True
+                        break
+                    time.sleep(0.05)
+                if not reaped:
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    os.waitpid(pid, 0)
             listener.close()
 
 
