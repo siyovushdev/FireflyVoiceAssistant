@@ -374,6 +374,9 @@ struct MqttHardwareExecutor::Impl {
     config::Catalog catalog;
     DeviceStateStore& state;
     MqttObservationGate gate;
+    // One subscription set per active RuntimeGeneration; a repeated startup
+    // call must not create duplicate background loops for the same broker.
+    std::once_flag subscriptionStartOnce;
 #ifdef FIREFLY_WITH_MOSQUITTO
     struct Subscription {
         Impl& owner;
@@ -566,11 +569,13 @@ void MqttHardwareExecutor::startSubscriptions() {
     // Apply has already atomically published this generation. A broker client
     // allocation/runtime failure must not make a committed Apply appear failed.
     // Subscription delivery is best-effort; unknown state is the safe fallback.
-    try { impl_->start(); }
-    catch (const std::exception&) {
-        for (const auto& observation : impl_->catalog->configuration().observations)
-            if (observation.executor == config::ExecutorKind::Mqtt)
-                impl_->state.invalidate(observation.targetId);
-    }
+    std::call_once(impl_->subscriptionStartOnce, [this] {
+        try { impl_->start(); }
+        catch (const std::exception&) {
+            for (const auto& observation : impl_->catalog->configuration().observations)
+                if (observation.executor == config::ExecutorKind::Mqtt)
+                    impl_->gate.disconnected(observation.targetId, impl_->state);
+        }
+    });
 }
 }
