@@ -143,11 +143,9 @@ Status inspect() {
     const bool enabled = enablement.output == "enabled";
     const bool running = activity.output == "active";
     const bool installed = brokerExecutablePresent();
-    // A unit reporting active while its executable is missing is an
-    // inconsistent state. Do not fabricate a healthy or stopped broker.
-    if (!installed && running) return {};
-    // Preserve enabled=true when the binary is absent, so the operator can
-    // safely clear a stale boot-time enablement instead of hiding it.
+    // Unlinking the broker executable does not stop an existing process.
+    // Keep installed/enabled/running as three independent observations so
+    // an operator can stop a still-running orphan unit safely.
     return {installed, enabled, running, true};
 }
 std::string stateLine(const Status& s) {
@@ -179,7 +177,7 @@ std::string executeRequest(const std::string& request) {
     if (enabling && !before.installed) return "ERROR broker_not_installed\n";
     // A missing binary but still-enabled orphan unit may be disabled, but
     // cannot be started. A truly missing/disabled unit has no operation.
-    if (!enabling && !before.installed && !before.enabled)
+    if (!enabling && !before.installed && !before.enabled && !before.running)
         return "ERROR broker_not_installed\n";
     const auto result = enabling
         ? runSystemctl({"--system", "enable", "--now", Unit})
