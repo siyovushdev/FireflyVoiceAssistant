@@ -1,6 +1,7 @@
 // Socket-activated privileged adapter for one pre-provisioned systemd unit.
 // DO NOT mark setuid. Installs only through a separate owner-approved image
 // provisioning step; Firefly Web Admin itself never gets root privileges.
+#include <algorithm>
 #include <array>
 #include <cerrno>
 #include <chrono>
@@ -169,11 +170,23 @@ void serve(int client, unsigned uid) {
     socklen_t size = sizeof(peer);
     if (::getsockopt(client, SOL_SOCKET, SO_PEERCRED, &peer, &size) ||
         size != sizeof(peer) || peer.uid != uid) return;
-    if (!waitFor(client, POLLIN, RequestTimeoutMs)) return;
-    std::array<char, 64> request{};
-    const auto got = ::recv(client, request.data(), request.size(), MSG_DONTWAIT);
-    if (got <= 0) return;
-    const std::string message(request.data(), static_cast<std::size_t>(got));
+    // AF_UNIX/SOCK_STREAM is not record-framed. Accumulate a very short
+    // complete request with one absolute deadline; never accept a partial
+    // STATUS/ENABLE/DISABLE because the kernel split a single send().
+    std::string message;
+    const auto deadline = std::chrono::steady_clock::now() +
+                          std::chrono::milliseconds(RequestTimeoutMs);
+    while (message.find('\n') == std::string::npos && message.size() < 32) {
+        const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(
+            deadline - std::chrono::steady_clock::now()).count();
+        if (left <= 0 || !waitFor(client, POLLIN, static_cast<int>(left))) return;
+        std::array<char, 32> request{};
+        const auto got = ::recv(client, request.data(),
+                                std::min(request.size(), 32-message.size()), MSG_DONTWAIT);
+        if (got < 0 && (errno == EINTR || errno == EAGAIN)) continue;
+        if (got <= 0) return;
+        message.append(request.data(), static_cast<std::size_t>(got));
+    }
     // Reject injected extra lines, NULs, suffixes and unknown operations.
     const auto response = executeRequest(message);
     if (waitFor(client, POLLOUT, RequestTimeoutMs)) {
