@@ -547,8 +547,10 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
         } else if (path == "/api/config" && method == "PUT") {
             members(request, {"configuration", "expected"});
             const auto generation = candidate(request);
-            impl_->secrets.verifyReferences(generation->domain.snapshot());
             std::lock_guard<std::mutex> mutation(impl_->writes);
+            // Serialize reference admission with credential deletion. Checking
+            // outside writes allowed DELETE to interleave before CAS Save.
+            impl_->secrets.verifyReferences(generation->domain.snapshot());
             const auto saved = impl_->store.save(generation->domain.snapshot(), expected(request));
             reply = describe(saved); reply["ok"] = true; reply["applied"] = false;
         } else if (path == "/api/config/apply") {
