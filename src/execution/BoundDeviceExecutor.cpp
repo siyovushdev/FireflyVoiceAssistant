@@ -39,6 +39,9 @@ BoundDeviceExecutor::BoundDeviceExecutor(config::Catalog catalog, SteadyClockMs 
 void BoundDeviceExecutor::startSubscriptions() {
     if (mqtt_) mqtt_->startSubscriptions();
 }
+void BoundDeviceExecutor::stopSubscriptions() noexcept {
+    if (mqtt_) mqtt_->stopSubscriptions();
+}
 
 ExecutionResult BoundDeviceExecutor::preview(const actions::GenericAction& action) const {
     return playground_.preview(action);
