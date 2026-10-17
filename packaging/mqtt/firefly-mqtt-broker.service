@@ -11,7 +11,7 @@ StartLimitIntervalSec=120
 StartLimitBurst=5
 
 [Service]
-Type=simple
+Type=exec
 User=mosquitto
 Group=mosquitto
 ExecStart=/usr/sbin/mosquitto -c /etc/firefly/mqtt/mosquitto.conf
