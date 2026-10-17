@@ -4,6 +4,8 @@ import { manual } from '../stores/manual.js';
 import { clone, consumers, defaultMqttMapping, newMqttConnection, projectMqttWizard,
     connectionActionSummary, connectionObservationSummary, type Mutable } from '../adapters/editing.js';
 import type { BindingDto, ConnectionDto, MqttObservationDto, ConfigurationDto } from '../types/wire.js';
+import { MqttDeviceDrafts, initialMqttDeviceDraft, observationFromMqttDraft,
+    type MqttDeviceDraft } from '../adapters/mqttDeviceDrafts.js';
 import TaskErrors from './forms/TaskErrors.vue';
 import { adminRequest, issuesOf, type Issue } from '../api/admin.js';
 
@@ -56,17 +58,25 @@ onMounted(() => { if (local.value) void inspectLocalBroker(); });
 const device = computed(() => config.devices.find(d => d.id === targetId.value));
 const actions = computed(() => config.actions.filter(a => device.value?.action_ids.includes(a.id)));
 const mappings = ref<Mutable<BindingDto>[]>([]);
-let previous = config.observations?.find(o => o.target_id === targetId.value && o.executor === 'mqtt');
-const observing = ref(!!previous);
-const observeConnectionId = ref(previous?.connection_id ?? '');
+const observing = ref(false);
+const observeConnectionId = ref('');
 const replaceOtherObservation = ref(false);
 const otherObservation = computed(() => config.observations?.find(o =>
     o.target_id === targetId.value && o.executor !== 'mqtt'));
-function emptyObservation(): Mutable<MqttObservationDto> {
-    return { topic: '', format: 'text', qos: 0, field: 'power', true_payload: 'ON', false_payload: 'OFF' };
+const observation = ref<Mutable<MqttObservationDto>>(
+    clone(initialMqttDeviceDraft(config, targetId.value).observation));
+const fields = ref<[string, string][]>([]);
+const deviceDrafts = new MqttDeviceDrafts(config);
+function currentDeviceDraft(): MqttDeviceDraft {
+    return {
+        mappings: clone(mappings.value),
+        observing: observing.value,
+        observeConnectionId: observeConnectionId.value,
+        replaceOtherObservation: replaceOtherObservation.value,
+        observation: clone(observation.value),
+        fields: clone(fields.value)
+    };
 }
-const observation = ref<Mutable<MqttObservationDto>>(clone(previous?.mqtt ?? emptyObservation()));
-const fields = ref<[string, string][]>(Object.entries(previous?.fields ?? {}));
 
 function chooseConnection() {
     const c = config.connections?.find(c => c.id === selected.value && c.type === 'mqtt') ?? newMqttConnection(config);
@@ -77,19 +87,22 @@ function chooseConnection() {
     clearLocalBrokerEvidence();
     if (local.value) void inspectLocalBroker();
 }
-function loadDevice() {
-    mappings.value = config.bindings.filter(b => b.target_id === targetId.value && b.executor === 'mqtt').map(clone);
-    previous = config.observations?.find(o => o.target_id === targetId.value && o.executor === 'mqtt');
-    observing.value = !!previous;
-    observeConnectionId.value = previous?.connection_id ?? '';
-    replaceOtherObservation.value = false;
-    observation.value = clone(previous?.mqtt ?? {
-        ...emptyObservation(), field: device.value?.state?.find(s => s.type === 'boolean')?.id ?? ''
-    });
-    fields.value = Object.entries(previous?.fields ?? {});
+function loadDevice(id: string) {
+    const draft = deviceDrafts.restore(id);
+    mappings.value = draft.mappings;
+    observing.value = draft.observing;
+    observeConnectionId.value = draft.observeConnectionId;
+    replaceOtherObservation.value = draft.replaceOtherObservation;
+    observation.value = draft.observation;
+    fields.value = draft.fields;
 }
-loadDevice();
-watch(targetId, loadDevice);
+loadDevice(targetId.value);
+watch(targetId, (next, previous) => {
+    // Store the outgoing device's *unsaved* editor state before loading the
+    // incoming one. Switching A -> B -> A restores all command/observe edits.
+    deviceDrafts.remember(previous, currentDeviceDraft());
+    loadDevice(next);
+}, { flush: 'sync' });
 function toggle(actionId: string, enabled: boolean) {
     if (!enabled) { mappings.value = mappings.value.filter(m => m.action_id !== actionId); return; }
     const action = actions.value.find(a => a.id === actionId);
@@ -141,24 +154,25 @@ function validate(): boolean {
 }
 function next() { if (validate()) step.value++; }
 function project(): Mutable<ConfigurationDto> {
-    let nextObservation: NonNullable<ConfigurationDto['observations']>[number] | undefined;
-    if (observing.value && targetId.value) {
-        const m = clone(observation.value);
-        nextObservation = { target_id: targetId.value,
-            connection_id: observeConnectionId.value || connection.value.id, executor: 'mqtt',
-            mqtt: m.format === 'text'
-                ? { topic: m.topic, format: 'text', qos: m.qos, field: m.field,
-                    true_payload: m.true_payload, false_payload: m.false_payload }
-                : { topic: m.topic, format: 'json', qos: m.qos },
-            fields: m.format === 'json' ? Object.fromEntries(fields.value) : {} };
-    }
-    return projectMqttWizard({
+    // First change only the selected Connection. Then project every edited
+    // device independently; the editor MUST NOT lose A's work merely because
+    // B is the currently visible device when the final Review is opened.
+    let candidate = projectMqttWizard({
         config, connection: connection.value, local: local.value, host: host.value,
         port: port.value, tls: tls.value, credentialsId: credentials.value,
-        targetId: targetId.value, mappings: mappings.value,
-        observation: nextObservation,
-        replaceOtherObservation: observing.value && replaceOtherObservation.value
+        targetId: '', mappings: [], replaceOtherObservation: false
     });
+    for (const [id, draft] of deviceDrafts.changed(targetId.value, currentDeviceDraft())) {
+        candidate = projectMqttWizard({
+            config: candidate, connection: connection.value,
+            local: local.value, host: host.value, port: port.value,
+            tls: tls.value, credentialsId: credentials.value,
+            targetId: id, mappings: draft.mappings,
+            observation: observationFromMqttDraft(id, draft, connection.value.id),
+            replaceOtherObservation: draft.observing && draft.replaceOtherObservation
+        });
+    }
+    return candidate;
 }
 const reviewCandidate = computed(() => project());
 const affected = computed(() => consumers(reviewCandidate.value, connection.value.id));
