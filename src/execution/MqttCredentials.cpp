@@ -205,8 +205,13 @@ std::vector<std::string> MqttCredentials::ids() const {
     if (!raw) { ::close(dupFd); reject("mqtt_credentials_list"); }
     std::unique_ptr<DIR, decltype(&::closedir)> cursor(raw, &::closedir);
     std::vector<std::string> result;
-    errno = 0;
-    while (const auto* entry = ::readdir(cursor.get())) {
+    for (;;) {
+        errno = 0;
+        const auto* entry = ::readdir(cursor.get());
+        if (!entry) {
+            if (errno) reject("mqtt_credentials_list");
+            break;
+        }
         const std::string name(entry->d_name);
         if (name.size() <= 5 || name.substr(name.size() - 5) != ".cred") continue;
         const auto id = name.substr(0, name.size() - 5);
@@ -217,9 +222,7 @@ std::vector<std::string> MqttCredentials::ids() const {
             st.st_uid != ::geteuid() || (st.st_mode & 077) != 0 ||
             (st.st_mode & 0600) != 0600) continue;
         result.push_back(id);
-        errno = 0;
     }
-    if (errno) reject("mqtt_credentials_list");
     std::sort(result.begin(), result.end());
     return result;
 }
