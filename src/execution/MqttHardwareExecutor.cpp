@@ -11,6 +11,7 @@
 #include <mutex>
 #include <set>
 #include <stdexcept>
+#include <thread>
 #include <vector>
 #include <nlohmann/json.hpp>
 
@@ -406,9 +407,25 @@ struct MqttHardwareExecutor::Impl {
         // No observation is authoritative until SUBACK accepts its topic.
         std::map<int, std::string> pendingSubacks;
         std::set<std::string> readyTopics;
+        // If initial connect_async fails synchronously (e.g. ECONNREFUSED),
+        // there is no libmosquitto network loop to reconnect automatically.
+        // One bounded retry worker exists only while that broker is offline.
+        std::mutex retryMutex;
+        std::condition_variable retryWake;
+        bool stopping = false;
+        std::thread initialRetry;
         Subscription(Impl& owner, const config::Connection& c)
             : owner(owner), connection(c), client(this) {}
         ~Subscription() {
+            // Stop and join our initial-connect retry before accessing/destroying
+            // the libmosquitto handle. A successful retry may have started its
+            // network loop, so it must complete before the regular loop join.
+            {
+                std::lock_guard<std::mutex> lock(retryMutex);
+                stopping = true;
+            }
+            retryWake.notify_all();
+            if (initialRetry.joinable()) initialRetry.join();
             // Join callbacks before byTopic and the referenced DeviceStateStore
             // may be destroyed. Client's later destructor only frees the handle.
             if (client.running) {
@@ -502,6 +519,32 @@ struct MqttHardwareExecutor::Impl {
                 // No exception, including allocation failure, may cross a C callback.
             }
         }
+        bool tryStartNetworkLoop() noexcept {
+            try {
+                // Only one thread calls this until the first successful loop
+                // startup. Once started, libmosquitto owns normal reconnects.
+                if (mosquitto_connect_async(client.ptr, connection.network.host.c_str(),
+                        static_cast<int>(connection.network.port), 30) != MOSQ_ERR_SUCCESS)
+                    return false;
+                if (mosquitto_loop_start(client.ptr) != MOSQ_ERR_SUCCESS)
+                    return false;
+                client.running = true;
+                return true;
+            } catch (const std::exception&) { return false; }
+        }
+        void retryInitialConnect() noexcept {
+            std::unique_lock<std::mutex> lock(retryMutex);
+            auto delay = std::chrono::seconds(1);
+            while (!stopping) {
+                if (retryWake.wait_for(lock, delay, [this] { return stopping; }))
+                    break;
+                lock.unlock();
+                const bool started = tryStartNetworkLoop();
+                lock.lock();
+                if (started) break;
+                delay = std::min(delay * 2, std::chrono::seconds(30));
+            }
+        }
         bool start() {
             try {
                 configure(client, connection);
@@ -509,13 +552,16 @@ struct MqttHardwareExecutor::Impl {
                 mosquitto_disconnect_callback_set(client.ptr, onDisconnect);
                 mosquitto_subscribe_callback_set(client.ptr, onSubscribe);
                 mosquitto_message_callback_set(client.ptr, onMessage);
-                // Subscription-only client may reconnect; it never publishes commands.
+                // Subscribe-only clients never publish/replay commands.
                 (void)mosquitto_reconnect_delay_set(client.ptr, 1, 30, false);
-                if (mosquitto_connect_async(client.ptr, connection.network.host.c_str(),
-                        static_cast<int>(connection.network.port), 30) != MOSQ_ERR_SUCCESS ||
-                    mosquitto_loop_start(client.ptr) != MOSQ_ERR_SUCCESS) return false;
-                client.running = true;
-                return true;
+                if (tryStartNetworkLoop()) return true;
+
+                // Synchronous initial refusal means no running loop. The
+                // subscription remains Unknown/Unreachable while retrying,
+                // and fresh telemetry after recovery is validated as usual.
+                disconnected();
+                initialRetry = std::thread([this] { retryInitialConnect(); });
+                return true; // retry owned by this generation, not a failed Apply
             } catch (const std::exception&) { return false; }
         }
     };
