@@ -2,6 +2,7 @@
 // The Python fixture runs a dedicated broker on 127.0.0.1 with a private config.
 #include "firefly/config/ConfigLoader.h"
 #include "firefly/config/ConfigValidator.h"
+#include "firefly/admin/RuntimeGeneration.h"
 #include "firefly/execution/ActionExecutor.h"
 #include "firefly/execution/DeviceStateStore.h"
 #include <mosquitto.h>
@@ -126,10 +127,14 @@ struct Relay {
             mosquitto_destroy(mqtt);
         }
     }
-    void sendState(std::string_view state, bool retain) {
-        const int result = mosquitto_publish(mqtt, nullptr, "g1/relay/state",
+    void sendTopic(std::string_view topic, std::string_view state, bool retain = false) {
+        const std::string owned(topic);
+        const int result = mosquitto_publish(mqtt, nullptr, owned.c_str(),
                             static_cast<int>(state.size()), state.data(), 1, retain);
-        check(result == MOSQ_ERR_SUCCESS, "relay state publication failed");
+        check(result == MOSQ_ERR_SUCCESS, "test relay telemetry publication failed");
+    }
+    void sendState(std::string_view state, bool retain) {
+        sendTopic("g1/relay/state", state, retain);
     }
     void sendJsonState(std::string_view state) {
         const int result = mosquitto_publish(mqtt, nullptr, "g1/json/state",
@@ -230,6 +235,89 @@ bool confirmed(execution::BoundDeviceExecutor& executor, bool value,
            property->second.knowledge == execution::StateKnowledge::Confirmed &&
            property->second.value &&
            *property->second.value == actions::Scalar(value);
+}
+class LocalModel final : public admin::ContextModel {
+public:
+    void useContext(const std::string& value) override { prompt_ = value; }
+    bool ready() const override { return !prompt_.empty(); }
+    std::string infer(std::string_view) override { return R"({"unsupported":true})"; }
+private:
+    std::string prompt_;
+};
+bool unknown(execution::BoundDeviceExecutor& executor, const std::string& target) {
+    const auto record = executor.production().device(target);
+    if (!record) return false;
+    const auto found = record->properties.find("power");
+    return found != record->properties.end() &&
+           found->second.knowledge == execution::StateKnowledge::Unknown;
+}
+// Real RuntimeGenerations::apply, not merely a direct executor constructor.
+// Retaining old immutable snapshots must NOT retain old broker subscriptions.
+void testGenerationRetirement(const Json& base, Relay& relay) {
+    auto a = base;
+    for (auto& o : a["observations"])
+        if (o.at("target_id") == "device_g1_relay")
+            o["mqtt"]["topic"] = "g1/generations/a";
+    LocalModel model;
+    admin::RuntimeGenerations runtime(model);
+    const auto catalogA = config::ConfigLoader::fromJson(a.dump());
+    runtime.apply(catalogA);
+    const auto old = runtime.current();
+    check(old && old->id != 0, "first live MQTT RuntimeGeneration published");
+    int attempts = 0;
+    check(eventually([&] {
+        if ((attempts++ % 10) == 0) relay.sendTopic("g1/generations/a", "OFF");
+        return confirmed(*old->executor, false);
+    }), "first generation failed to confirm its subscription");
+
+    auto b = a;
+    for (auto& o : b["observations"])
+        if (o.at("target_id") == "device_g1_relay")
+            o["mqtt"]["topic"] = "g1/generations/b";
+    const auto catalogB = config::ConfigLoader::fromJson(b.dump());
+    runtime.preflight(catalogB);
+    check(runtime.current() == old, "preflight must not retire active MQTT generation");
+    runtime.apply(catalogB);
+    const auto newer = runtime.current();
+    check(newer && newer != old, "Apply published a distinct RuntimeGeneration");
+    check(unknown(*newer->executor, "device_g1_relay"),
+          "changed MQTT mapping must not inherit old Confirmed knowledge");
+    // The old generation is intentionally retained. Its subscriber must be
+    // stopped/joined at successful Apply, not delayed until shared_ptr release.
+    for (int i = 0; i < 15; ++i)
+        relay.sendTopic("g1/generations/a", "ON");
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    check(confirmed(*old->executor, false),
+          "old generation's held snapshot received obsolete MQTT telemetry");
+    check(unknown(*newer->executor, "device_g1_relay"),
+          "old topic leaked into new generation after Apply");
+
+    attempts = 0;
+    check(eventually([&] {
+        if ((attempts++ % 10) == 0) relay.sendTopic("g1/generations/b", "OFF");
+        return confirmed(*newer->executor, false);
+    }), "new generation failed to subscribe to new state topic");
+
+    // Remove observation entirely, retaining both older generation objects.
+    auto without = b;
+    Json retained = Json::array();
+    for (const auto& o : without["observations"])
+        if (o.at("target_id") != "device_g1_relay") retained.push_back(o);
+    without["observations"] = std::move(retained);
+    runtime.apply(config::ConfigLoader::fromJson(without.dump()));
+    const auto removed = runtime.current();
+    check(removed && removed != newer, "removal creates another generation");
+    check(unknown(*removed->executor, "device_g1_relay"),
+          "removed mapping must not retain Confirmed knowledge");
+    for (int i = 0; i < 15; ++i)
+        relay.sendTopic("g1/generations/b", "ON");
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    check(confirmed(*newer->executor, false),
+          "previous generation subscriber survived mapping removal");
+    check(unknown(*removed->executor, "device_g1_relay"),
+          "removed MQTT observation still updated active state");
+    check(confirmed(*old->executor, false),
+          "first held generation was reactivated by later Apply");
 }
 } // namespace
 
@@ -337,6 +425,8 @@ int main(int argc, char** argv) {
         check(eventually([&] {
             return confirmed(executor, true, "device_g1_json_probe");
         }), "valid complete JSON state should become Confirmed");
+
+        testGenerationRetirement(proposed, relay);
 
         check(executor.execute(on).success, "ON publish failed");
         check(eventually([&] { return relay.commandCount() == 1; }),
