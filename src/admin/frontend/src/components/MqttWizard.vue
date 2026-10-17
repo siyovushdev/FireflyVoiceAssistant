@@ -31,7 +31,7 @@ const brokerStatusBusy = ref(false);
 const brokerStatusError = ref('');
 let brokerStatusGeneration = 0;
 async function inspectLocalBroker() {
-    if (!local.value || brokerStatusBusy.value) return;
+    if (!local.value) return;
     const generation = ++brokerStatusGeneration;
     brokerStatus.value = null;
     brokerStatusError.value = '';
@@ -43,13 +43,14 @@ async function inspectLocalBroker() {
         if (generation === brokerStatusGeneration && local.value)
             brokerStatusError.value = issuesOf(error).map(issue => issue.message).join(' ');
     } finally {
-        brokerStatusBusy.value = false;
+        if (generation === brokerStatusGeneration) brokerStatusBusy.value = false;
     }
 }
 function clearLocalBrokerEvidence() {
     ++brokerStatusGeneration;
     brokerStatus.value = null;
     brokerStatusError.value = '';
+    brokerStatusBusy.value = false;
 }
 onMounted(() => { if (local.value) void inspectLocalBroker(); });
 const device = computed(() => config.devices.find(d => d.id === targetId.value));
@@ -144,7 +145,7 @@ function project(): Mutable<ConfigurationDto> {
     if (observing.value && targetId.value) {
         const m = clone(observation.value);
         nextObservation = { target_id: targetId.value,
-            connection_id: observeConnectionId.value || c.id, executor: 'mqtt',
+            connection_id: observeConnectionId.value || connection.value.id, executor: 'mqtt',
             mqtt: m.format === 'text'
                 ? { topic: m.topic, format: 'text', qos: m.qos, field: m.field,
                     true_payload: m.true_payload, false_payload: m.false_payload }
@@ -185,7 +186,18 @@ async function finish() {
       <button type="button" :class="{ primary: local }" @click="chooseLocal(true)">Брокер Firefly</button>
       <button type="button" :class="{ primary: !local }" @click="chooseLocal(false)">Внешний брокер</button>
     </div>
-    <p v-if="local" class="notice">Локальный Mosquitto должен быть установлен и включён отдельно. Apply подключения не запускает службу.</p>
+    <p v-if="local" class="notice">Локальный Mosquitto включается отдельно в разделе «Подключения». Создание и Apply этого подключения не запускают службу и не включают реле.</p>
+    <template v-if="local">
+      <p v-if="brokerStatus" :class="brokerStatus.installed && brokerStatus.running ? 'muted' : 'notice warning'" role="status">
+        Локальный брокер: {{ brokerStatus.installed ? 'установлен' : 'не установлен' }},
+        {{ brokerStatus.enabled ? 'автозапуск разрешён' : 'автозапуск выключен' }},
+        {{ brokerStatus.running ? 'служба работает' : 'служба не работает' }}.
+        {{ brokerStatus.installed && brokerStatus.running ? 'Это статус службы, не проверка учётных данных или подключения устройства.' : 'Реле через локальный брокер сейчас не подтверждено как доступное.' }}
+      </p>
+      <p v-else-if="brokerStatusError" class="notice warning" role="alert">Статус локального Mosquitto неизвестен: {{ brokerStatusError }}. Не считать соединение проверенным.</p>
+      <p v-else class="muted">Статус локального Mosquitto ещё не подтверждён.</p>
+      <button type="button" :disabled="brokerStatusBusy" @click="inspectLocalBroker">{{ brokerStatusBusy ? 'Проверяем статус…' : 'Проверить статус брокера (без команд устройству)' }}</button>
+    </template>
     <label>Адрес брокера *<input v-model="host" :readonly="local" required /></label>
     <label>Порт *<input v-model.number="port" type="number" min="1" max="65535" required /></label>
     <label class="check"><input v-model="tls" type="checkbox" :disabled="local" />TLS (проверка сертификата)</label>
@@ -264,15 +276,19 @@ async function finish() {
       {{ connectionActionSummary(reviewCandidate, targetId, a.id) }}</p>
     <p>Состояние: {{ connectionObservationSummary(reviewCandidate, targetId) }}</p>
     <p>Потребители подключения: {{ affected.join(', ') || 'нет' }}</p>
-    <strong>Оборудование командами ещё не проверялось.</strong>
-    <p>Откроется общий Review → Apply. Сохранение не включает локальный брокер.</p>
+    <p v-if="local" class="notice">Локальный Mosquitto:
+      {{ brokerStatus ? (brokerStatus.installed && brokerStatus.running ? 'служба работает, авторизация и реле не проверены' : 'не готова к подключению устройств') : 'статус неизвестен, не проверен' }}.
+    </p>
+    <p v-else class="muted">Внешний брокер: доступность и авторизация здесь не проверялись.</p>
+    <strong>Команды оборудованию не отправлялись. MQTT-статус не означает подтверждение устройства.</strong>
+    <p>Следующий экран — общий Review всех изменений. Только отдельное подтверждение выполняет Save → Apply; настройка подключения никогда не включает локальный брокер.</p>
   </div>
   <div class="wizard-footer"><TaskErrors :issues="[...issues, ...manual.issues.value]" />
     <div class="inline-actions">
       <button type="button" @click="manual.cancel()">Отмена</button>
       <button v-if="step > 1" type="button" @click="step--; issues = []">Назад</button>
       <button v-if="step < 4" type="button" class="primary" @click="next">Далее</button>
-      <button v-if="step === 4" type="button" class="primary" :disabled="manual.busy.value" @click="finish">Сохранить и применить</button>
+      <button v-if="step === 4" type="button" class="primary" :disabled="manual.busy.value" @click="finish">В общий Review (без Apply)</button>
     </div>
   </div>
 </div></template>
