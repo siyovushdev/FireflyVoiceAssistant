@@ -238,11 +238,19 @@ bool confirmed(execution::BoundDeviceExecutor& executor, bool value,
 }
 class LocalModel final : public admin::ContextModel {
 public:
-    void useContext(const std::string& value) override { prompt_ = value; }
+    void useContext(const std::string& value) override {
+        if (rejectNext_) {
+            rejectNext_ = false;
+            throw std::runtime_error("injected failed admission");
+        }
+        prompt_ = value;
+    }
+    void rejectNextContext() { rejectNext_ = true; }
     bool ready() const override { return !prompt_.empty(); }
     std::string infer(std::string_view) override { return R"({"unsupported":true})"; }
 private:
     std::string prompt_;
+    bool rejectNext_ = false;
 };
 bool unknown(execution::BoundDeviceExecutor& executor, const std::string& target) {
     const auto record = executor.production().device(target);
@@ -277,6 +285,23 @@ void testGenerationRetirement(const Json& base, Relay& relay) {
     const auto catalogB = config::ConfigLoader::fromJson(b.dump());
     runtime.preflight(catalogB);
     check(runtime.current() == old, "preflight must not retire active MQTT generation");
+    model.rejectNextContext();
+    bool refused = false;
+    try { runtime.apply(catalogB); }
+    catch (const std::exception&) { refused = true; }
+    check(refused && runtime.current() == old,
+          "failed Apply must retain active generation and MQTT subscribers");
+    attempts = 0;
+    check(eventually([&] {
+        if ((attempts++ % 10) == 0) relay.sendTopic("g1/generations/a", "ON");
+        return confirmed(*old->executor, true);
+    }), "failed Apply unexpectedly retired live MQTT subscription");
+    attempts = 0;
+    check(eventually([&] {
+        if ((attempts++ % 10) == 0) relay.sendTopic("g1/generations/a", "OFF");
+        return confirmed(*old->executor, false);
+    }), "failed Apply could not restore old Confirmed state");
+
     runtime.apply(catalogB);
     const auto newer = runtime.current();
     check(newer && newer != old, "Apply published a distinct RuntimeGeneration");
@@ -318,6 +343,27 @@ void testGenerationRetirement(const Json& base, Relay& relay) {
           "removed MQTT observation still updated active state");
     check(confirmed(*old->executor, false),
           "first held generation was reactivated by later Apply");
+
+    // Restore the original catalog (rollback/recovery selection) without
+    // reactivating an older held RuntimeGeneration object or retaining the
+    // removed mapping from the preceding generation.
+    runtime.apply(catalogA);
+    const auto restored = runtime.current();
+    check(restored && restored != old && restored != newer && restored != removed,
+          "rollback must publish a fresh immutable RuntimeGeneration");
+    check(unknown(*restored->executor, "device_g1_relay"),
+          "rollback observation must remain Unknown before fresh telemetry");
+    attempts = 0;
+    check(eventually([&] {
+        if ((attempts++ % 10) == 0) relay.sendTopic("g1/generations/a", "ON");
+        return confirmed(*restored->executor, true);
+    }), "rollback generation failed to establish fresh MQTT confirmation");
+    check(confirmed(*old->executor, false),
+          "rollback reactivated retired original generation's subscription");
+    check(confirmed(*newer->executor, false),
+          "rollback reactivated intermediate generation's subscription");
+    check(unknown(*removed->executor, "device_g1_relay"),
+          "rollback modified removed-observation generation");
 }
 } // namespace
 
