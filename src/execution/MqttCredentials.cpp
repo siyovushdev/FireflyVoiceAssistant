@@ -10,6 +10,7 @@
 #include <sys/random.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
+#include <utility>
 #include <unistd.h>
 
 namespace firefly::execution {
@@ -80,7 +81,7 @@ MqttLogin readFile(int directory, const std::string& id) {
     struct stat st{};
     if (::fstat(secret.value, &st) || !S_ISREG(st.st_mode) || st.st_nlink != 1 ||
         st.st_uid != ::geteuid() || (st.st_mode & 077) != 0 ||
-        (st.st_mode & 0600) != 0600 || st.st_size < 3 || st.st_size > 4096)
+        (st.st_mode & 0400) != 0400 || st.st_size < 3 || st.st_size > 4096)
         reject("mqtt_credentials_permissions");
     std::string bytes;
     std::array<char, 256> buffer{};
@@ -220,7 +221,7 @@ std::vector<std::string> MqttCredentials::ids() const {
         if (::fstatat(directory.value, name.c_str(), &st, AT_SYMLINK_NOFOLLOW) ||
             !S_ISREG(st.st_mode) || st.st_nlink != 1 ||
             st.st_uid != ::geteuid() || (st.st_mode & 077) != 0 ||
-            (st.st_mode & 0600) != 0600) continue;
+            (st.st_mode & 0400) != 0400) continue;
         result.push_back(id);
     }
     std::sort(result.begin(), result.end());
