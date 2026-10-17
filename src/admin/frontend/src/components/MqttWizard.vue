@@ -95,12 +95,12 @@ function chooseConnection() {
 }
 function loadDevice(id: string) {
     const draft = deviceDrafts.restore(id);
-    mappings.value = draft.mappings;
+    mappings.value = clone(draft.mappings);
     observing.value = draft.observing;
     observeConnectionId.value = draft.observeConnectionId;
     replaceOtherObservation.value = draft.replaceOtherObservation;
-    observation.value = draft.observation;
-    fields.value = draft.fields;
+    observation.value = clone(draft.observation);
+    fields.value = clone(draft.fields);
 }
 loadDevice(targetId.value);
 watch(targetId, (next, previous) => {
