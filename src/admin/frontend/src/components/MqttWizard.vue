@@ -207,7 +207,7 @@ async function finish() {
     <label>Адрес брокера *<input v-model="host" :readonly="local" required /></label>
     <label>Порт *<input v-model.number="port" type="number" min="1" max="65535" required /></label>
     <label class="check"><input v-model="tls" type="checkbox" :disabled="local" />TLS (проверка сертификата)</label>
-    <label>ID учётных данных (необязательно)<input v-model="credentials" placeholder="relay_user" /></label>
+    <label>ID учётных данных (необязательно)<input v-model="credentials" placeholder="ID заранее созданного секрета" /></label>
     <p class="muted">Указывайте ID, созданный в разделе «Подключения → Учётные данные MQTT». Пароль не хранится в конфигурации и не включается в экспорт. Локальный Mosquitto требует авторизацию, поэтому без подходящего ID подключение Firefly не будет подтверждено.</p>
     <p v-if="!local && !tls" class="notice warning">Без TLS учётные данные могут передаваться по сети открытым текстом. Используйте только доверенную локальную сеть, не подключайте неизвестный WAN-брокер.</p>
     <details><summary>Дополнительно</summary><label>Тайм-аут, мс<input v-model.number="connection.timeout_ms" type="number" min="50" max="10000" /></label></details>
@@ -229,8 +229,10 @@ async function finish() {
           Действие остаётся на брокере {{ config.connections?.find(c => c.id === mapping.connection_id)?.name ?? mapping.connection_id }}.
           <button type="button" @click="mapping.connection_id = connection.id">Перенести на выбранный брокер</button>
         </p>
-        <label>Command topic *<input v-model="mapping.mqtt!.topic" required placeholder="home/relay/set" /></label>
+        <label>Command topic *<input v-model="mapping.mqtt!.topic" required placeholder="Пример: device/relay/set" /></label>
+        <p class="muted">Адрес topic в поле — только пример. Введите фактический topic из документации вашего устройства.</p>
         <label>Payload (TEXT / JSON)<textarea v-model="mapping.mqtt!.payload" rows="2" /></label>
+        <p class="muted">Автоматически подставленное ON/OFF — лишь предположение по действию включения/выключения, не подтверждённый контракт устройства. Сверьте payload с его документацией.</p>
         <label>QoS<select v-model.number="mapping.mqtt!.qos"><option :value="0">0 — без подтверждения</option>
           <option :value="1">1 — возможен дубль</option></select></label>
         <label class="check"><input v-model="mapping.mqtt!.retain" type="checkbox" />Retain (может быть опасно)</label>
