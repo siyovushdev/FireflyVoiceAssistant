@@ -117,7 +117,7 @@ def runner():
             if (work / "leaked-listening-fd").exists():
                 raise RuntimeError("privileged AF_UNIX listener FD3 leaked into execve child")
             if operations.count("--system enable --now firefly-mqtt-broker.service") != 3 or \
-               operations.count("--system disable --now firefly-mqtt-broker.service") != 4:
+               operations.count("--system disable --now firefly-mqtt-broker.service") != 6:
                 raise RuntimeError("broker enabled/disabled or compensation incorrect number of times")
             if (work / "state.txt").read_text().strip() != "disabled stopped":
                 raise RuntimeError("final simulated service not stopped and disabled")
