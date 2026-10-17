@@ -74,7 +74,7 @@ async function remove() {
 <template>
   <section class="panel" aria-labelledby="mqtt-credentials-title">
     <h2 id="mqtt-credentials-title">Учётные данные MQTT</h2>
-    <p class="muted">Пароли хранятся в закрытых файлах Firefly, а в ConfigStore указывается только ID. Ни просмотр, ни выгрузка пароля не поддерживаются.</p>
+    <p class="muted">Пароли сохраняются в файлах с ограниченными правами (0600), но не шифруются на диске. В ConfigStore указывается только ID; просмотр и выгрузка пароля не поддерживаются.</p>
     <p class="notice">Защищённый каталог должен быть предварительно подготовлен системным администратором. Это окно не создаёт его и не запускает брокер.</p>
     <div class="form-grid">
       <label>ID секрета
