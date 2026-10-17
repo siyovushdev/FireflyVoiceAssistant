@@ -72,21 +72,35 @@ struct Relay {
                                 static_cast<int>(payload.size()), payload.data(), 1, false);
     }
     explicit Relay(int port) {
-        mqtt = mosquitto_new(nullptr, true, this);
-        if (!mqtt) throw std::runtime_error("relay allocation");
-        mosquitto_subscribe_callback_set(mqtt, onSubscribe);
-        mosquitto_publish_callback_set(mqtt, onPublished);
-        mosquitto_message_callback_set(mqtt, onMessage);
-        check(mosquitto_connect(mqtt, "127.0.0.1", port, 10) == MOSQ_ERR_SUCCESS,
-              "relay cannot connect to isolated broker");
-        check(mosquitto_loop_start(mqtt) == MOSQ_ERR_SUCCESS,
-              "relay loop cannot start");
-        running = true;
-        check(mosquitto_subscribe(mqtt, nullptr, "g1/relay/set", 1) == MOSQ_ERR_SUCCESS,
-              "relay subscribe request failed");
-        std::unique_lock<std::mutex> lock(mutex);
-        check(ready.wait_for(lock, std::chrono::seconds(4), [&] { return subscribed; }),
-              "relay did not receive accepted SUBACK");
+        // A constructor that throws does not call its own destructor.
+        // Clean up the broker-loop client on every test initialization error.
+        try {
+            mqtt = mosquitto_new(nullptr, true, this);
+            if (!mqtt) throw std::runtime_error("relay allocation");
+            mosquitto_subscribe_callback_set(mqtt, onSubscribe);
+            mosquitto_publish_callback_set(mqtt, onPublished);
+            mosquitto_message_callback_set(mqtt, onMessage);
+            check(mosquitto_connect(mqtt, "127.0.0.1", port, 10) == MOSQ_ERR_SUCCESS,
+                  "relay cannot connect to isolated broker");
+            check(mosquitto_loop_start(mqtt) == MOSQ_ERR_SUCCESS,
+                  "relay loop cannot start");
+            running = true;
+            check(mosquitto_subscribe(mqtt, nullptr, "g1/relay/set", 1) == MOSQ_ERR_SUCCESS,
+                  "relay subscribe request failed");
+            std::unique_lock<std::mutex> lock(mutex);
+            check(ready.wait_for(lock, std::chrono::seconds(4), [&] { return subscribed; }),
+                  "relay did not receive accepted SUBACK");
+        } catch (...) {
+            if (mqtt) {
+                if (running) {
+                    (void)mosquitto_disconnect(mqtt);
+                    (void)mosquitto_loop_stop(mqtt, true);
+                }
+                mosquitto_destroy(mqtt);
+                mqtt = nullptr;
+            }
+            throw;
+        }
     }
     Relay(const Relay&) = delete;
     Relay& operator=(const Relay&) = delete;
