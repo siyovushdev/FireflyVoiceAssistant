@@ -133,8 +133,8 @@ int main(int argc, char** argv) {
         });
         // Ensure actual read/rotate overlap instead of counting a thread that
         // the scheduler did not run before the 300 fsync/rename iterations.
-        for (int tries = 0; tries < 1000 && snapshots.load() == 0 &&
-             readFailure.empty(); ++tries)
+        for (int tries = 0; tries < 1000 &&
+             snapshots.load(std::memory_order_acquire) == 0; ++tries)
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         try {
             for (int i = 0; i < 300; ++i) {
