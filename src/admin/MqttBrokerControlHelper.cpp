@@ -6,11 +6,14 @@
 #include <chrono>
 #include <csignal>
 #include <cstring>
+#include <cstdlib>
+#include <fcntl.h>
 #include <pwd.h>
 #include <poll.h>
 #include <stdexcept>
 #include <string>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -68,7 +71,7 @@ CommandResult runSystemctl(const std::vector<std::string>& arguments) {
         ::execve(binary, argv.data(), envp);
         _exit(127);
     }
-    writeEnd = Fd{}; // close our copy of write pipe
+    (void)::close(writeEnd.fd); writeEnd.fd = -1; // close parent copy
     const auto deadline = std::chrono::steady_clock::now() +
                           std::chrono::milliseconds(CommandTimeoutMs);
     std::string output;
