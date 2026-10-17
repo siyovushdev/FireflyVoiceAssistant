@@ -148,14 +148,25 @@ int main(int argc, char** argv) {
                      Json{{"id","relay_secret"}}, 409).value("ok", true) == false,
               "historical revision still protects referenced secret");
 
+        // Direct reference verification must work in both MQTT=OFF and ON
+        // native builds. MQTT=OFF correctly rejects an enabled MQTT runtime
+        // before the Admin preflight, independent of credential readiness.
+        secrets.verifyReferences(config::ConfigLoader::fromJson(configured.dump()));
+#ifdef FIREFLY_G2_MQTT_AVAILABLE
         const auto valid = answer(api, "POST", "/api/config/validate",
                                   Json{{"configuration",configured}}, 200);
         check(valid.value("ok",false), "valid secret reference accepted");
+#endif
         configured["connections"][0]["mqtt"]["credentials_id"] = "missing_reference";
+        rejects([&] {
+            secrets.verifyReferences(config::ConfigLoader::fromJson(configured.dump()));
+        }, "missing credential reference refused by shared reader");
+#ifdef FIREFLY_G2_MQTT_AVAILABLE
         const auto invalid = api.handle("POST", "/api/config/validate",
                                         Json{{"configuration",configured}}.dump());
-        check(invalid.status != 200 && invalid.body.find("private-password") == std::string::npos,
-              "missing reference is fail-closed at Validate");
+        check(invalid.status == 422 && invalid.body.find("private-password") == std::string::npos,
+              "missing reference is fail-closed at Admin Validate");
+#endif
         // Configuration export and ordinary Admin GET never expose secret bytes.
         for (const auto* route : {"/api/config", "/api/config/export", "/api/mqtt/credentials"}) {
             const auto response = api.handle("GET", route, "");
