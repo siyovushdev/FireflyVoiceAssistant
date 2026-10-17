@@ -140,7 +140,8 @@ if(BUILD_TESTING)
         "${PROJECT_SOURCE_DIR}/tests/admin/MqttLocalControlTests.cpp")
     target_link_libraries(mqtt_local_control_tests PRIVATE firefly_admin_core)
     target_include_directories(mqtt_local_control_tests PRIVATE
-        "${PROJECT_SOURCE_DIR}/tests/admin")
+        "${PROJECT_SOURCE_DIR}/tests/admin"
+        "${PROJECT_SOURCE_DIR}/src/admin")
     target_include_directories(mqtt_local_control_tests SYSTEM PRIVATE
         "${PROJECT_SOURCE_DIR}/third_party")
     target_compile_options(mqtt_local_control_tests PRIVATE -Wall -Wextra -Wpedantic)
