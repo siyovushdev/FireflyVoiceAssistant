@@ -556,10 +556,15 @@ struct MqttHardwareExecutor::Impl {
 MqttHardwareExecutor::MqttHardwareExecutor(config::Catalog catalog, DeviceStateStore& state)
     : impl_(std::make_unique<Impl>(std::move(catalog), state)) {
 #ifdef FIREFLY_WITH_MOSQUITTO
-    // Initialise the library once, before any subscription or publisher loop
-    // is started. This is process-local library setup, not a broker connection:
-    // constructing/preflighting a draft still performs no MQTT network I/O.
-    initializeLibrary();
+    // Initialise once before any configured MQTT client threads start. Pure
+    // HTTP runtimes must not depend on libmosquitto's initialization status.
+    // This is local library setup, not broker contact during draft/preflight.
+    for (const auto& connection : impl_->catalog->configuration().connections) {
+        if (connection.type == config::ExecutorKind::Mqtt && connection.enabled) {
+            initializeLibrary();
+            break;
+        }
+    }
 #endif
 }
 MqttHardwareExecutor::~MqttHardwareExecutor() = default;
