@@ -39,8 +39,8 @@ def run():
             raise RuntimeError("staging wrote secrets")
         for index, unsafe in enumerate(("127.0.0.1", "0.0.0.0", "8.8.8.8",
                        "169.254.1.2", "224.0.0.1", "100.94.87.92",
-                       "2001:db8::1", "192.168.68.15\nlistener 1884 0.0.0.0"):
-            out = work / ("bad_" + str(abs(hash(unsafe))))
+                       "2001:db8::1", "192.168.68.15\nlistener 1884 0.0.0.0")):
+            out = work / f"bad_{index}"
             attempt = subprocess.run(
                 [sys.executable, str(script), "--output", str(out),
                  "--lan-ip", unsafe], capture_output=True, text=True, timeout=5)
