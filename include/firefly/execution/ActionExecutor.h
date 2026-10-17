@@ -78,6 +78,7 @@ public:
     HardwareResult poll(const std::string& targetId);
     // Invoked only after the generation is published, never during preflight.
     void startSubscriptions();
+    void stopSubscriptions() noexcept;
 private:
     config::Catalog catalog_;
     MockDeviceExecutor playground_;
