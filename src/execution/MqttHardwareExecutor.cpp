@@ -3,6 +3,7 @@
 #include "firefly/config/Connectivity.h"
 #include "firefly/actions/ScalarJson.h"
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstring>
@@ -259,26 +260,49 @@ void configure(Client& client, const config::Connection& connection) {
         throw std::runtime_error("mqtt_credentials_rejected");
     // Caller owns the entire client; no credentials retained in ConfigStore/logs.
 }
+// One publishing client per command. Bound network threads and avoid a
+// reconnect queue growing without limit under concurrent hardware requests.
+std::atomic<unsigned> activePublications{0};
+struct PublicationSlot {
+    bool acquired = false;
+    PublicationSlot() noexcept {
+        auto count = activePublications.load(std::memory_order_relaxed);
+        while (count < 16 && !activePublications.compare_exchange_weak(
+                count, count + 1, std::memory_order_acq_rel,
+                std::memory_order_relaxed)) {}
+        acquired = count < 16;
+    }
+    ~PublicationSlot() {
+        if (acquired) activePublications.fetch_sub(1, std::memory_order_release);
+    }
+};
 struct Publication {
     std::mutex mutex;
     std::condition_variable cv;
     bool connected = false, connectionFinished = false, disconnected = false;
     int acknowledgedMid = -1;
 };
-void connected(mosquitto*, void* context, int code) {
+void connected(mosquitto* mosq, void* context, int code) {
     auto& p = *static_cast<Publication*>(context);
+    bool rejectReconnect = false;
     {
         std::lock_guard<std::mutex> lock(p.mutex);
-        p.connected = code == 0;
-        p.connectionFinished = true;
+        // This client is one-shot. An unexpected reconnect must never replay
+        // an unresolved QoS 1 command, or make a failed send appear healthy.
+        rejectReconnect = p.connectionFinished || p.disconnected;
+        if (!rejectReconnect) {
+            p.connected = code == 0;
+            p.connectionFinished = true;
+        }
     }
+    if (rejectReconnect) (void)mosquitto_disconnect(mosq);
     p.cv.notify_all();
 }
 void published(mosquitto*, void* context, int id) {
     auto& p = *static_cast<Publication*>(context);
     {
         std::lock_guard<std::mutex> lock(p.mutex);
-        p.acknowledgedMid = id; // may arrive before publish() returns its mid
+        if (!p.disconnected) p.acknowledgedMid = id; // can precede publish() return
     }
     p.cv.notify_all();
 }
@@ -297,6 +321,8 @@ void disconnected(mosquitto* mosq, void* context, int code) {
 }
 HardwareResult publish(const config::Connection& conn, const config::MqttBinding& mapping,
                        MqttObservationGate& gate, const std::string& target) {
+    PublicationSlot slot;
+    if (!slot.acquired) return error("mqtt_publish_busy");
     Publication p;
     try {
         Client client(&p);
@@ -354,6 +380,10 @@ struct MqttHardwareExecutor::Impl {
         const config::Connection& connection;
         Client client;
         std::map<std::string, std::vector<const config::ObservationBinding*>> byTopic;
+        // Accessed only on this subscription's libmosquitto network loop.
+        // No observation is authoritative until SUBACK accepts its topic.
+        std::map<int, std::string> pendingSubacks;
+        std::set<std::string> readyTopics;
         Subscription(Impl& owner, const config::Connection& c)
             : owner(owner), connection(c), client(this) {}
         ~Subscription() {
@@ -366,20 +396,51 @@ struct MqttHardwareExecutor::Impl {
             }
         }
 
-        static void onConnect(mosquitto* client, void* ptr, int code) {
+        void invalidateTopic(const std::string& topic) noexcept {
+            const auto it = byTopic.find(topic);
+            if (it == byTopic.end()) return;
+            for (const auto* binding : it->second)
+                owner.gate.disconnected(binding->targetId, owner.state);
+        }
+        static void onConnect(mosquitto* client, void* ptr, int code) noexcept {
             auto& s = *static_cast<Subscription*>(ptr);
-            if (code == 0) {
+            try {
+                s.readyTopics.clear();
+                s.pendingSubacks.clear();
+                if (code != 0) { s.disconnected(); return; }
                 for (const auto& [topic, bindings] : s.byTopic) {
                     int qos = 0;
-                    for (const auto* binding : bindings) qos = std::max(qos, static_cast<int>(binding->mqtt.qos));
-                    (void)mosquitto_subscribe(client, nullptr, topic.c_str(), qos);
+                    for (const auto* binding : bindings)
+                        qos = std::max(qos, static_cast<int>(binding->mqtt.qos));
+                    int mid = -1;
+                    if (mosquitto_subscribe(client, &mid, topic.c_str(), qos) == MOSQ_ERR_SUCCESS)
+                        s.pendingSubacks.emplace(mid, topic);
+                    else s.invalidateTopic(topic);
                 }
-            } else s.disconnected();
+            } catch (const std::exception&) { s.disconnected(); }
         }
-        static void onDisconnect(mosquitto*, void* ptr, int) {
+        static void onSubscribe(mosquitto*, void* ptr, int mid,
+                                int grantedCount, const int* granted) noexcept {
+            auto& s = *static_cast<Subscription*>(ptr);
+            try {
+                const auto found = s.pendingSubacks.find(mid);
+                if (found == s.pendingSubacks.end()) return;
+                auto topic = std::move(found->second);
+                s.pendingSubacks.erase(found);
+                // MQTT v3.1.1 reports rejected SUBSCRIBE using granted QoS 0x80.
+                if (grantedCount != 1 || !granted || granted[0] < 0 || granted[0] > 1) {
+                    s.invalidateTopic(topic);
+                    return;
+                }
+                s.readyTopics.insert(std::move(topic));
+            } catch (const std::exception&) { s.disconnected(); }
+        }
+        static void onDisconnect(mosquitto*, void* ptr, int) noexcept {
             static_cast<Subscription*>(ptr)->disconnected();
         }
-        void disconnected() {
+        void disconnected() noexcept {
+            readyTopics.clear();
+            pendingSubacks.clear();
             for (const auto& [topic, bindings] : byTopic) {
                 (void)topic;
                 for (const auto* binding : bindings)
@@ -397,7 +458,7 @@ struct MqttHardwareExecutor::Impl {
                 if (!message || !message->topic || message->retain ||
                     message->payloadlen <= 0 || message->payloadlen > 4096 || !message->payload) return;
                 const auto found = s.byTopic.find(message->topic);
-                if (found == s.byTopic.end()) return;
+                if (found == s.byTopic.end() || !s.readyTopics.count(found->first)) return;
                 // Attach the callback-entry ticket to every affected target
                 // before copying/parsing a potentially slow message.
                 std::vector<std::pair<const config::ObservationBinding*, std::uint64_t>> observed;
@@ -424,6 +485,7 @@ struct MqttHardwareExecutor::Impl {
                 configure(client, connection);
                 mosquitto_connect_callback_set(client.ptr, onConnect);
                 mosquitto_disconnect_callback_set(client.ptr, onDisconnect);
+                mosquitto_subscribe_callback_set(client.ptr, onSubscribe);
                 mosquitto_message_callback_set(client.ptr, onMessage);
                 // Subscription-only client may reconnect; it never publishes commands.
                 (void)mosquitto_reconnect_delay_set(client.ptr, 1, 30, false);
