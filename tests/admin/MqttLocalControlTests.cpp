@@ -2,6 +2,9 @@
 #include "firefly/admin/LocalMqttBrokerControl.h"
 #include <chrono>
 #include <filesystem>
+#include <fstream>
+#include <memory>
+#include <thread>
 #include <iostream>
 #include <stdexcept>
 #include <sys/stat.h>
@@ -74,6 +77,29 @@ int main(int argc, char** argv) {
         seen = answer(api, "GET", "/api/mqtt/local-broker", Json::object(), 200);
         check(!seen.value("enabled",true) && !seen.value("running",true),
               "disabled status persists across separate requests");
+
+        // Negative scenario: fixed systemd unit itself is absent.
+        // A generic "not installed" must not be confused with a stopped,
+        // controllable service or a successful enable.
+        const auto fakeState = std::filesystem::path(socket).parent_path() / "state.txt";
+        { std::ofstream state(fakeState); state << "not-found stopped\n"; }
+        const auto absent = answer(api, "GET", "/api/mqtt/local-broker",
+                                   Json::object(), 200);
+        check(!absent.value("installed",true), "absent systemd unit visible");
+        const auto rejected = answer(api, "POST", "/api/mqtt/local-broker",
+            Json{{"operation","enable"},{"confirm",true}}, 409);
+        check(!rejected.value("ok",true), "cannot enable a missing unit");
+        { std::ofstream state(fakeState); state << "disabled stopped\n"; }
+
+        // A socket endpoint owned by a different UID is not a privileged
+        // broker controller, even if its bytes mimic the normal protocol.
+        auto untrusted = std::make_shared<admin::LocalMqttBrokerControl>(
+            socket, static_cast<unsigned>(::geteuid()) + 1);
+        admin::Api impersonation(store, runtime, nullptr, credentials, untrusted);
+        const auto blocked = answer(impersonation, "GET", "/api/mqtt/local-broker",
+                                    Json::object(), 503);
+        check(!blocked.value("ok",true), "untrusted peer UID rejected");
+
         const auto after = store.current();
         check(after->contentHash() == original->contentHash() &&
               after->configuration().revision == original->configuration().revision,
