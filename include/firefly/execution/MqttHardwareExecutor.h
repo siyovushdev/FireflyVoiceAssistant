@@ -59,6 +59,9 @@ public:
                            const actions::GenericAction& action) override;
     HardwareObservation observe(const config::ObservationBinding& binding) override;
     void startSubscriptions();
+    // Retire this generation's subscriptions even while requests still retain
+    // an immutable snapshot. Never tears down in-flight command publishers.
+    void stopSubscriptions() noexcept;
     void beginCommand(const std::string& target,
                       const std::map<std::string, actions::Scalar>& expected);
     void endCommand(const std::string& target, bool accepted);
