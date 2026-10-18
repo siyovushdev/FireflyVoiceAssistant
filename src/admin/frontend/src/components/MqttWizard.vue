@@ -44,6 +44,14 @@ const probeBusy = ref(false);
 const probeMessage = ref('');
 const probeError = ref('');
 const probeSnapshot = ref('');
+let probeGeneration = 0;
+function clearProbeEvidence() {
+    ++probeGeneration;
+    probeMessage.value = '';
+    probeError.value = '';
+    probeSnapshot.value = '';
+    probeBusy.value = false;
+}
 const probeFingerprint = computed(() => mqttProbeFingerprint(
     connection.value, local.value ? '127.0.0.1' : host.value.trim(),
     port.value, tls.value, credentials.value
@@ -70,6 +78,7 @@ async function probeMqttConnection() {
     const current = candidate.connections?.find(c => c.id === connection.value.id);
     if (!current) return;
     const snapshot = probeFingerprint.value;
+    const generation = ++probeGeneration;
     probeBusy.value = true;
     probeMessage.value = '';
     probeError.value = '';
@@ -78,15 +87,19 @@ async function probeMqttConnection() {
             { connection: current });
         if (!mqttProbeConfirmed(result, tls.value, credentials.value))
             throw Error('MQTT CONNECT не подтвердился проверяемым ответом сервера.');
+        if (generation !== probeGeneration) return;
         probeMessage.value = 'MQTT CONNECT/CONNACK принят брокером. ' +
             (result.tls_verified ? 'TLS-сертификат и имя хоста проверены. ' : 'TLS не использовался. ') +
             (result.credentials_accepted ? 'Учётные данные приняты.' : 'Подключение без credentials принято.') +
             ' Реле и state topic не проверялись; команды не отправлялись.';
     } catch (error) {
-        probeError.value = issuesOf(error).map(issue => issue.message).join(' ');
+        if (generation === probeGeneration)
+            probeError.value = issuesOf(error).map(issue => issue.message).join(' ');
     } finally {
-        probeSnapshot.value = snapshot;
-        probeBusy.value = false;
+        if (generation === probeGeneration) {
+            probeSnapshot.value = snapshot;
+            probeBusy.value = false;
+        }
     }
 }
 // Inspect the configured local service using the existing read-only Admin
@@ -124,7 +137,13 @@ onActivated(() => {
     clearLocalBrokerEvidence();
     if (local.value) void inspectLocalBroker();
 });
-onDeactivated(clearLocalBrokerEvidence);
+onDeactivated(() => {
+    clearLocalBrokerEvidence();
+    // Deactivated MQTT wizard stays cached, but previous network evidence is
+    // not a promise about the broker on the next entry. In-flight responses
+    // from before navigation cannot mark the reactivated draft as verified.
+    clearProbeEvidence();
+});
 const device = computed(() => config.devices.find(d => d.id === targetId.value));
 const actions = computed(() => config.actions.filter(a => device.value?.action_ids.includes(a.id)));
 const mappings = ref<Mutable<BindingDto>[]>([]);
