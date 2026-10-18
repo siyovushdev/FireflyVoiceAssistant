@@ -39,6 +39,7 @@ add_library(firefly_execution
     ../execution/BindingResolver.cpp
     ../execution/HttpHardwareExecutor.cpp
     ../execution/MqttHardwareExecutor.cpp
+    ../execution/MqttConnectionProbe.cpp
     ../execution/MqttCredentials.cpp
     ../execution/DeviceStateStore.cpp)
 target_link_libraries(firefly_execution PUBLIC firefly_domain)
