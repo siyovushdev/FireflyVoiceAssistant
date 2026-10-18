@@ -130,7 +130,8 @@ not actions performed by this candidate gate):
 
 ```sh
 # Persist both the checkpoint directory AND the printed pin in protected evidence.
-# M19_CONFIG is the preserved immutable original M19 bin/firefly-config.
+# M19_CONFIG is the original c7fa1490 M19 bin/firefly-config, pinned by the tool:
+# SHA256 95aad868b99c09e646adf3234347f1c0a643c50b371d775ec65c5dcacd5afd74
 python3 "$SOURCE/scripts/config-checkpoint.py" create \
   --store /var/lib/firefly/store --checkpoint "$NEW_PERSISTENT_CHECKPOINT" \
   --m19-config "$M19_CONFIG"

@@ -21,7 +21,13 @@ class RunnerTests(unittest.TestCase):
     def test_private_bundle_packaging_imports_and_missing_corrupt_module_failures(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / 'bundle'
-            runner.prepare_files(root, SOURCE)
+            if (SOURCE / 'tools').is_dir():
+                # The mandatory suite itself runs from the private bundle.
+                # Exercise that actual tools closure in a fresh destructive copy.
+                import shutil
+                shutil.copytree(SOURCE / 'tools', root / 'tools')
+            else:
+                runner.prepare_files(root, SOURCE)
             tools = root / 'tools'
             code = ('import sys; sys.path.insert(0, sys.argv[1]); '
                     'from packaging import firefly_release, mqtt_release, firefly_checkpoint; '

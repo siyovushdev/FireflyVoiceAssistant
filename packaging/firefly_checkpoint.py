@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import pwd
+import re
 import shutil
 import stat
 import subprocess
@@ -19,6 +20,11 @@ import tempfile
 
 class CheckpointError(RuntimeError):
     pass
+
+
+# Original production M19 c7fa1490 config ELF from the archived release.
+# A new M19 rollback authority requires a separately reviewed identity change.
+M19_CONFIG_SHA256 = '95aad868b99c09e646adf3234347f1c0a643c50b371d775ec65c5dcacd5afd74'
 
 
 def digest(path):
@@ -143,7 +149,7 @@ def invoke(binary, store, *args):
     if owner != os.geteuid():
         if os.geteuid() != 0:
             raise CheckpointError('Wrong checkpoint owner')
-        argv = ['runuser', '-u', pwd.getpwuid(owner).pw_name, '--', *argv]
+        argv = ['/usr/sbin/runuser', '-u', pwd.getpwuid(owner).pw_name, '--', *argv]
     env = {k: v for k, v in os.environ.items() if k not in
            ('FIREFLY_OWNER_ACCEPTED', 'LD_PRELOAD', 'LD_LIBRARY_PATH')}
     p = subprocess.run(argv, capture_output=True, text=True, timeout=60, env=env)
@@ -154,6 +160,11 @@ def invoke(binary, store, *args):
 
 def prove_m19(tree, binary):
     """Run real old tool on a disposable clone; never mutate checkpoint/source."""
+    safe_path(binary)
+    s = binary.lstat()
+    if (not stat.S_ISREG(s.st_mode) or s.st_nlink != 1 or s.st_mode & 0o6022 or
+            digest(binary) != M19_CONFIG_SHA256):
+        raise CheckpointError('Expected the frozen original M19 config executable')
     before = inventory(tree)
     if '.pending.json' in before:
         raise CheckpointError('Pending transaction: reconcile explicitly before checkpoint')
@@ -172,10 +183,16 @@ def prove_m19(tree, binary):
         catalogs = []
         for name in before:
             if name == 'configuration.json' or name == 'last_known_good_snapshot.json' or name.startswith('backups/') and before[name]['kind'] == 'file':
-                catalogs.append(call('inspect', '--file', copy / name))
+                document = call('inspect', '--file', copy / name)
+                if digest(copy / name) != document['content_sha256']:
+                    raise CheckpointError('Noncanonical history/LKG document')
+                catalogs.append(document)
+        if 'last_known_good_snapshot.json' in before and 'last_known_good.json' not in before:
+            raise CheckpointError('Incomplete LKG publication')
         if 'last_known_good.json' in before:
             marker = json.loads((copy / 'last_known_good.json').read_bytes())
-            if (set(marker) != {'revision', 'hash'} or not any(
+            if (set(marker) != {'revision', 'hash'} or type(marker['revision']) is not int or marker['revision'] < 1
+                    or not isinstance(marker['hash'], str) or not re.fullmatch('[0-9a-f]{64}', marker['hash']) or not any(
                     x['revision'] == marker['revision'] and x['content_sha256'] == marker['hash'] for x in catalogs)):
                 raise CheckpointError('Unrecoverable LKG marker')
         saved = call('save', '--store', copy, '--file', copy / 'configuration.json',
@@ -276,6 +293,9 @@ def restore(store, checkpoint, binary, expected_pin, transaction, fault=lambda _
                     or inventory(archived) != plan['previous']):
                 raise CheckpointError('Preserved newer store changed')
             prove_m19(store, binary)
+            with (transaction / 'VERIFIED.json').open('rb') as f:
+                os.fsync(f.fileno())
+            sync_dir(transaction); sync_dir(store.parent)
             return dict(result='RESTORED_VERIFIED', preserved=str(archived), retry=True)
         now = inventory(store)
         if now == plan['previous']:

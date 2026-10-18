@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -25,6 +26,10 @@ class CheckpointTests(unittest.TestCase):
         self.app = self.base / 'config'
         shutil.copy2(APP, self.app)
         self.app.chmod(0o755)
+        # Transaction mechanics run on the CMake-supplied native config tool.
+        # Real original-M19 semantic proof is a separate archived-ELF fixture.
+        authority = patch.object(c, 'M19_CONFIG_SHA256', c.digest(self.app))
+        authority.start(); self.addCleanup(authority.stop)
         self.store = self.base / 'store'; self.store.mkdir(mode=0o700)
         self.file = self.base / 'input.json'
         self.cfg = json.loads((ROOT / 'tests/admin/v2/system.json').read_text())
@@ -129,6 +134,34 @@ class CheckpointTests(unittest.TestCase):
         self.assertEqual(c.inventory(self.store), self.newer)
         self.transaction = self.base / 'fresh-retry'
         self.assertEqual(self.restore()['result'], 'RESTORED_VERIFIED')
+
+    def test_bad_lkg_and_wrong_m19_authority_never_publish(self):
+        for kind in ['wrong-binary', 'boolean-revision', 'noncanonical-snapshot', 'missing-marker']:
+            with self.subTest(kind=kind):
+                target = self.base / ('bad-' + kind)
+                source = self.base / ('source-' + kind)
+                c.clone(self.checkpoint / 'store', source)
+                if kind == 'boolean-revision':
+                    marker = source / 'last_known_good.json'
+                    doc = json.loads(marker.read_bytes()); doc['revision'] = True; marker.write_text(json.dumps(doc))
+                elif kind == 'noncanonical-snapshot':
+                    snapshot = source / 'last_known_good_snapshot.json'; snapshot.write_bytes(snapshot.read_bytes() + b' ')
+                elif kind == 'missing-marker': (source / 'last_known_good.json').unlink()
+                authority = '0' * 64 if kind == 'wrong-binary' else c.digest(self.app)
+                before = c.inventory(source)
+                with patch.object(c, 'M19_CONFIG_SHA256', authority), self.assertRaises(c.CheckpointError):
+                    c.create(source, target, self.app)
+                self.assertFalse(target.exists()); self.assertEqual(c.inventory(source), before)
+
+    def test_creation_fsync_failure_and_unauthorized_production_restore_fail_closed(self):
+        with patch.object(c.os, 'fsync', side_effect=OSError('fsync failed')):
+            with self.assertRaises(OSError):
+                c.create(self.store, self.base / 'fsync-failed', self.app)
+        self.assertFalse((self.base / 'fsync-failed').exists())
+        with patch.dict(os.environ, {}, clear=True), patch.object(c, 'inventory') as inspected:
+            with self.assertRaisesRegex(c.CheckpointError, 'owner authorization'):
+                c.quiescent(Path('/var/lib/firefly/store'))
+            inspected.assert_not_called()
 
     def test_checkpoint_rejects_pending_and_lock_contention(self):
         (self.store / '.pending.json').write_text('{}')
