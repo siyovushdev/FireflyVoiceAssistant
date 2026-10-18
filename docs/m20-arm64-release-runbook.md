@@ -140,14 +140,17 @@ python3 "$SOURCE/scripts/config-checkpoint.py" verify \
   --m19-config "$M19_CONFIG"
 python3 "$SOURCE/scripts/release-runner.py" prepare \
   --source "$SOURCE" --approved-commit "$APPROVED_HEAD" --new-release "$NEW_RELEASE" \
-  --root "$NEW_RUN_BUNDLE" --approved-admin-assets-sha256 "$APPROVED_ASSETS" \
+  --root "$NEW_RUN_BUNDLE" --build-dir "$VERIFIED_BUILD_DIR" --approved-admin-assets-sha256 "$APPROVED_ASSETS" \
   --m19-checkpoint "$NEW_PERSISTENT_CHECKPOINT" --m19-checkpoint-pin "$CHECKPOINT_PIN" \
   --m19-config "$M19_CONFIG" \
   --m19-recovery-capsule "$NEW_PERSISTENT_M19_CAPSULE"
 ```
 
 Persist the returned `m19_recovery_capsule_pin` separately with the checkpoint
-pin. Checkpoint and capsule must use persistent ext4/XFS/Btrfs, outside `/run`,
+pin. `--build-dir` explicitly selects the full applicable build (cross pipeline:
+`/build/firefly`); its regular CMake cache must name the exact canonical source.
+The default remains `SOURCE/build`. No symlink/copy of a test build is needed.
+Checkpoint and capsule must use persistent ext4/XFS/Btrfs, outside `/run`,
 `/tmp` and `/dev/shm`; prepare checks the actual mounted filesystem/device.
 The capsule pins the original M19 main/config executables, immutable manifest,
 all artifact modes, unit/argv, whole-store metadata and verified old readiness.
@@ -210,7 +213,7 @@ env FIREFLY_OWNER_ACCEPTED=1 python3 "$SOURCE/scripts/config-checkpoint.py" rest
 ```sh
 python3 "$SOURCE/scripts/release-runner.py" prepare-rollback \
   --source "$SOURCE" --approved-commit "$APPROVED_RELEASE_CONTROL_HEAD" \
-  --root "$NEW_RECOVERY_RUN_BUNDLE" \
+  --root "$NEW_RECOVERY_RUN_BUNDLE" --build-dir "$VERIFIED_BUILD_DIR" \
   --m19-checkpoint "$NEW_PERSISTENT_CHECKPOINT" --m19-checkpoint-pin "$CHECKPOINT_PIN" \
   --m19-config "$M19_CONFIG" --m19-recovery-capsule "$NEW_PERSISTENT_M19_CAPSULE" \
   --m19-recovery-capsule-pin "$M19_CAPSULE_PIN"

@@ -1,6 +1,7 @@
 """Private whole-store transaction tests; no services, pointers, models or hardware."""
 import copy
 import importlib.util
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -162,6 +163,28 @@ class CheckpointTests(unittest.TestCase):
             with self.assertRaisesRegex(c.CheckpointError, 'owner authorization'):
                 c.quiescent(Path('/var/lib/firefly/store'))
             inspected.assert_not_called()
+
+    def test_inventory_hashes_opaque_metadata_with_bounded_reads(self):
+        metadata = self.store / 'opaque-metadata'
+        block = b'synthetic metadata block\n' * 4096
+        expected = hashlib.sha256()
+        with metadata.open('wb') as file:
+            for _ in range(64): file.write(block); expected.update(block)
+        metadata.chmod(0o600)
+        original = os.fdopen; sizes = []
+        class Reader:
+            def __init__(self, file): self.file = file
+            def __enter__(self): return self
+            def __exit__(self, *args): self.file.close()
+            def read(self, size=-1):
+                if not 0 < size <= 1024 * 1024: raise AssertionError('Unbounded checkpoint read')
+                sizes.append(size)
+                return self.file.read(size)
+        with patch.object(c.os, 'fdopen', side_effect=lambda *a, **kw: Reader(original(*a, **kw))):
+            result = c.inventory(self.store)
+        self.assertEqual(result['opaque-metadata']['sha256'], expected.hexdigest())
+        self.assertEqual(result['opaque-metadata']['bytes'], len(block) * 64)
+        self.assertGreater(len(sizes), 6)
 
     def test_activation_baselines_reject_volatile_or_hidden_tmpfs(self):
         for path in ['/run/checkpoint', '/tmp/checkpoint', '/dev/shm/checkpoint']:

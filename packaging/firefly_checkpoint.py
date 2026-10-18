@@ -29,8 +29,16 @@ M19_HEAD = 'c7fa14906f8ae15f4c8fb488e9c9d7628eb8154f'
 M19_DEMO_SHA256 = '1072ab09a8d43e234a1c1ef58745ab62a8843e1f55dab560c36e7e3c6e7a7be1'
 
 
+def stream_digest(file):
+    value = hashlib.sha256()
+    for block in iter(lambda: file.read(1024 * 1024), b''):
+        value.update(block)
+    return value.hexdigest()
+
+
 def digest(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    with path.open('rb') as file:
+        return stream_digest(file)
 
 
 def pin(value):
@@ -100,7 +108,7 @@ def inventory(tree):
                 if os.fstat(fd) != s:
                     raise CheckpointError('Store entry changed during inspection')
                 with os.fdopen(fd, 'rb', closefd=False) as f:
-                    e.update(bytes=s.st_size, sha256=hashlib.sha256(f.read()).hexdigest())
+                    e.update(bytes=s.st_size, sha256=stream_digest(f))
             finally:
                 os.close(fd)
         result[str(path.relative_to(tree))] = e

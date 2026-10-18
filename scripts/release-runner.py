@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -85,10 +86,23 @@ def mandatory_fixtures(root):
                    str(root / 'mandatory-systemd-fixtures')])
 
 
-def application_checks(root, source):
+def selected_build(source, build_dir=None):
+    if build_dir is None:
+        return source / 'build'
+    cache = build_dir / 'CMakeCache.txt'
+    if (not build_dir.is_absolute() or build_dir.resolve() != build_dir or
+            cache.is_symlink() or not cache.is_file() or cache.stat().st_nlink != 1):
+        raise RuntimeError('Explicit build directory requires a canonical regular CMake cache')
+    match = re.search(r'^CMAKE_HOME_DIRECTORY:INTERNAL=(.+)$', cache.read_text(), re.M)
+    if not match or match[1] != str(source):
+        raise RuntimeError('Build directory must belong to the exact approved source')
+    return build_dir
+
+
+def application_checks(root, source, build_dir=None):
     # Existing full offline application checks run as the repository/service user,
     # never as privileged production mutation tools. No dependency downloads.
-    command(root, ['runuser', '-u', 'firefly', '--', 'ctest', '--test-dir', str(source / 'build'),
+    command(root, ['runuser', '-u', 'firefly', '--', 'ctest', '--test-dir', str(selected_build(source, build_dir)),
                    '--output-on-failure', '--no-tests=error', '-j2'], timeout=1200)
     for name in ['typecheck', 'test', 'build']:
         command(root, ['runuser', '-u', 'firefly', '--', 'npm', '--prefix',
@@ -164,10 +178,11 @@ def approved_source(root, source, commit):
 
 def prepare(root, source, commit, release, approved_admin_assets_sha256=None,
             m19_checkpoint=None, m19_checkpoint_pin=None, m19_config=None,
-            m19_recovery_capsule=None, m19_recovery_capsule_pin=None):
+            m19_recovery_capsule=None, m19_recovery_capsule_pin=None, build_dir=None):
     approved_source(root, source, commit)
+    build = selected_build(source, build_dir)
     prepare_files(root, source)
-    application_checks(root, source)
+    application_checks(root, source, build_dir)
     m = load(root / 'scripts/production-rollout.py')
     package = load(root / 'tools/packaging/firefly_release.py')
     prefix, store = Path('/opt/firefly/voice-assistant'), Path('/var/lib/firefly/store')
@@ -183,7 +198,7 @@ def prepare(root, source, commit, release, approved_admin_assets_sha256=None,
         raise RuntimeError('Candidate identity/source/assets mismatch')
     assets_pin = approved_assets(identities[release]['admin_assets_sha256'],
                                  identities[old]['admin_assets_sha256'], approved_admin_assets_sha256,
-                                 package.admin_assets_fingerprint(source / 'build') if approved_admin_assets_sha256 else None)
+                                 package.admin_assets_fingerprint(build) if approved_admin_assets_sha256 else None)
     documents = {target: json.loads((prefix / 'releases' / target / 'manifest.json').read_bytes())
                  for target in [old, release]}
     preservation_contract(documents[old], documents[release],
@@ -266,11 +281,12 @@ def prepare(root, source, commit, release, approved_admin_assets_sha256=None,
 
 
 def prepare_rollback(root, source, commit, checkpoint_path, checkpoint_pin,
-                     m19_config, capsule_path, capsule_pin):
+                     m19_config, capsule_path, capsule_pin, build_dir=None):
     """Fresh supervisor from durable M19 metadata; never reuse an old lease/START."""
     approved_source(root, source, commit)
+    selected_build(source, build_dir)
     prepare_files(root, source)
-    application_checks(root, source)
+    application_checks(root, source, build_dir)
     m = load(root / 'scripts/production-rollout.py')
     package = load(root / 'tools/packaging/firefly_release.py')
     helper = load(root / 'tools/packaging/firefly_checkpoint.py')
@@ -448,6 +464,7 @@ def main():
     prep.add_argument('--new-release', required=True)
     prep.add_argument('--root', type=Path, required=True)
     prep.add_argument('--approved-admin-assets-sha256')
+    prep.add_argument('--build-dir', type=Path)
     prep.add_argument('--m19-checkpoint', type=Path)
     prep.add_argument('--m19-checkpoint-pin')
     prep.add_argument('--m19-config', type=Path)
@@ -462,6 +479,7 @@ def main():
     recovery.add_argument('--m19-config', type=Path, required=True)
     recovery.add_argument('--m19-recovery-capsule', type=Path, required=True)
     recovery.add_argument('--m19-recovery-capsule-pin', required=True)
+    recovery.add_argument('--build-dir', type=Path)
     execute = sub.add_parser('run')
     execute.add_argument('root', type=Path)
     execute.add_argument('--owner-authorization', required=True)
@@ -471,11 +489,11 @@ def main():
             if args.mode == 'prepare':
                 prepare(args.root, args.source, args.approved_commit, args.new_release, args.approved_admin_assets_sha256,
                         args.m19_checkpoint, args.m19_checkpoint_pin, args.m19_config,
-                        args.m19_recovery_capsule, args.m19_recovery_capsule_pin)
+                        args.m19_recovery_capsule, args.m19_recovery_capsule_pin, args.build_dir)
             else:
                 prepare_rollback(args.root, args.source, args.approved_commit,
                                  args.m19_checkpoint, args.m19_checkpoint_pin, args.m19_config,
-                                 args.m19_recovery_capsule, args.m19_recovery_capsule_pin)
+                                 args.m19_recovery_capsule, args.m19_recovery_capsule_pin, args.build_dir)
         except Exception as error:
             print(json.dumps({'result': 'ABORTED_BEFORE_CUTOVER', 'phase': 'prepare', 'error': repr(error)}))
             return 1

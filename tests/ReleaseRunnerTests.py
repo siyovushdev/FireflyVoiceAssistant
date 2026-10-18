@@ -192,6 +192,21 @@ class RunnerTests(unittest.TestCase):
                     self.assertEqual([call.args[1][-1] for call in authorized], ['old', 'new'])
                     self.assertTrue(all('verify' in call.args[1] for call in authorized))
 
+    def test_explicit_build_directory_checks_source_and_keeps_real_application_checks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            build = Path(tmp); cache = build / 'CMakeCache.txt'
+            cache.write_text('CMAKE_HOME_DIRECTORY:INTERNAL=' + str(SOURCE) + '\n')
+            with patch.object(runner, 'command') as command:
+                runner.application_checks(Path('/fixture'), SOURCE, build)
+                self.assertEqual(command.call_args_list[0].args[1][6], str(build))
+                self.assertEqual(command.call_count, 4)
+            cache.write_text('CMAKE_HOME_DIRECTORY:INTERNAL=/unreviewed/source\n')
+            with self.assertRaisesRegex(RuntimeError, 'exact approved source'):
+                runner.selected_build(SOURCE, build)
+            cache.unlink(); cache.symlink_to(SOURCE / 'CMakeLists.txt')
+            with self.assertRaisesRegex(RuntimeError, 'canonical regular'):
+                runner.selected_build(SOURCE, build)
+
     def test_application_checks_use_fixed_existing_commands_without_root_runtime(self):
         with patch.object(runner, 'command') as command:
             runner.application_checks(Path('/fixture'), Path('/source'))
