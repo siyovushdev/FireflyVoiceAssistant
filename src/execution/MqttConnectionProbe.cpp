@@ -238,8 +238,11 @@ MqttProbeResult subprocessProbe(const config::Connection& connection,
             "mqtt_probe_unavailable", "mqtt_probe_allocation",
             "mqtt_library_unavailable"
         };
+        // Parsing/checking the worker's response is also within the
+        // end-to-end deadline. Never return late success or mislabel it as
+        // an internal worker error.
+        if (leftMs(deadline) == 0) return rejected("mqtt_probe_timeout");
         if (!codes.count(result.code) || result.code.size() > 64 ||
-            leftMs(deadline) == 0 ||
             result.success != result.code.empty() ||
             (result.success &&
              (result.tlsVerified != connection.mqtt.tls ||
