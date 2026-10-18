@@ -6,6 +6,7 @@
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 #ifdef FIREFLY_WITH_MOSQUITTO
 #include <mosquitto.h>
