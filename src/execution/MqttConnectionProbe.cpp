@@ -1,4 +1,6 @@
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 #include "firefly/execution/MqttConnectionProbe.h"
 #include "MqttLibrary.h"
 #include <atomic>
@@ -237,6 +239,7 @@ MqttProbeResult subprocessProbe(const config::Connection& connection,
             "mqtt_library_unavailable"
         };
         if (!codes.count(result.code) || result.code.size() > 64 ||
+            leftMs(deadline) == 0 ||
             result.success != result.code.empty() ||
             (result.success &&
              (result.tlsVerified != connection.mqtt.tls ||
