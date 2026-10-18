@@ -9,6 +9,7 @@ using namespace admin_test;
 
 namespace {
 const std::string On = "action_lampa_vklyuchit", Off = "action_lampa_vyklyuchit";
+bool mqttTransport = false; // Optional isolated transport fixture, never production.
 
 struct Model final : admin::ContextModel {
     llm::CommandProtocol protocol = llm::CommandProtocol::StableCompact;
@@ -55,6 +56,17 @@ Json configuration(Json base, const Case& test, int port) {
             {"connection_id", "connection_test"}, {"executor", "http"},
             {"http", {{"method", "POST"}, {"path", "/relay/" + d["id"].get<std::string>()},
                 {"body", {{"on", a["id"] == On}}}, {"expected_status", 200}}}});
+    if (mqttTransport) {
+        base["connections"] = Json::array({{{"id", "connection_test"}, {"name", "Offline MQTT mock"},
+            {"type", "mqtt"}, {"enabled", true}, {"timeout_ms", 1000},
+            {"network", {{"host", "127.0.0.1"}, {"port", port}}}, {"mqtt", {{"tls", false}}}}});
+        for (auto& binding : base["bindings"]) {
+            binding.erase("http");
+            binding["executor"] = "mqtt";
+            binding["mqtt"] = {{"topic", "relay/" + binding["target_id"].get<std::string>()},
+                {"payload", binding["action_id"] == On ? "ON" : "OFF"}, {"qos", 1}, {"retain", false}};
+        }
+    }
     return base;
 }
 
@@ -154,7 +166,9 @@ Json run(const Json& document, const Case& test, const std::string& path, llm::C
 
 int main(int argc, char** argv) {
     try {
-        if (argc != 3) throw std::runtime_error("Repository root and loopback mock port required");
+        if (argc != 3 && !(argc == 4 && std::string(argv[3]) == "mqtt"))
+            throw std::runtime_error("Repository root, loopback mock port and optional mqtt required");
+        mqttTransport = argc == 4;
         const int port = std::stoi(argv[2]);
         const auto base = Json::parse(config::ConfigLoader::fromFile(std::string(argv[1]) + "/tests/language/grounding-semantic.json")->canonicalJson());
         const std::vector<Case> cases{

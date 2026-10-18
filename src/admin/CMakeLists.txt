@@ -111,6 +111,18 @@ target_include_directories(firefly-mqtt-probe-worker SYSTEM PRIVATE
 target_compile_options(firefly-mqtt-probe-worker PRIVATE -Wall -Wextra -Wpedantic)
 set_target_properties(firefly-mqtt-probe-worker PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}")
+# The supervisor deliberately rejects group/world-writable helpers. Linkers
+# otherwise inherit the caller's umask (e.g. 0002 -> 0775), so a successful
+# developer build could produce a worker which its own supervisor cannot use.
+# Keep CMake 3.16 compatibility; file(CHMOD) requires a newer CMake.
+find_program(FIREFLY_CHMOD_EXECUTABLE NAMES chmod)
+if(NOT FIREFLY_CHMOD_EXECUTABLE)
+    message(FATAL_ERROR "chmod is required to protect the MQTT probe worker")
+endif()
+add_custom_command(TARGET firefly-mqtt-probe-worker POST_BUILD
+    COMMAND "${FIREFLY_CHMOD_EXECUTABLE}" 0755 "$<TARGET_FILE:firefly-mqtt-probe-worker>"
+    COMMENT "Protecting the MQTT probe worker executable"
+    VERBATIM)
 add_executable(firefly-admin Main.cpp)
 target_link_libraries(firefly-admin PRIVATE firefly_admin_transport)
 add_dependencies(firefly-admin firefly-mqtt-probe-worker)
@@ -195,6 +207,39 @@ if(BUILD_TESTING)
     target_compile_options(mqtt_probe_tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME MqttConnectProbe COMMAND mqtt_probe_tests "${PROJECT_SOURCE_DIR}")
     set_tests_properties(MqttConnectProbe PROPERTIES TIMEOUT 25)
+    option(FIREFLY_MQTT_NAMESPACE_TESTS
+        "Run real DNS/process MQTT acceptance in rootless Linux namespaces" OFF)
+    if(FIREFLY_MQTT_NAMESPACE_TESTS)
+        if(NOT FIREFLY_HOST_OFFLINE_TESTS OR NOT FIREFLY_ENABLE_MQTT OR
+           NOT FIREFLY_TEST_MOSQUITTO_SERVER)
+            message(FATAL_ERROR "MQTT namespace tests require host-offline MQTT=ON and a provisioned test Mosquitto")
+        endif()
+        find_program(FIREFLY_UNSHARE_EXECUTABLE NAMES unshare)
+        find_program(FIREFLY_MOUNT_EXECUTABLE NAMES mount)
+        find_program(FIREFLY_IP_EXECUTABLE NAMES ip)
+        if(NOT FIREFLY_UNSHARE_EXECUTABLE OR NOT FIREFLY_MOUNT_EXECUTABLE OR
+           NOT FIREFLY_IP_EXECUTABLE)
+            message(FATAL_ERROR "MQTT namespace tests require unshare, mount and ip")
+        endif()
+        add_executable(mqtt_probe_http_fixture
+            "${PROJECT_SOURCE_DIR}/tests/admin/MqttProbeHttpFixture.cpp")
+        target_link_libraries(mqtt_probe_http_fixture PRIVATE firefly_admin_transport)
+        target_include_directories(mqtt_probe_http_fixture PRIVATE
+            "${PROJECT_SOURCE_DIR}/tests/admin" "${CMAKE_CURRENT_SOURCE_DIR}")
+        target_include_directories(mqtt_probe_http_fixture SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
+        target_link_options(mqtt_probe_http_fixture PRIVATE
+            "-Wl,--wrap=posix_spawn" "-Wl,--wrap=kill" "-Wl,--wrap=waitpid")
+        add_dependencies(mqtt_probe_http_fixture firefly-mqtt-probe-worker)
+        set_target_properties(mqtt_probe_http_fixture PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}")
+        add_test(NAME MqttProbeDnsIsolation COMMAND "${Python3_EXECUTABLE}"
+            "${PROJECT_SOURCE_DIR}/tests/admin/MqttProbeDnsIsolation.py"
+            --server "$<TARGET_FILE:mqtt_probe_http_fixture>"
+            --root "${PROJECT_SOURCE_DIR}" --mosquitto "${FIREFLY_TEST_MOSQUITTO_SERVER}"
+            --unshare "${FIREFLY_UNSHARE_EXECUTABLE}"
+            --mount "${FIREFLY_MOUNT_EXECUTABLE}" --ip "${FIREFLY_IP_EXECUTABLE}")
+        set_tests_properties(MqttProbeDnsIsolation PROPERTIES TIMEOUT 35 LABELS "isolated;rootless;mqtt")
+    endif()
     add_executable(health_reliability_tests "${PROJECT_SOURCE_DIR}/tests/admin/HealthReliabilityTests.cpp")
     target_link_libraries(health_reliability_tests PRIVATE firefly_admin_core)
     target_include_directories(health_reliability_tests PRIVATE "${PROJECT_SOURCE_DIR}/tests/admin")
@@ -383,6 +428,13 @@ if(BUILD_TESTING)
         "${PROJECT_SOURCE_DIR}/tests/language/GroundingHttpTests.py"
         $<TARGET_FILE:grounding_authorization_tests> "${PROJECT_SOURCE_DIR}")
     set_tests_properties(GroundingAuthorizationHttp PROPERTIES TIMEOUT 600)
+    if(FIREFLY_ENABLE_MQTT AND FIREFLY_TEST_MOSQUITTO_SERVER)
+        add_test(NAME GroundingAuthorizationMqtt COMMAND "${Python3_EXECUTABLE}"
+            "${PROJECT_SOURCE_DIR}/tests/language/GroundingMqttTests.py"
+            $<TARGET_FILE:grounding_authorization_tests> "${PROJECT_SOURCE_DIR}"
+            "${FIREFLY_TEST_MOSQUITTO_SERVER}")
+        set_tests_properties(GroundingAuthorizationMqtt PROPERTIES TIMEOUT 600 LABELS "isolated;mqtt")
+    endif()
 endif()
 
 if(BUILD_TESTING)

@@ -139,6 +139,12 @@ Json postProbe(admin::Api& api, const Json& connection, int expectedStatus) {
 int main(int argc, char** argv) {
     try {
         if (argc != 2) return 2;
+        const auto helper = std::filesystem::read_symlink("/proc/self/exe")
+                                .parent_path() / "firefly-mqtt-probe-worker";
+        struct stat helperStat{};
+        check(::lstat(helper.c_str(), &helperStat) == 0 &&
+              S_ISREG(helperStat.st_mode) && (helperStat.st_mode & 07777) == 0755,
+              "clean build must produce a protected 0755 sibling worker, even with umask 0002");
         Directory workspace;
         config::ConfigStore store(workspace.path);
         store.initialize(catalog(base(argv[1])));
@@ -189,21 +195,21 @@ int main(int argc, char** argv) {
                   broker.subscribes.load() == 0,
                   "negative CONNACK still causes zero MQTT commands and subscriptions");
         }
-        {
+        for (const int timeout : {50, 73, 100, 151}) {
             // The global deadline includes a worker stalled before CONNACK.
             // The old implementation could return success after the configured
             // timeout. On timeout the worker must be killed/reaped, freeing
             // the single probe slot for the next request immediately.
             FakeConnackBroker delayed(0, 650);
             auto configuration = mqttConnection(delayed.port);
-            configuration["timeout_ms"] = 100;
+            configuration["timeout_ms"] = timeout;
             const auto start = std::chrono::steady_clock::now();
             const auto failure = postProbe(api, configuration, 422);
             const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - start).count();
             check(failure.at("errors").dump().find("mqtt_probe_timeout") != std::string::npos &&
-                  elapsed < 450,
-                  "slow CONNECT cannot succeed after the total 100ms deadline");
+                  elapsed >= timeout && elapsed < timeout + 350,
+                  "slow CONNECT must return timeout at the absolute deadline, not worker_unavailable");
             FakeConnackBroker available;
             const auto following = postProbe(api, mqttConnection(available.port), 200);
             check(following.value("connack_accepted", false),

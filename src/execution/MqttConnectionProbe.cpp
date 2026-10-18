@@ -100,7 +100,7 @@ struct Child {
 int leftMs(Clock::time_point deadline) {
     const auto now = Clock::now();
     if (now >= deadline) return 0;
-    const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(
+    const auto left = std::chrono::ceil<std::chrono::milliseconds>(
         deadline - now).count();
     return left < 1 ? 1 : left > INT_MAX ? INT_MAX : static_cast<int>(left);
 }
@@ -111,7 +111,10 @@ bool ready(int fd, short events, Clock::time_point deadline) {
         pollfd pfd{fd, events, 0};
         const int n = ::poll(&pfd, 1, remaining);
         if (n < 0 && errno == EINTR) continue;
-        if (n <= 0 || pfd.revents & (POLLERR | POLLNVAL)) return false;
+        // A poll timeout is not an IPC failure. Only the absolute deadline
+        // decides when this operation times out (including sub-ms remainder).
+        if (n == 0) continue;
+        if (n < 0 || pfd.revents & (POLLERR | POLLNVAL)) return false;
         if (pfd.revents & (events | POLLHUP)) return true;
     }
 }

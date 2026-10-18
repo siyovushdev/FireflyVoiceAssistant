@@ -115,3 +115,7 @@
 6. Все неисполненные зависимости отмечаются **NOT_RUN**, а не PASS. Без аппаратной приёмки не заявлять physical ready.
 
 Production, системный Mosquitto, models/NPU/voice, PR и merge не затрагиваются до отдельного owner gate.
+
+## Подготовка G3 после независимого PROBE-R2/R3
+
+Clean build под umask 0002 теперь устанавливает защищённый mode 0755 worker; проверка владельца и запрет group/world write не отключены. Ожидание parent исправлено на абсолютный monotonic deadline, чтобы настоящий DNS timeout возвращал `mqtt_probe_timeout`, а ошибки отсутствующего/повреждённого helper оставались `mqtt_probe_worker_unavailable`. Постоянные регрессии и воспроизводимая матрица #33/#36 описаны в [G3 isolated acceptance](m20-g3-isolated-acceptance.md). Фактические результаты относятся только к SHA в соответствующем evidence/REPORT.txt. Ранее приведённые NOT_RUN и отчёты сохранены как история своих кандидатов; отдельное независимое ревью G3 ещё требуется.
