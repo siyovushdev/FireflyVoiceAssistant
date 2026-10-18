@@ -391,28 +391,40 @@ int main(int argc, char** argv) {
               "original ON command still owns its MQTT observation window");
         busyGate.end(target, state, false);
 
-        // The worker may be descheduled between the parent permit and its
-        // actual publish API. Tickets captured in that IPC gap are still old.
+        // A tentative IPC window can buffer samples, but a sample captured
+        // before the worker's real API barrier cannot later establish Confirmed.
         execution::DeviceStateStore ipcState(base, [&] { return instant; }, [&] { return instant; });
         execution::MqttObservationGate ipcGate;
         execution::detail::MqttSharedOrder workerOrder(ipcGate.publicationOrderDescriptor());
         check(workerOrder.valid(), "worker shares sealed ordering counter");
         ipcGate.begin(target, target80);
-        std::uint64_t inIpcGap = 0, atSubmit = 0, earlyReply = 0;
-        check(ipcGate.submitPublication(target, [&] {
-            inIpcGap = ipcGate.snapshot(target);
-            atSubmit = workerOrder.next();
-            earlyReply = ipcGate.snapshot(target);
-            return 0;
-        }, [&] { return atSubmit; }) == 0, "cross-process publication barrier accepted");
-        check(!ipcGate.accept(target, inIpcGap, target80, ipcState),
-              "pre-submit sample in IPC gap never confirms");
-        check(ipcGate.accept(target, earlyReply, target80, ipcState),
-              "actual early post-submit state remains eligible before ACK");
+        const auto permit = ipcGate.authorizePublication(target);
+        const auto inIpcGap = ipcGate.snapshot(target);
+        check(ipcGate.accept(target, inIpcGap, target80, ipcState), "tentative sample buffered only");
+        const auto atSubmit = workerOrder.next();
+        check(atSubmit > permit, "actual worker barrier follows permit");
+        ipcGate.publicationSubmitted(target, atSubmit);
+        ipcState.applyPrediction(target, target80, instant);
+        ipcGate.end(target, ipcState, true);
+        check(ipcState.device(target)->properties.at("brightness").knowledge == execution::StateKnowledge::Predicted,
+              "pre-submit sample from IPC gap never confirms");
+        ipcGate.begin(target, target80);
+        ipcGate.authorizePublication(target);
+        const auto actual = workerOrder.next();
+        const auto earlyReply = ipcGate.snapshot(target);
+        check(ipcGate.accept(target, earlyReply, target80, ipcState), "early real reply buffered before IPC ack");
+        ipcGate.publicationSubmitted(target, actual);
         ipcState.applyPrediction(target, target80, instant);
         ipcGate.end(target, ipcState, true);
         check(ipcState.device(target)->properties.at("brightness").knowledge == execution::StateKnowledge::Confirmed,
-              "shared ticket preserves early confirmation after prediction");
+              "actual early reply survives IPC scheduling and prediction");
+        ipcGate.begin(target, target80);
+        ipcGate.authorizePublication(target);
+        ipcGate.accept(target, ipcGate.snapshot(target), target80, ipcState);
+        ipcState.applyPrediction(target, target80, instant);
+        ipcGate.end(target, ipcState, true);
+        check(ipcState.device(target)->properties.at("brightness").knowledge == execution::StateKnowledge::Predicted,
+              "missing actual submission is fail closed even if accepted is supplied");
 
         std::cout << "PASS MQTT codec duplicates and command/observation barrier\n";
         return 0;

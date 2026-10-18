@@ -25,8 +25,12 @@ public:
     std::uint64_t snapshot(const std::string& target) const;
     void begin(const std::string& target,
                const std::map<std::string, actions::Scalar>& expected);
-    int submitPublication(const std::string& target, const std::function<int()>& publish,
-                          const std::function<std::uint64_t()>& submittedTicket = {});
+    int submitPublication(const std::string& target, const std::function<int()>& publish);
+    // Tentative IPC window; nothing can confirm until an actual submission
+    // ticket and a successful transport outcome are both recorded. No IPC wait
+    // is performed while the observation mutex is held.
+    std::uint64_t authorizePublication(const std::string& target);
+    void publicationSubmitted(const std::string& target, std::uint64_t ticket);
     void disconnected(const std::string& target, DeviceStateStore& store) noexcept;
     void end(const std::string& target, DeviceStateStore& store, bool accepted) noexcept;
     // true: accepted or buffered; false: obsolete or pre-publish telemetry.
@@ -41,6 +45,8 @@ private:
         std::uint64_t lastValidTicket = 0;
         bool inFlight = false;
         bool published = false;
+        bool pendingSubmission = false;
+        std::uint64_t bufferedTicket = 0;
         bool disconnectedDuringCommand = false;
         std::map<std::string, actions::Scalar> expected;
         std::optional<std::map<std::string, actions::Scalar>> buffered;

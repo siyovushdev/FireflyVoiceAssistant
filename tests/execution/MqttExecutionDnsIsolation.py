@@ -69,6 +69,12 @@ class Runtime:
             response = error
         return response.status, json.loads(response.read())
 
+    def direct(self, command):
+        self.process.stdin.write(json.dumps(command) + '\n')
+        self.process.stdin.flush()
+        assert select.select([self.process.stdout], [], [], 4)[0], 'direct execution deadline'
+        return json.loads(self.process.stdout.readline())
+
     def execute(self, fast=False):
         target = 'device_lamp' if fast else 'device_fan'
         start = time.monotonic()
@@ -82,10 +88,7 @@ class Runtime:
             state = state[target] if isinstance(state, dict) else next(x for x in state if x.get('targetId', x.get('id')) == target)
             result['knowledge'] = state['properties']['power']['knowledge']
         else:
-            self.process.stdin.write(json.dumps({'target': target}) + '\n')
-            self.process.stdin.flush()
-            assert select.select([self.process.stdout], [], [], 4)[0], 'direct execution deadline'
-            result = json.loads(self.process.stdout.readline())
+            result = self.direct({'target': target})
             status = None
         return {'http': self.http, 'fast': fast, 'status': status, 'result': result,
                 'ms': (time.monotonic() - start) * 1000}
@@ -204,6 +207,51 @@ def inside(args):
                         cancellations.append({'http': http, 'worker_reaped_signal': 9})
                 finally:
                     runtime.close()
+            # A stopped child between CONNECT and publish response must not
+            # hold the shared observation mutex across IPC and delay another
+            # target beyond its own budget. Only the slow branch is injected;
+            # the fast branch execs the untouched real worker before reading IPC.
+            stage = work / 'ipc-stall-helper'
+            stage.mkdir()
+            direct = stage / 'direct'
+            shutil.copy2(args.direct, direct)
+            marker = stage / 'stall-ready'
+            original = Path(args.direct).parent / 'firefly-mqtt-publish-worker'
+            wrapper = stage / original.name
+            wrapper.write_text("#!/usr/bin/python3\n" +
+                "import socket,struct,json,time,pathlib,os\n" +
+                "s=socket.socket(fileno=0);s.settimeout(3)\n" +
+                "while True:\n" +
+                " b=s.recv(32772,socket.MSG_PEEK)\n" +
+                " if len(b)>=4 and len(b)>=4+int.from_bytes(b[:4],'big'):break\n" +
+                " time.sleep(.001)\n" +
+                "j=json.loads(b[4:4+int.from_bytes(b[:4],'big')])\n" +
+                "if j['topic']=='cmd/fast':\n" +
+                " os.set_inheritable(0,True);os.set_inheritable(3,True)\n" +
+                " os.execv(" + repr(str(original)) + ",[" + repr(str(original)) + "])\n" +
+                "b=json.dumps({'stage':'connected'}).encode();s.sendall(struct.pack('!I',len(b))+b)\n" +
+                "pathlib.Path(" + repr(str(marker)) + ").touch()\n" +
+                "time.sleep(3)\n")
+            wrapper.chmod(0o755)
+            private_args = argparse.Namespace(**vars(args))
+            private_args.direct = str(direct)
+            config = configuration(root, port, '127.0.0.1')
+            config['connections'][0]['timeout_ms'] = 1000
+            runtime = Runtime(private_args, work / 'ipc-stall', config, False)
+            try:
+                assert runtime.direct({'op': 'launch', 'target': 'device_fan', 'id': 'slow'})['launched']
+                end = time.monotonic() + 1
+                while not marker.exists():
+                    assert time.monotonic() < end
+                    time.sleep(.005)
+                fast = runtime.execute(fast=True)
+                assert fast['result']['success'] is True and fast['ms'] < 450, fast
+                slow = runtime.direct({'op': 'collect', 'id': 'slow'})
+                assert slow['success'] is False and slow['error'] == 'mqtt_publish_uncertain', slow
+                assert not children(runtime.process.pid)
+                ipc_stall = {'fast_actual_publish_ms': fast['ms'], 'slow': slow, 'no_mutex_held_across_IPC': True}
+            finally:
+                runtime.close()
             guards = []
             # Guard only disposable helper copies. Positive controls above use
             # the untouched CMake-built 0755 executable.
@@ -237,11 +285,11 @@ def inside(args):
             time.sleep(1.5)
             trace = (work / 'broker.log').read_text()
             publications = [line for line in trace.splitlines() if 'Received PUBLISH' in line]
-            assert len(publications) == 12 and all("'cmd/fast'" in line and '(d0, q1, r0,' in line for line in publications), publications
+            assert len(publications) == 13 and all("'cmd/fast'" in line and '(d0, q1, r0,' in line for line in publications), publications
             assert any(q['host'] == 'probe-delay.review.invalid' for q in dns.queries)
             assert any(q['host'] == 'probe-never.review.invalid' for q in dns.queries)
             evidence = {'result': 'PASS', 'dns_delay_ms': 1250, 'timeout_ms': 100, 'executions': results,
-                        'cancelled': cancellations, 'worker_guards': guards, 'slow_publish': 0, 'positive_publish': 12,
+                        'cancelled': cancellations, 'worker_guards': guards, 'ipc_stall': ipc_stall, 'slow_publish': 0, 'positive_publish': 13,
                         'no_worker_or_slot_leak': True, 'store_unchanged': True}
             output = os.environ.get('FIREFLY_MQTT_EXECUTION_EVIDENCE')
             if output:

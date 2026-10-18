@@ -49,12 +49,12 @@ void MqttObservationGate::begin(const std::string& target,
     current.cutoffTicket = nextTicket();
     current.inFlight = true;
     current.published = false;
+    current.pendingSubmission = false;
     current.disconnectedDuringCommand = false;
     current.buffered.reset();
 }
 int MqttObservationGate::submitPublication(const std::string& target,
-                                          const std::function<int()>& publish,
-                                          const std::function<std::uint64_t()>& submittedTicket) {
+                                          const std::function<int()>& publish) {
     std::lock_guard<std::mutex> lock(mutex_);
     const auto found = targets_.find(target);
     if (found == targets_.end() || !found->second.inFlight || found->second.published)
@@ -70,14 +70,26 @@ int MqttObservationGate::submitPublication(const std::string& target,
     found->second.cutoffTicket = nextTicket();
     const int result = publish();
     if (result == 0) { // MOSQ_ERR_SUCCESS
-        if (submittedTicket) {
-            const auto ticket = submittedTicket();
-            if (ticket <= found->second.cutoffTicket) throw std::logic_error("mqtt_invalid_publication_ticket");
-            found->second.cutoffTicket = ticket;
-        }
         found->second.published = true;
     }
     return result;
+}
+std::uint64_t MqttObservationGate::authorizePublication(const std::string& target) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto& current = targets_.at(target);
+    if (!current.inFlight || current.published) throw std::logic_error("mqtt_publish_outside_command");
+    current.cutoffTicket = nextTicket();
+    current.published = true;
+    current.pendingSubmission = true;
+    return current.cutoffTicket;
+}
+void MqttObservationGate::publicationSubmitted(const std::string& target, std::uint64_t ticket) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto& current = targets_.at(target);
+    if (!current.inFlight || !current.pendingSubmission) throw std::logic_error("mqtt_publish_outside_command");
+    current.cutoffTicket = std::max(current.cutoffTicket, ticket);
+    current.pendingSubmission = false;
+    if (current.buffered && current.bufferedTicket <= current.cutoffTicket) current.buffered.reset();
 }
 void MqttObservationGate::disconnected(const std::string& target, DeviceStateStore& store) noexcept {
     try {
@@ -99,9 +111,11 @@ void MqttObservationGate::end(const std::string& target, DeviceStateStore& store
     const auto found = targets_.find(target);
     if (found == targets_.end() || !found->second.inFlight) return;
     auto& current = found->second;
+    accepted = accepted && !current.pendingSubmission;
     // BoundDeviceExecutor has already written Predicted. A validated early
     // reply may now supersede it, but never after disconnect/failed publish.
-    if (accepted && current.published && current.buffered) {
+    if (accepted && current.published && !current.pendingSubmission && current.buffered &&
+        current.bufferedTicket > current.cutoffTicket) {
         try { store.applyObservation({target, *current.buffered, 0, std::nullopt}); }
         catch (const std::exception&) { /* leave Predicted, never false Confirmed */ }
     }
@@ -109,6 +123,7 @@ void MqttObservationGate::end(const std::string& target, DeviceStateStore& store
     current.expected.clear();
     current.inFlight = false;
     current.published = false;
+    current.pendingSubmission = false;
     if (current.disconnectedDuringCommand) {
         // BoundDeviceExecutor may have marked the publishing client reachable
         // after the subscription was lost. Disconnect wins the final state
@@ -162,6 +177,7 @@ bool MqttObservationGate::accept(const std::string& target, std::uint64_t versio
         // not advance the ticket fence or evict a valid buffered reply.
         auto next = properties;
         current.buffered = std::move(next);
+        current.bufferedTicket = version;
         current.lastValidTicket = version;
         return true;
     }

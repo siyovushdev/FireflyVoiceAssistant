@@ -69,20 +69,18 @@ HardwareResult supervisedMqttPublish(const config::Connection& connection,
             return failed(code);
         }
         connected = true;
-        std::uint64_t submitted = 0;
-        const auto result = gate.submitPublication(target, [&] {
-            if (!mqttRemaining(deadline)) return 1;
-            // A complete permit authorizes exactly one submission; any later
-            // IPC/deadline failure is uncertain, never retry or success.
-            permitted = true;
-            if (!mqttSend(parent.value, {{"publish",true}}, deadline) ||
-                !mqttReceive(parent.value, reply, deadline)) return 1;
-            if (reply.size() != 2 || reply.value("stage","") != "submitted" ||
-                !reply.at("ticket").is_number_unsigned()) return 1;
-            submitted = reply.at("ticket").get<std::uint64_t>();
-            return submitted ? 0 : 1;
-        }, [&] { return submitted; });
-        if (result != 0) return interrupted();
+        if (!mqttRemaining(deadline)) return failed("mqtt_timeout");
+        const auto authorizedTicket = gate.authorizePublication(target);
+        // Waiting for a child must NEVER hold the generation's observation
+        // mutex: another target has its own absolute deadline and may publish.
+        permitted = true;
+        if (!mqttSend(parent.value, {{"publish",true}}, deadline) ||
+            !mqttReceive(parent.value, reply, deadline)) return interrupted();
+        if (reply.size() != 2 || reply.value("stage","") != "submitted" ||
+            !reply.at("ticket").is_number_unsigned()) return interrupted();
+        const auto submitted = reply.at("ticket").get<std::uint64_t>();
+        if (submitted <= authorizedTicket) return interrupted();
+        gate.publicationSubmitted(target, submitted);
         if (!mqttReceive(parent.value, reply, deadline)) return interrupted();
         if (reply != nlohmann::json{{"stage","accepted"}}) {
             if (reply.size() != 2 || reply.value("stage","") != "failed" ||
