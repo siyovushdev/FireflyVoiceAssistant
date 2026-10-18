@@ -549,3 +549,16 @@ test('M20 #33 R4 missing or changed state broker identity fails closed until exp
     assert.equal(observationFromMqttDraft(id, draft), undefined,
                  'disabling observation removes subscription without inventing a broker');
 });
+
+
+test('M20 #33 R4 wizard pins new subscription on the user enable event, not final Review', () => {
+    const code = readFileSync(
+        new URL('../src/components/MqttWizard.vue', import.meta.url), 'utf8');
+    assert.match(code, /function setObserving\(value: boolean\)/);
+    assert.match(code, /observeConnectionId\.value = pinMqttObservationConnection\(/);
+    assert.match(code, /@change="setObserving\(\(\$event\.target as HTMLSelectElement\)\.value === 'true'\)"/);
+    assert.match(code, /observeConnectionId = connection\.id">Перенести подписку на выбранный брокер/);
+    assert.match(code, /observation: observationFromMqttDraft\(id, draft\)/);
+    assert.doesNotMatch(code, /observationFromMqttDraft\(id, draft, connection\.value\.id\)/,
+        'the latest selected B must never be fallback for A during Review');
+});
