@@ -586,6 +586,8 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
                         explanation = "MQTT CONNECT не подтвердился до timeout. Доступность брокера не установлена.";
                     else if (result.code == "mqtt_probe_tls_configuration")
                         explanation = "Не удалось подготовить проверку TLS с системным хранилищем сертификатов.";
+                    else if (result.code == "mqtt_probe_worker_unavailable")
+                        explanation = "Отдельный MQTT probe helper отсутствует или не запускается. Проверьте комплектность сборки и права исполняемого файла.";
                     reply = failure(result.code, "/connection", explanation);
                 }
             } else {
