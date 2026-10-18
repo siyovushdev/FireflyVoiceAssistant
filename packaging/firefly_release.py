@@ -1392,7 +1392,7 @@ def stage_release(request: StageRequest) -> dict:
             if not (site / required).exists():
                 raise ReleaseError(f"wake site-packages is missing {required}")
         doc = release / "share/firefly/doc"
-        doc.mkdir(parents=True)
+        doc.mkdir(parents=True, exist_ok=True)
         for name in ("m18-relocatable-production-packaging.md", "m18-owner-acceptance-runbook.md"):
             source = request.source_root / "docs" / name
             require_regular_file(source, name)

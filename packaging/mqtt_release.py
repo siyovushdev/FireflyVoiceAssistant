@@ -114,6 +114,9 @@ def verify(release):
     """Verify every package ELF and resolve the complete closure in target userspace."""
     for base, directories, files in os.walk(release):
         for path in [Path(base), *(Path(base) / n for n in files)]:
+            if path.is_symlink():
+                r.wake_reference(release, path)  # Preserve the existing sole frozen-reference exception.
+                continue
             st = path.lstat()
             if st.st_uid not in (0, os.geteuid()) or st.st_mode & 0o6022:
                 raise r.ReleaseError("unsafe MQTT release mode/owner: " + str(path))

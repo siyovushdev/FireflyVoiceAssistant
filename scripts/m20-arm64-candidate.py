@@ -60,6 +60,8 @@ def sandbox(sdk, output):
             '--symlink', 'usr/lib', '/lib', '--symlink', 'usr/lib64', '/lib64',
             '--ro-bind', '/etc', '/etc', '--dev', '/dev', '--proc', '/proc', '--tmpfs', '/tmp',
             '--setenv', 'PATH', '/usr/bin:/bin', '--setenv', 'LD_LIBRARY_PATH', '/tool-libs',
+            '--setenv', 'GIT_CONFIG_NOSYSTEM', '1', '--setenv', 'GIT_CONFIG_GLOBAL', '/dev/null',
+            '--setenv', 'GIT_CONFIG_COUNT', '0', '--setenv', 'GIT_OPTIONAL_LOCKS', '0',
             '--setenv', 'PYTHONDONTWRITEBYTECODE', '1']
     for source, target, writable in [
             (sdk / 'toolchain', '/sdk', False), (sdk / 'rootfs', '/target', False),
@@ -68,20 +70,12 @@ def sandbox(sdk, output):
             (sdk / 'mosquitto-install', '/deps/mqtt', False),
             (sdk / 'mqtt-provenance.json', '/deps/mqtt-provenance.json', False),
             (sdk / 'cross.cmake', '/cross.cmake', False),
+            (sdk / 'frozen-m19/share/firefly/wake/amina-v3.tflite',
+             '/opt/firefly/voice-assistant/releases/grounding-818157ec-20261013T040322Z/share/firefly/wake/amina-v3.tflite', False),
             (output / 'source', '/src/firefly', False), (output / 'build', '/build/firefly', True),
             (output, '/work', True)]:
         args += ['--bind' if writable else '--ro-bind', str(source), target]
     return args
-
-
-def target_command(command):
-    args = ['/usr/bin/env', '-u', 'LD_LIBRARY_PATH', '-u', 'LD_PRELOAD',
-            'PROOT_TMP_DIR=/work/tmp', '/tools/usr/bin/proot', '-r', '/target',
-            '-q', '/tools/usr/bin/qemu-aarch64-static', '-w', '/work']
-    for path in ['/src/firefly', '/build/firefly', '/deps', '/sdk', '/target', '/work', '/proc', '/dev/null', '/dev/urandom']:
-        args += ['-b', path]
-    return args + ['/usr/bin/env', 'PYTHONDONTWRITEBYTECODE=1', 'PYTHONNOUSERSITE=1',
-                   'PATH=/usr/bin:/bin', *command]
 
 
 def main():
@@ -132,12 +126,15 @@ def main():
     flags = ['-DCMAKE_TOOLCHAIN_FILE=/cross.cmake', '-DCMAKE_BUILD_TYPE=Release', '-DBUILD_TESTING=ON',
              '-DFIREFLY_HOST_OFFLINE_TESTS=OFF', '-DFIREFLY_BUILD_ASSISTANT=ON', '-DFIREFLY_BUILD_VOICE=ON',
              '-DFIREFLY_BUILD_ADMIN=ON', '-DFIREFLY_BUILD_CONFIG_TOOLS=ON', '-DFIREFLY_ENABLE_MQTT=ON',
+             '-DFIREFLY_MQTT_NAMESPACE_TESTS=ON', '-DFIREFLY_TEST_MOSQUITTO_SERVER=/deps/mqtt/sbin/mosquitto',
              '-DFIREFLY_BUILD_LOCAL_MQTT_CONTROLLER=ON', '-DRKLLM_INCLUDE_DIR=/deps/include',
              '-DRKLLM_LIBRARY=/deps/frozen/lib/librkllmrt.so', '-DSHERPA_ONNX_ROOT=/deps/frozen',
              '-DSHERPA_ONNX_INCLUDE_DIR=/deps/include', '-DSHERPA_ONNX_LIBRARY=/deps/frozen/lib/libsherpa-onnx-c-api.so',
              '-DFIREFLY_ADMIN_DIST_DIR=/src/firefly/src/admin/frontend/dist',
              '-DFIREFLY_MOSQUITTO_INCLUDE_DIR=/deps/mqtt/include', '-DFIREFLY_MOSQUITTO_LIBRARY=/deps/mqtt/lib/libmosquitto.so',
              '-DFIREFLY_MQTT_PACKAGE_ROOT=/deps/mqtt', '-DFIREFLY_TLS_PACKAGE_ROOT=/target',
+             '-DFIREFLY_WAKE_PYTHON=/deps/frozen/share/firefly/wake/python/bin/python',
+             '-DFIREFLY_WAKE_MODEL_REFERENCE=/opt/firefly/voice-assistant/releases/grounding-818157ec-20261013T040322Z/share/firefly/wake/amina-v3.tflite',
              '-DFIREFLY_MQTT_PROVENANCE=/deps/mqtt-provenance.json']
     run('configure-arm64', box + ['--', 'cmake', '-S', '/src/firefly', '-B', '/build/firefly', *flags])
     run('build-arm64', box + ['--', 'cmake', '--build', '/build/firefly', '--parallel', '2'])
@@ -149,9 +146,11 @@ def main():
              '--onnx-library', '/deps/frozen/lib/libonnxruntime.so',
              '--wake-site-packages', '/deps/frozen/share/firefly/wake/python/lib/python3.10/site-packages',
              '--mqtt-root', '/deps/mqtt', '--tls-root', '/target', '--mqtt-provenance', '/deps/mqtt-provenance.json']
-    run('stage-candidate', box + ['--', *target_command(stage)])
-    run('verify-candidate', box + ['--', *target_command(['python3', '/src/firefly/scripts/stage-release.py',
-        'verify-candidate', '--destination', '/work/candidate', '--release-id', args.release_id])])
+    target = ['unshare', '-Ur', '-m', '--', sys.executable, str(Path(__file__).with_name('m20-arm64-target.py')),
+              '--sdk', str(sdk), '--output', str(output), '--host-user-ns', os.readlink('/proc/self/ns/user'), '--']
+    run('stage-candidate', target + stage)
+    run('verify-candidate', target + ['python3', '/src/firefly/scripts/stage-release.py',
+        'verify-candidate', '--destination', '/work/candidate', '--release-id', args.release_id])
     verify_sdk(sdk, args.sdk_manifest_sha256)
     if subprocess.check_output(['git', '-C', str(output / 'source'), 'status', '--porcelain'], text=True):
         raise ValueError('Build/staging mutated tracked source')
