@@ -22,6 +22,8 @@ UNITS = ("firefly-mqtt-broker.service", "firefly-mqtt-control.service", "firefly
 EXTRA_FILES = {
     *("bin/" + name for name in PROGRAMS), *("lib/" + name for name in LIBRARIES),
     "share/firefly/deployment/packaging/mqtt_release.py",
+    "share/firefly/deployment/packaging/firefly_checkpoint.py",
+    "share/firefly/deployment/scripts/config-checkpoint.py",
     "share/firefly/doc/m20-arm64-release-runbook.md", BASE + "provenance.json",
     BASE + "licenses/LICENSE-EDL-1.0.txt", BASE + "licenses/LICENSE-EPL-2.0.txt",
     BASE + "licenses/LICENSE.txt", BASE + "licenses/NOTICE.md",

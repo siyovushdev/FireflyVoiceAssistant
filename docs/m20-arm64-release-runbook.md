@@ -109,26 +109,106 @@ Actual systemd/reboot/account provisioning is not proven by an inert image.
 
 ## Activation and recovery window
 
-Use the existing `release-runner.py prepare` with a NEW root-private `/run`
-supervisor, exact approved commit/release/assets pin, fresh metadata-preserving
-ConfigStore backup and the fixed mandatory recovery fixtures. No old consumed
-or boot-bound plan is reusable. Preparation must establish old release and
-old-config compatibility BEFORE changing the active configuration contract.
+The release runner still owns code activation, its independent watchdog and
+240-second verification plus360-second recovery budgets. It never rewrites a
+ConfigStore. Config migration recovery is a separate checked **offline** operation
+below; never ask the old binary to serve an MQTT-bearing history. Keep the old
+M19 release/config binary and the original Amina anchor indefinitely.
 
-Activation requires another explicit owner window and the runner's existing
-`run --owner-authorization URL`. Preserve the independent timer/service,
-240-second verification plus360-second recovery budgets, one-use plan and
-systemd supervision gate. Confirm empty old service cgroup and exclusive
-NPU/microphone ownership before any switch. Do not start a second owner.
+### Checkpoint → prepare → activation eligibility
 
-Keep the pre-M20 M19-readable configuration backup and its hashes/metadata.
-An M19 binary may reject an active MQTT mapping despite schema_version2; schema
-number alone is insufficient rollback proof. Before rollback from a later MQTT
-configuration, restore/reconcile the approved M19-readable snapshot using the
-existing checked recovery/ConfigStore operation, never raw overwrite or history
-deletion. Test that exact snapshot with the old config tool. If this cannot be
-proven before activation, BLOCK the window. Do not enable new MQTT mappings
-until the candidate's owner acceptance and the rollback checkpoint are ready.
+Before the first MQTT mapping is saved/applied, create a persistent root-private
+checkpoint outside `/run` and outside the store. This copies the **whole** tree:
+current, `.lock`, every backup, LKG marker and snapshot, and other metadata,
+preserving paths, bytes, SHA256, ownership, modes and mtime. ConfigStore's existing
+exclusive lock prevents interleaved Save/Apply/LKG writes during copying. Pending
+transactions, symlinks, hardlinks, unsafe permissions or any unstable copy reject
+publication. No input file is created, reconciled or overwritten.
+
+In a separately authorized owner preparation window (commands are instructions,
+not actions performed by this candidate gate):
+
+```sh
+# Persist both the checkpoint directory AND the printed pin in protected evidence.
+# M19_CONFIG is the preserved immutable original M19 bin/firefly-config.
+python3 "$SOURCE/scripts/config-checkpoint.py" create \
+  --store /var/lib/firefly/store --checkpoint "$NEW_PERSISTENT_CHECKPOINT" \
+  --m19-config "$M19_CONFIG"
+python3 "$SOURCE/scripts/config-checkpoint.py" verify \
+  --checkpoint "$NEW_PERSISTENT_CHECKPOINT" --checkpoint-pin "$CHECKPOINT_PIN" \
+  --m19-config "$M19_CONFIG"
+python3 "$SOURCE/scripts/release-runner.py" prepare \
+  --source "$SOURCE" --approved-commit "$APPROVED_HEAD" --new-release "$NEW_RELEASE" \
+  --root "$NEW_RUN_BUNDLE" --approved-admin-assets-sha256 "$APPROVED_ASSETS" \
+  --m19-checkpoint "$NEW_PERSISTENT_CHECKPOINT" --m19-checkpoint-pin "$CHECKPOINT_PIN" \
+  --m19-config "$M19_CONFIG"
+```
+
+Verification runs the **actual pinned M19** on a disposable cloned store:
+`audit`, `current`, `reconcile`, `revisions`, inspect every history/LKG document,
+validate LKG revision/hash, CAS Save, history read and CAS Restore, then audit and
+history again. Original snapshot bytes/metadata remain unchanged. A successful
+`audit` alone is insufficient. Before initial M19→M20 preparation the current
+whole-store inventory must still equal the checkpoint; otherwise create a NEW
+checkpoint and repeat preparation. The pin and M19 executable SHA are frozen in
+the runner plan. Preparation uses the complete private packaging module bundle,
+ordinary production manifest verification and the frozen-artifact preservation
+gate. Missing/corrupt modules or checkpoint errors abort before PREPARED/cutover.
+
+Code activation requires its own explicit owner window and existing
+`run --owner-authorization URL`; no consumed/boot-bound plan is reusable. Do not
+save/Apply MQTT until independent package acceptance, owner activation gates and
+the durable verified checkpoint exist. Preserve supervision, empty old cgroup,
+exclusive NPU/microphone ownership, model identities, unit and flags.
+
+### Whole-store rollback after MQTT Save/Apply
+
+A current-only `restore --revision` is **not** rollback: MQTT documents remain in
+backups and make old M19 revisions/CAS fail. In a separately owner-authorized
+recovery window:
+
+1. Keep commands closed; use existing supervised shutdown/resource-quiescence
+   procedure. Confirm voice unit inactive, MainPID0, empty complete cgroup and no
+   other store writers. Do not switch to/start M19 over a running M20 store.
+2. Verify the preserved checkpoint with its external pin and exact original M19
+   executable. Preserve the newer store; never delete MQTT history or edit schema.
+3. Choose a NEW root-private transaction **sibling** of `/var/lib/firefly/store`,
+   on the same filesystem. Run the checked helper below. It prepares and verifies
+   the complete old tree, writes/fsyncs a journal, atomically exchanges directories
+   with Linux `RENAME_EXCHANGE` (no non-atomic fallback), fsyncs both parents, and
+   retains the entire newer M20 store as `TRANSACTION/preserved-store`. It does not
+   stop/start any service or switch any release pointer.
+
+```sh
+env FIREFLY_OWNER_ACCEPTED=1 python3 "$SOURCE/scripts/config-checkpoint.py" restore \
+  --store /var/lib/firefly/store --checkpoint "$NEW_PERSISTENT_CHECKPOINT" \
+  --checkpoint-pin "$CHECKPOINT_PIN" --m19-config "$M19_CONFIG" \
+  --transaction "$NEW_SIBLING_TRANSACTION"
+```
+
+4. Require `RESTORED_VERIFIED` and `VERIFIED.json`. The real M19 full history/CAS/
+   restore proof must pass; exact checkpoint inventory and preserved M20 inventory
+   must match their journal hashes/metadata. Retain checkpoint, transaction,
+   newer-store history and external pins indefinitely for analysis/return to M20.
+   The checkpoint's revision intentionally resumes its original CAS epoch; no
+   client or runtime generation may remain alive across this offline rollback.
+5. Prepare a **fresh** existing supervised M19 recovery/release plan against the
+   restored store and exact pinned release. Only existing owner-authorized
+   controller/bootstrap/readiness gates may switch/start M19. Verify old `audit`,
+   `current`, `revisions`, history reads and ordinary CAS editing. Do not reuse the
+   pre-MQTT runner's stored status/hash baseline or reset an old watchdog deadline.
+
+On crash/failure keep service stopped. The journal distinguishes pre/post-exchange
+by exact tree inventories, not a possibly stale phase bit. Retry the SAME
+transaction after interrupted exchange; it completes preservation/proof without
+exchanging again. After VERIFIED a retry validates the archive and M19 semantics,
+allowing legitimate subsequent M19 revisions. Incomplete/corrupt staging or
+external edits fail closed: retain it as evidence and use a NEW transaction only
+if the original current tree is still intact. Missing/corrupt checkpoint,
+unsupported atomic exchange, wrong pin, metadata or history errors mean BLOCKED;
+never raw-overwrite, remove backups or start the old service to force PASS.
+Full power-loss durability depends on the target filesystem honoring fsync;
+process-crash/system-VM fixtures are not a real Firefly power-cut qualification.
 
 Forward failure/agent loss leaves the independent watchdog responsible for
 restoring the pinned old release/configuration and fresh readiness gates.

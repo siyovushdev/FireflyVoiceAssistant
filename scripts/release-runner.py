@@ -68,7 +68,9 @@ def prepare_files(root, source):
         target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         shutil.copyfile(source / name, target)
         target.chmod(0o600)
-    for name in ['scripts/stage-release.py', 'packaging/__init__.py', 'packaging/firefly_release.py']:
+    for name in ['scripts/stage-release.py', 'packaging/__init__.py', 'packaging/firefly_release.py',
+                 'packaging/mqtt_release.py', 'packaging/firefly_checkpoint.py',
+                 'scripts/config-checkpoint.py']:
         target = root / 'tools' / name
         target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         shutil.copyfile(source / name, target)
@@ -104,7 +106,54 @@ def approved_assets(candidate, previous, approved, built_assets):
     return approved
 
 
-def prepare(root, source, commit, release, approved_admin_assets_sha256=None):
+def preservation_contract(old, new, old_release, new_release):
+    """Frozen bytes/properties and actual modes; only three explicit MQTT additions.
+
+    Legacy M19 manifests lack mode metadata. In that case the previously verified
+    immutable release is the mode authority, never an inferred filename policy.
+    Both trees have already passed ordinary production verification.
+    """
+    def protected(document):
+        result = {}
+        for entry in document['artifacts']:
+            name = entry['path']
+            if name.startswith(('lib/', 'share/firefly/wake/', 'share/firefly/config/',
+                                'share/firefly/systemd/')):
+                if name in result:
+                    raise RuntimeError('Frozen contract changed: duplicate path')
+                result[name] = entry
+        return result
+    before, after = protected(old), protected(new)
+    additions = set(after) - set(before)
+    permitted = {'lib/libmosquitto.so.1', 'lib/libssl.so.3', 'lib/libcrypto.so.3'}
+    mqtt_transition = not old.get('mqtt', {}).get('enabled') and new.get('mqtt', {}).get('enabled') is True
+    if (set(before) - set(after) or additions != (permitted if mqtt_transition else set())
+            or old['shared_models'] != new['shared_models']):
+        raise RuntimeError('Voice/libraries/unit/seed/shared-model contract changed')
+    for name, entry in after.items():
+        # The ordinary verifier also validates paths, bytes, references and owners.
+        # Preserve every legacy property, accepting only additive mode metadata.
+        mode = (new_release / name).stat().st_mode & 0o7777
+        if mode not in (0o644, 0o755) or ('mode' in entry and
+                (type(entry['mode']) is not int or entry['mode'] != mode)):
+            raise RuntimeError('Frozen contract changed: unsafe/mismatched mode: ' + name)
+        if new.get('mqtt', {}).get('enabled') is True and 'mode' not in entry:
+            raise RuntimeError('Frozen contract changed: missing MQTT artifact mode: ' + name)
+        if name in additions:
+            if mode != 0o755:
+                raise RuntimeError('Frozen contract changed: MQTT library mode: ' + name)
+            continue
+        previous = before[name]
+        previous_mode = (old_release / name).stat().st_mode & 0o7777
+        if (previous_mode != mode or ('mode' in previous and
+                (type(previous['mode']) is not int or previous['mode'] != previous_mode))
+                or {k: v for k, v in previous.items() if k != 'mode'} !=
+                   {k: v for k, v in entry.items() if k != 'mode'}):
+            raise RuntimeError('Voice/libraries/unit/seed/shared-model contract changed: ' + name)
+
+
+def prepare(root, source, commit, release, approved_admin_assets_sha256=None,
+            m19_checkpoint=None, m19_checkpoint_pin=None, m19_config=None):
     # Build, full application tests and immutable staging/install use the existing
     # packaging runbook before this non-disruptive preparation entry point.
     if (root.parent != Path('/run') or root.exists() or source.resolve() != source
@@ -134,12 +183,20 @@ def prepare(root, source, commit, release, approved_admin_assets_sha256=None):
                                  package.admin_assets_fingerprint(source / 'build') if approved_admin_assets_sha256 else None)
     documents = {target: json.loads((prefix / 'releases' / target / 'manifest.json').read_bytes())
                  for target in [old, release]}
-    def preserved(document):
-        return {a['path']: a for a in document['artifacts']
-                if a['path'].startswith(('lib/', 'share/firefly/wake/', 'share/firefly/config/', 'share/firefly/systemd/'))}
-    if (preserved(documents[old]) != preserved(documents[release])
-            or documents[old]['shared_models'] != documents[release]['shared_models']):
-        raise RuntimeError('Voice/libraries/unit/seed/shared-model contract changed')
+    preservation_contract(documents[old], documents[release],
+                          prefix / 'releases' / old, prefix / 'releases' / release)
+    checkpoint = None
+    if documents[release].get('mqtt', {}).get('enabled') is True:
+        if not (m19_checkpoint and m19_checkpoint_pin and m19_config):
+            raise RuntimeError('MQTT preparation requires a complete verified M19 checkpoint')
+        if Path('/run') in m19_checkpoint.parents:
+            raise RuntimeError('M19 checkpoint must persist across reboot, outside /run')
+        helper = load(root / 'tools/packaging/firefly_checkpoint.py')
+        receipt = helper.verify(m19_checkpoint, m19_config, m19_checkpoint_pin)
+        if not documents[old].get('mqtt', {}).get('enabled') and helper.inventory(store) != receipt['tree']:
+            raise RuntimeError('M19 store changed since checkpoint; prepare a fresh checkpoint')
+        checkpoint = dict(path=str(m19_checkpoint), pin=m19_checkpoint_pin,
+                          m19_config=str(m19_config), binary_sha256=receipt['proof']['binary_sha256'])
     command(root, ['cp', '-a', str(store), str(root / 'backup-store')])
     with urllib.request.urlopen('http://127.0.0.1:8080/api/status', timeout=3) as response:
         status = json.load(response)
@@ -148,6 +205,7 @@ def prepare(root, source, commit, release, approved_admin_assets_sha256=None):
     write(root / 'production-before.json', before)
     now = time.monotonic()
     plan = dict(old=old, new=release, backup_store=str(root / 'backup-store'), identities=identities,
+                m19_checkpoint=checkpoint,
                 approved_admin_assets_sha256=assets_pin,
                 binary_sha256={target: m.sha(prefix / 'releases' / target / 'bin/firefly-demo') for target in [old, release]},
                 worker_unit=root.name + '-forward.service', rollback_unit=root.name + '-rollback.service',
@@ -214,6 +272,10 @@ def run(root, authorization):
     result = None
     try:
         ops.operation_deadline = time.monotonic() + 30  # Only old read-only gates before arm.
+        checkpoint = plan.get('m19_checkpoint')
+        if checkpoint:
+            helper = load(root / 'tools/packaging/firefly_checkpoint.py')
+            helper.verify(Path(checkpoint['path']), Path(checkpoint['m19_config']), checkpoint['pin'])
         ops.record('runner-before-arm', ops.gates(plan['old']))
         ops = arm(ops, authorization)
         plan = ops.plan
@@ -276,13 +338,17 @@ def main():
     prep.add_argument('--new-release', required=True)
     prep.add_argument('--root', type=Path, required=True)
     prep.add_argument('--approved-admin-assets-sha256')
+    prep.add_argument('--m19-checkpoint', type=Path)
+    prep.add_argument('--m19-checkpoint-pin')
+    prep.add_argument('--m19-config', type=Path)
     execute = sub.add_parser('run')
     execute.add_argument('root', type=Path)
     execute.add_argument('--owner-authorization', required=True)
     args = parser.parse_args()
     if args.mode == 'prepare':
         try:
-            prepare(args.root, args.source, args.approved_commit, args.new_release, args.approved_admin_assets_sha256)
+            prepare(args.root, args.source, args.approved_commit, args.new_release, args.approved_admin_assets_sha256,
+                    args.m19_checkpoint, args.m19_checkpoint_pin, args.m19_config)
         except Exception as error:
             print(json.dumps({'result': 'ABORTED_BEFORE_CUTOVER', 'phase': 'prepare', 'error': repr(error)}))
             return 1

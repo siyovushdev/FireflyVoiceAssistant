@@ -18,6 +18,56 @@ runner = importlib.util.module_from_spec(spec); spec.loader.exec_module(runner)
 
 
 class RunnerTests(unittest.TestCase):
+    def test_private_bundle_packaging_imports_and_missing_corrupt_module_failures(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / 'bundle'
+            runner.prepare_files(root, SOURCE)
+            tools = root / 'tools'
+            code = ('import sys; sys.path.insert(0, sys.argv[1]); '
+                    'from packaging import firefly_release, mqtt_release, firefly_checkpoint; '
+                    'assert mqtt_release.r is firefly_release')
+            argv = ['/usr/bin/python3', '-I', '-B', '-c', code, str(tools)]
+            self.assertEqual(subprocess.run(argv, cwd=tmp, capture_output=True).returncode, 0)
+            module = tools / 'packaging/mqtt_release.py'
+            contents = module.read_bytes()
+            module.unlink()
+            self.assertNotEqual(subprocess.run(argv, cwd=tmp, capture_output=True).returncode, 0)
+            module.write_text('invalid python module @@@')
+            self.assertNotEqual(subprocess.run(argv, cwd=tmp, capture_output=True).returncode, 0)
+            module.write_bytes(contents)
+            self.assertEqual(subprocess.run(argv, cwd=tmp, capture_output=True).returncode, 0)
+
+    def test_preservation_exact_frozen_properties_actual_modes_and_explicit_additions(self):
+        import copy
+        with tempfile.TemporaryDirectory() as tmp:
+            before, after = Path(tmp) / 'old', Path(tmp) / 'new'
+            entry = dict(path='lib/frozen.so', bytes=6, sha256='a' * 64)
+            old = dict(artifacts=[entry], shared_models=[dict(path='models/frozen', sha256='b' * 64)])
+            new = copy.deepcopy(old); new['mqtt'] = dict(enabled=True)
+            new['artifacts'][0]['mode'] = 0o755
+            for name in ['libmosquitto.so.1', 'libssl.so.3', 'libcrypto.so.3']:
+                new['artifacts'].append(dict(path='lib/' + name, bytes=7, sha256='c' * 64, mode=0o755))
+            for tree, doc in [(before, old), (after, new)]:
+                (tree / 'lib').mkdir(parents=True)
+                for e in doc['artifacts']:
+                    (tree / e['path']).write_bytes(b'frozen'); (tree / e['path']).chmod(0o755)
+            runner.preservation_contract(old, new, before, after)
+            for fault in ['sha256', 'bytes', 'property', 'remove', 'extra', 'shared', 'missing_mode', 'mode', 'actual_mode', 'duplicate']:
+                with self.subTest(fault=fault):
+                    bad = copy.deepcopy(new)
+                    if fault in ['sha256', 'bytes']: bad['artifacts'][0][fault] = 'changed'
+                    elif fault == 'property': bad['artifacts'][0]['shared'] = True
+                    elif fault == 'remove': bad['artifacts'].pop(0)
+                    elif fault == 'extra': bad['artifacts'].append(dict(path='lib/unknown.so'))
+                    elif fault == 'shared': bad['shared_models'][0]['sha256'] = 'changed'
+                    elif fault == 'missing_mode': bad['artifacts'][0].pop('mode')
+                    elif fault == 'mode': bad['artifacts'][0]['mode'] = 0o644
+                    elif fault == 'actual_mode': (after / entry['path']).chmod(0o6755)
+                    else: bad['artifacts'].append(copy.deepcopy(bad['artifacts'][0]))
+                    with self.assertRaisesRegex(RuntimeError, 'contract changed'):
+                        runner.preservation_contract(old, bad, before, after)
+                    (after / entry['path']).chmod(0o755)
+
     def test_new_assets_require_exact_approved_and_rebuilt_fingerprint(self):
         old, new = 'a' * 64, 'b' * 64
         self.assertEqual(runner.approved_assets(new, old, new, new), new)
@@ -66,8 +116,9 @@ class RunnerTests(unittest.TestCase):
                 (prefix / 'releases').mkdir(parents=True)
                 for release in ['old', 'new']:
                     tree = prefix / 'releases' / release; tree.mkdir()
+                    (tree / 'lib').mkdir(); (tree / 'lib/fixture').write_text('frozen!'); (tree / 'lib/fixture').chmod(0o644)
                     (tree / 'bin').mkdir(); (tree / 'bin/firefly-demo').write_text('FILE_ONLY fake binary; never executed')
-                    runner.write(tree / 'manifest.json', {'artifacts': [{'path': 'lib/fixture', 'sha256': 'same'}], 'shared_models': []})
+                    runner.write(tree / 'manifest.json', {'artifacts': [{'path': 'lib/fixture', 'sha256': 'same', 'bytes': 7}], 'shared_models': []})
                 (prefix / 'current').symlink_to('releases/old')
                 if fault == 'voice':
                     runner.write(prefix / 'releases/new/manifest.json', {'artifacts': [], 'shared_models': []})

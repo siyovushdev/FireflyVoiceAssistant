@@ -269,8 +269,10 @@ if(TARGET firefly-demo)
                 PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
                 COMPONENT firefly-runtime)
         endforeach()
-        install(FILES packaging/mqtt_release.py
+        install(FILES packaging/mqtt_release.py packaging/firefly_checkpoint.py
             DESTINATION "${CMAKE_INSTALL_DATADIR}/firefly/deployment/packaging" COMPONENT firefly-runtime)
+        install(FILES scripts/config-checkpoint.py
+            DESTINATION "${CMAKE_INSTALL_DATADIR}/firefly/deployment/scripts" COMPONENT firefly-runtime)
     endif()
     install(PROGRAMS scripts/stage-release.py
         DESTINATION "${CMAKE_INSTALL_DATADIR}/firefly/deployment/scripts" COMPONENT firefly-runtime)
