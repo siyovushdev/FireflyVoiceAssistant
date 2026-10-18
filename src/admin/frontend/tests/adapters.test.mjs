@@ -6,7 +6,7 @@ import { devices, zones, properties, sameGeneration } from '../.test-build/adapt
 import { createSystemStore } from '../.test-build/stores/system.js';
 import { newMqttConnection, defaultMqttMapping, projectConnectivity, projectMqttWizard, readableDiff,
     consumers, connectionActionSummary, connectionObservationSummary } from '../.test-build/adapters/editing.js';
-import { MqttDeviceDrafts, observationFromMqttDraft } from '../.test-build/adapters/mqttDeviceDrafts.js';
+import { MqttDeviceDrafts, observationFromMqttDraft, pinMqttObservationConnection } from '../.test-build/adapters/mqttDeviceDrafts.js';
 
 const fixture = JSON.parse(readFileSync(new URL('../../../../tests/admin/v2/system.json', import.meta.url)));
 const catalog = () => ({ ok: true, configuration: structuredClone(fixture), hash: 'a'.repeat(64), revision: 1, generation_id: 3 });
@@ -378,7 +378,7 @@ test('M20 MQTT R2 retains per-device unsaved topic and observation across Aâ†’Bâ
             config: candidate, connection: selected, local: false,
             host: '127.0.0.1', port: 1884, tls: false, credentialsId: '',
             targetId: id, mappings: draft.mappings,
-            observation: observationFromMqttDraft(id, draft, selected.id),
+            observation: observationFromMqttDraft(id, draft),
             replaceOtherObservation: draft.observing && draft.replaceOtherObservation
         });
     }
@@ -406,6 +406,8 @@ test('M20 MQTT R2 preserves partially edited JSON observation and never rewrites
     const untouchedB = stash.restore(idB);
     stash.remember(idB, untouchedB); // merely visiting must not modify it
     const editedA = stash.restore(idA);
+    editedA.observeConnectionId = pinMqttObservationConnection(
+        editedA.observeConnectionId, 'broker_a');
     editedA.observing = true;
     editedA.observation.format = 'json';
     editedA.observation.topic = 'state/new';
@@ -416,7 +418,7 @@ test('M20 MQTT R2 preserves partially edited JSON observation and never rewrites
     assert.deepEqual(stash.changed(idB, untouchedB).map(([id]) => id), [idA],
                      'untouched B excluded from Review projection');
     assert.deepEqual(base.observations[0].mqtt.vendor_mapping, unknownFuture.vendor_mapping);
-    assert.deepEqual(observationFromMqttDraft(idA, editedA, 'broker_a').fields,
+    assert.deepEqual(observationFromMqttDraft(idA, editedA).fields,
                      { on: 'power' });
 });
 
