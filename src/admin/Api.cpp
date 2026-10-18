@@ -572,8 +572,21 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
                              {"published",false},{"subscribed",false}};
                 } else {
                     status = result.code == "mqtt_probe_busy" ? 409 : 422;
-                    reply = failure(result.code, "/connection",
-                        "MQTT CONNECT was unavailable, rejected or not verified. No MQTT commands or subscriptions were sent.");
+                    std::string explanation =
+                        "MQTT CONNECT не подтверждён. Проверьте адрес, сеть, TLS-сертификат и учётные данные; команды устройству не отправлялись.";
+                    if (result.code == "mqtt_probe_busy")
+                        explanation = "Другая MQTT-проверка уже выполняется. Повторите позже.";
+                    else if (result.code == "mqtt_unavailable")
+                        explanation = "MQTT не включён в эту сборку Firefly. Нужна сборка с libmosquitto.";
+                    else if (result.code.rfind("mqtt_credentials_", 0) == 0)
+                        explanation = "Защищённый MQTT-секрет отсутствует, повреждён или недоступен.";
+                    else if (result.code == "mqtt_probe_auth_rejected")
+                        explanation = "MQTT-брокер отклонил CONNECT: проверьте логин, пароль и правила авторизации.";
+                    else if (result.code == "mqtt_probe_timeout")
+                        explanation = "MQTT CONNECT не подтвердился до timeout. Доступность брокера не установлена.";
+                    else if (result.code == "mqtt_probe_tls_configuration")
+                        explanation = "Не удалось подготовить проверку TLS с системным хранилищем сертификатов.";
+                    reply = failure(result.code, "/connection", explanation);
                 }
             } else {
                 const auto result = execution::HttpHardwareExecutor::testConnection(connection);
