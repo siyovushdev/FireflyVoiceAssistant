@@ -6,12 +6,14 @@ export function mqttProbeFingerprint(connection: ConnectionDto, host: string,
                             credentials_id: credentialsId.trim() });
 }
 
-export function mqttProbeConfirmed(reply: Record<string, unknown>,
+export function mqttProbeConfirmed(reply: unknown,
                                    tls: boolean, credentialsId: string): boolean {
-    return reply.ok === true && reply.transport === 'mqtt' &&
-        reply.scope === 'mqtt_connack_only' && reply.connack_accepted === true &&
-        reply.tls_verified === tls &&
-        reply.credentials_accepted === Boolean(credentialsId.trim()) &&
-        reply.saved === false && reply.applied === false &&
-        reply.published === false && reply.subscribed === false;
+    if (!reply || typeof reply !== 'object' || Array.isArray(reply)) return false;
+    const result = reply as Record<string, unknown>;
+    return result.ok === true && result.transport === 'mqtt' &&
+        result.scope === 'mqtt_connack_only' && result.connack_accepted === true &&
+        result.tls_verified === tls &&
+        result.credentials_accepted === Boolean(credentialsId.trim()) &&
+        result.saved === false && result.applied === false &&
+        result.published === false && result.subscribed === false;
 }
