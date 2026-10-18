@@ -5,7 +5,7 @@ import { clone, consumers, defaultMqttMapping, newMqttConnection, projectMqttWiz
     connectionActionSummary, connectionObservationSummary, type Mutable } from '../adapters/editing.js';
 import type { BindingDto, ConnectionDto, MqttObservationDto, ConfigurationDto } from '../types/wire.js';
 import { MqttDeviceDrafts, initialMqttDeviceDraft, observationFromMqttDraft,
-    type MqttDeviceDraft } from '../adapters/mqttDeviceDrafts.js';
+    pinMqttObservationConnection, type MqttDeviceDraft } from '../adapters/mqttDeviceDrafts.js';
 import TaskErrors from './forms/TaskErrors.vue';
 import { adminRequest, issuesOf, type Issue } from '../api/admin.js';
 
@@ -109,6 +109,15 @@ watch(targetId, (next, previous) => {
     deviceDrafts.remember(previous, currentDeviceDraft());
     loadDevice(next);
 }, { flush: 'sync' });
+function setObserving(value: boolean) {
+    // This is called only for a USER change of the observation toggle, never
+    // while restoring an existing device draft. The selected broker belongs
+    // to the new subscription from this moment onward.
+    if (value)
+        observeConnectionId.value = pinMqttObservationConnection(
+            observeConnectionId.value, connection.value.id);
+    observing.value = value;
+}
 function toggle(actionId: string, enabled: boolean) {
     if (!enabled) { mappings.value = mappings.value.filter(m => m.action_id !== actionId); return; }
     const action = actions.value.find(a => a.id === actionId);
@@ -145,6 +154,8 @@ function validate(): boolean {
             issue('Параметризованные MQTT-действия пока не поддерживаются.');
     }
     if (step.value === 3 && observing.value) {
+        if (!observeConnectionId.value)
+            issue('Для подписки на состояние требуется закреплённый MQTT-брокер.');
         if (otherObservation.value && !replaceOtherObservation.value)
             issue('Для замены чтения состояния другого протокола требуется явное подтверждение.');
         if (!observation.value.topic.trim()) issue('Укажите topic состояния.');
@@ -174,7 +185,7 @@ function project(): Mutable<ConfigurationDto> {
             local: local.value, host: host.value, port: port.value,
             tls: tls.value, credentialsId: credentials.value,
             targetId: id, mappings: draft.mappings,
-            observation: observationFromMqttDraft(id, draft, connection.value.id),
+            observation: observationFromMqttDraft(id, draft),
             replaceOtherObservation: draft.observing && draft.replaceOtherObservation
         });
     }
@@ -193,19 +204,23 @@ function validateEditedDevices(): boolean {
             editorStep = 2;
             message = 'Исправьте topic/QoS или неподдерживаемое действие.';
         } else if (draft.observing) {
+            if (!draft.observeConnectionId) {
+                editorStep = 3;
+                message = 'Новая подписка не закреплена за MQTT-брокером.';
+            }
             const conflict = config.observations?.some(o =>
                 o.target_id === id && o.executor !== 'mqtt');
-            if (conflict && !draft.replaceOtherObservation) {
+            if (!editorStep && conflict && !draft.replaceOtherObservation) {
                 editorStep = 3;
                 message = 'Подтвердите замену существующего чтения состояния.';
-            } else if (!draft.observation.topic?.trim() ||
+            } else if (!editorStep && (!draft.observation.topic?.trim() ||
                 (draft.observation.format === 'text'
                     ? !draft.observation.field || !draft.observation.true_payload ||
                       !draft.observation.false_payload ||
                       draft.observation.true_payload === draft.observation.false_payload
                     : !draft.fields.length ||
                       draft.fields.some(([key, field]) => !key.trim() || !field) ||
-                      new Set(draft.fields.map(([key]) => key)).size !== draft.fields.length)) {
+                      new Set(draft.fields.map(([key]) => key)).size !== draft.fields.length))) {
                 editorStep = 3;
                 message = 'Завершите настройку MQTT-подписки и полей состояния.';
             }
@@ -310,7 +325,8 @@ async function finish() {
     <p class="muted">MVP — фиксированные payload, без динамических подстановок параметров действия.</p>
   </div>
   <div v-if="step === 3">
-    <label>Подписка на состояние<select v-model="observing" :disabled="!targetId">
+    <label>Подписка на состояние<select v-model="observing" :disabled="!targetId"
+       @change="setObserving(($event.target as HTMLSelectElement).value === 'true')">
       <option :value="false">Без чтения состояния</option><option :value="true">Подписаться на topic</option>
     </select></label>
     <template v-if="observing">
@@ -318,6 +334,9 @@ async function finish() {
         Сейчас состояние читается через {{ otherObservation.executor?.toUpperCase() ?? 'Другой протокол' }}.
         <label class="check"><input v-model="replaceOtherObservation" type="checkbox" />
           Заменить существующее чтение состояния на MQTT (явное подтверждение)</label>
+      </p>
+      <p v-if="observeConnectionId && observeConnectionId === connection.id" class="muted">
+        Подписка закреплена за брокером {{ connection.name }}. Последующее редактирование других устройств не меняет её брокер.
       </p>
       <p v-if="observeConnectionId && observeConnectionId !== connection.id" class="notice">
         Подписка остаётся на брокере {{ config.connections?.find(c => c.id === observeConnectionId)?.name ?? observeConnectionId }}.
