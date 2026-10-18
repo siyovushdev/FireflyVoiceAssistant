@@ -60,6 +60,9 @@ def request(destination, release_id, **overrides):
         commit="",
         runtime_prefix="",
         production=False,
+        mqtt_root=Path(ARGS["mqtt-root"]) if ARGS.get("mqtt-root") else None,
+        tls_root=Path(ARGS["tls-root"]) if ARGS.get("tls-root") else None,
+        mqtt_provenance=Path(ARGS["mqtt-provenance"]) if ARGS.get("mqtt-provenance") else None,
     )
     for key, value in overrides.items():
         setattr(base, key, value)

@@ -34,6 +34,9 @@ if(BUILD_TESTING)
     add_test(NAME InstalledModelReferences COMMAND "${Python3_EXECUTABLE}"
         "${PROJECT_SOURCE_DIR}/tests/InstalledModelReferenceTests.py")
     set_tests_properties(InstalledModelReferences PROPERTIES TIMEOUT 60)
+    add_test(NAME MqttReleaseContract COMMAND "${Python3_EXECUTABLE}"
+        "${PROJECT_SOURCE_DIR}/tests/MqttReleaseTests.py")
+    set_tests_properties(MqttReleaseContract PROPERTIES TIMEOUT 60)
 endif()
 option(FIREFLY_BUILD_CONFIG_TOOLS "Build offline configuration tools and tests" OFF)
 add_library(firefly_legacy_compact src/legacy/Action.cpp src/legacy/ActionValidator.cpp)
@@ -255,12 +258,38 @@ if(TARGET firefly-demo)
     target_compile_definitions(firefly-config PRIVATE FIREFLY_CONFIG_BUILD_IDENTITY)
     target_include_directories(firefly-config PRIVATE "${PROJECT_BINARY_DIR}/src/admin")
     install(TARGETS firefly-config RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}" COMPONENT firefly-runtime)
+    if(FIREFLY_ENABLE_MQTT)
+        # Both supervisors resolve fixed siblings through /proc/self/exe.
+        # Install the real runtime helpers, never the test adapters.
+        foreach(mqtt_program firefly-admin firefly-admin-runtime
+                firefly-mqtt-probe-worker firefly-mqtt-publish-worker)
+            set_target_properties(${mqtt_program} PROPERTIES
+                INSTALL_RPATH "\$ORIGIN/../lib" INSTALL_RPATH_USE_LINK_PATH OFF)
+            install(TARGETS ${mqtt_program} RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+                PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
+                COMPONENT firefly-runtime)
+        endforeach()
+        install(FILES packaging/mqtt_release.py
+            DESTINATION "${CMAKE_INSTALL_DATADIR}/firefly/deployment/packaging" COMPONENT firefly-runtime)
+    endif()
     install(PROGRAMS scripts/stage-release.py
         DESTINATION "${CMAKE_INSTALL_DATADIR}/firefly/deployment/scripts" COMPONENT firefly-runtime)
     install(FILES packaging/__init__.py packaging/firefly_release.py
         DESTINATION "${CMAKE_INSTALL_DATADIR}/firefly/deployment/packaging" COMPONENT firefly-runtime)
 endif()
 if(BUILD_TESTING AND FIREFLY_BUILD_VOICE AND FIREFLY_BUILD_ASSISTANT AND TARGET firefly-demo)
+    set(FIREFLY_MQTT_PACKAGE_ROOT "" CACHE PATH "Offline Mosquitto2.0.18 prefix for package tests")
+    set(FIREFLY_TLS_PACKAGE_ROOT "" CACHE PATH "Offline Ubuntu22.04 aarch64 TLS sysroot for package tests")
+    set(FIREFLY_MQTT_PROVENANCE "" CACHE FILEPATH "Verified offline MQTT dependency provenance")
+    set(FIREFLY_MQTT_PACKAGE_ARGUMENTS "")
+    if(FIREFLY_ENABLE_MQTT)
+        if(NOT FIREFLY_MQTT_PACKAGE_ROOT OR NOT FIREFLY_TLS_PACKAGE_ROOT OR NOT FIREFLY_MQTT_PROVENANCE)
+            message(FATAL_ERROR "MQTT production packaging tests require explicit offline MQTT/TLS roots and provenance")
+        endif()
+        list(APPEND FIREFLY_MQTT_PACKAGE_ARGUMENTS
+            --mqtt-root "${FIREFLY_MQTT_PACKAGE_ROOT}" --tls-root "${FIREFLY_TLS_PACKAGE_ROOT}"
+            --mqtt-provenance "${FIREFLY_MQTT_PROVENANCE}")
+    endif()
     set(FIREFLY_PACKAGING_WAKE_SITE "")
     if(FIREFLY_WAKE_PYTHON)
         get_filename_component(FIREFLY_WAKE_BIN_DIR "${FIREFLY_WAKE_PYTHON}" DIRECTORY)
@@ -279,8 +308,8 @@ if(BUILD_TESTING AND FIREFLY_BUILD_VOICE AND FIREFLY_BUILD_ASSISTANT AND TARGET 
         "--sherpa-library" "${SHERPA_ONNX_LIBRARY}"
         "--onnx-library" "${SHERPA_ONNX_ROOT}/lib/libonnxruntime.so"
         "--wake-site" "${FIREFLY_PACKAGING_WAKE_SITE}"
-        "--config-tool" "$<TARGET_FILE:firefly-config>")
-    set_tests_properties(ProductionPackaging PROPERTIES TIMEOUT 300)
+        "--config-tool" "$<TARGET_FILE:firefly-config>" ${FIREFLY_MQTT_PACKAGE_ARGUMENTS})
+    set_tests_properties(ProductionPackaging PROPERTIES TIMEOUT 900)
 endif()
 set(FIREFLY_WAKE_PYTHON "" CACHE FILEPATH "Optional Python with frozen KWS packages for CPU backend tests")
 if(BUILD_TESTING AND FIREFLY_WAKE_PYTHON)
