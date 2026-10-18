@@ -118,9 +118,8 @@ MqttProbeResult MqttConnectionProbe::testConnection(
         // during the latter's loop_stop/join cleanup.
         ProbeEvent state;
         ProbeClient client(&state);
-        if (mosquitto_opts_set(client.ptr, MOSQ_OPT_PROTOCOL_VERSION,
-                              (void*)&(const int&)(MQTT_PROTOCOL_V311)) != MOSQ_ERR_SUCCESS)
-            return rejected("mqtt_probe_configuration");
+        // libmosquitto 2.x uses MQTT v3.1.1 by default, identical to
+        // the production publisher/subscriber. No protocol downgrade.
         if (connection.mqtt.tls) {
             // Exactly the production verifier's CA bundle. Do not disable
             // certificate or hostname verification for the probe.
