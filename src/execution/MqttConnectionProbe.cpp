@@ -155,13 +155,16 @@ MqttProbeResult MqttConnectionProbe::testConnection(
         const bool disconnectedBeforeResult = state.disconnected;
         const int connack = state.connack;
         lock.unlock();
-        if (disconnectedBeforeResult && connack != 0)
-            return rejected("mqtt_probe_connection_failed");
+        // A rejected broker normally closes its socket immediately after
+        // CONNACK. Preserve the broker's explicit authentication rejection
+        // even if on_disconnect wins the race before the Admin waiter wakes.
         if (connack == 4 || connack == 5)
             return rejected("mqtt_probe_auth_rejected");
         if (connack != 0)
             return rejected(connack == -1 ? "mqtt_probe_connection_failed" :
                              "mqtt_probe_connack_rejected");
+        if (disconnectedBeforeResult)
+            return rejected("mqtt_probe_connection_failed");
         // Not a proof of a working relay: only MQTT CONNECT/CONNACK succeeded.
         return {true, {}, connection.mqtt.tls, !login.user.empty()};
     } catch (const std::exception& error) {
