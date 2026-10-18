@@ -51,10 +51,10 @@ const probeStale = computed(() => !!(probeMessage.value || probeError.value) &&
 async function probeMqttConnection() {
     if (probeBusy.value || manual.busy.value) return;
     const target = local.value ? '127.0.0.1' : host.value.trim();
+    const timeout = connection.value.timeout_ms ?? 2000;
     if (!connection.value.name.trim() || !target ||
         !Number.isInteger(port.value) || port.value < 1 || port.value > 65535 ||
-        !Number.isInteger(connection.value.timeout_ms) ||
-        (connection.value.timeout_ms ?? 0) < 50 || (connection.value.timeout_ms ?? 0) > 10000) {
+        !Number.isInteger(timeout) || timeout < 50 || timeout > 10000) {
         probeMessage.value = '';
         probeError.value = 'Укажите название, корректный адрес, порт и timeout перед проверкой MQTT.';
         probeSnapshot.value = probeFingerprint.value;
