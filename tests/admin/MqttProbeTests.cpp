@@ -29,12 +29,14 @@ struct FakeConnackBroker final {
     int listener = -1;
     unsigned port = 0;
     int resultCode = 0;
+    unsigned replyDelayMs = 0;
     std::atomic<int> connects{0};
     std::atomic<int> publishes{0};
     std::atomic<int> subscribes{0};
     std::thread worker;
 
-    explicit FakeConnackBroker(int code = 0) : resultCode(code) {
+    explicit FakeConnackBroker(int code = 0, unsigned delayMs = 0)
+        : resultCode(code), replyDelayMs(delayMs) {
         listener = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
         if (listener < 0) throw std::runtime_error("listener_socket");
         sockaddr_in bindAddr{};
@@ -82,6 +84,8 @@ struct FakeConnackBroker final {
                     if (complete) ++connects;
                 }
             }
+            if (replyDelayMs)
+                std::this_thread::sleep_for(std::chrono::milliseconds(replyDelayMs));
             // This is intentionally NOT a broker authentication test.
             // For a plaintext connection return CONNACK after the full CONNECT.
             // For a TLS ClientHello return invalid bytes, proving fail closed.
@@ -184,6 +188,30 @@ int main(int argc, char** argv) {
             check(broker.connects.load() == 1 && broker.publishes.load() == 0 &&
                   broker.subscribes.load() == 0,
                   "negative CONNACK still causes zero MQTT commands and subscriptions");
+        }
+        {
+            // The global deadline includes a worker stalled before CONNACK.
+            // The old implementation could return success after the configured
+            // timeout. On timeout the worker must be killed/reaped, freeing
+            // the single probe slot for the next request immediately.
+            FakeConnackBroker delayed(0, 650);
+            auto configuration = mqttConnection(delayed.port);
+            configuration["timeout_ms"] = 100;
+            const auto start = std::chrono::steady_clock::now();
+            const auto failure = postProbe(api, configuration, 422);
+            const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - start).count();
+            check(failure.at("errors").dump().find("mqtt_probe_timeout") != std::string::npos &&
+                  elapsed < 450,
+                  "slow CONNECT cannot succeed after the total 100ms deadline");
+            FakeConnackBroker available;
+            const auto following = postProbe(api, mqttConnection(available.port), 200);
+            check(following.value("connack_accepted", false),
+                  "timeout must release slot and reap worker before next CONNECT");
+            available.finish();
+            delayed.finish();
+            check(delayed.publishes.load() == 0 && delayed.subscribes.load() == 0,
+                  "timed-out worker cannot leave MQTT command or subscription");
         }
         credentials.create("isolated_user","broker_user","not-a-real-password");
         {
