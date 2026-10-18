@@ -101,12 +101,24 @@ if(FIREFLY_BUILD_LOCAL_MQTT_CONTROLLER)
     add_executable(firefly-mqtt-control-helper MqttBrokerControlHelper.cpp)
     target_compile_options(firefly-mqtt-control-helper PRIVATE -Wall -Wextra -Wpedantic)
 endif()
+# Disposable CONNECT probe worker is the ONLY process allowed to block in
+# libc DNS. Keep it adjacent to firefly-admin, firefly-demo and CPU test
+# executables. Packaging/UID acceptance is a separate M20 #37 gate.
+add_executable(firefly-mqtt-probe-worker ../execution/MqttProbeWorker.cpp)
+target_link_libraries(firefly-mqtt-probe-worker PRIVATE firefly_execution)
+target_include_directories(firefly-mqtt-probe-worker SYSTEM PRIVATE
+    "${PROJECT_SOURCE_DIR}/third_party")
+target_compile_options(firefly-mqtt-probe-worker PRIVATE -Wall -Wextra -Wpedantic)
+set_target_properties(firefly-mqtt-probe-worker PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}")
 add_executable(firefly-admin Main.cpp)
 target_link_libraries(firefly-admin PRIVATE firefly_admin_transport)
+add_dependencies(firefly-admin firefly-mqtt-probe-worker)
 set_target_properties(firefly-admin PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}")
 if(FIREFLY_BUILD_ASSISTANT)
     add_executable(firefly-demo DemoMain.cpp)
     target_link_libraries(firefly-demo PRIVATE firefly_admin_transport firefly_rkllm)
+    add_dependencies(firefly-demo firefly-mqtt-probe-worker)
     set_target_properties(firefly-demo PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}")
     target_compile_options(firefly-demo PRIVATE -Wall -Wextra -Wpedantic)
     if(FIREFLY_BUILD_VOICE)
@@ -170,6 +182,9 @@ if(BUILD_TESTING)
     add_executable(mqtt_probe_tests
         "${PROJECT_SOURCE_DIR}/tests/admin/MqttProbeTests.cpp")
     target_link_libraries(mqtt_probe_tests PRIVATE firefly_admin_core)
+    add_dependencies(mqtt_probe_tests firefly-mqtt-probe-worker)
+    set_target_properties(mqtt_probe_tests PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}")
     target_include_directories(mqtt_probe_tests PRIVATE
         "${PROJECT_SOURCE_DIR}/tests/admin")
     target_include_directories(mqtt_probe_tests SYSTEM PRIVATE
