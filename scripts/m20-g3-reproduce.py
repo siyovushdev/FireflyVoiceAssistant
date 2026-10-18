@@ -46,11 +46,19 @@ def main():
         parser.error('Frontend lockfile mismatch')
     if not (frontend / 'node_modules').is_dir():
         parser.error('Pre-provision matching frontend dependencies; no installs are performed')
-    inputs = json.loads((bundle / 'harness-input-manifest.json').read_text())['files']
+    input_manifest = json.loads((bundle / 'harness-input-manifest.json').read_text())
+    inputs = input_manifest['files']
     for relative, digest in inputs.items():
         name = Path(relative)
         if name.is_absolute() or '..' in name.parts or sha256(bundle / name) != digest:
             parser.error('Acceptance source hash mismatch: ' + relative)
+    directories = {parent for relative in inputs for parent in Path(relative).parents if parent != Path('.')}
+    for relative in directories:
+        if (bundle / relative).is_symlink() or not (bundle / relative).is_dir():
+            parser.error('Acceptance input directories must be ordinary directories')
+        mode = input_manifest.get('directories', {}).get(str(relative))
+        if mode is None or (bundle / relative).stat().st_mode & 0o7777 != mode:
+            parser.error('Acceptance directory mode mismatch: ' + str(relative))
     if 'acceptance.py' not in inputs:
         parser.error('Acceptance entry point is missing from the input manifest')
     evidence = output / 'evidence/m20-g3-20261018'
@@ -68,6 +76,11 @@ def main():
         destination = evidence / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(bundle / relative, destination)
+    # Preserve private fixture directory modes independently of umask.
+    # Creating all parents with mkdir's defaults would turn a historical 0700
+    # ConfigStore into 0775 and correctly trigger its no-group-write guard.
+    for relative in sorted(directories, key=lambda p: len(p.parts), reverse=True):
+        shutil.copystat(bundle / relative, evidence / relative, follow_symlinks=False)
     shutil.copy2(bundle / 'environment.json', evidence / 'environment.json')
     shutil.copy2(bundle / 'harness-input-manifest.json', evidence / 'harness-input-manifest.json')
     command = [sys.executable, str(evidence / 'acceptance.py')]
