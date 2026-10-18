@@ -77,8 +77,11 @@ struct FakeConnackBroker final {
             (void)::close(fd);
         });
     }
-    ~FakeConnackBroker() {
+    void finish() {
         if (worker.joinable()) worker.join();
+    }
+    ~FakeConnackBroker() {
+        finish();
         if (listener >= 0) (void)::close(listener);
     }
     FakeConnackBroker(const FakeConnackBroker&) = delete;
@@ -141,6 +144,10 @@ int main(int argc, char** argv) {
                   !accepted.value("published", true) && !accepted.value("subscribed", true),
                   "probe reports honest handshake scope with no mutation");
             // Real libmosquitto may send MQTT DISCONNECT after CONNACK.
+            broker.finish();
+            check(broker.connects.load() == 1 && broker.publishes.load() == 0 &&
+                  broker.subscribes.load() == 0,
+                  "successful Admin probe sent exactly CONNECT and no command/subscribe");
         }
         {
             FakeConnackBroker broker(5); // simulated MQTT v3.1.1 auth refusal
@@ -148,6 +155,10 @@ int main(int argc, char** argv) {
             check(!rejected.value("ok", true) &&
                   rejected.at("errors").dump().find("mqtt_probe_auth_rejected") != std::string::npos,
                   "MQTT negative CONNACK must not count as accepted credentials");
+            broker.finish();
+            check(broker.connects.load() == 1 && broker.publishes.load() == 0 &&
+                  broker.subscribes.load() == 0,
+                  "negative CONNACK still causes zero MQTT commands and subscriptions");
         }
         credentials.create("isolated_user","broker_user","not-a-real-password");
         {
@@ -157,6 +168,10 @@ int main(int argc, char** argv) {
                   accepted.dump().find("broker_user") == std::string::npos &&
                   accepted.dump().find("not-a-real-password") == std::string::npos,
                   "private credential accepted without username/password echo");
+            broker.finish();
+            check(broker.connects.load() == 1 && broker.publishes.load() == 0 &&
+                  broker.subscribes.load() == 0,
+                  "credential probe never publishes or subscribes");
         }
         {
             // A plaintext local peer cannot satisfy trusted CA+hostname TLS.
