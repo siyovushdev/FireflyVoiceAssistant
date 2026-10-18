@@ -11,16 +11,22 @@
 
 namespace firefly::execution {
 class DeviceStateStore;
+namespace detail { class MqttSharedOrder; }
 
 // Per-target command/observation barrier. It does not depend on wall-clock
 // resolution or on commands issued to unrelated targets. A state arriving
 // after publish is submitted but before PUBACK is buffered until prediction.
 class MqttObservationGate final {
 public:
+    MqttObservationGate();
+    ~MqttObservationGate();
+    // Private worker IPC inherits only this ordering descriptor, never state.
+    int publicationOrderDescriptor() const;
     std::uint64_t snapshot(const std::string& target) const;
     void begin(const std::string& target,
                const std::map<std::string, actions::Scalar>& expected);
-    int submitPublication(const std::string& target, const std::function<int()>& publish);
+    int submitPublication(const std::string& target, const std::function<int()>& publish,
+                          const std::function<std::uint64_t()>& submittedTicket = {});
     void disconnected(const std::string& target, DeviceStateStore& store) noexcept;
     void end(const std::string& target, DeviceStateStore& store, bool accepted) noexcept;
     // true: accepted or buffered; false: obsolete or pre-publish telemetry.
@@ -42,6 +48,8 @@ private:
     mutable std::mutex mutex_;
     // Monotonic arrival tickets are allocated without taking the gate mutex.
     mutable std::atomic<std::uint64_t> nextTicket_{1};
+    std::unique_ptr<detail::MqttSharedOrder> sharedOrder_;
+    std::uint64_t nextTicket() const;
     std::map<std::string, Target> targets_;
 };
 

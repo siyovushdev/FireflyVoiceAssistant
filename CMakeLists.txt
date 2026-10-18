@@ -19,6 +19,9 @@ add_compile_options("-ffile-prefix-map=${CMAKE_SOURCE_DIR}=.")
 option(FIREFLY_BUILD_ADMIN "Build local configuration admin and owned text runtime" ON)
 if(BUILD_TESTING)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_test(NAME M20G3Reproduce COMMAND "${Python3_EXECUTABLE}"
+        "${PROJECT_SOURCE_DIR}/tests/M20G3ReproduceTests.py")
+    set_tests_properties(M20G3Reproduce PROPERTIES TIMEOUT 45)
     add_test(NAME ReleaseRecovery COMMAND "${Python3_EXECUTABLE}"
         "${PROJECT_SOURCE_DIR}/tests/ReleaseRecoveryTests.py")
     set_tests_properties(ReleaseRecovery PROPERTIES TIMEOUT 60)

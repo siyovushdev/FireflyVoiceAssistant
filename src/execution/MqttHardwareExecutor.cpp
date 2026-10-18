@@ -1,6 +1,8 @@
 #include "firefly/execution/MqttHardwareExecutor.h"
 #include "firefly/execution/MqttCredentials.h"
 #include "MqttLibrary.h"
+#include "MqttProcess.h"
+#include "MqttPublishProcess.h"
 #include "firefly/execution/DeviceStateStore.h"
 #include "firefly/config/Connectivity.h"
 #include "firefly/actions/ScalarJson.h"
@@ -25,11 +27,17 @@
 #endif
 
 namespace firefly::execution {
+MqttObservationGate::MqttObservationGate() : sharedOrder_(std::make_unique<detail::MqttSharedOrder>()) {}
+MqttObservationGate::~MqttObservationGate() = default;
+int MqttObservationGate::publicationOrderDescriptor() const { return sharedOrder_->descriptor(); }
+std::uint64_t MqttObservationGate::nextTicket() const {
+    return sharedOrder_->valid() ? sharedOrder_->next() : nextTicket_.fetch_add(1, std::memory_order_seq_cst);
+}
 std::uint64_t MqttObservationGate::snapshot(const std::string& target) const {
     (void)target;
     // Capture arrival order before competing with the publication mutex.
     // A callback already running cannot acquire a fresh post-publish ticket.
-    return nextTicket_.fetch_add(1, std::memory_order_seq_cst);
+    return nextTicket();
 }
 void MqttObservationGate::begin(const std::string& target,
                                 const std::map<std::string, actions::Scalar>& expected) {
@@ -38,14 +46,15 @@ void MqttObservationGate::begin(const std::string& target,
     if (current.inFlight) throw std::logic_error("mqtt_target_busy");
     // Copy can fail; don't leave the target stuck in-flight on allocation failure.
     current.expected = expected;
-    current.cutoffTicket = nextTicket_.fetch_add(1, std::memory_order_seq_cst);
+    current.cutoffTicket = nextTicket();
     current.inFlight = true;
     current.published = false;
     current.disconnectedDuringCommand = false;
     current.buffered.reset();
 }
 int MqttObservationGate::submitPublication(const std::string& target,
-                                          const std::function<int()>& publish) {
+                                          const std::function<int()>& publish,
+                                          const std::function<std::uint64_t()>& submittedTicket) {
     std::lock_guard<std::mutex> lock(mutex_);
     const auto found = targets_.find(target);
     if (found == targets_.end() || !found->second.inFlight || found->second.published)
@@ -58,9 +67,14 @@ int MqttObservationGate::submitPublication(const std::string& target,
     // accept() cannot inspect or buffer replies while this mutex is held.
     // Only after a successful API return do we open the eligible reply window;
     // a failed/throwing publish can never turn those early tickets into state.
-    found->second.cutoffTicket = nextTicket_.fetch_add(1, std::memory_order_seq_cst);
+    found->second.cutoffTicket = nextTicket();
     const int result = publish();
     if (result == 0) { // MOSQ_ERR_SUCCESS
+        if (submittedTicket) {
+            const auto ticket = submittedTicket();
+            if (ticket <= found->second.cutoffTicket) throw std::logic_error("mqtt_invalid_publication_ticket");
+            found->second.cutoffTicket = ticket;
+        }
         found->second.published = true;
     }
     return result;
@@ -69,7 +83,7 @@ void MqttObservationGate::disconnected(const std::string& target, DeviceStateSto
     try {
         std::lock_guard<std::mutex> lock(mutex_);
         auto& current = targets_[target];
-        current.cutoffTicket = nextTicket_.fetch_add(1, std::memory_order_seq_cst);
+        current.cutoffTicket = nextTicket();
         if (current.inFlight) current.disconnectedDuringCommand = true;
         current.published = false;
         current.buffered.reset();
@@ -107,7 +121,7 @@ void MqttObservationGate::end(const std::string& target, DeviceStateStore& store
     // Keep tickets only from a healthy successful submission. An observation
     // captured during disconnect or a failed attempt cannot confirm later.
     if (!accepted || current.disconnectedDuringCommand)
-        current.cutoffTicket = nextTicket_.fetch_add(1, std::memory_order_seq_cst);
+        current.cutoffTicket = nextTicket();
     current.disconnectedDuringCommand = false;
 }
 bool MqttObservationGate::accept(const std::string& target, std::uint64_t version,
@@ -258,107 +272,12 @@ struct PublicationSlot {
         if (acquired) activePublications.fetch_sub(1, std::memory_order_release);
     }
 };
-struct Publication {
-    std::mutex mutex;
-    std::condition_variable cv;
-    bool connected = false, connectionFinished = false, disconnected = false;
-    int acknowledgedMid = -1;
-};
-void connected(mosquitto* mosq, void* context, int code) noexcept {
-    try {
-        auto& p = *static_cast<Publication*>(context);
-        bool rejectReconnect = false;
-        {
-            std::lock_guard<std::mutex> lock(p.mutex);
-            // This client is one-shot. An unexpected reconnect must never replay
-            // an unresolved QoS 1 command, or make a failed send appear healthy.
-            rejectReconnect = p.connectionFinished || p.disconnected;
-            if (!rejectReconnect) {
-                p.connected = code == 0;
-                p.connectionFinished = true;
-            }
-        }
-        if (rejectReconnect) (void)mosquitto_disconnect(mosq);
-        p.cv.notify_all();
-    } catch (const std::exception&) {
-        // Never unwind through the libmosquitto C callback boundary.
-    }
-}
-void published(mosquitto*, void* context, int id) noexcept {
-    try {
-        auto& p = *static_cast<Publication*>(context);
-        {
-            std::lock_guard<std::mutex> lock(p.mutex);
-            if (!p.disconnected) p.acknowledgedMid = id; // may precede publish return
-        }
-        p.cv.notify_all();
-    } catch (const std::exception&) {
-        // Publish wait expires as uncertain instead of unwinding a C callback.
-    }
-}
-void disconnected(mosquitto* mosq, void* context, int code) noexcept {
-    try {
-        auto& p = *static_cast<Publication*>(context);
-        {
-            std::lock_guard<std::mutex> lock(p.mutex);
-            p.connected = false;
-            p.disconnected = true;
-            p.connectionFinished = true;
-        }
-        p.cv.notify_all();
-        // This client is one-shot: never reconnect/replay QoS1 after loss.
-        if (code != 0) (void)mosquitto_disconnect(mosq);
-    } catch (const std::exception&) {
-        // Fail closed: no C++ exception can cross this libmosquitto callback.
-    }
-}
 HardwareResult publish(const config::Connection& conn, const config::MqttBinding& mapping,
                        MqttObservationGate& gate, const std::string& target) {
     PublicationSlot slot;
     if (!slot.acquired) return error("mqtt_publish_busy");
-    Publication p;
-    try {
-        Client client(&p);
-        configure(client, conn);
-        mosquitto_connect_callback_set(client.ptr, connected);
-        mosquitto_publish_callback_set(client.ptr, published);
-        mosquitto_disconnect_callback_set(client.ptr, disconnected);
-        // libmosquitto documents connect_async together with loop_start.
-        // Unlike subscription clients, this client publishes at most once.
-        if (mosquitto_connect_async(client.ptr, conn.network.host.c_str(),
-                static_cast<int>(conn.network.port), 30) != MOSQ_ERR_SUCCESS)
-            return error("mqtt_connection_failure", ReachabilityEvidence::Unreachable);
-        if (mosquitto_loop_start(client.ptr) != MOSQ_ERR_SUCCESS)
-            return error("mqtt_connection_failure", ReachabilityEvidence::Unreachable);
-        client.running = true;
-        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(conn.timeoutMs);
-        std::unique_lock<std::mutex> lock(p.mutex);
-        if (!p.cv.wait_until(lock, deadline, [&] { return p.connectionFinished; }))
-            return error("mqtt_timeout", ReachabilityEvidence::Unreachable);
-        if (!p.connected || p.disconnected)
-            return error("mqtt_connect_rejected", ReachabilityEvidence::Unreachable);
-        lock.unlock();
-        int mid = -1;
-        // Serialize MQTT submit and subscription snapshots. A stale callback
-        // cannot enter the post-submit buffer before this API call is made.
-        const auto result = gate.submitPublication(target, [&] {
-            return mosquitto_publish(client.ptr, &mid, mapping.topic.c_str(),
-                static_cast<int>(mapping.payload.size()), mapping.payload.data(),
-                static_cast<int>(mapping.qos), mapping.retain);
-        });
-        if (result != MOSQ_ERR_SUCCESS)
-            return error("mqtt_publish_rejected", ReachabilityEvidence::Reachable);
-        lock.lock();
-        if (!p.cv.wait_until(lock, deadline, [&] { return p.acknowledgedMid == mid || p.disconnected; }))
-            return error("mqtt_publish_uncertain", ReachabilityEvidence::Reachable);
-        if (p.disconnected || p.acknowledgedMid != mid)
-            return error("mqtt_publish_uncertain", ReachabilityEvidence::Reachable);
-        // Delivery to the MQTT broker is not confirmation of device execution.
-        return {true, {}, {}, ReachabilityEvidence::Reachable};
-    } catch (const std::exception&) {
-        // Never print secrets or broker-provided text in public diagnostics.
-        return error("mqtt_configuration_or_credentials_error");
-    }
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(conn.timeoutMs);
+    return detail::supervisedMqttPublish(conn, mapping, gate, target, deadline);
 }
 #endif
 }

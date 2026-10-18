@@ -66,3 +66,31 @@ ctest --test-dir /tmp/firefly-g3-on --output-on-failure
 ## Готовность и открытые gate
 
 `G3_READY_FOR_INDEPENDENT_REVIEW` означает зелёную developer-матрицу на одном HEAD и отсутствие известных P0–P2 в разрешённом scope. Это не `READY_TO_CLOSE` всего M20 и не разрешение rollout. #36 ожидает отдельного независимого ревью. #37 (aarch64 packaging/release) и #38 (физическая приёмка) не выполняются здесь. MQTT CONNACK/PUBACK подтверждает протокол, а не физическое состояние реле; Confirmed в fixtures подтверждается отдельной свежей telemetry от тестового устройства.
+
+## Remediation EXEC-DNS-R1 и G3-REPRO-R1
+
+Operational MQTT теперь выполняет одну команду в отдельном `firefly-mqtt-publish-worker`, а не в network thread родителя. Родитель выделяет один из 16 publication slots и задаёт **один абсолютный monotonic deadline до чтения credentials и запуска процесса**. В бюджет входят DNS, TCP/TLS, CONNECT/CONNACK, разрешение публикации, PUBLISH/PUBACK и cleanup. При timeout IPC закрывается, worker завершается SIGKILL и reaped до освобождения slot/ответа. Не остаётся resolver/client, который позже отправит команду. Смерть родителя также завершает worker; ожидаемый parent PID проверяется после установки PDEATHSIG, включая окно до старта child.
+
+Worker использует исходное DNS-имя, стандартную CA/hostname/SNI verification и одноразовый `mosquitto_connect` + manual `mosquitto_loop`, без loop thread, reconnect или повторной публикации. Parent передаёт credentials/topic/payload только через ограниченный anonymous AF_UNIX IPC; argv не содержит данных команды или секретов. Cleanup закрывает socket без отправки/flush queued MQTT packets. При истечении бюджета до publish permit возвращается `mqtt_timeout`; после выдачи одноразового publish permit неясный исход — `mqtt_publish_uncertain`, без Success/Confirmed и без replay. Timeout не отменяет пакет, уже переданный в сеть до deadline: неопределённая доставка должна оставаться неопределённой.
+
+Для прежних гарантий G0 parent subscription callbacks и worker используют один sealed memfd с lock-free 64-bit arrival counter. Worker берёт submission ticket непосредственно перед настоящим publish API, parent переносит этот barrier под gate mutex. Поэтому telemetry из промежутка между IPC permit и фактическим submit остаётся старой; свежий early reply до PUBACK сохраняется и может подтвердить только после успешного transport result/Predicted. В memfd нет credentials, bindings или DeviceStateStore. Поколения и callback ownership не передаются в worker; удерживаемый executor владеет своим counter до завершения запроса.
+
+CMake автоматически создаёт protected 0755 publish worker под umask0002 рядом с runtime и native tests. Missing/corrupt/writable/SUID/SGID/symlink worker fail-closed. Доставка helper в ARM64 release и install ownership остаётся отдельным #37, здесь не выполняется.
+
+Новый opt-in CTest `MqttExecutionDnsIsolation` использует настоящий DNS delay1250ms/never-answer, настоящий Mosquitto и direct + HTTP→RuntimeWorker→BoundDeviceExecutor. Budget100ms должен давать отказ в пределах 95–450ms, 0 поздних PUBLISH даже после DNS response, reaped workers, повторное использование slots и следующий положительный IPv4 action с точным QoS1 packet. Дополнительно parent-death cancellation, private unsafe worker copies, unchanged ConfigStore и Unknown/Predicted без ложного Confirmed. `MqttObservationSafety` отдельно проверяет stale ticket в IPC gap и early post-submit reply.
+
+### Полный reproducer без ручных обходов
+
+В evidence bundle `REPRODUCE.py` — точная копия tracked `scripts/m20-g3-reproduce.py`. Указать чистый checkout SHA из `FINAL-HEAD.txt`, уже подготовленные matching `node_modules`, stage с реальными зависимостями и **новый** output path. Команда работает из произвольного cwd, включая paths с пробелами:
+
+```sh
+cd /tmp
+python3 /absolute/path/to/verified-bundle/REPRODUCE.py \
+  --repo /absolute/path/to/clean-detached-checkout \
+  --stage /absolute/path/to/provisioned-root \
+  --output '/absolute/path/to/new output directory'
+```
+
+Runner проверяет exact HEAD/clean source, dependency/lockfile hashes и `harness-input-manifest.json`, создаёт **обычный локальный detached clone** в output, автоматически переносит подготовленные frontend dependencies, генерирует `.test-build` и dist через frontend gates, затем выполняет весь build→CTest→extra graph. Никаких ручных worktree symlink replacements, копирования `.test-build` или смены cwd нет. Symlink допустим только для проверенного dependency staging; ConfigLoader/O_NOFOLLOW не ослаблен. Harness scripts, зависящие от соседних imports, запускаются с cwd каталога evidence; build scripts — с layout root. Nested failures, включая run-more groups и browser .exit, дают итоговый nonzero FAIL. Existing output никогда не переиспользуется и не стирается.
+
+`M20G3Reproduce` проверяет реальный detached layout из arbitrary cwd/output, автоматическую подготовку generated artifacts, immutable source, отказ при dependency tampering/существующем output и propagation nested subprocess exit7. После добавления двух regressions ожидаемые registrations: OFF70 и ON75; фактические PASS/counts относятся только к final HEAD и свежему REPORT.txt, а не к этому ожиданию.

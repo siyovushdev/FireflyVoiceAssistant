@@ -39,6 +39,7 @@ add_library(firefly_execution
     ../execution/BindingResolver.cpp
     ../execution/HttpHardwareExecutor.cpp
     ../execution/MqttHardwareExecutor.cpp
+    ../execution/MqttPublishProcess.cpp
     ../execution/MqttConnectionProbe.cpp
     ../execution/MqttCredentials.cpp
     ../execution/DeviceStateStore.cpp)
@@ -101,9 +102,8 @@ if(FIREFLY_BUILD_LOCAL_MQTT_CONTROLLER)
     add_executable(firefly-mqtt-control-helper MqttBrokerControlHelper.cpp)
     target_compile_options(firefly-mqtt-control-helper PRIVATE -Wall -Wextra -Wpedantic)
 endif()
-# Disposable CONNECT probe worker is the ONLY process allowed to block in
-# libc DNS. Keep it adjacent to firefly-admin, firefly-demo and CPU test
-# executables. Packaging/UID acceptance is a separate M20 #37 gate.
+# Disposable CONNECT probe worker isolates its blocking libc DNS. Keep it
+# adjacent to firefly-admin, firefly-demo and CPU test executables. Packaging/UID acceptance is a separate M20 #37 gate.
 add_executable(firefly-mqtt-probe-worker ../execution/MqttProbeWorker.cpp)
 target_link_libraries(firefly-mqtt-probe-worker PRIVATE firefly_execution)
 target_include_directories(firefly-mqtt-probe-worker SYSTEM PRIVATE
@@ -122,6 +122,23 @@ endif()
 add_custom_command(TARGET firefly-mqtt-probe-worker POST_BUILD
     COMMAND "${FIREFLY_CHMOD_EXECUTABLE}" 0755 "$<TARGET_FILE:firefly-mqtt-probe-worker>"
     COMMENT "Protecting the MQTT probe worker executable"
+    VERBATIM)
+# Operational command workers supervise DNS/connect/one publish/ACK as one
+# absolute budget. Both executable directories need a protected sibling.
+add_executable(firefly-mqtt-publish-worker ../execution/MqttPublishWorker.cpp)
+target_link_libraries(firefly-mqtt-publish-worker PRIVATE firefly_execution)
+target_include_directories(firefly-mqtt-publish-worker SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
+target_compile_options(firefly-mqtt-publish-worker PRIVATE -Wall -Wextra -Wpedantic)
+if(FIREFLY_ENABLE_MQTT)
+    target_compile_definitions(firefly-mqtt-publish-worker PRIVATE FIREFLY_WITH_MOSQUITTO=1)
+    target_include_directories(firefly-mqtt-publish-worker PRIVATE "${FIREFLY_MOSQUITTO_INCLUDE_DIR}")
+endif()
+set_target_properties(firefly-mqtt-publish-worker PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}")
+add_custom_command(TARGET firefly-mqtt-publish-worker POST_BUILD
+    COMMAND "${FIREFLY_CHMOD_EXECUTABLE}" 0755 "$<TARGET_FILE:firefly-mqtt-publish-worker>"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:firefly-mqtt-publish-worker>"
+            "${CMAKE_CURRENT_BINARY_DIR}/firefly-mqtt-publish-worker"
+    COMMAND "${FIREFLY_CHMOD_EXECUTABLE}" 0755 "${CMAKE_CURRENT_BINARY_DIR}/firefly-mqtt-publish-worker"
     VERBATIM)
 add_executable(firefly-admin Main.cpp)
 target_link_libraries(firefly-admin PRIVATE firefly_admin_transport)
@@ -239,6 +256,15 @@ if(BUILD_TESTING)
             --unshare "${FIREFLY_UNSHARE_EXECUTABLE}"
             --mount "${FIREFLY_MOUNT_EXECUTABLE}" --ip "${FIREFLY_IP_EXECUTABLE}")
         set_tests_properties(MqttProbeDnsIsolation PROPERTIES TIMEOUT 35 LABELS "isolated;rootless;mqtt")
+        add_executable(mqtt_execution_fixture "${PROJECT_SOURCE_DIR}/tests/execution/MqttExecutionFixture.cpp")
+        target_link_libraries(mqtt_execution_fixture PRIVATE firefly_admin_core)
+        target_include_directories(mqtt_execution_fixture SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
+        set_target_properties(mqtt_execution_fixture PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}")
+        add_test(NAME MqttExecutionDnsIsolation COMMAND "${Python3_EXECUTABLE}"
+            "${PROJECT_SOURCE_DIR}/tests/execution/MqttExecutionDnsIsolation.py"
+            --http "$<TARGET_FILE:mqtt_probe_http_fixture>" --direct "$<TARGET_FILE:mqtt_execution_fixture>"
+            --root "${PROJECT_SOURCE_DIR}" --mosquitto "${FIREFLY_TEST_MOSQUITTO_SERVER}")
+        set_tests_properties(MqttExecutionDnsIsolation PROPERTIES TIMEOUT 50 LABELS "isolated;rootless;mqtt")
     endif()
     add_executable(health_reliability_tests "${PROJECT_SOURCE_DIR}/tests/admin/HealthReliabilityTests.cpp")
     target_link_libraries(health_reliability_tests PRIVATE firefly_admin_core)
@@ -594,3 +620,14 @@ if(BUILD_TESTING AND FIREFLY_BUILD_ASSISTANT AND FIREFLY_BUILD_VOICE)
         "$<TARGET_FILE:voice_recovery_fixture>" "${PROJECT_SOURCE_DIR}")
     set_tests_properties(VoiceRecoveryIntegration PROPERTIES TIMEOUT 60)
 endif()
+
+# Building any Admin/runtime/test entry point also builds its command worker.
+get_property(mqtt_consumers DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+foreach(consumer IN LISTS mqtt_consumers)
+    get_target_property(consumer_type "${consumer}" TYPE)
+    if(consumer_type STREQUAL "EXECUTABLE" AND
+       NOT consumer STREQUAL "firefly-mqtt-publish-worker" AND
+       NOT consumer STREQUAL "firefly-mqtt-probe-worker")
+        add_dependencies("${consumer}" firefly-mqtt-publish-worker)
+    endif()
+endforeach()
