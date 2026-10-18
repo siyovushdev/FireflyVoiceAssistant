@@ -329,6 +329,66 @@ class SupervisionGateTests(unittest.TestCase):
 
 
 class RecoveryTests(unittest.TestCase):
+    def test_bootstrap_current_allows_only_pinned_source_and_m19(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ops = object.__new__(controller.Production)
+            ops.prefix = Path(tmp)
+            ops.plan = dict(old='old', new='old', recovery_only=True,
+                            bootstrap_source_release='m20')
+            link = ops.prefix / 'current'
+            for target in ['releases/m20', 'releases/old']:
+                link.symlink_to(target)
+                self.assertEqual(ops.current(), Path(target).name)
+                link.unlink()
+            for target in ['releases/foreign', '/releases/m20', 'releases/../m20']:
+                link.symlink_to(target)
+                with self.assertRaises(AssertionError):
+                    ops.current()
+                link.unlink()
+            link.symlink_to('releases/m20')
+            for source in [None, '', '../m20', '/m20', 'm20/child']:
+                ops.plan['bootstrap_source_release'] = source
+                with self.assertRaises(RuntimeError):
+                    ops.current()
+            ops.plan.update(recovery_only=False, bootstrap_source_release='m20')
+            with self.assertRaises(AssertionError):
+                ops.current()
+
+    def test_real_bootstrap_watchdog_recovers_from_m20_before_pointer_switch(self):
+        for cutover in [False, True]:
+            with self.subTest(cutover=cutover), tempfile.TemporaryDirectory() as tmp:
+                ops = object.__new__(controller.Production)
+                ops.root = Path(tmp)
+                ops.prefix = ops.root / 'prefix'
+                ops.prefix.mkdir()
+                link = ops.prefix / 'current'
+                link.symlink_to('releases/m20')
+                if cutover:
+                    (ops.root / 'CUTOVER_STARTED').write_text('fixture')
+                ops.plan = dict(old='old', new='old', recovery_only=True,
+                                bootstrap_source_release='m20', worker_unit='fixture-forward.service')
+                ops.recovery_deadline = time.monotonic() + 5
+                fake = Operations(time.monotonic, release='m20')
+                ops.bootstrap_binding = lambda: ops.current()
+                ops.record = fake.record
+                ops.gates, ops.stop = fake.gates, fake.stop
+                ops.start, ops.wait_ready = fake.start, fake.wait_ready
+                ops.resource_snapshot = fake.resource_snapshot
+                def switch(target):
+                    fake.switch(target)
+                    link.unlink()
+                    link.symlink_to('releases/' + target)
+                ops.switch = switch
+                ops.run = Mock(return_value='LoadState=not-found\nActiveState=inactive\n'
+                                           'MainPID=0\nControlPID=0\nControlGroup=')
+                # Real rollback -> restore -> recover and actual current() remain intact.
+                ops.rollback('fixture worker lost before pointer switch')
+                ops.rollback('fixture supervisor re-entry')
+                self.assertEqual(fake.events, ['stop', 'switch-old', 'start'])
+                self.assertEqual(ops.current(), 'old')
+                self.assertEqual(fake.records[-1][0], 'rollback-result')
+                self.assertEqual(fake.records[-1][1]['result'], 'ROLLED_BACK')
+
     def setUp(self):
         self.clock = Clock()
     def restore(self, ops, deadline=100):

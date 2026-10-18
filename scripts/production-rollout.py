@@ -8,6 +8,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import stat
 import subprocess
 import sys
@@ -179,7 +180,15 @@ class Production:
 
     def current(self):
         link = os.readlink(self.prefix / 'current')
-        assert link in ('releases/' + self.plan['old'], 'releases/' + self.plan['new']), link
+        allowed = [self.plan['old'], self.plan['new']]
+        if self.plan.get('recovery_only'):
+            source = self.plan.get('bootstrap_source_release')
+            if not isinstance(source, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._+-]{0,80}', source):
+                raise RuntimeError('M19 bootstrap requires a pinned source release')
+            # Source may still be M20 after the whole-store restore. The recovery
+            # target remains plan.old (M19), never this separately pinned source.
+            allowed.append(source)
+        assert link in ['releases/' + release for release in allowed], link
         return Path(link).name
 
     def stop(self):
@@ -257,6 +266,7 @@ class Production:
                         stat.S_IMODE(s.st_mode) != 0o600 or
                         json.loads(path.read_bytes())['plan_sha256'] != self.plan_sha256):
                     raise RuntimeError('M19 bootstrap authorization marker changed')
+        source = self.current()  # Reject a pointer outside the prepared source/M19 pair.
         checkpoint = plan['m19_checkpoint']
         spec = importlib.util.spec_from_file_location('bootstrap_checkpoint',
                     self.root / 'tools/packaging/firefly_checkpoint.py')
@@ -287,7 +297,8 @@ class Production:
         if not same or time.monotonic() >= self.operation_deadline:
             raise RuntimeError('Complete restored M19 store required before bootstrap')
         return {'checkpoint_pin': checkpoint['pin'], 'capsule_pin': checkpoint['capsule_pin'],
-                'target': plan['old'], 'fresh_supervisor': True, 'cutover_started': root_started}
+                'target': plan['old'], 'current_release': source,
+                'fresh_supervisor': True, 'cutover_started': root_started}
 
     def bootstrap_preflight(self, *, armed=True):
         value = self.bootstrap_binding(armed=armed)

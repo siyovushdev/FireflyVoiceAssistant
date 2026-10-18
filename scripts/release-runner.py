@@ -310,6 +310,9 @@ def prepare_rollback(root, source, commit, checkpoint_path, checkpoint_pin,
     # image must not be needed to verify this exact old target. No files are removed.
     if package.build_identity(prefix / 'releases' / target / 'bin/firefly-demo') != capsule['identity']:
         raise RuntimeError('Original M19 identity changed')
+    source_release = package._current_id(prefix)
+    if source_release is None:
+        raise RuntimeError('M19 bootstrap requires a recorded current release pointer')
     command(root, ['cp', '-a', str(store), str(root / 'backup-store')])
     before = json.loads(json.dumps(capsule['before']))
     # The original M19 bootstrap always starts a new RuntimeGeneration(id=1).
@@ -320,7 +323,8 @@ def prepare_rollback(root, source, commit, checkpoint_path, checkpoint_pin,
     checkpoint = dict(path=str(checkpoint_path), pin=checkpoint_pin, m19_config=str(m19_config),
                       binary_sha256=receipt['proof']['binary_sha256'], recovery_capsule=str(capsule_path),
                       capsule_pin=capsule_pin, helper_sha256=m.sha(root / 'tools/packaging/firefly_checkpoint.py'))
-    plan = dict(old=target, new=target, recovery_only=True, backup_store=str(root / 'backup-store'),
+    plan = dict(old=target, new=target, recovery_only=True, bootstrap_source_release=source_release,
+                backup_store=str(root / 'backup-store'),
                 identities={target: capsule['identity']}, m19_checkpoint=checkpoint,
                 binary_sha256={target: capsule['binary_sha256']},
                 approved_admin_assets_sha256=capsule['identity']['admin_assets_sha256'],

@@ -225,6 +225,11 @@ python3 "$NEW_RECOVERY_RUN_BUNDLE/scripts/release-runner.py" run \
 The bootstrap preparation validates the exact original M19 code/manifest/modes,
 full restored store and pinned readiness capsule, and requires empty service
 cgroup/NPU/microphone ownership. It writes a new plan/backup/PREPARED receipt.
+It also pins the current release pointer as `bootstrap_source_release`, which
+may still be M20. Both launcher and worker use the stopped-state bootstrap
+preflight. Recovery accepts only that pinned source or the M19 target as current;
+the checked switch always selects M19, including watchdog recovery if the forward
+worker is lost before the switch. A different current pointer fails closed.
 The same launcher/controller arms a fresh 240+360-second independent watchdog;
 only successful existing typed supervision creates `BOOTSTRAP_AUTHORIZED`.
 Then the existing stop → resource barriers → checked pointer selection → start →

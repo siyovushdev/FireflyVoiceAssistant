@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import subprocess
 import tempfile
+import time
 import unittest
 import sys
 from unittest.mock import Mock, patch
@@ -37,6 +38,43 @@ def properties(active='activating', sub='start', code=0, status=0, result='succe
 
 
 class LauncherTests(unittest.TestCase):
+    def test_real_stopped_bootstrap_reaches_submission_without_running_api(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ops = object.__new__(launcher.controller.Production)
+            ops.root = Path(tmp)
+            ops.plan = dict(old='old', new='old', recovery_only=True,
+                            worker_unit='fixture-forward.service')
+            ops.plan_sha256 = 'fixture-plan'
+            ops.operation_deadline = time.monotonic() + 5
+            ops.bootstrap_binding = Mock(return_value={'checkpoint_verified': True})
+            ops.resource_snapshot = lambda: dict(owners=[], cgroup_pids=[], main_pid=0,
+                                                 control_pid=0, active_state='inactive')
+            ops.get = Mock(side_effect=ConnectionRefusedError('M19 is stopped'))
+            ops.supervision_gate = Mock()
+            ops.run = Mock(return_value='submitted')
+            ops.record = Mock()
+            with patch.object(launcher, 'verify_launcher'):
+                self.assertEqual(launcher.start(ops)['state'], 'SUBMITTED')
+                with self.assertRaises(FileExistsError):
+                    launcher.start(ops)
+            ops.get.assert_not_called()
+            ops.bootstrap_binding.assert_called_with(armed=True)
+            self.assertEqual(ops.run.call_count, 1)
+            self.assertTrue((ops.root / 'FORWARD_LAUNCH_STARTED').is_file())
+
+    def test_ordinary_forward_still_requires_running_old_api(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ops = object.__new__(launcher.controller.Production)
+            ops.root = Path(tmp)
+            ops.plan = dict(old='old')
+            ops.get = Mock(side_effect=ConnectionRefusedError('old is stopped'))
+            ops.run, ops.supervision_gate = Mock(), Mock()
+            with patch.object(launcher, 'verify_launcher'), self.assertRaises(ConnectionRefusedError):
+                launcher.start(ops)
+            ops.run.assert_not_called()
+            ops.supervision_gate.assert_not_called()
+            self.assertFalse((ops.root / 'FORWARD_LAUNCH_STARTED').exists())
+
     def test_submission_is_asynchronous_and_retains_terminal_state(self):
         ops = Mock()
         result = launcher.submit_worker(ops, 'fixture.service', ['/usr/bin/python3', 'worker.py'])

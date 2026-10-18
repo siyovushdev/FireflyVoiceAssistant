@@ -18,6 +18,72 @@ runner = importlib.util.module_from_spec(spec); spec.loader.exec_module(runner)
 
 
 class RunnerTests(unittest.TestCase):
+    def test_bootstrap_preparation_records_only_a_safe_current_source(self):
+        original = runner.load(SOURCE / 'scripts/production-rollout.py')
+        package = runner.load((SOURCE / 'tools' if (SOURCE / 'tools').is_dir() else SOURCE)
+                              / 'packaging/firefly_release.py')
+        real_path = Path
+        for link in ['releases/m20', None, '/releases/m20', 'releases/../m20']:
+            with self.subTest(link=link), tempfile.TemporaryDirectory() as tmp:
+                base = Path(tmp)
+                root, prefix, store = base / 'bundle', base / 'prefix', base / 'store'
+                prefix.mkdir(); store.mkdir()
+                (store / 'configuration.json').write_text('private fixture')
+                if link is not None:
+                    (prefix / 'current').symlink_to(link)
+                identity = dict(head='old', admin_assets_sha256='fixture-assets')
+                capsule = dict(release='old', identity=identity, binary_sha256='old-binary',
+                               before={'status': {'active': {'generation_id': 2}}})
+                helper = SimpleNamespace(require_persistent=Mock(), verify=Mock(return_value={
+                    'tree': {}, 'proof': {'binary_sha256': 'old-config'}}), control=Mock(return_value=capsule),
+                    pin=Mock(return_value='capsule-pin'), validate_capsule=Mock(), inventory=Mock(return_value={}))
+                ops = Mock()
+                def loaded(path):
+                    if path.name == 'production-rollout.py': return original
+                    if path.name == 'firefly_release.py': return package
+                    if path.name == 'firefly_checkpoint.py': return helper
+                    self.fail('Unexpected module: ' + str(path))
+                def path(value):
+                    return {'/opt/firefly/voice-assistant': prefix,
+                            '/var/lib/firefly/store': store}.get(str(value), real_path(value))
+                def command(root, argv, **kw):
+                    if argv[0] == 'cp':
+                        import shutil
+                        shutil.copytree(store, root / 'backup-store')
+                def copy_bundle(root, source):
+                    # This suite also runs inside the private bundle, where the
+                    # packaging CLI lives under tools/. Its closure is tested above.
+                    root.mkdir()
+                    for name in ['scripts/release-runner.py', 'scripts/deployment-launcher.py',
+                                 'scripts/production-rollout.py', 'packaging/firefly_recovery.py',
+                                 'tools/packaging/firefly_checkpoint.py']:
+                        source_file = SOURCE / name
+                        if not source_file.is_file() and name.startswith('tools/'):
+                            source_file = SOURCE / name[len('tools/'):]
+                        target = root / name
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        target.write_bytes(source_file.read_bytes())
+                with patch.object(runner, 'approved_source'), patch.object(runner, 'application_checks'), \
+                        patch.object(runner, 'mandatory_fixtures'), patch.object(runner, 'load', side_effect=loaded), \
+                        patch.object(runner, 'prepare_files', side_effect=copy_bundle), \
+                        patch.object(runner, 'Path', side_effect=path), patch.object(runner, 'command', side_effect=command), \
+                        patch.object(package, 'build_identity', return_value=identity), \
+                        patch.object(original, 'Production', return_value=ops):
+                    args = (root, SOURCE, 'reviewed', base / 'checkpoint', 'checkpoint-pin',
+                            prefix / 'releases/old/bin/firefly-config', base / 'capsule', 'capsule-pin')
+                    if link != 'releases/m20':
+                        with self.assertRaises((RuntimeError, package.ReleaseError)):
+                            runner.prepare_rollback(*args)
+                        self.assertFalse((root / 'PREPARED').exists())
+                    else:
+                        runner.prepare_rollback(*args)
+                        plan = json.loads((root / 'plan.json').read_bytes())
+                        self.assertEqual(plan['bootstrap_source_release'], 'm20')
+                        self.assertEqual((plan['old'], plan['new']), ('old', 'old'))
+                        receipt = json.loads((root / 'PREPARED').read_bytes())
+                        self.assertEqual(receipt['plan_sha256'], original.sha(root / 'plan.json'))
+                        ops.bootstrap_preflight.assert_called_once_with(armed=False)
+
     def test_private_bundle_packaging_imports_and_missing_corrupt_module_failures(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / 'bundle'
