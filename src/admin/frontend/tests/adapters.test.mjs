@@ -7,6 +7,7 @@ import { createSystemStore } from '../.test-build/stores/system.js';
 import { newMqttConnection, defaultMqttMapping, projectConnectivity, projectMqttWizard, readableDiff,
     consumers, connectionActionSummary, connectionObservationSummary } from '../.test-build/adapters/editing.js';
 import { MqttDeviceDrafts, observationFromMqttDraft, pinMqttObservationConnection } from '../.test-build/adapters/mqttDeviceDrafts.js';
+import { mqttProbeFingerprint, mqttProbeConfirmed } from '../.test-build/adapters/mqttProbe.js';
 
 const fixture = JSON.parse(readFileSync(new URL('../../../../tests/admin/v2/system.json', import.meta.url)));
 const catalog = () => ({ ok: true, configuration: structuredClone(fixture), hash: 'a'.repeat(64), revision: 1, generation_id: 3 });
@@ -561,4 +562,61 @@ test('M20 #33 R4 wizard pins new subscription on the user enable event, not fina
     assert.match(code, /observation: observationFromMqttDraft\(id, draft\)/);
     assert.doesNotMatch(code, /observationFromMqttDraft\(id, draft, connection\.value\.id\)/,
         'the latest selected B must never be fallback for A during Review');
+});
+
+
+test('M20 authenticated MQTT CONNECT probe requires truthful TLS, credential and side-effect evidence', () => {
+    const response = {
+        ok: true, scope: 'mqtt_connack_only', transport: 'mqtt',
+        connack_accepted: true, tls_verified: true, credentials_accepted: true,
+        saved: false, applied: false, published: false, subscribed: false
+    };
+    assert.equal(mqttProbeConfirmed(response, true, 'relay_user'), true);
+    for (const field of ['connack_accepted', 'saved', 'applied', 'published', 'subscribed']) {
+        const invalid = { ...response, [field]: !response[field] };
+        assert.equal(mqttProbeConfirmed(invalid, true, 'relay_user'), false,
+                     'invalid field ' + field + ' must not count as read-only MQTT success');
+    }
+    for (const invalid of [
+        null, false, [], {}, { ...response, ok: false },
+        { ...response, scope: 'tcp_connect_only' },
+        { ...response, transport: 'http' },
+        { ...response, tls_verified: false },
+        { ...response, credentials_accepted: false }
+    ]) assert.equal(mqttProbeConfirmed(invalid, true, 'relay_user'), false);
+    assert.equal(mqttProbeConfirmed(response, false, 'relay_user'), false,
+                 'a prior TLS result cannot validate new non-TLS settings');
+    assert.equal(mqttProbeConfirmed(response, true, ''), false,
+                 'a prior authenticated result cannot validate a new anonymous profile');
+    assert.equal(mqttProbeConfirmed({
+        ...response, tls_verified: false, credentials_accepted: false
+    }, false, ''), true, 'anonymous non-TLS broker accepted CONNECT only');
+});
+
+test('M20 MQTT probe evidence becomes stale when endpoint or credentials ID changes', () => {
+    const broker = newMqttConnection(structuredClone(fixture));
+    broker.name = 'Test broker';
+    const fingerprint = mqttProbeFingerprint(broker, 'mqtt.example.invalid', 8883, true, 'broker_user');
+    assert.equal(fingerprint,
+        mqttProbeFingerprint(broker, 'mqtt.example.invalid', 8883, true, 'broker_user'));
+    assert.notEqual(fingerprint,
+        mqttProbeFingerprint(broker, 'mqtt-b.example.invalid', 8883, true, 'broker_user'));
+    assert.notEqual(fingerprint,
+        mqttProbeFingerprint(broker, 'mqtt.example.invalid', 1883, true, 'broker_user'));
+    assert.notEqual(fingerprint,
+        mqttProbeFingerprint(broker, 'mqtt.example.invalid', 8883, false, 'broker_user'));
+    assert.notEqual(fingerprint,
+        mqttProbeFingerprint(broker, 'mqtt.example.invalid', 8883, true, 'rotated_secret_ref'));
+    assert.equal(fingerprint.includes('some-plaintext-password'), false,
+                 'fingerprint includes only the credential ID, not its actual password');
+});
+
+test('M20 MQTT wizard probe UI cannot claim TCP-only success or silently send broker commands', () => {
+    const ui = readFileSync(new URL('../src/components/MqttWizard.vue', import.meta.url), 'utf8');
+    assert.match(ui, /adminRequest<MqttProbeReply>\('\/api\/connections\/probe'/);
+    assert.match(ui, /mqttProbeConfirmed\(result, tls\.value, credentials\.value\)/);
+    assert.match(ui, /Проверить MQTT-подключение \(без команд\)/);
+    assert.match(ui, /probeSnapshot\.value !== probeFingerprint\.value/);
+    assert.doesNotMatch(ui, /\/api\/mqtt\/local-broker',\s*\{.*operation:\s*'enable'/,
+        'probe UI must not start the broker');
 });
