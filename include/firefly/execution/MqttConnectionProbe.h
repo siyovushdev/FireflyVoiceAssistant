@@ -17,7 +17,15 @@ struct MqttProbeResult final {
 };
 class MqttConnectionProbe final {
 public:
+    // Parent-side supervisor. The entire wall-clock budget includes DNS,
+    // MQTT CONNECT/CONNACK and termination/reaping of a disposable worker.
     static MqttProbeResult testConnection(const config::Connection& connection,
                                           const MqttCredentials& credentials);
 };
+namespace detail {
+    // Only the dedicated fixed-path firefly-mqtt-probe-worker calls this.
+    // It runs in a separate process so blocking libc DNS can be terminated.
+    MqttProbeResult runMqttProbeWorker(const config::Connection& connection,
+                                      const MqttLogin& login);
+}
 }
