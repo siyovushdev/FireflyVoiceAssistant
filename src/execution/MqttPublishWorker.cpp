@@ -92,8 +92,9 @@ int execute() {
     while (!e.finished && !e.disconnected) {
         const auto remaining = mqttRemaining(deadline);
         if (!remaining) return 0;
-        if (mosquitto_loop(client.value, std::min(remaining, 10), 1) != MOSQ_ERR_SUCCESS)
-            return fail("mqtt_connection_failure");
+        const auto result = mosquitto_loop(client.value, std::min(remaining, 10), 1);
+        if (e.finished && !e.connected) return fail("mqtt_connect_rejected");
+        if (result != MOSQ_ERR_SUCCESS) return fail("mqtt_connection_failure");
     }
     if (!e.connected || e.disconnected) return fail("mqtt_connect_rejected");
     if (!mqttSend(0, {{"stage","connected"}}, deadline)) return 0;
@@ -123,6 +124,13 @@ int execute() {
 }
 int main(int argc, char**) {
     if (argc != 1) return 2;
+    // OpenSSL may write close_notify during destroy after our socket shutdown.
+    // Keep EPIPE as an ordinary cleanup error, never a fatal signal after ACK.
+    // This disposition belongs only to this disposable worker process.
+    struct sigaction noPipe{};
+    noPipe.sa_handler = SIG_IGN;
+    ::sigemptyset(&noPipe.sa_mask);
+    if (::sigaction(SIGPIPE, &noPipe, nullptr)) return 2;
     struct rlimit core{0,0};
     struct stat st{};
     if (::setrlimit(RLIMIT_CORE, &core) || ::prctl(PR_SET_PDEATHSIG, SIGKILL) || ::getppid() == 1 ||

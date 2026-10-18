@@ -44,6 +44,10 @@ class Runtime:
         if http:
             for name in ('store', 'credentials'):
                 (directory / name).mkdir(mode=0o700)
+            for identifier, login in getattr(args, 'credential_fixtures', {}).items():
+                secret = directory / 'credentials' / (identifier + '.cred')
+                secret.write_text('\n'.join(login) + '\n')
+                secret.chmod(0o600)
             command = [args.http, str(directory / 'store'), str(directory / 'credentials'),
                        str(configuration), str(directory / 'audit.jsonl')]
         else:
@@ -117,6 +121,89 @@ def configuration(root, port, host):
         config['bindings'].append({'target_id': target, 'action_id': 'action_on', 'executor': 'mqtt',
             'connection_id': name, 'mqtt': {'topic': 'cmd/' + name, 'payload': 'ON', 'qos': 1, 'retain': False}})
     return config
+
+
+def tls_controls(args, root, work):
+    # These are private mounts in the already checked rootless mount namespace.
+    subprocess.run(['mount', '-t', 'tmpfs', 'tmpfs', '/var/lib'], check=True)
+    subprocess.run(['mount', '-t', 'tmpfs', 'tmpfs', '/etc/ssl/certs'], check=True)
+    directory = work / 'tls'
+    directory.mkdir()
+    def command(argv):
+        subprocess.run(list(map(str, argv)), check=True, stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, timeout=10)
+    command(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', directory / 'ca.key',
+             '-out', directory / 'ca.crt', '-subj', '/CN=Isolated MQTT execution CA', '-days', '1'])
+    command(['openssl', 'req', '-newkey', 'rsa:2048', '-nodes', '-keyout', directory / 'server.key',
+             '-out', directory / 'server.csr', '-subj', '/CN=localhost'])
+    (directory / 'extensions').write_text('subjectAltName=DNS:localhost\nextendedKeyUsage=serverAuth\n')
+    command(['openssl', 'x509', '-req', '-in', directory / 'server.csr', '-CA', directory / 'ca.crt',
+             '-CAkey', directory / 'ca.key', '-CAcreateserial', '-out', directory / 'server.crt', '-days', '1',
+             '-extfile', directory / 'extensions'])
+    trust = Path('/etc/ssl/certs/execution-test.pem')
+    trust.write_bytes((directory / 'ca.crt').read_bytes())
+    command(['openssl', 'rehash', '/etc/ssl/certs'])
+    args.credential_fixtures = {'tls_good': ('execution_test', 'isolated-execution-password'),
+                                'tls_wrong': ('execution_test', 'isolated-wrong-password')}
+    credentials = Path('/var/lib/firefly/mqtt/credentials')
+    credentials.mkdir(parents=True, mode=0o700)
+    for identifier, login in args.credential_fixtures.items():
+        secret = credentials / (identifier + '.cred')
+        secret.write_text('\n'.join(login) + '\n')
+        secret.chmod(0o400)
+    passwd = Path(args.mosquitto).parent.parent / 'bin/mosquitto_passwd'
+    command([passwd, '-b', '-c', directory / 'passwords', 'execution_test', 'isolated-execution-password'])
+    with socket.socket() as free:
+        free.bind(('127.0.0.1', 0))
+        port = free.getsockname()[1]
+    settings = directory / 'broker.conf'
+    settings.write_text(f'listener {port} 127.0.0.1\nuser root\nallow_anonymous false\n'
+                        f'password_file {directory}/passwords\ncertfile {directory}/server.crt\n'
+                        f'keyfile {directory}/server.key\npersistence false\nlog_type all\n')
+    log = (directory / 'broker.log').open('w')
+    broker = subprocess.Popen([args.mosquitto, '-c', str(settings)], stdout=log, stderr=log)
+    results = []
+    try:
+        deadline = time.monotonic() + 4
+        while True:
+            assert broker.poll() is None
+            try:
+                with socket.create_connection(('127.0.0.1', port), .1):
+                    break
+            except OSError:
+                assert time.monotonic() < deadline
+                time.sleep(.02)
+        for case, host, login, allowed in [('trusted', 'localhost', 'tls_good', True),
+                ('wrong-password', 'localhost', 'tls_wrong', False), ('missing-login', 'localhost', '', False),
+                ('hostname-mismatch', '127.0.0.1', 'tls_good', False), ('untrusted-CA', 'localhost', 'tls_good', False)]:
+            if case == 'untrusted-CA':
+                trust.unlink()
+                command(['openssl', 'rehash', '/etc/ssl/certs'])
+            for http in (False, True):
+                config = configuration(root, port, host)
+                for connection in config['connections']:
+                    connection['timeout_ms'] = 1500
+                    connection['network']['host'] = host
+                    connection['mqtt'] = {'tls': True}
+                    if login:
+                        connection['mqtt']['credentials_id'] = login
+                runtime = Runtime(args, work / ('tls-' + case + '-' + str(http)), config, http)
+                try:
+                    result = runtime.execute()
+                    assert result['result']['success'] is allowed, (case, result)
+                    assert result['result']['knowledge'] == ('predicted' if allowed else 'unknown'), result
+                    assert not children(runtime.process.pid)
+                    results.append({'case': case, **result})
+                finally:
+                    runtime.close()
+        trace = (directory / 'broker.log').read_text()
+        publications = [line for line in trace.splitlines() if 'Received PUBLISH' in line]
+        assert len(publications) == 2 and all("'cmd/slow'" in line and '(d0, q1, r0,' in line for line in publications), publications
+        return {'cases': results, 'trusted_real_publish': 2, 'negative_publish': 0}
+    finally:
+        broker.terminate()
+        broker.wait(timeout=3)
+        log.close()
 
 
 def inside(args):
@@ -288,9 +375,10 @@ def inside(args):
             assert len(publications) == 13 and all("'cmd/fast'" in line and '(d0, q1, r0,' in line for line in publications), publications
             assert any(q['host'] == 'probe-delay.review.invalid' for q in dns.queries)
             assert any(q['host'] == 'probe-never.review.invalid' for q in dns.queries)
+            tls = tls_controls(args, root, work)
             evidence = {'result': 'PASS', 'dns_delay_ms': 1250, 'timeout_ms': 100, 'executions': results,
                         'cancelled': cancellations, 'worker_guards': guards, 'ipc_stall': ipc_stall, 'slow_publish': 0, 'positive_publish': 13,
-                        'no_worker_or_slot_leak': True, 'store_unchanged': True}
+                        'no_worker_or_slot_leak': True, 'store_unchanged': True, 'tls': tls}
             output = os.environ.get('FIREFLY_MQTT_EXECUTION_EVIDENCE')
             if output:
                 Path(output).write_text(json.dumps(evidence, indent=2))
