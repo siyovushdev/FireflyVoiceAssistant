@@ -57,14 +57,29 @@ export class MqttDeviceDrafts {
     }
 }
 
+// Pin the broker when the user FIRST enables an observation. A later edit
+// of broker B must not silently migrate A's state subscription. Only the
+// explicit "Перенести подписку" UI changes an already-pinned ID.
+export function pinMqttObservationConnection(
+    existingConnectionId: string, selectedConnectionId: string
+): string {
+    if (existingConnectionId) return existingConnectionId;
+    if (!selectedConnectionId) throw new Error('mqtt_observation_broker_not_selected');
+    return selectedConnectionId;
+}
+
 export function observationFromMqttDraft(
-    targetId: string, draft: MqttDeviceDraft, chosenConnectionId: string
+    targetId: string, draft: MqttDeviceDraft
 ): NonNullable<ConfigurationDto['observations']>[number] | undefined {
     if (!targetId || !draft.observing) return undefined;
+    // Do not fall back to the final editor's currently selected connection.
+    // Missing identity is a malformed draft, not consent to transfer brokers.
+    if (!draft.observeConnectionId)
+        throw new Error('mqtt_observation_broker_not_selected');
     const observe = clone(draft.observation);
     return {
         target_id: targetId,
-        connection_id: draft.observeConnectionId || chosenConnectionId,
+        connection_id: draft.observeConnectionId,
         executor: 'mqtt',
         mqtt: observe.format === 'text'
             ? { topic: observe.topic, format: 'text', qos: observe.qos,
