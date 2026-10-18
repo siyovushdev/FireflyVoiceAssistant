@@ -54,12 +54,37 @@ struct FakeConnackBroker final {
             if (fd < 0) return;
             timeval timeLimit{2, 0};
             (void)::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeLimit, sizeof(timeLimit));
-            std::array<unsigned char, 1024> input{};
-            const auto n = ::recv(fd, input.data(), input.size(), 0);
-            if (n > 0 && (input[0] & 0xf0) == 0x10) ++connects;
+            unsigned char first = 0;
+            const auto n = ::recv(fd, &first, 1, MSG_WAITALL);
+            if (n == 1 && (first & 0xf0) == 0x10) {
+                // Read the *complete* MQTT CONNECT frame before responding.
+                // TCP may split header/payload over multiple recv() calls;
+                // replying to an incomplete frame makes negative tests flaky.
+                unsigned remaining = 0, factor = 1;
+                bool validLength = false;
+                for (int i = 0; i < 4; ++i) {
+                    unsigned char byte = 0;
+                    if (::recv(fd, &byte, 1, MSG_WAITALL) != 1) break;
+                    remaining += (byte & 0x7f) * factor;
+                    factor *= 128;
+                    if (!(byte & 0x80)) { validLength = true; break; }
+                }
+                if (validLength && remaining <= 4096) {
+                    std::array<unsigned char, 256> buffer{};
+                    bool complete = true;
+                    while (remaining) {
+                        const auto count = remaining < buffer.size() ?
+                                           remaining : static_cast<unsigned>(buffer.size());
+                        const auto got = ::recv(fd, buffer.data(), count, MSG_WAITALL);
+                        if (got <= 0) { complete = false; break; }
+                        remaining -= static_cast<unsigned>(got);
+                    }
+                    if (complete) ++connects;
+                }
+            }
             // This is intentionally NOT a broker authentication test.
-            // It simulates CONNACK to assert correct product callback paths
-            // and that one-shot Admin probe sends no device commands.
+            // For a plaintext connection return CONNACK after the full CONNECT.
+            // For a TLS ClientHello return invalid bytes, proving fail closed.
             const unsigned char connack[]{0x20,0x02,0x00,
                                            static_cast<unsigned char>(resultCode)};
             if (n > 0) (void)::send(fd, connack, sizeof(connack), MSG_NOSIGNAL);
