@@ -5,6 +5,7 @@
 #include "firefly/config/ConfigValidator.h"
 #include "firefly/config/Connectivity.h"
 #include "firefly/execution/HttpHardwareExecutor.h"
+#include "firefly/execution/MqttConnectionProbe.h"
 #include "Json.h"
 #include "SetupSession.h"
 #include "firefly/admin/AdminDraft.h"
@@ -555,10 +556,31 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
         } else if (path == "/api/connections/probe") {
             members(request, {"connection"});
             const auto connection = config::ConfigLoader::connectionFromJson(request.at("connection").dump());
-            const auto result = execution::HttpHardwareExecutor::testConnection(connection);
-            reply = result.success ? Json{{"ok",true},{"scope","tcp_connect_only"},{"saved",false},{"applied",false}}
-                : failure(result.error, "/connection", "TCP reachability test failed. No HTTP bytes were sent.");
-            if (!result.success) status = 422;
+            if (connection.type == config::ExecutorKind::Mqtt) {
+                // A fresh, bounded client verifies MQTT CONNECT/CONNACK with
+                // its private credentials and CA/hostname TLS trust. The
+                // active executor, broker service and ConfigStore are untouched.
+                // In particular: zero PUBLISH, SUBSCRIBE, Save or Apply.
+                const auto result = execution::MqttConnectionProbe::testConnection(
+                    connection, impl_->secrets);
+                if (result.success) {
+                    reply = {{"ok",true},{"scope","mqtt_connack_only"},
+                             {"transport","mqtt"},{"connack_accepted",true},
+                             {"tls_verified",result.tlsVerified},
+                             {"credentials_accepted",result.credentialsAccepted},
+                             {"saved",false},{"applied",false},
+                             {"published",false},{"subscribed",false}};
+                } else {
+                    status = result.code == "mqtt_probe_busy" ? 409 : 422;
+                    reply = failure(result.code, "/connection",
+                        "MQTT CONNECT was unavailable, rejected or not verified. No MQTT commands or subscriptions were sent.");
+                }
+            } else {
+                const auto result = execution::HttpHardwareExecutor::testConnection(connection);
+                reply = result.success ? Json{{"ok",true},{"scope","tcp_connect_only"},{"saved",false},{"applied",false}}
+                    : failure(result.error, "/connection", "TCP reachability test failed. No HTTP bytes were sent.");
+                if (!result.success) status = 422;
+            }
         } else if (path == "/api/devices/command") {
             members(request, {"text", "expected_hash", "expected_action"});
             request["method"] = "guarded_command";
