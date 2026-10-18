@@ -35,7 +35,7 @@ EXTRA_FILES = {
 MODEL_SIZES = dict(zip(r.ALLOWED_SHARED_MODELS,
     (4840064228, 4848176220, 643854, 68187180, 2093079, 259572, 6388)))
 SYSTEM_LIBS = {"libc.so.6", "libm.so.6", "libstdc++.so.6", "libgcc_s.so.1", "libpthread.so.0",
-               "libdl.so.2", "librt.so.1", "libasound.so.2", "libgomp.so.1", "ld-linux-aarch64.so.1"}
+               "libdl.so.2", "librt.so.1", "libasound.so.2", "libgomp.so.1", "libz.so.1", "ld-linux-aarch64.so.1"}
 
 
 def enabled(build_dir):

@@ -40,6 +40,10 @@ SUID/SGID or unexpected symlinks. Package/archive installation ownership is
 root:root. Runtime siblings use `$ORIGIN/../lib`; no SDK/developer RUNPATH or
 LD_LIBRARY_PATH is needed. Verify every ELF, including NumPy/LiteRT/OpenBLAS,
 not only the main binary. Pin all checksums, modes, dependencies and assets.
+The unchanged M19 wake/NumPy/libgfortran closure retains the Ubuntu22.04
+`zlib1g` (`libz.so.1`) system prerequisite, alongside glibc, libstdc++, ALSA
+and libgomp. Verify these target OS dependencies with native target `ldd`;
+the MQTT/OpenSSL dependencies must resolve inside the immutable release.
 
 `verify-candidate` verifies this payload and its exact frozen model references.
 It does not claim the absent multi-GiB models have been read. Ordinary `verify`,
