@@ -14,7 +14,7 @@
 - MQTT executor connected/published: транспортный результат, не подтверждённое состояние оборудования.
 - Confirmed: только свежее валидное сообщение на отдельный state topic от устройства после допуска runtime; retained и неподходящие JSON не дают Confirmed.
 
-Мастер никогда не запускает Mosquitto. Локальная служба включается отдельным подтверждением в разделе **«Подключения → Локальный брокер Mosquitto»**. Локальный статус `running` не доказывает правильность MQTT-пароля, подписки или доступность реле. Для внешнего брокера мастер пока не заявляет безопасного live-connect probe: без него нельзя выводить «доступно» на основании заполненных полей. Реальный broker/auth/TLS E2E предусмотрен G3 #36.
+Мастер никогда не запускает Mosquitto. Локальная служба включается отдельным подтверждением в разделе **«Подключения → Локальный брокер Mosquitto»**. Локальный статус `running` не доказывает правильность MQTT-пароля, подписки или доступность реле. Отдельная кнопка **«Проверить MQTT-подключение (без команд)»** создаёт **новое временное соединение** к указанному локальному либо внешнему broker, проверяет MQTT CONNECT/CONNACK и, если они указаны, учётные данные и TLS CA/hostname. Успех доказывает только то, что брокер принял CONNECT на текущих параметрах, но не проверяет topic, реальное реле, состояние устройства или будущую стабильность соединения. Проверка выполняется отдельно от Review/Apply и никогда не отправляет PUBLISH или SUBSCRIBE. Реальная проверка broker/auth/TLS на новом SHA требует независимого Codex E2E.
 
 ## Пример 1. Внешний брокер и реле
 
@@ -61,7 +61,7 @@
 
 **Developer evidence:** отдельная модель `mqttDeviceDrafts.ts` скомпилирована в TypeScript strict, 300 независимых cycles draft save/restore/projection-immutable checks PASS. **NOT_RUN на новом HEAD:** полный Vue typecheck, frontend tests/build, C++ CTest OFF/ON, Chromium navigation/review с настоящим HttpServer и реальный broker E2E. Прежний 49/50 относится к старому SHA `0603aa8`.
 
-**Незакрытый acceptance gap:** external authenticated broker probe (live MQTT connect/auth/TLS через Web Admin) **NOT_IMPLEMENTED**. Проверка статуса локального systemd-брокера не заменяет эту операцию. Отдельный #33/#36 gate либо явное решение владельца о границе DoD обязательны до `READY_TO_CLOSE`.
+**External authenticated MQTT probe:** добавлен как **developer code candidate**, но пока **INDEPENDENT_NOT_VERIFIED на новом SHA**. `POST /api/connections/probe` теперь ветвится по type: HTTP сохраняет прежнюю TCP-only проверку; MQTT создаёт новый short-lived libmosquitto client с реальными credentials ID из приватного #34 хранилища, проверяемым TLS/hostname и MQTT CONNACK. Server response имеет `scope=mqtt_connack_only`, `saved=false`, `applied=false`, `published=false`, `subscribed=false`; при ошибках отсутствующей библиотеки, секрета, сети, неверной авторизации или TLS не сообщает успех. Vue-мастер отвергает TCP-only response и считает прежнюю проверку устаревшей после изменения host/port/TLS/credentials. Это не readback оборудования и не подтверждение команды; `READY_TO_CLOSE` возможен только после независимого browser+real broker auth/TLS pass и остальных согласованных gate.
 
 ## Исправление #33-R4: брокер новой подписки не должен меняться сам
 
@@ -76,6 +76,17 @@
 - **NOT_RUN для этого нового SHA:** Vue typecheck/frontend tests/build, Chromium с настоящим HttpServer, MQTT=ON/OFF CTest, два живых broker с независимым state proof, external auth/TLS probe. Прошлый OFF 68/68, ON 70/70 и frontend 53/53 относятся только к старому проверенному SHA `4f9bad9`.
 
 Никакие устройства не публикуются и не активируются самим Review. Для нового независимого verdict требуется повторить негативное browser-воспроизведение с двумя настоящими Mosquitto и проверить, что на A после Apply подтверждение приходит **только** с A/state, а сообщения на B/state не подтверждают A.
+
+## External MQTT CONNECT probe — contract на новом кандидатном HEAD
+
+1. На шаге подключения выберите внешний broker, задайте реальный адрес и порт. При необходимости заранее создайте credential ID в отдельном защищённом разделе Web Admin. **В поле мастера никогда не вводится настоящий пароль**, и он не возвращается в API.
+2. Включите TLS только если брокер предоставляет действительный сертификат для указанного host. Probe использует системный CA trust store `/etc/ssl/certs` и **проверяет имя хоста**; отключение проверки TLS не допускается. Не добавляйте исключения для самоподписанного/неверного сертификата в production ради зелёного статуса.
+3. Нажмите **«Проверить MQTT-подключение (без команд)»**. Это один ограниченный по времени CONNECT/CONNACK (по умолчанию 2000 мс, границы 50–10000 мс). HTTP ConfigStore не сохраняется, runtime не обновляется, subscriptions и commands не публикуются.
+4. Подтверждение означает только «MQTT брокер принял CONNECT с этими параметрами». Параметры после проверки изменены → прежнее свидетельство помечается устаревшим; повторите проверку. Если ответ отсутствует, rejected CONNACK, password неверен или TLS проверка не прошла, интерфейс показывает ошибку, не состояние реле.
+5. Мастер отдельно показывает локальный **systemd service** status. Это независимое свидетельство: установлен/работает — ещё не значит, что MQTT CONNECT/auth/TLS успешен.
+6. Для настоящего IoT после отдельного Review→Apply нужны самостоятельные разрешённые operational ON/OFF и свежие state messages. MQTT CONNACK **не** переводит device state в Confirmed.
+
+**Verification:** разработчик добавил source и тесты к контракту. Нужны новый MQTT OFF/ON CTest, frontend test/build, Chromium read-only probe + реальные тестовые brokers с правильным и неправильным username/password, trusted/untrusted CA и hostname mismatch. До этого `NOT_RUN/INDEPENDENT_NOT_VERIFIED`, не заявлять DONE.
 
 ## Приёмка, которую ещё предстоит выполнить на новом HEAD
 
