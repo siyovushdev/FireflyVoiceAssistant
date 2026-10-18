@@ -246,13 +246,15 @@ class RunnerTests(unittest.TestCase):
                     copy.assert_not_called()
 
     def exercise(self, root, *, outcome='DEPLOYED_VERIFIED', guard_error=False,
-                 arm_error=False, diagnostic_error=False, recovered=False, expired=False):
+                 arm_error=False, diagnostic_error=False, recovered=False, expired=False, recovery_only=False):
         (root / 'scripts').mkdir(); (root / 'evidence').mkdir()
         file = root / 'scripts/release-runner.py'; file.write_text('fixture runner')
         sha = lambda p: hashlib.sha256(Path(p).read_bytes()).hexdigest()
         plan = dict(old='old', new='new', worker_unit='fixture-forward.service', rollback_unit='fixture-rollback.service',
                     rollback_timer='fixture-rollback.timer', deadline_monotonic=time.monotonic() + 240,
                     runner_sha256=sha(file))
+        if recovery_only:
+            plan.update(old='old', new='old', recovery_only=True)
         runner.write(root / 'plan.json', plan)
         runner.write(root / 'PREPARED', {'plan_sha256': sha(root / 'plan.json')})
         instances = []
@@ -261,7 +263,11 @@ class RunnerTests(unittest.TestCase):
             ops.plan_sha256 = sha(root / 'plan.json'); ops.recovery_deadline = ops.plan['deadline_monotonic'] + 360
             if expired:
                 ops.recovery_deadline = time.monotonic() - 1
-            ops.gates.side_effect = lambda target: {'verified_target': target}
+            def gates(target):
+                if recovery_only and not (root / 'FORWARD_LAUNCH_STARTED').exists():
+                    raise RuntimeError('Original M19 is still stopped')
+                return {'verified_target': target}
+            ops.gates.side_effect = gates
             if guard_error:
                 ops.supervision_gate.side_effect = RuntimeError('unsafe real timer configuration')
             ops.systemd_properties.return_value = {'NextElapseUSecMonotonic': {'type': 't', 'data': int((time.monotonic() + 240) * 1000000)}}
@@ -289,6 +295,33 @@ class RunnerTests(unittest.TestCase):
                 runner.run(root, 'no second launch')
             self.assertEqual((root / 'plan.json').read_bytes(), frozen)
         return result, instances, launcher, command
+
+    def test_stopped_m19_bootstrap_uses_fresh_arm_and_old_independent_acceptance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            result, instances, launcher, command = self.exercise(root, recovery_only=True)
+            self.assertEqual(result['result'], 'ROLLED_BACK')
+            self.assertEqual(result['operation'], 'M19_BOOTSTRAP_RECOVERY')
+            instances[0].gates.assert_not_called()
+            instances[0].bootstrap_preflight.assert_called_once_with(armed=False)
+            instances[1].bootstrap_preflight.assert_called_once_with()
+            self.assertEqual(instances[2].gates.call_args.args, ('old',))
+            launcher.start.assert_called_once()
+            self.assertTrue(result['watchdog_disarmed_after_verification'])
+            frozen = json.loads((root / 'plan.json').read_bytes())
+            self.assertEqual(frozen['authorization'], 'fixture authorization')
+            self.assertEqual(frozen['new'], frozen['old'])
+            self.assertIn('--on-active=240s', command.call_args.args[1])
+
+    def test_bootstrap_guard_failure_never_authorizes_start_or_disarms_watchdog(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            result, instances, launcher, _ = self.exercise(root, recovery_only=True, guard_error=True)
+            self.assertEqual(result['result'], 'BLOCKED_UNKNOWN')
+            self.assertFalse((root / 'BOOTSTRAP_AUTHORIZED').exists())
+            launcher.start.assert_not_called()
+            self.assertFalse(any(call.args[0][:2] == ['systemctl', 'stop']
+                                 for ops in instances for call in ops.run.call_args_list))
 
     def test_success_requires_independent_existing_gates_before_timer_stop(self):
         with tempfile.TemporaryDirectory() as tmp:

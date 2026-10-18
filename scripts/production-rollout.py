@@ -3,6 +3,7 @@
 import datetime
 import fcntl
 import hashlib
+import importlib.util
 import json
 import math
 import os
@@ -228,6 +229,71 @@ class Production:
                 or sha(self.root / 'plan.json') != self.plan_sha256
                 or json.loads((self.root / 'plan.json').read_bytes()) != self.plan):
             raise RuntimeError('Supervisor code or original plan changed')
+        checkpoint = self.plan.get('m19_checkpoint')
+        if checkpoint:
+            tool = self.root / 'tools/packaging/firefly_checkpoint.py'
+            for directory in (tool.parent, tool.parent.parent):
+                s = directory.lstat()
+                if not stat.S_ISDIR(s.st_mode) or s.st_uid != 0 or s.st_mode & 0o022:
+                    raise RuntimeError('Untrusted checkpoint tool directory')
+            s = tool.lstat()
+            if (not stat.S_ISREG(s.st_mode) or s.st_uid != 0 or s.st_nlink != 1 or
+                    stat.S_IMODE(s.st_mode) != 0o600 or sha(tool) != checkpoint['helper_sha256']):
+                raise RuntimeError('Checkpoint helper changed')
+
+    def bootstrap_binding(self, *, armed=True):
+        """Verify durable M19 metadata; no old boot/deadline/START is imported."""
+        self.supervisor_files()
+        plan = self.plan
+        if not plan.get('recovery_only') or plan['old'] != plan['new']:
+            raise RuntimeError('Not a pinned M19 bootstrap plan')
+        if armed:
+            if not plan.get('authorization'):
+                raise RuntimeError('M19 bootstrap requires a freshly armed authorized plan')
+            for name in ('PLAN_FROZEN', 'BOOTSTRAP_AUTHORIZED'):
+                path = self.root / name
+                s = path.lstat()
+                if (not stat.S_ISREG(s.st_mode) or s.st_uid != 0 or s.st_nlink != 1 or
+                        stat.S_IMODE(s.st_mode) != 0o600 or
+                        json.loads(path.read_bytes())['plan_sha256'] != self.plan_sha256):
+                    raise RuntimeError('M19 bootstrap authorization marker changed')
+        checkpoint = plan['m19_checkpoint']
+        spec = importlib.util.spec_from_file_location('bootstrap_checkpoint',
+                    self.root / 'tools/packaging/firefly_checkpoint.py')
+        helper = importlib.util.module_from_spec(spec); spec.loader.exec_module(helper)
+        helper.require_persistent(Path(checkpoint['path']))
+        helper.require_persistent(Path(checkpoint['recovery_capsule']))
+        if time.monotonic() >= self.operation_deadline:
+            raise RecoveryTimeout('M19 bootstrap verification deadline expired')
+        receipt = helper.verify(Path(checkpoint['path']), Path(checkpoint['m19_config']), checkpoint['pin'])
+        capsule = helper.control(Path(checkpoint['recovery_capsule']))
+        if helper.pin(capsule) != checkpoint['capsule_pin']:
+            raise RuntimeError('M19 readiness capsule changed')
+        release = self.prefix / 'releases' / plan['old']
+        helper.validate_capsule(capsule, receipt, checkpoint['pin'], release)
+        expected_before = json.loads(json.dumps(capsule['before']))
+        expected_before['status']['active']['generation_id'] = 1
+        if (self.before != expected_before or plan['identities'][plan['old']] != capsule['identity'] or
+                plan['binary_sha256'][plan['old']] != capsule['binary_sha256'] or
+                Path(checkpoint['m19_config']) != release / 'bin/firefly-config'):
+            raise RuntimeError('M19 bootstrap baseline/target changed')
+        actual = helper.legacy_inventory(helper.inventory(Path('/var/lib/firefly/store')))
+        expected = helper.legacy_inventory(receipt['tree'])
+        root_started = (self.root / 'CUTOVER_STARTED').exists()
+        if root_started:
+            same = comparable(actual) == comparable(expected)
+        else:
+            same = actual == expected
+        if not same or time.monotonic() >= self.operation_deadline:
+            raise RuntimeError('Complete restored M19 store required before bootstrap')
+        return {'checkpoint_pin': checkpoint['pin'], 'capsule_pin': checkpoint['capsule_pin'],
+                'target': plan['old'], 'fresh_supervisor': True, 'cutover_started': root_started}
+
+    def bootstrap_preflight(self, *, armed=True):
+        value = self.bootstrap_binding(armed=armed)
+        wait_quiescent(self.resource_snapshot, self.record,
+                       min(self.operation_deadline, time.monotonic() + 30))
+        return value
 
     def supervision_gate(self):
         """Read-only, fail-closed gate required before the cutover marker/stop."""
@@ -412,7 +478,7 @@ class Production:
     def rollback(self, reason):
         # Terminate only our transient cutover worker before recovery, avoiding
         # a race with an activation/start left running after agent failure.
-        if not (self.root / 'CUTOVER_STARTED').exists():
+        if not (self.root / 'CUTOVER_STARTED').exists() and not self.plan.get('recovery_only'):
             self.record('aborted-before-cutover', {'utc': utc(), 'reason': reason,
                          'service_stop_performed': False})
             return
@@ -420,6 +486,10 @@ class Production:
         if time.monotonic() >= self.recovery_deadline:
             raise RecoveryTimeout('Recovery deadline already expired; no mutation permitted')
         self.operation_deadline = self.recovery_deadline
+        if self.plan.get('recovery_only'):
+            self.bootstrap_binding()
+            if not (self.root / 'CUTOVER_STARTED').exists():
+                (self.root / 'CUTOVER_STARTED').write_text(utc() + '\n')
         worker = self.plan['worker_unit']
         output = self.run(['systemctl', 'show', worker, '-p', 'LoadState', '-p', 'ActiveState',
                            '-p', 'MainPID', '-p', 'ControlPID', '-p', 'ControlGroup'])
@@ -512,7 +582,7 @@ def main():
     cutover_started = False
     try:
         assert not (root / 'CUTOVER_STARTED').exists(), 'One attempt already consumed'
-        ops.record('immediate-preflight', ops.gates(ops.plan['old']))
+        ops.record('immediate-preflight', ops.bootstrap_preflight() if ops.plan.get('recovery_only') else ops.gates(ops.plan['old']))
         ops.supervision_gate()
         assert time.monotonic() < ops.plan['deadline_monotonic'] - 180
         (root / 'CUTOVER_STARTED').write_text(utc() + '\n')

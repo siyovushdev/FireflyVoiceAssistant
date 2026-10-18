@@ -25,6 +25,8 @@ class CheckpointError(RuntimeError):
 # Original production M19 c7fa1490 config ELF from the archived release.
 # A new M19 rollback authority requires a separately reviewed identity change.
 M19_CONFIG_SHA256 = '95aad868b99c09e646adf3234347f1c0a643c50b371d775ec65c5dcacd5afd74'
+M19_HEAD = 'c7fa14906f8ae15f4c8fb488e9c9d7628eb8154f'
+M19_DEMO_SHA256 = '1072ab09a8d43e234a1c1ef58745ab62a8843e1f55dab560c36e7e3c6e7a7be1'
 
 
 def digest(path):
@@ -56,6 +58,27 @@ def control(path):
     if not stat.S_ISREG(s.st_mode) or s.st_nlink != 1 or s.st_uid != os.geteuid() or stat.S_IMODE(s.st_mode) != 0o600:
         raise CheckpointError('Untrusted checkpoint control file')
     return json.loads(path.read_bytes())
+
+
+def require_persistent(path):
+    """Activation baselines must survive reboot; private test snapshots need not."""
+    if any(path == p or p in path.parents for p in (Path('/run'), Path('/tmp'), Path('/dev/shm'))):
+        raise CheckpointError('Activation checkpoint/capsule must be on persistent storage')
+    probe = path if path.exists() else path.parent
+    device = probe.stat().st_dev
+    device_id = str(os.major(device)) + ':' + str(os.minor(device))
+    mounts = []
+    for line in Path('/proc/self/mountinfo').read_text().splitlines():
+        fields, filesystem = line.split(' - ', 1)
+        values = fields.split()
+        if values[2] != device_id:
+            continue
+        name = re.sub(r'\\([0-7]{3})', lambda m: chr(int(m[1], 8)), values[4])
+        mount = Path(name)
+        if path == mount or mount in path.parents:
+            mounts.append((len(mount.parts), filesystem.split()[0]))
+    if not mounts or max(mounts)[1] not in ('ext4', 'xfs', 'btrfs'):
+        raise CheckpointError('A verified persistent Linux filesystem is required for activation baselines')
 
 
 def inventory(tree):
@@ -220,6 +243,47 @@ def verify(checkpoint, binary, expected_pin):
         raise CheckpointError('Checkpoint identity/coverage/metadata mismatch')
     prove_m19(checkpoint / 'store', binary)
     return receipt
+
+
+def legacy_inventory(tree):
+    """The existing rollout gate's inventory representation, without losing fields."""
+    out = {}
+    for name, entry in tree.items():
+        value = {k: entry[k] for k in ('mode', 'uid', 'gid', 'mtime_ns')}
+        value['type'] = entry['kind']
+        if entry['kind'] == 'file':
+            value.update(size=entry['bytes'], sha256=entry['sha256'])
+        out[name] = value
+    return out
+
+
+def validate_capsule(data, receipt, checkpoint_pin, release_root):
+    """A durable OLD readiness baseline, not an executable/reusable old plan."""
+    expected = dict(revision=receipt['proof']['current']['revision'],
+                    hash=receipt['proof']['current']['content_sha256'])
+    before = data['before']
+    active = before['status']['active']
+    if (data.get('format') != 1 or data['checkpoint_pin'] != checkpoint_pin or
+            data['release'] != release_root.name or data['identity']['head'] != M19_HEAD or
+            data['identity']['dirty'] is not False or data['binary_sha256'] != M19_DEMO_SHA256 or
+            digest(release_root / 'bin/firefly-demo') != M19_DEMO_SHA256 or
+            digest(release_root / 'bin/firefly-config') != M19_CONFIG_SHA256 or
+            digest(release_root / 'manifest.json') != data['manifest_sha256'] or
+            before['unit_sha256'] != digest(release_root / 'share/firefly/systemd/firefly-voice-assistant.service') or
+            before['store_manifest'] != legacy_inventory(receipt['tree']) or
+            before['status']['stored'] != expected or
+            {k: active[k] for k in ('revision', 'hash')} != expected or
+            type(active['generation_id']) is not int or active['generation_id'] < 1 or
+            before['argv'][0] != '/opt/firefly/voice-assistant/current/bin/firefly-demo'):
+        raise CheckpointError('M19 readiness capsule identity/store/unit mismatch')
+    paths = {item['path'] for item in json.loads((release_root / 'manifest.json').read_bytes())['artifacts']}
+    modes = data['artifact_modes']
+    if set(modes) != paths:
+        raise CheckpointError('Incomplete frozen M19 artifact mode contract')
+    for name, mode in modes.items():
+        if type(mode) is not int or mode not in (0o644, 0o755) or (release_root / name).stat().st_mode & 0o7777 != mode:
+            raise CheckpointError('Frozen M19 artifact mode changed: ' + name)
+    return data
 
 
 def create(store, destination, binary):

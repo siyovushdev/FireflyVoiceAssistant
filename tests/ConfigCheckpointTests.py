@@ -163,6 +163,52 @@ class CheckpointTests(unittest.TestCase):
                 c.quiescent(Path('/var/lib/firefly/store'))
             inspected.assert_not_called()
 
+    def test_activation_baselines_reject_volatile_or_hidden_tmpfs(self):
+        for path in ['/run/checkpoint', '/tmp/checkpoint', '/dev/shm/checkpoint']:
+            with self.assertRaises(c.CheckpointError): c.require_persistent(Path(path))
+        mountinfo = ('1 0 8:1 / / rw - xfs /dev/root rw\n'
+                     '2 1 0:52 / /owner rw - tmpfs tmpfs rw\n')
+        info = type('Info', (), {'st_dev': os.makedev(0, 52)})()
+        with patch.object(Path, 'exists', return_value=False), patch.object(Path, 'stat', return_value=info), \
+             patch.object(Path, 'read_text', return_value=mountinfo):
+            with self.assertRaises(c.CheckpointError): c.require_persistent(Path('/owner/checkpoint'))
+
+    def test_durable_capsule_binds_original_m19_complete_store_and_unit(self):
+        receipt = c.control(self.checkpoint / 'checkpoint.json')
+        audit = receipt['proof']['current']; expected = dict(revision=audit['revision'], hash=audit['content_sha256'])
+        tree = self.base / 'original-m19'
+        (tree / 'bin').mkdir(parents=True)
+        (tree / 'bin/firefly-demo').write_text('LABELLED fake mode fixture')
+        (tree / 'bin/firefly-demo').chmod(0o755)
+        (tree / 'manifest.json').write_text(json.dumps({'artifacts': [{'path': 'bin/firefly-demo'}]}))
+        data = dict(format=1, checkpoint_pin=self.pin, release=tree.name,
+                    identity=dict(head=c.M19_HEAD, dirty=False), binary_sha256=c.M19_DEMO_SHA256,
+                    manifest_sha256='a' * 64, artifact_modes={'bin/firefly-demo': 0o755},
+                    before=dict(status=dict(stored=expected, active={**expected, 'generation_id': 2}),
+                                argv=['/opt/firefly/voice-assistant/current/bin/firefly-demo', ''],
+                                unit_sha256='b' * 64, store_manifest=c.legacy_inventory(receipt['tree'])))
+        def digest(path):
+            return {'firefly-demo': c.M19_DEMO_SHA256, 'firefly-config': c.M19_CONFIG_SHA256,
+                    'manifest.json': 'a' * 64, 'firefly-voice-assistant.service': 'b' * 64}[path.name]
+        with patch.object(c, 'digest', side_effect=digest):
+            c.validate_capsule(data, receipt, self.pin, tree)
+            for fault in ['checkpoint', 'head', 'binary', 'manifest', 'stored', 'active', 'generation', 'unit', 'metadata', 'argv', 'artifact-mode', 'missing-artifact-mode']:
+                bad = copy.deepcopy(data)
+                if fault == 'checkpoint': bad['checkpoint_pin'] = '0' * 64
+                elif fault == 'head': bad['identity']['head'] = 'unreviewed'
+                elif fault == 'binary': bad['binary_sha256'] = '0' * 64
+                elif fault == 'manifest': bad['manifest_sha256'] = '0' * 64
+                elif fault == 'stored': bad['before']['status']['stored']['revision'] += 1
+                elif fault == 'active': bad['before']['status']['active']['hash'] = '0' * 64
+                elif fault == 'generation': bad['before']['status']['active']['generation_id'] = True
+                elif fault == 'unit': bad['before']['unit_sha256'] = '0' * 64
+                elif fault == 'metadata': bad['before']['store_manifest'].pop('.lock')
+                elif fault == 'artifact-mode': bad['artifact_modes']['bin/firefly-demo'] = 0o6755
+                elif fault == 'missing-artifact-mode': bad['artifact_modes'].clear()
+                else: bad['before']['argv'][0] = '/unreviewed/demo'
+                with self.subTest(fault=fault), self.assertRaises(c.CheckpointError):
+                    c.validate_capsule(bad, receipt, self.pin, tree)
+
     def test_checkpoint_rejects_pending_and_lock_contention(self):
         (self.store / '.pending.json').write_text('{}')
         with self.assertRaises(c.CheckpointError):

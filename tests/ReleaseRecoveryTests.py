@@ -11,7 +11,7 @@ import sys
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -170,6 +170,29 @@ class SupervisionGateTests(unittest.TestCase):
         self.assertEqual(self.stops, [True])
         self.assertTrue(any(k == 'supervision-preflight' for k, v in self.records))
         self.assertEqual(self.controls, [['systemctl', 'start', '--no-block', 'fixture.service']])
+    def test_bootstrap_preflight_preserves_supervision_and_precedes_marker(self):
+        self.ops.plan.update(new='old', recovery_only=True)
+        self.ops.bootstrap_preflight = Mock(return_value={'checkpoint_verified': True})
+        with self.assertRaisesRegex(RuntimeError, 'fixture-stop-boundary'):
+            self.deploy()
+        self.ops.bootstrap_preflight.assert_called_once_with()
+        self.assertEqual(self.stops, [True])
+
+    def test_missing_bootstrap_proof_blocks_before_cutover(self):
+        self.ops.plan.update(new='old', recovery_only=True)
+        self.ops.bootstrap_preflight = Mock(side_effect=RuntimeError('checkpoint invalid'))
+        self.assert_blocked()
+        self.assertEqual(self.stops, [])
+
+    def test_unarmed_bootstrap_cannot_read_checkpoint_or_mutate(self):
+        self.ops.plan.update(new='old', recovery_only=True)
+        with self.assertRaisesRegex(RuntimeError, 'freshly armed'):
+            self.ops.bootstrap_binding()
+        self.ops.plan['authorization'] = 'fixture owner approval'
+        with self.assertRaises(FileNotFoundError):
+            self.ops.bootstrap_binding()
+        self.assertEqual(self.controls, [])
+
     def test_missing_or_wrongly_typed_properties_block_before_stop(self):
         baseline = copy.deepcopy(self.properties)
         for unit, properties in baseline.items():
@@ -437,6 +460,7 @@ class RecoveryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             ops = self.make_controller()
             ops.root = Path(tmp)
+            ops.plan = dict(old='old', new='new')
             ops.run = lambda *a, **kw: self.fail('No control command allowed')
             ops.rollback('fixture')
             self.assertEqual(ops.records[-1][0], 'aborted-before-cutover')

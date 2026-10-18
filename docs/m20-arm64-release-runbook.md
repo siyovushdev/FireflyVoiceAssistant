@@ -142,8 +142,18 @@ python3 "$SOURCE/scripts/release-runner.py" prepare \
   --source "$SOURCE" --approved-commit "$APPROVED_HEAD" --new-release "$NEW_RELEASE" \
   --root "$NEW_RUN_BUNDLE" --approved-admin-assets-sha256 "$APPROVED_ASSETS" \
   --m19-checkpoint "$NEW_PERSISTENT_CHECKPOINT" --m19-checkpoint-pin "$CHECKPOINT_PIN" \
-  --m19-config "$M19_CONFIG"
+  --m19-config "$M19_CONFIG" \
+  --m19-recovery-capsule "$NEW_PERSISTENT_M19_CAPSULE"
 ```
+
+Persist the returned `m19_recovery_capsule_pin` separately with the checkpoint
+pin. Checkpoint and capsule must use persistent ext4/XFS/Btrfs, outside `/run`,
+`/tmp` and `/dev/shm`; prepare checks the actual mounted filesystem/device.
+The capsule pins the original M19 main/config executables, immutable manifest,
+all artifact modes, unit/argv, whole-store metadata and verified old readiness.
+It contains no old timer, boot ID, deadline or execution claim. Keep the original
+M19 release and this capsule. Later M20 preparations use this existing capsule
+with `--m19-recovery-capsule-pin`; never replace it with an M20 readiness snapshot.
 
 Verification runs the **actual pinned M19** on a disposable cloned store:
 `audit`, `current`, `reconcile`, `revisions`, inspect every history/LKG document,
@@ -193,11 +203,40 @@ env FIREFLY_OWNER_ACCEPTED=1 python3 "$SOURCE/scripts/config-checkpoint.py" rest
    newer-store history and external pins indefinitely for analysis/return to M20.
    The checkpoint's revision intentionally resumes its original CAS epoch; no
    client or runtime generation may remain alive across this offline rollback.
-5. Prepare a **fresh** existing supervised M19 recovery/release plan against the
-   restored store and exact pinned release. Only existing owner-authorized
-   controller/bootstrap/readiness gates may switch/start M19. Verify old `audit`,
-   `current`, `revisions`, history reads and ordinary CAS editing. Do not reuse the
-   pre-MQTT runner's stored status/hash baseline or reset an old watchdog deadline.
+5. With the service still stopped, prepare the explicit **fresh** M19 bootstrap
+   mode of the existing runner. Use reviewed current release-control source and
+   its commit, not an old source checkout or an old consumed `/run` bundle:
+
+```sh
+python3 "$SOURCE/scripts/release-runner.py" prepare-rollback \
+  --source "$SOURCE" --approved-commit "$APPROVED_RELEASE_CONTROL_HEAD" \
+  --root "$NEW_RECOVERY_RUN_BUNDLE" \
+  --m19-checkpoint "$NEW_PERSISTENT_CHECKPOINT" --m19-checkpoint-pin "$CHECKPOINT_PIN" \
+  --m19-config "$M19_CONFIG" --m19-recovery-capsule "$NEW_PERSISTENT_M19_CAPSULE" \
+  --m19-recovery-capsule-pin "$M19_CAPSULE_PIN"
+# Only in the separately owner-authorized activation/recovery window:
+python3 "$NEW_RECOVERY_RUN_BUNDLE/scripts/release-runner.py" run \
+  "$NEW_RECOVERY_RUN_BUNDLE" --owner-authorization "$OWNER_AUTHORIZATION_URL"
+```
+
+The bootstrap preparation validates the exact original M19 code/manifest/modes,
+full restored store and pinned readiness capsule, and requires empty service
+cgroup/NPU/microphone ownership. It writes a new plan/backup/PREPARED receipt.
+The same launcher/controller arms a fresh 240+360-second independent watchdog;
+only successful existing typed supervision creates `BOOTSTRAP_AUTHORIZED`.
+Then the existing stop → resource barriers → checked pointer selection → start →
+readiness/non-actuating checks run for the fixed M19 target. Fresh M19 bootstrap
+starts RuntimeGeneration1; catalog revision/hash and all other gates stay pinned.
+A stale/unarmed plan or absent/changed capsule cannot authorize a start. A broken
+M20 image is retained and is not executed to validate the preserved M19 target.
+Success is `ROLLED_BACK`, operation `M19_BOOTSTRAP_RECOVERY`, after independent old
+readiness verification; only then may the timer be disarmed. Ordinary forward
+preparation retains the strict frozen-M19 preservation contract.
+
+Old `audit`, `current`, `revisions`, history/CAS/Restore must pass on the helper's
+private proof copy before start. After start recheck read-only audit/status and
+use ordinary owner editing; do not invent a live CAS edit to prove recovery.
+Keep the newer M20 history/release for analysis. No prior lease/START is reusable.
 
 On crash/failure keep service stopped. The journal distinguishes pre/post-exchange
 by exact tree inventories, not a possibly stale phase bit. Retry the SAME
