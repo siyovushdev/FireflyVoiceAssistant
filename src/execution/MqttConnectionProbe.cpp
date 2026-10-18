@@ -165,7 +165,8 @@ std::string siblingWorkerPath() {
     struct stat st{};
     if (::lstat(worker.c_str(), &st) != 0 || !S_ISREG(st.st_mode) ||
         (st.st_uid != ::geteuid() && st.st_uid != 0) ||
-        (st.st_mode & 022) != 0 || (st.st_mode & 0111) == 0)
+        (st.st_mode & (S_ISUID | S_ISGID | 022)) != 0 ||
+        (st.st_mode & 0111) == 0)
         throw std::runtime_error("mqtt_probe_worker_unavailable");
     return worker;
 }
