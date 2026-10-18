@@ -206,10 +206,7 @@ HardwareResult error(std::string code, ReachabilityEvidence evidence = Reachabil
 }
 #ifdef FIREFLY_WITH_MOSQUITTO
 void initializeLibrary() {
-    static std::once_flag once;
-    static bool initialized = false;
-    std::call_once(once, [] { initialized = mosquitto_lib_init() == MOSQ_ERR_SUCCESS; });
-    if (!initialized) throw std::runtime_error("mosquitto library initialization failed");
+    detail::ensureMqttLibrary();
 }
 // Admin and runtime use the same strict on-disk reader. Never trust a
 // credentials_id as a path or bypass a private-directory permission check.
