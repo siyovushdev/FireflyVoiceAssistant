@@ -86,7 +86,7 @@
 5. Мастер отдельно показывает локальный **systemd service** status. Это независимое свидетельство: установлен/работает — ещё не значит, что MQTT CONNECT/auth/TLS успешен.
 6. Для настоящего IoT после отдельного Review→Apply нужны самостоятельные разрешённые operational ON/OFF и свежие state messages. MQTT CONNACK **не** переводит device state в Confirmed.
 
-**Verification:** разработчик добавил source и тесты к контракту. Нужны новый MQTT OFF/ON CTest, frontend test/build, Chromium read-only probe + реальные тестовые brokers с правильным и неправильным username/password, trusted/untrusted CA и hostname mismatch. До этого `NOT_RUN/INDEPENDENT_NOT_VERIFIED`, не заявлять DONE.
+**Verification:** developer stage `SOURCE_REVIEW_PASS_CANDIDATE / INDEPENDENT_NOT_VERIFIED` для external authenticated MQTT probe. Разработчик добавил source и тесты к контракту. Нужны новый MQTT OFF/ON CTest, frontend test/build, Chromium read-only probe + реальные тестовые brokers с правильным и неправильным username/password, trusted/untrusted CA и hostname mismatch. До этого `NOT_RUN/INDEPENDENT_NOT_VERIFIED`, не заявлять DONE.
 
 ## Приёмка, которую ещё предстоит выполнить на новом HEAD
 
