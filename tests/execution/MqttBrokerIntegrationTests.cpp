@@ -259,6 +259,19 @@ bool unknown(execution::BoundDeviceExecutor& executor, const std::string& target
     return found != record->properties.end() &&
            found->second.knowledge == execution::StateKnowledge::Unknown;
 }
+Json retirementSnapshot(execution::BoundDeviceExecutor& executor) {
+    const auto record = executor.production().device("device_g1_relay");
+    check(record.has_value(), "retired generation must retain its device record");
+    const auto& power = record->properties.at("power");
+    Json value = nullptr;
+    if (power.value) std::visit([&](const auto& scalar) { value = scalar; }, power.value->data());
+    return {{"value", value}, {"knowledge", static_cast<int>(power.knowledge)},
+            {"updated", power.updatedAtMs}, {"observed", power.observedAtMs},
+            {"freshness", power.freshnessSteadyMs.value_or(-1)},
+            {"order", power.orderSteadyMs.value_or(-1)},
+            {"connectivity", static_cast<int>(record->connectivity)},
+            {"success", record->lastSuccessAtMs}, {"failure", record->lastFailureAtMs}};
+}
 // Real RuntimeGenerations::apply, not merely a direct executor constructor.
 // Retaining old immutable snapshots must NOT retain old broker subscriptions.
 void testGenerationRetirement(const Json& base, Relay& relay) {
@@ -303,6 +316,9 @@ void testGenerationRetirement(const Json& base, Relay& relay) {
     }), "failed Apply could not restore old Confirmed state");
 
     runtime.apply(catalogB);
+    // Intentional disconnect may invalidate old knowledge during teardown.
+    // Once Apply returns, every field must remain frozen despite old-topic spam.
+    const auto oldRetired = retirementSnapshot(*old->executor);
     const auto newer = runtime.current();
     check(newer && newer != old, "Apply published a distinct RuntimeGeneration");
     check(unknown(*newer->executor, "device_g1_relay"),
@@ -312,7 +328,7 @@ void testGenerationRetirement(const Json& base, Relay& relay) {
     for (int i = 0; i < 15; ++i)
         relay.sendTopic("g1/generations/a", "ON");
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    check(confirmed(*old->executor, false),
+    check(retirementSnapshot(*old->executor) == oldRetired,
           "old generation's held snapshot received obsolete MQTT telemetry");
     check(unknown(*newer->executor, "device_g1_relay"),
           "old topic leaked into new generation after Apply");
@@ -330,6 +346,7 @@ void testGenerationRetirement(const Json& base, Relay& relay) {
         if (o.at("target_id") != "device_g1_relay") retained.push_back(o);
     without["observations"] = std::move(retained);
     runtime.apply(config::ConfigLoader::fromJson(without.dump()));
+    const auto newerRetired = retirementSnapshot(*newer->executor);
     const auto removed = runtime.current();
     check(removed && removed != newer, "removal creates another generation");
     check(unknown(*removed->executor, "device_g1_relay"),
@@ -337,11 +354,11 @@ void testGenerationRetirement(const Json& base, Relay& relay) {
     for (int i = 0; i < 15; ++i)
         relay.sendTopic("g1/generations/b", "ON");
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    check(confirmed(*newer->executor, false),
+    check(retirementSnapshot(*newer->executor) == newerRetired,
           "previous generation subscriber survived mapping removal");
     check(unknown(*removed->executor, "device_g1_relay"),
           "removed MQTT observation still updated active state");
-    check(confirmed(*old->executor, false),
+    check(retirementSnapshot(*old->executor) == oldRetired,
           "first held generation was reactivated by later Apply");
 
     // Restore the original catalog (rollback/recovery selection) without
@@ -358,9 +375,9 @@ void testGenerationRetirement(const Json& base, Relay& relay) {
         if ((attempts++ % 10) == 0) relay.sendTopic("g1/generations/a", "ON");
         return confirmed(*restored->executor, true);
     }), "rollback generation failed to establish fresh MQTT confirmation");
-    check(confirmed(*old->executor, false),
+    check(retirementSnapshot(*old->executor) == oldRetired,
           "rollback reactivated retired original generation's subscription");
-    check(confirmed(*newer->executor, false),
+    check(retirementSnapshot(*newer->executor) == newerRetired,
           "rollback reactivated intermediate generation's subscription");
     check(unknown(*removed->executor, "device_g1_relay"),
           "rollback modified removed-observation generation");

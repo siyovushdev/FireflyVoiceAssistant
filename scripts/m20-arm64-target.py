@@ -13,6 +13,8 @@ def main():
     parser.add_argument('--sdk', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--host-user-ns', required=True)
+    parser.add_argument('--unprivileged-test-user', action='store_true',
+                        help='Run isolated CPU tests as mapped uid/gid1000, never staging')
     parser.add_argument('command', nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if os.getuid() != 0 or os.readlink('/proc/self/ns/user') == args.host_user_ns:
@@ -34,6 +36,8 @@ def main():
             'instance': str(root), 'handler': (root / 'firefly-arm64').read_text(),
             'global_registration': False}, indent=2))
         box = ['bwrap', '--unshare-net', '--die-with-parent', '--tmpfs', '/']
+        if args.unprivileged_test_user:
+            box += ['--unshare-user', '--uid', '1000', '--gid', '1000']
         # A tmpfs namespace root supplies mountpoints without changing the SDK.
         # Every target-root entry stays readonly; only explicit work mounts write.
         for child in sorted((sdk / 'rootfs').iterdir()):
@@ -60,6 +64,9 @@ def main():
         try:
             p = subprocess.run(box + ['--', *command], check=False)
         finally:
+            # F holds an open interpreter inode. Explicitly unregister before
+            # unmount so no pinned handler survives this private fixture.
+            (root / 'firefly-arm64').write_text('-1')
             subprocess.run(['umount', str(root)], check=True)
         return p.returncode
 
