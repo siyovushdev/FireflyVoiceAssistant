@@ -1,5 +1,6 @@
 #include "firefly/execution/MqttHardwareExecutor.h"
 #include "firefly/execution/MqttCredentials.h"
+#include "MqttLibrary.h"
 #include "firefly/execution/DeviceStateStore.h"
 #include "firefly/config/Connectivity.h"
 #include "firefly/actions/ScalarJson.h"
