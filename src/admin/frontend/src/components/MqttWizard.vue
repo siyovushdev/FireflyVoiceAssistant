@@ -8,6 +8,7 @@ import { MqttDeviceDrafts, initialMqttDeviceDraft, observationFromMqttDraft,
     pinMqttObservationConnection, type MqttDeviceDraft } from '../adapters/mqttDeviceDrafts.js';
 import TaskErrors from './forms/TaskErrors.vue';
 import { adminRequest, issuesOf, type Issue } from '../api/admin.js';
+import { mqttProbeFingerprint, mqttProbeConfirmed } from '../adapters/mqttProbe.js';
 
 const emit = defineEmits<{ ready: []; back: [] }>();
 const task = manual.task.value!;
@@ -30,6 +31,7 @@ const local = ref(host.value === '127.0.0.1');
 interface MqttProbeReply {
     ok: true;
     scope: 'mqtt_connack_only';
+    transport: 'mqtt';
     connack_accepted: true;
     tls_verified: boolean;
     credentials_accepted: boolean;
@@ -42,10 +44,10 @@ const probeBusy = ref(false);
 const probeMessage = ref('');
 const probeError = ref('');
 const probeSnapshot = ref('');
-const probeFingerprint = computed(() => JSON.stringify({
-    connection: connection.value, host: local.value ? '127.0.0.1' : host.value.trim(),
-    port: port.value, tls: tls.value, credentials_id: credentials.value.trim()
-}));
+const probeFingerprint = computed(() => mqttProbeFingerprint(
+    connection.value, local.value ? '127.0.0.1' : host.value.trim(),
+    port.value, tls.value, credentials.value
+));
 const probeStale = computed(() => !!(probeMessage.value || probeError.value) &&
     probeSnapshot.value !== probeFingerprint.value);
 async function probeMqttConnection() {
@@ -74,10 +76,8 @@ async function probeMqttConnection() {
     try {
         const result = await adminRequest<MqttProbeReply>('/api/connections/probe',
             { connection: current });
-        if (result.scope !== 'mqtt_connack_only' || result.connack_accepted !== true ||
-            result.published !== false || result.subscribed !== false ||
-            result.saved !== false || result.applied !== false)
-            throw Error('MQTT CONNECT не подтвердился корректным ответом сервера.');
+        if (!mqttProbeConfirmed(result, tls.value, credentials.value))
+            throw Error('MQTT CONNECT не подтвердился проверяемым ответом сервера.');
         probeMessage.value = 'MQTT CONNECT/CONNACK принят брокером. ' +
             (result.tls_verified ? 'TLS-сертификат и имя хоста проверены. ' : 'TLS не использовался. ') +
             (result.credentials_accepted ? 'Учётные данные приняты.' : 'Подключение без credentials принято.') +
