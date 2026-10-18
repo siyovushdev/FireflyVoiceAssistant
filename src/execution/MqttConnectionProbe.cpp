@@ -4,12 +4,14 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cerrno>
 #include <cstring>
 #include <fcntl.h>
 #include <limits.h>
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <poll.h>
+#include <set>
 #include <signal.h>
 #include <spawn.h>
 #include <stdexcept>
