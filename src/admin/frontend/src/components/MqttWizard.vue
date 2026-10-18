@@ -25,6 +25,70 @@ const port = ref(connection.value.network?.port ?? 1883);
 const tls = ref(connection.value.mqtt?.tls ?? false);
 const credentials = ref(connection.value.mqtt?.credentials_id ?? '');
 const local = ref(host.value === '127.0.0.1');
+// A probe observes only a one-shot CONNECT/CONNACK and never publishes a
+// command. Its evidence is always tied to the *exact* unsaved form snapshot.
+interface MqttProbeReply {
+    ok: true;
+    scope: 'mqtt_connack_only';
+    connack_accepted: true;
+    tls_verified: boolean;
+    credentials_accepted: boolean;
+    saved: false;
+    applied: false;
+    published: false;
+    subscribed: false;
+}
+const probeBusy = ref(false);
+const probeMessage = ref('');
+const probeError = ref('');
+const probeSnapshot = ref('');
+const probeFingerprint = computed(() => JSON.stringify({
+    connection: connection.value, host: local.value ? '127.0.0.1' : host.value.trim(),
+    port: port.value, tls: tls.value, credentials_id: credentials.value.trim()
+}));
+const probeStale = computed(() => !!(probeMessage.value || probeError.value) &&
+    probeSnapshot.value !== probeFingerprint.value);
+async function probeMqttConnection() {
+    if (probeBusy.value || manual.busy.value) return;
+    const target = local.value ? '127.0.0.1' : host.value.trim();
+    if (!connection.value.name.trim() || !target ||
+        !Number.isInteger(port.value) || port.value < 1 || port.value > 65535 ||
+        !Number.isInteger(connection.value.timeout_ms) ||
+        (connection.value.timeout_ms ?? 0) < 50 || (connection.value.timeout_ms ?? 0) > 10000) {
+        probeMessage.value = '';
+        probeError.value = 'Укажите название, корректный адрес, порт и timeout перед проверкой MQTT.';
+        probeSnapshot.value = probeFingerprint.value;
+        return;
+    }
+    const candidate = projectMqttWizard({
+        config, connection: connection.value, local: local.value, host: target,
+        port: port.value, tls: tls.value, credentialsId: credentials.value,
+        targetId: '', mappings: [], replaceOtherObservation: false
+    });
+    const current = candidate.connections?.find(c => c.id === connection.value.id);
+    if (!current) return;
+    const snapshot = probeFingerprint.value;
+    probeBusy.value = true;
+    probeMessage.value = '';
+    probeError.value = '';
+    try {
+        const result = await adminRequest<MqttProbeReply>('/api/connections/probe',
+            { connection: current });
+        if (result.scope !== 'mqtt_connack_only' || result.connack_accepted !== true ||
+            result.published !== false || result.subscribed !== false ||
+            result.saved !== false || result.applied !== false)
+            throw Error('MQTT CONNECT не подтвердился корректным ответом сервера.');
+        probeMessage.value = 'MQTT CONNECT/CONNACK принят брокером. ' +
+            (result.tls_verified ? 'TLS-сертификат и имя хоста проверены. ' : 'TLS не использовался. ') +
+            (result.credentials_accepted ? 'Учётные данные приняты.' : 'Подключение без credentials принято.') +
+            ' Реле и state topic не проверялись; команды не отправлялись.';
+    } catch (error) {
+        probeError.value = issuesOf(error).map(issue => issue.message).join(' ');
+    } finally {
+        probeSnapshot.value = snapshot;
+        probeBusy.value = false;
+    }
+}
 // Inspect the configured local service using the existing read-only Admin
 // status route. This never enables a broker, contacts a relay or publishes.
 interface LocalBrokerStatus { ok: true; installed: boolean; enabled: boolean; running: boolean }
@@ -292,6 +356,18 @@ async function finish() {
     <p class="muted">Указывайте ID, созданный в разделе «Подключения → Учётные данные MQTT». Пароль не хранится в конфигурации и не включается в экспорт. Локальный Mosquitto требует авторизацию, поэтому без подходящего ID подключение Firefly не будет подтверждено.</p>
     <p v-if="!local && !tls" class="notice warning">Без TLS учётные данные могут передаваться по сети открытым текстом. Используйте только доверенную локальную сеть, не подключайте неизвестный WAN-брокер.</p>
     <details><summary>Дополнительно</summary><label>Тайм-аут, мс<input v-model.number="connection.timeout_ms" type="number" min="50" max="10000" /></label></details>
+    <div class="form-section">
+      <button type="button" :disabled="probeBusy || manual.busy.value" @click="probeMqttConnection">
+        {{ probeBusy ? 'MQTT CONNECT проверяется…' : 'Проверить MQTT-подключение (без команд)' }}
+      </button>
+      <p v-if="probeMessage" :class="probeStale ? 'notice warning' : 'notice'" role="status">
+        {{ probeStale ? 'Результат проверки устарел после изменения параметров. ' : '' }}{{ probeStale ? 'Повторите проверку CONNECT.' : probeMessage }}
+      </p>
+      <p v-if="probeError" class="notice warning" role="alert">
+        {{ probeStale ? 'Ошибка относится к прежним параметрам. ' : '' }}{{ probeError }}
+      </p>
+      <p class="muted">Это отдельный MQTT CONNECT/CONNACK с credentials и проверкой TLS/hostname. Не отправляет PUBLISH/SUBSCRIBE, не меняет ConfigStore, не включает локальный Mosquitto и не подтверждает состояние устройства.</p>
+    </div>
   </div>
   <div v-if="step === 2">
     <label v-if="!task.id || task.id.startsWith('@')">Устройство<select v-model="targetId">
@@ -379,7 +455,9 @@ async function finish() {
     <p v-if="local" class="notice">Локальный Mosquitto:
       {{ brokerStatus ? (brokerStatus.installed && brokerStatus.running ? 'служба работает, авторизация и реле не проверены' : 'не готова к подключению устройств') : 'статус неизвестен, не проверен' }}.
     </p>
-    <p v-else class="muted">Внешний брокер: доступность и авторизация здесь не проверялись.</p>
+    <p v-else class="muted">Внешний брокер:
+      {{ probeMessage && !probeStale ? 'MQTT CONNECT успешно проверен для текущих параметров (состояние реле неизвестно).' : 'подключение не проверено или результат устарел.' }}
+    </p>
     <strong>Команды оборудованию не отправлялись. MQTT-статус не означает подтверждение устройства.</strong>
     <p>Следующий экран — общий Review всех изменений. Только отдельное подтверждение выполняет Save → Apply; настройка подключения никогда не включает локальный брокер.</p>
   </div>
