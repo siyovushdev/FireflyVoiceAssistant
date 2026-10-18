@@ -88,6 +88,21 @@
 
 **Verification:** developer stage `SOURCE_REVIEW_PASS_CANDIDATE / INDEPENDENT_NOT_VERIFIED` для external authenticated MQTT probe. Разработчик добавил source и тесты к контракту. Нужны новый MQTT OFF/ON CTest, frontend test/build, Chromium read-only probe + реальные тестовые brokers с правильным и неправильным username/password, trusted/untrusted CA и hostname mismatch. До этого `NOT_RUN/INDEPENDENT_NOT_VERIFIED`, не заявлять DONE.
 
+## Исправление PROBE-R1: DNS входит в общий timeout
+
+Независимый Codex review #33 (Issue comment `6246343118`) нашёл один P2: настоящий медленный libc DNS (1250 мс) позволял запросу `timeout_ms=100` возвращать **Success через ~1254 мс**. Причина — `mosquitto_connect_async` блокирует на DNS **до** вычисления прежнего `deadline`.
+
+Следующая реализация устраняет этот обход не переносом таймера, а отдельным процессом:
+
+- Web Admin `MqttConnectionProbe::testConnection` устанавливает один общий monotonic deadline **до** чтения секретов, запуска helper, DNS, CONNECT/CONNACK, передачи ответа и завершения helper. Один сетевой probe выполняется одновременно с другими только последовательно: `mqtt_probe_busy` для второго запроса.
+- Отдельный **непривилегированный** executable `firefly-mqtt-probe-worker` (тот же UID, никакого root) получает hostname/port/TLS и временные credentials через bounded **анонимный AF_UNIX socket**, только из родительского Admin. Username/password не передаются ни в argv, ни в environment, ни в лог, ни в ConfigStore; worker запрещает core dumps. `posix_spawn` закрывает все прочие наследуемые FD и перенаправляет stdout/stderr в `/dev/null`. Путь executable фиксирован рядом с запущенным Admin/demo и проверяется на владельца/режим.
+- **Только внутри worker** настоящий libmosquitto выполняет синхронный DNS под `mosquitto_connect_async` и стандартный проверяемый TLS hostname/CA. При просрочке parent отправляет SIGKILL, дожидается завершения/reap и возвращает **`mqtt_probe_timeout`**, никогда поздний Success. Осиротевший resolver-thread не остаётся в Admin. В worker нет пути PUBLISH, SUBSCRIBE, Apply или команд оборудованию.
+- Worker изолирован от активной RuntimeGeneration и MQTT publisher/subscriber. Libmosquitto инициализируется однократно **на процесс** (по одному экземпляру независимо у runtime и worker; два процесса не разделяют global static библиотеку). Изменять hostname на заранее разрешённый IP запрещено, чтобы не терять проверку TLS имени хоста.
+- CMake собирает worker рядом с `firefly-admin`, `firefly-demo` и CPU probe tests. **Полная доставка и root-owned permissions в aarch64 release являются явным #37 packaging gate**; этот разработческий candidate ничего не устанавливает в production.
+- Новый native тест: отложенный CONNACK при `timeout_ms=100` → 422 timeout в ограниченный wallclock и немедленно успешный следующий probe (слот/процесс освобождены), без PUBLISH/SUBSCRIBE. **Это проверка замедленного broker, не сама по себе доказательство real DNS**.
+
+**Независимый обязательный gate на новом HEAD:** повторить тот же реальный rootless network namespace с DNS delay 1250 мс, бюджетом 100 мс и настоящим Mosquitto; измерить полный HttpServer request wallclock, убийство/reap worker, отсутствие позднего Success и немедленный последующий CONNECT. Также проверить username/password auth, TLS trusted CA и hostname mismatch в этом новом процессном пути, MQTT=OFF/ON, clean frontend/CTest, невозможность запуска helper при повреждённом файле или несоответствии owner/mode, отсутствие наследуемых FD и отсутствие секретов в `ps`/логе. **NOT_RUN на новом HEAD**, `READY_TO_CLOSE` пока запрещён.
+
 ## Приёмка, которую ещё предстоит выполнить на новом HEAD
 
 Для Issue #33 независимый Codex должен предъявить:
