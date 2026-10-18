@@ -436,3 +436,116 @@ test('M20 MQTT R3 caches wizard component across protocol navigation without ear
     assert.match(wizard, /В общий Review \(без Apply\)/,
         'navigation back and forward must never perform implicit Apply');
 });
+
+
+test('M20 #33 R4 new state subscription A stays on broker A after selecting B and adding B state', () => {
+    const base = structuredClone(fixture);
+    const idA = base.devices.at(-1).id;
+    const idB = base.devices[0].id;
+    const brokerA = { id: 'broker_a', name: 'Broker A', type: 'mqtt',
+        enabled: true, timeout_ms: 2000, network: { host: '127.0.0.1', port: 1883 },
+        mqtt: { tls: false } };
+    const brokerB = { id: 'broker_b', name: 'Broker B', type: 'mqtt',
+        enabled: true, timeout_ms: 2000, network: { host: '127.0.0.1', port: 1884 },
+        mqtt: { tls: false } };
+    base.connections = [brokerA, brokerB];
+    base.bindings = [
+        { target_id: idA, action_id: 'action_A', executor: 'mqtt',
+          connection_id: brokerA.id,
+          mqtt: { topic: 'cmd/a', payload: 'ON', qos: 0, retain: false } },
+        { target_id: idB, action_id: 'action_B', executor: 'mqtt',
+          connection_id: brokerB.id,
+          mqtt: { topic: 'cmd/b', payload: 'OFF', qos: 1, retain: false } }
+    ];
+    base.observations = [{
+        target_id: idA, executor: 'http', connection_id: 'http_reader',
+        http: { method: 'GET', path: '/state' }, fields: { on: 'power' }
+    }];
+    const original = structuredClone(base);
+    const draftStore = new MqttDeviceDrafts(base);
+
+    // Browser action: user selects broker A and ENABLES an entirely new
+    // observation; that is the moment A's broker identity becomes durable
+    // inside the per-device TaskBuffer draft.
+    const draftA = draftStore.restore(idA);
+    assert.equal(draftA.observeConnectionId, '');
+    draftA.observeConnectionId = pinMqttObservationConnection(
+        draftA.observeConnectionId, brokerA.id);
+    draftA.observing = true;
+    draftA.replaceOtherObservation = true; // explicit HTTP GET -> MQTT choice
+    draftA.observation = {
+        topic: 'state/new-A', format: 'text', qos: 0, field: 'power',
+        true_payload: 'ON', false_payload: 'OFF'
+    };
+    draftStore.remember(idA, draftA);
+
+    // Browser action: user navigates back to Connection step, selects B,
+    // selects device B, creates a new observation. No button ever transfers A.
+    const draftB = draftStore.restore(idB);
+    draftB.observeConnectionId = pinMqttObservationConnection(
+        draftB.observeConnectionId, brokerB.id);
+    draftB.observing = true;
+    draftB.observation = {
+        topic: 'state/new-B', format: 'text', qos: 1, field: 'power',
+        true_payload: 'ON', false_payload: 'OFF'
+    };
+    assert.equal(pinMqttObservationConnection(draftA.observeConnectionId, brokerB.id),
+                 brokerA.id, 'reselecting a different broker must not repin A');
+
+    // This is the real final Review's projection loop: every changed device
+    // uses its individually pinned observation ID, not the latest selection B.
+    let review = projectMqttWizard({
+        config: base, connection: brokerB, local: false,
+        host: '127.0.0.1', port: 1884, tls: false, credentialsId: '',
+        targetId: '', mappings: [], replaceOtherObservation: false
+    });
+    for (const [id, draft] of draftStore.changed(idB, draftB)) {
+        review = projectMqttWizard({
+            config: review, connection: brokerB, local: false,
+            host: '127.0.0.1', port: 1884, tls: false, credentialsId: '',
+            targetId: id, mappings: draft.mappings,
+            observation: observationFromMqttDraft(id, draft),
+            replaceOtherObservation: draft.observing && draft.replaceOtherObservation
+        });
+    }
+    assert.deepEqual(base, original, 'no mutation to source/current ConfigStore before Apply');
+    assert.equal(review.bindings.find(x => x.target_id === idA).connection_id, brokerA.id);
+    assert.equal(review.bindings.find(x => x.target_id === idB).connection_id, brokerB.id);
+    assert.equal(review.observations.find(x => x.target_id === idA).connection_id,
+                 brokerA.id, 'new state topic of A must still subscribe at broker A');
+    assert.equal(review.observations.find(x => x.target_id === idA).mqtt.topic, 'state/new-A');
+    assert.equal(review.observations.find(x => x.target_id === idB).connection_id,
+                 brokerB.id, 'new state topic of B belongs at broker B');
+    assert.equal(review.observations.find(x => x.target_id === idB).mqtt.topic, 'state/new-B');
+    assert.equal(review.observations.length, 2,
+                 'explicit HTTP observation replacement must produce one observation per device');
+    assert.match(connectionObservationSummary(review, idA), /Broker A.*state\/new-A/);
+    assert.match(connectionObservationSummary(review, idB), /Broker B.*state\/new-B/);
+});
+
+test('M20 #33 R4 missing or changed state broker identity fails closed until explicit transfer', () => {
+    const base = structuredClone(fixture);
+    const id = base.devices.at(-1).id;
+    const draft = new MqttDeviceDrafts(base).restore(id);
+    draft.observing = true;
+    draft.observation.topic = 'state/new-A';
+
+    assert.throws(() => observationFromMqttDraft(id, draft),
+        /mqtt_observation_broker_not_selected/,
+        'missing broker must not use the last selected broker during Review');
+    assert.throws(() => pinMqttObservationConnection('', ''),
+        /mqtt_observation_broker_not_selected/,
+        'an observation cannot be enabled without an actual MQTT connection');
+
+    draft.observeConnectionId = pinMqttObservationConnection('', 'broker_a');
+    assert.equal(observationFromMqttDraft(id, draft).connection_id, 'broker_a');
+    assert.equal(pinMqttObservationConnection(draft.observeConnectionId, 'broker_b'),
+                 'broker_a', 'selecting B is not explicit transfer');
+
+    // Existing observation migrates ONLY upon an explicit UI transfer action.
+    draft.observeConnectionId = 'broker_b';
+    assert.equal(observationFromMqttDraft(id, draft).connection_id, 'broker_b');
+    draft.observing = false;
+    assert.equal(observationFromMqttDraft(id, draft), undefined,
+                 'disabling observation removes subscription without inventing a broker');
+});
