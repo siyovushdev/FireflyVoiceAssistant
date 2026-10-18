@@ -14,6 +14,9 @@ explicitly authorized SDK preparation step. Keep signed Ubuntu22.04 ARM64 base
 and package indexes, downloaded package/source SHA256, the Mosquitto2.0.18 source
 signature, compiler versions, frozen library hashes and exact build commands.
 Subsequent build/staging must have no network and must not run an installer.
+The provisioned build userspace includes native readelf/ldd/strip/patchelf. Stage
+sets the two copied libssl RUNPATHs to `$ORIGIN` so their crypto dependency cannot
+fall back to a system library; frozen RKLLM/Sherpa/ONNX files are never patched.
 
 Build real Linux/aarch64 with MQTT=ON, assistant/voice/Admin/config tools ON,
 the frozen RKLLM1.3.0 and Sherpa1.13.7/ONNX libraries, the verified same-source

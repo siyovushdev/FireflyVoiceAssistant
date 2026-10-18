@@ -92,6 +92,14 @@ def stage(request, release):
     # Copy inputs as regular independent files; no SDK symlink escapes.
     for name, source in sources.items():
         r._copy_regular(source, release / name)
+        if name.endswith("/libssl.so.3"):
+            # RUNPATH is not transitive: libssl must find its sibling crypto
+            # even when inspected/loaded independently of libmosquitto.
+            # Only the new TLS copies change; all frozen M19 libraries stay exact.
+            try:
+                subprocess.run(["patchelf", "--set-rpath", "$ORIGIN", str(release / name)], check=True)
+            except (OSError, subprocess.CalledProcessError) as error:
+                raise r.ReleaseError("offline target patchelf is required for the TLS closure") from error
         if name in {IMAGE + "usr/sbin/mosquitto", IMAGE + "usr/bin/mosquitto_passwd",
                     IMAGE + "usr/libexec/firefly-mqtt-control-helper"}:
             (release / name).chmod(0o755)
