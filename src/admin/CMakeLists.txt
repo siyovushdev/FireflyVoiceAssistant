@@ -227,9 +227,9 @@ if(BUILD_TESTING)
     option(FIREFLY_MQTT_NAMESPACE_TESTS
         "Run real DNS/process MQTT acceptance in rootless Linux namespaces" OFF)
     if(FIREFLY_MQTT_NAMESPACE_TESTS)
-        if(NOT FIREFLY_HOST_OFFLINE_TESTS OR NOT FIREFLY_ENABLE_MQTT OR
-           NOT FIREFLY_TEST_MOSQUITTO_SERVER)
-            message(FATAL_ERROR "MQTT namespace tests require host-offline MQTT=ON and a provisioned test Mosquitto")
+        if(NOT FIREFLY_ENABLE_MQTT OR NOT FIREFLY_TEST_MOSQUITTO_SERVER OR
+           (NOT FIREFLY_HOST_OFFLINE_TESTS AND NOT FIREFLY_MQTT_PACKAGE_ROOT))
+            message(FATAL_ERROR "MQTT namespace tests require explicit host-offline or offline-package provisioning, MQTT=ON and a test Mosquitto")
         endif()
         find_program(FIREFLY_UNSHARE_EXECUTABLE NAMES unshare)
         find_program(FIREFLY_MOUNT_EXECUTABLE NAMES mount)
