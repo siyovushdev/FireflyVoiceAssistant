@@ -302,6 +302,7 @@ class Production:
 
     def bootstrap_preflight(self, *, armed=True):
         value = self.bootstrap_binding(armed=armed)
+        self.voice_unit_gate()
         wait_quiescent(self.resource_snapshot, self.record,
                        min(self.operation_deadline, time.monotonic() + 30))
         return value
@@ -410,10 +411,77 @@ class Production:
                   'activate', '--destination', str(self.prefix), '--release-id', target,
                   '--store', '/var/lib/firefly/store'], timeout=120)
 
+    def voice_unit_gate(self):
+        """Read-only admission for the frozen permanent unit, even while stopped.
+
+        The disk pin alone cannot prove what PID 1 has loaded. Reject drop-ins,
+        stale loaded configuration and alternate commands before any start;
+        never repair/reload a unit as part of recovery.
+        """
+        path = Path('/etc/systemd/system/firefly-voice-assistant.service')
+        for directory in path.parents:
+            info = directory.lstat()
+            if (not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_gid != 0
+                    or stat.S_IMODE(info.st_mode) & 0o022):
+                raise RuntimeError('Untrusted voice unit directory: ' + str(directory))
+
+        def disk_pin():
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            with os.fdopen(fd, 'rb') as stream:
+                info = os.fstat(stream.fileno())
+                if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_gid != 0
+                        or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != 0o644
+                        or path.resolve() != path):
+                    raise RuntimeError('Untrusted voice unit file')
+                if hashlib.sha256(stream.read()).hexdigest() != self.before['unit_sha256']:
+                    raise RuntimeError('Voice unit differs from approved baseline')
+                return info.st_dev, info.st_ino, info.st_mtime_ns, info.st_ctime_ns
+
+        original = disk_pin()
+        unit = self.systemd_properties(self.unit, 'Unit')
+        service = self.systemd_properties(self.unit, 'Service')
+        for name, signature, expected in (
+                ('Id', 's', self.unit), ('LoadState', 's', 'loaded'),
+                ('FragmentPath', 's', str(path)), ('SourcePath', 's', ''),
+                ('Transient', 'b', False), ('NeedDaemonReload', 'b', False),
+                ('DropInPaths', 'as', [])):
+            if property_value(unit, name, signature) != expected:
+                raise RuntimeError('Unapproved loaded voice unit: ' + name)
+        argv = self.before['argv']
+        executable = '/opt/firefly/voice-assistant/current/bin/firefly-demo'
+        if (not isinstance(argv, list) or len(argv) < 2 or argv[0] != executable
+                or argv[-1] != '' or any(type(arg) is not str or not arg for arg in argv[:-1])):
+            raise RuntimeError('Invalid approved voice argv')
+        for name, signature, flags in (
+                ('ExecStart', 'a(sasbttttuii)', False),
+                ('ExecStartEx', 'a(sasasttttuii)', [])):
+            entries = property_value(service, name, signature)
+            if (len(entries) != 1 or not isinstance(entries[0], list) or len(entries[0]) != 10
+                    or entries[0][:3] != [executable, argv[:-1], flags]):
+                raise RuntimeError('Unapproved loaded voice command: ' + name)
+        for name in ('ExecCondition', 'ExecStartPre', 'ExecStartPost', 'ExecStop', 'ExecStopPost', 'ExecReload'):
+            if property_value(service, name, 'a(sasbttttuii)') != []:
+                raise RuntimeError('Unexpected voice command: ' + name)
+        for name, signature, expected in (
+                ('Type', 's', 'simple'), ('User', 's', 'firefly'), ('Group', 's', 'firefly'),
+                ('WorkingDirectory', 's', '/opt/firefly/voice-assistant/current'),
+                ('RootDirectory', 's', ''), ('RootImage', 's', ''),
+                ('Environment', 'as', []), ('EnvironmentFiles', 'a(sb)', []),
+                ('PassEnvironment', 'as', []), ('UnsetEnvironment', 'as', []),
+                ('DynamicUser', 'b', False), ('NoNewPrivileges', 'b', True),
+                ('PrivateTmp', 'b', True), ('ProtectSystem', 's', 'strict'),
+                ('ProtectHome', 's', 'read-only')):
+            if property_value(service, name, signature) != expected:
+                raise RuntimeError('Unapproved loaded voice service: ' + name)
+        if disk_pin() != original:
+            raise RuntimeError('Voice unit changed during admission')
+
     def start(self):
+        self.voice_unit_gate()
         self.run(['systemctl', 'start', self.unit], timeout=30)
 
     def gates(self, target):
+        self.voice_unit_gate()
         status = self.get('/api/status')
         assert status['ok'] and status['runtime_ready'] and status['stt_ready']
         assert status['microphone'] == 'connected' and status['voice'] == 'WAITING_WAKE'

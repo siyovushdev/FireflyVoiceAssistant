@@ -124,6 +124,151 @@ def supervision_properties(root, deadline_us):
     return units
 
 
+def voice_properties(argv):
+    """Typed systemd249 frozen M19 unit; no calls to the host service manager."""
+    v = lambda signature, data: {'type': signature, 'data': data}
+    unit = {k: v('s', x) for k, x in dict(Id='firefly-voice-assistant.service',
+        LoadState='loaded', FragmentPath='/etc/systemd/system/firefly-voice-assistant.service',
+        SourcePath='').items()}
+    unit.update(Transient=v('b', False), NeedDaemonReload=v('b', False), DropInPaths=v('as', []))
+    service = {k: v('s', x) for k, x in dict(Type='simple', User='firefly', Group='firefly',
+        WorkingDirectory='/opt/firefly/voice-assistant/current', RootDirectory='', RootImage='',
+        ProtectSystem='strict', ProtectHome='read-only').items()}
+    service.update({k: v('b', x) for k, x in dict(DynamicUser=False, NoNewPrivileges=True, PrivateTmp=True).items()})
+    service.update({k: v('as', []) for k in ['Environment', 'PassEnvironment', 'UnsetEnvironment']})
+    service['EnvironmentFiles'] = v('a(sb)', [])
+    service.update({k: v('a(sasbttttuii)', []) for k in
+        ['ExecCondition', 'ExecStartPre', 'ExecStartPost', 'ExecStop', 'ExecStopPost', 'ExecReload']})
+    for name, signature, flags in [('ExecStart', 'a(sasbttttuii)', False),
+                                   ('ExecStartEx', 'a(sasasttttuii)', [])]:
+        service[name] = v(signature, [[argv[0], argv[:-1], flags, 0, 0, 0, 0, 0, 0, 0]])
+    return {'Unit': unit, 'Service': service}
+
+
+class VoiceUnitGateTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.file = Path(self.temp.name) / 'voice.service'
+        self.file.write_text('pinned private fixture unit')
+        self.file.chmod(0o644)
+        self.ops = object.__new__(controller.Production)
+        self.ops.unit = 'firefly-voice-assistant.service'
+        self.ops.before = dict(unit_sha256=controller.sha(self.file),
+            argv=['/opt/firefly/voice-assistant/current/bin/firefly-demo', '--voice', ''])
+        self.properties = voice_properties(self.ops.before['argv'])
+        self.ops.systemd_properties = lambda unit, interface: self.properties[interface]
+        self.commands = []
+        self.ops.run = lambda argv, **kw: self.commands.append(argv)
+        self.uid, self.gid = 0, 0
+        # Only path/UID boundaries are mapped: contents, mode, links, O_NOFOLLOW,
+        # loaded properties and the actual pre-start gate remain under test.
+        real_fstat = os.fstat
+        def fstat(fd):
+            data = list(real_fstat(fd)); data[4:6] = [self.uid, self.gid]
+            return os.stat_result(data, {'st_mtime_ns': real_fstat(fd).st_mtime_ns,
+                                        'st_ctime_ns': real_fstat(fd).st_ctime_ns})
+        owner = self
+        class UnitPath:
+            parents = (Path('/'),)
+            def __fspath__(self): return str(owner.file)
+            def __str__(self): return '/etc/systemd/system/firefly-voice-assistant.service'
+            def resolve(self): return self
+        self.addCleanup(patch.stopall)
+        patch.object(controller, 'Path', return_value=UnitPath()).start()
+        patch.object(controller.os, 'fstat', side_effect=fstat).start()
+
+    def blocked(self):
+        with self.assertRaises((RuntimeError, OSError)):
+            self.ops.start()
+        self.assertEqual(self.commands, [])
+
+    def test_stopped_unit_needs_no_http_or_mainpid(self):
+        self.ops.start()
+        self.assertEqual(self.commands, [['systemctl', 'start', self.ops.unit]])
+
+    def test_changed_missing_symlink_hardlink_modes_and_owners_block(self):
+        original = self.file.read_bytes()
+        self.file.write_bytes(original + b'changed'); self.blocked()
+        self.file.unlink(); self.blocked()
+        target = self.file.with_suffix('.target'); target.write_bytes(original); target.chmod(0o644)
+        self.file.symlink_to(target); self.blocked(); self.file.unlink()
+        os.link(target, self.file); self.blocked(); self.file.unlink(); target.unlink()
+        self.file.write_bytes(original)
+        for mode in [0o664, 0o666, 0o6755, 0o600, 0o755]:
+            self.file.chmod(mode); self.blocked()
+        self.file.chmod(0o644)
+        self.uid = 1000; self.blocked(); self.uid = 0
+        self.gid = 1000; self.blocked()
+
+    def test_loaded_drift_with_unchanged_disk_blocks(self):
+        baseline = copy.deepcopy(self.properties)
+        for interface, name, value in [
+            ('Unit', 'DropInPaths', ['/run/systemd/system/voice.service.d/override.conf']),
+            ('Unit', 'NeedDaemonReload', True), ('Unit', 'FragmentPath', '/run/other.service'),
+            ('Unit', 'LoadState', 'not-found'), ('Service', 'User', 'root'),
+            ('Service', 'Environment', ['LD_PRELOAD=/unreviewed.so']),
+            ('Service', 'ExecStartPre', [['/bin/false', [], False, 0, 0, 0, 0, 0, 0, 0]])]:
+            with self.subTest(name=name):
+                self.properties = copy.deepcopy(baseline)
+                self.properties[interface][name]['data'] = value
+                self.blocked()
+        for name in ['ExecStart', 'ExecStartEx']:
+            for fault in ['path', 'argv', 'flags', 'extra']:
+                with self.subTest(name=name, fault=fault):
+                    self.properties = copy.deepcopy(baseline)
+                    entries = self.properties['Service'][name]['data']
+                    if fault == 'path': entries[0][0] = '/unreviewed'
+                    if fault == 'argv': entries[0][1].append('--unreviewed')
+                    if fault == 'flags': entries[0][2] = True if name == 'ExecStart' else ['privileged']
+                    if fault == 'extra': entries.append(copy.deepcopy(entries[0]))
+                    self.blocked()
+        self.assertEqual(hashlib.sha256(self.file.read_bytes()).hexdigest(), self.ops.before['unit_sha256'])
+
+    def test_missing_or_wrong_type_loaded_property_blocks(self):
+        baseline = copy.deepcopy(self.properties)
+        for interface, properties in baseline.items():
+            for name in properties:
+                for fault in ['missing', 'type']:
+                    with self.subTest(interface=interface, name=name, fault=fault):
+                        self.properties = copy.deepcopy(baseline)
+                        if fault == 'missing': del self.properties[interface][name]
+                        else: self.properties[interface][name]['type'] = 'unconfirmed'
+                        self.blocked()
+
+    def test_drift_during_queries_and_between_admission_and_start_blocks(self):
+        self.ops.voice_unit_gate()
+        self.file.write_text('drift after prepare')
+        self.blocked()
+        self.file.write_text('pinned private fixture unit')
+        def query(unit, interface):
+            if interface == 'Service': self.file.write_text('drift during query')
+            return self.properties[interface]
+        self.ops.systemd_properties = query
+        self.blocked()
+
+    def test_bootstrap_calls_gate_before_resource_admission(self):
+        self.ops.bootstrap_binding = Mock(return_value={'fixture': True})
+        self.file.write_text('drift')
+        self.ops.resource_snapshot = Mock(side_effect=AssertionError('resource admission reached'))
+        with self.assertRaisesRegex(RuntimeError, 'differs'):
+            self.ops.bootstrap_preflight()
+        self.ops.resource_snapshot.assert_not_called()
+
+    def test_recovery_retries_cannot_start_changed_unit(self):
+        self.file.write_text('drift')
+        clock = Clock()
+        self.ops.current = lambda: 'old'
+        self.ops.gates = Mock(side_effect=RuntimeError('stopped'))
+        self.ops.stop = lambda: None
+        self.ops.switch = lambda target: None
+        self.ops.resource_snapshot = lambda: snapshot()
+        self.ops.record = lambda *args: None
+        with self.assertRaises(RecoveryTimeout):
+            recover(self.ops, 'old', 3, clock=clock, pause=clock.sleep)
+        self.assertEqual(self.commands, [])
+
+
 class SupervisionGateTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()

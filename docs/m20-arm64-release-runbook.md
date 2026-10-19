@@ -230,6 +230,15 @@ may still be M20. Both launcher and worker use the stopped-state bootstrap
 preflight. Recovery accepts only that pinned source or the M19 target as current;
 the checked switch always selects M19, including watchdog recovery if the forward
 worker is lost before the switch. A different current pointer fails closed.
+Before bootstrap admission and immediately before every voice-service start
+(including watchdog recovery), a read-only gate checks the root:root 0644
+regular permanent unit against the capsule hash. The loaded systemd fragment,
+ExecStart/ExecStartEx argv and flags must match the approved launch; drop-ins,
+pending daemon reload, extra commands or environment overrides are rejected.
+This gate requires neither HTTP readiness nor a running MainPID. Unit drift
+blocks all starts and leaves an unresolved armed recovery supervised; it does
+not rewrite the unit, reload systemd or silently declare recovery successful.
+An owner must investigate the drift before preparing a fresh authorized plan.
 The same launcher/controller arms a fresh 240+360-second independent watchdog;
 only successful existing typed supervision creates `BOOTSTRAP_AUTHORIZED`.
 Then the existing stop → resource barriers → checked pointer selection → start →
