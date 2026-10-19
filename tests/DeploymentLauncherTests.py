@@ -47,6 +47,7 @@ class LauncherTests(unittest.TestCase):
             ops.plan_sha256 = 'fixture-plan'
             ops.operation_deadline = time.monotonic() + 5
             ops.bootstrap_binding = Mock(return_value={'checkpoint_verified': True})
+            ops.voice_unit_gate = Mock()  # Loaded-unit matrix lives in ReleaseRecoveryTests.
             ops.resource_snapshot = lambda: dict(owners=[], cgroup_pids=[], main_pid=0,
                                                  control_pid=0, active_state='inactive')
             ops.get = Mock(side_effect=ConnectionRefusedError('M19 is stopped'))
@@ -59,6 +60,7 @@ class LauncherTests(unittest.TestCase):
                     launcher.start(ops)
             ops.get.assert_not_called()
             ops.bootstrap_binding.assert_called_with(armed=True)
+            ops.voice_unit_gate.assert_called()
             self.assertEqual(ops.run.call_count, 1)
             self.assertTrue((ops.root / 'FORWARD_LAUNCH_STARTED').is_file())
 
@@ -67,9 +69,24 @@ class LauncherTests(unittest.TestCase):
             ops = object.__new__(launcher.controller.Production)
             ops.root = Path(tmp)
             ops.plan = dict(old='old')
+            ops.voice_unit_gate = Mock()
             ops.get = Mock(side_effect=ConnectionRefusedError('old is stopped'))
             ops.run, ops.supervision_gate = Mock(), Mock()
             with patch.object(launcher, 'verify_launcher'), self.assertRaises(ConnectionRefusedError):
+                launcher.start(ops)
+            ops.run.assert_not_called()
+            ops.supervision_gate.assert_not_called()
+            self.assertFalse((ops.root / 'FORWARD_LAUNCH_STARTED').exists())
+
+    def test_stopped_bootstrap_unit_drift_blocks_before_forward_claim(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ops = object.__new__(launcher.controller.Production)
+            ops.root = Path(tmp)
+            ops.plan = dict(old='old', recovery_only=True)
+            ops.bootstrap_binding = Mock(return_value={'checkpoint_verified': True})
+            ops.voice_unit_gate = Mock(side_effect=RuntimeError('voice unit drift'))
+            ops.run, ops.supervision_gate = Mock(), Mock()
+            with patch.object(launcher, 'verify_launcher'), self.assertRaisesRegex(RuntimeError, 'unit drift'):
                 launcher.start(ops)
             ops.run.assert_not_called()
             ops.supervision_gate.assert_not_called()
