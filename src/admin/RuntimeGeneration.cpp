@@ -174,7 +174,8 @@ void RuntimeGenerations::apply(config::Catalog catalog) {
     Busy busy(busy_);
     if (stopping_) throw std::runtime_error("Runtime stopping");
     const auto next = std::make_shared<const RuntimeGeneration>(std::move(catalog), nextGeneration_, model_.commandProtocol());
-    if (const auto old = current()) next->executor->reconcile(*old->executor);
+    const auto old = current();
+    if (old) next->executor->reconcile(*old->executor);
     int nextContextTokens = -1;
     try {
         for (const auto& [id,context] : next->targetContexts) { (void)id; nextContextTokens = std::max(nextContextTokens,admitContext(context)); }
@@ -187,6 +188,15 @@ void RuntimeGenerations::apply(config::Catalog catalog) {
     contextTokens_ = next->targetContexts.empty() ? model_.contextTokens() : nextContextTokens;
     std::atomic_store(&active_, next);
     ++nextGeneration_;
+    // The old generation may still be held by an external reader. Once the
+    // new generation is successfully published, proactively retire old MQTT
+    // subscriptions so removed/repointed topics cannot keep mutating old
+    // DeviceStateStores or consuming broker resources indefinitely. Preflight
+    // and failed Apply never retire the active generation.
+    if (old) old->executor->stopSubscriptions();
+    // No broker contact during preflight. After publication, subscription
+    // startup is best effort; an unreachable broker cannot fail the Apply.
+    next->executor->startSubscriptions();
 }
 void RuntimeGenerations::preflight(config::Catalog catalog) {
     const auto next = std::make_shared<const RuntimeGeneration>(std::move(catalog), 0, model_.commandProtocol());

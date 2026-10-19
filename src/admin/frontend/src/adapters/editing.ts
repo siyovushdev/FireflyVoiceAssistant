@@ -1,4 +1,4 @@
-import type { ActionDto, ConfigurationDto, DeviceDto, FieldDto, Scalar, ConnectionDto, BindingDto, HttpDto } from '../types/wire.js';
+import type { ActionDto, ConfigurationDto, DeviceDto, FieldDto, Scalar, ConnectionDto, BindingDto, HttpDto, MqttBindingDto } from '../types/wire.js';
 export type Mutable<T> = T extends object ? { -readonly [K in keyof T]: Mutable<T[K]> } : T;
 export type Draft = Mutable<ConfigurationDto>;
 export type Field = Mutable<FieldDto>;
@@ -46,21 +46,108 @@ export function newHttpConnection(config: ConfigurationDto): Mutable<ConnectionD
 export function defaultHttpMapping(): Mutable<HttpDto> {
     return { method: 'POST', path: '', body: {}, timeout_ms: 0, content_type: 'application/json', expected_status: 200 };
 }
+export function newMqttConnection(config: ConfigurationDto): Mutable<ConnectionDto> {
+    return { id: allocate(config, 'connection_mqtt'), name: '', type: 'mqtt', enabled: true,
+        timeout_ms: 2000, network: { host: '127.0.0.1', port: 1883 }, mqtt: { tls: false } };
+}
+export function defaultMqttMapping(): Mutable<MqttBindingDto> {
+    return { topic: '', payload: '', qos: 0, retain: false };
+}
 export function projectConnectivity(config: ConfigurationDto, connection: ConnectionDto | null, targetId: string,
-    mappings: readonly BindingDto[], observation?: NonNullable<ConfigurationDto['observations']>[number]): Draft {
+    mappings: readonly BindingDto[], observation?: NonNullable<ConfigurationDto['observations']>[number],
+    transport?: 'http' | 'mqtt', replaceOtherObservation = false): Draft {
     const next = clone(config);
     if (connection) {
         const index = (next.connections ??= []).findIndex(c => c.id === connection.id);
         if (index < 0) next.connections.push(clone(connection)); else next.connections[index] = clone(connection);
     }
     if (targetId) {
-        next.bindings = [...next.bindings.filter(b => b.target_id !== targetId), ...clone(mappings)];
-        next.observations = (next.observations ?? []).filter(o => o.target_id !== targetId);
+        // A device can have HTTP and MQTT actions simultaneously. Never remove
+        // the other transport just because this editor didn't render its fields.
+        next.bindings = [...next.bindings.filter(b =>
+            b.target_id !== targetId || (transport !== undefined && b.executor !== transport)), ...clone(mappings)];
+        // This MVP supports one observation per target. Replacing a readback
+        // of another transport must be a separate, explicitly approved choice.
+        next.observations = (next.observations ?? []).filter(o => o.target_id !== targetId ||
+            (transport !== undefined && o.executor !== transport && !replaceOtherObservation));
         if (observation) next.observations.push(clone(observation));
     }
     return next;
 }
+// Pure MQTT wizard projection shared by preview and final staging. Preserve
+// every binding's existing broker unless the operator explicitly changes its
+// connection_id. This must never mutate the caller's TaskBuffer/ConfigStore
+// snapshot and must never publish hardware commands.
+export interface MqttWizardProjection {
+    readonly config: ConfigurationDto;
+    readonly connection: ConnectionDto;
+    readonly local: boolean;
+    readonly host: string;
+    readonly port: number;
+    readonly tls: boolean;
+    readonly credentialsId: string;
+    readonly targetId: string;
+    readonly mappings: readonly BindingDto[];
+    readonly observation?: NonNullable<ConfigurationDto['observations']>[number];
+    readonly replaceOtherObservation: boolean;
+}
+export function projectMqttWizard(input: MqttWizardProjection): Draft {
+    const chosen = clone(input.connection);
+    chosen.enabled = true;
+    chosen.network = { ...(chosen.network ?? {}), host: input.local ? '127.0.0.1' : input.host.trim(), port: input.port };
+    // Retain future/opaque transport fields from an existing connection, but
+    // explicitly clearing the credential ID must remove that secret reference.
+    chosen.mqtt = { ...(chosen.mqtt ?? {}), tls: input.tls };
+    if (input.credentialsId.trim()) chosen.mqtt.credentials_id = input.credentialsId.trim();
+    else delete chosen.mqtt.credentials_id;
+    const actions = input.mappings.map(mapping => {
+        const current = clone(mapping);
+        current.executor = 'mqtt';
+        if (!current.connection_id) current.connection_id = chosen.id;
+        return current;
+    });
+    return projectConnectivity(input.config, chosen, input.targetId, actions,
+        input.observation, 'mqtt', input.replaceOtherObservation);
+}
+// A transport editor's Review must describe the complete projected candidate,
+ // including actions/observation belonging to another transport.
+export function connectionActionSummary(config: ConfigurationDto, targetId: string, actionId: string): string {
+    const binding = config.bindings.find(b => b.target_id === targetId && b.action_id === actionId);
+    if (!binding) return 'не подключено';
+    const connection = config.connections?.find(c => c.id === binding.connection_id);
+    const name = connection?.name ?? (binding.connection_id || 'отдельный адрес');
+    if (binding.executor === 'mqtt' && binding.mqtt)
+        return `MQTT · ${name} · ${binding.mqtt.topic} → ${binding.mqtt.payload}`;
+    if (binding.executor === 'http' && binding.http)
+        return `HTTP · ${name} · ${binding.http.method} ${binding.http.url ?? binding.http.path ?? ''}`;
+    return 'неподдерживаемое подключение';
+}
+export function connectionObservationSummary(config: ConfigurationDto, targetId: string): string {
+    const observation = config.observations?.find(o => o.target_id === targetId);
+    if (!observation) return 'не предоставляется';
+    const name = config.connections?.find(c => c.id === observation.connection_id)?.name ?? observation.connection_id;
+    if (observation.executor === 'mqtt' && observation.mqtt)
+        return `MQTT · ${name} · ${observation.mqtt.topic} (${observation.mqtt.format})`;
+    if (observation.executor === 'http' && observation.http)
+        return `HTTP · ${name} · GET ${observation.http.path ?? observation.http.url ?? ''}`;
+    return 'неподдерживаемое наблюдение';
+}
 function connectivitySummary(value: Record<string, unknown>, config: ConfigurationDto): string | null {
+    if (value.type === 'mqtt' && value.network && typeof value.network === 'object') {
+        const network = value.network as { host?: string; port?: number };
+        const mqtt = value.mqtt as { tls?: boolean; credentials_id?: string } | undefined;
+        return String(value.name ?? 'MQTT') + ' · MQTT ' + String(network.host) + ':' + String(network.port) +
+            (mqtt?.tls ? ' · TLS' : '') + (mqtt?.credentials_id ? ' · credentials' : '') +
+            (value.enabled === false ? ' · отключено' : '');
+    }
+    if (value.executor === 'mqtt' && value.mqtt && typeof value.mqtt === 'object') {
+        const mqtt = value.mqtt as { topic?: string; payload?: string; format?: string };
+        const device = config.devices.find(d => d.id === value.target_id);
+        const action = config.actions.find(a => a.id === value.action_id);
+        return [device?.name, action?.name, 'MQTT ' + (mqtt.topic ?? ''),
+            mqtt.payload === undefined ? 'State: ' + (mqtt.format ?? '') : 'Payload: ' + mqtt.payload,
+            value.fields ? 'Поля: ' + JSON.stringify(value.fields) : ''].filter(Boolean).join(' · ');
+    }
     if (!value.http || typeof value.http !== 'object') return null;
     const http = value.http as Record<string, unknown>;
     if ('base_url' in http) return `${value.name} · ${http.base_url}${http.base_path ?? ''}${value.enabled === false ? ' · отключено' : ''}`;

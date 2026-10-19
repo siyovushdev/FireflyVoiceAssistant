@@ -61,6 +61,7 @@ private:
 // Generation-owned facade:
 //   Playground → MockDeviceExecutor only (no HTTP, no production store/connectivity)
 //   Production → BindingResolver → HardwareExecutor → DeviceStateStore Predicted/connectivity
+class MqttHardwareExecutor;
 class BoundDeviceExecutor final : public DeviceStateExecutor {
 public:
     explicit BoundDeviceExecutor(config::Catalog catalog, SteadyClockMs steadyClock = {}, WallClockMs wallClock = {});
@@ -75,11 +76,15 @@ public:
     const DeviceStateStore& production() const;
     void observe(const StateObservation& observation);
     HardwareResult poll(const std::string& targetId);
+    // Invoked only after the generation is published, never during preflight.
+    void startSubscriptions();
+    void stopSubscriptions() noexcept;
 private:
     config::Catalog catalog_;
     MockDeviceExecutor playground_;
     DeviceStateStore production_;
     BindingResolver resolver_;
     ExecutorRegistry registry_;
+    std::shared_ptr<MqttHardwareExecutor> mqtt_;
 };
 }

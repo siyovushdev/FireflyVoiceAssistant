@@ -287,8 +287,8 @@ Catalog ConfigValidator::validate(Configuration configuration) {
     for (std::size_t i = 0; i < configuration.bindings.size(); ++i) {
         const auto& binding = configuration.bindings[i];
         const auto path = "/bindings/" + std::to_string(i);
-        if (binding.executor != ExecutorKind::Http)
-            throw ConfigError("unsupported_executor", path + "/executor", "Unknown hardware executor");
+        if (binding.executor != ExecutorKind::Http && binding.executor != ExecutorKind::Mqtt)
+            throw ConfigError("unsupported_executor", path + "/executor", "Unsupported hardware executor");
         if (!catalog->devices_.count(binding.targetId))
             throw ConfigError("dangling_reference", path + "/target_id", "Unknown binding target");
         if (!catalog->actions_.count(binding.actionId))
@@ -307,8 +307,16 @@ Catalog ConfigValidator::validate(Configuration configuration) {
         const auto* connection = findConnection(configuration, binding.connectionId);
         if (!binding.connectionId.empty() && !connection)
             throw ConfigError("dangling_reference", path + "/connection_id", "Unknown connection");
-        validateHttpMapping(http, connection);
-        if (http.argument) {
+        if (binding.executor == ExecutorKind::Mqtt) {
+            if (binding.connectionId.empty()) throw ConfigError("malformed_binding", path, "MQTT connection_id required");
+            // MVP supports only fixed payloads. A parameterized action must not
+            // silently send an unrelated constant while predicting its argument.
+            if (!configuration.actions[catalog->actions_.at(binding.actionId)].parameters.empty())
+                throw ConfigError("unsupported_executor", path + "/mqtt",
+                                  "Parameterized MQTT actions require a reviewed typed argument mapping");
+            validateMqttBinding(binding.mqtt, connection);
+        } else validateHttpMapping(http, connection);
+        if (binding.executor == ExecutorKind::Http && http.argument) {
             const auto& action = configuration.actions[catalog->actions_.at(binding.actionId)];
             const auto found = std::find_if(action.parameters.begin(), action.parameters.end(),
                 [&](const auto& p) { return p.id == *http.argument; });
@@ -324,10 +332,22 @@ Catalog ConfigValidator::validate(Configuration configuration) {
         const auto& device = configuration.devices[catalog->devices_.at(observation.targetId)];
         const auto* connection = findConnection(configuration, observation.connectionId);
         if (!connection) throw ConfigError("dangling_reference", "/observations/connection_id", "Unknown observe connection");
-        if (!device.enabled || observation.executor != ExecutorKind::Http) throw ConfigError("unsafe_constraint", "/observations", "Observe target must be enabled and transport supported");
+        if (!device.enabled || (observation.executor != ExecutorKind::Http && observation.executor != ExecutorKind::Mqtt))
+            throw ConfigError("unsafe_constraint", "/observations", "Observe target must be enabled and transport supported");
         if (!observedTargets.insert(device.id).second) throw ConfigError("duplicate_binding", "/observations", "Only one observation mapping per device");
-        validateHttpMapping(observation.http, connection, true);
-        if (observation.fields.empty() || observation.fields.size() > 32) throw ConfigError("malformed_binding", "/observations/fields", "Observe fields required (max 32)");
+        if (observation.executor == ExecutorKind::Mqtt) {
+            validateMqttObservation(observation.mqtt, connection);
+            if (observation.mqtt.format == "text") {
+                if (!observation.fields.empty()) throw ConfigError("malformed_binding", "/observations/fields", "Text MQTT observe uses mqtt.field, not fields");
+                const auto field = std::find_if(device.state.begin(),device.state.end(), [&](const StateField& f) { return f.id == observation.mqtt.field; });
+                if (device.kind != DeviceKind::Generic || field == device.state.end() || field->type != "boolean")
+                    throw ConfigError("unsafe_constraint", "/observations/mqtt/field", "Text MQTT observation requires a declared boolean property");
+            }
+        } else validateHttpMapping(observation.http, connection, true);
+        if (observation.executor == ExecutorKind::Http || observation.mqtt.format == "json") {
+            if (observation.fields.empty() || observation.fields.size() > 32)
+                throw ConfigError("malformed_binding", "/observations/fields", "Observe fields required (max 32)");
+        }
         std::set<std::string> fields;
         for (const auto& [source, destination] : observation.fields) {
             if (source.empty() || source.size() > 64 || !fields.insert(destination).second)

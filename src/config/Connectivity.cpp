@@ -70,9 +70,28 @@ void validateConnections(const Configuration& config) {
             if (c.type == ExecutorKind::Http) { field = "/http/base_url"; url(c.http.baseUrl, true); field = "/http/base_path"; path(c.http.basePath, true); }
             else {
                 field = "/type";
-                if (c.enabled) throw ConfigError("unsupported_executor", "/connections", "Planned transports must remain disabled");
+                if (c.type != ExecutorKind::Mqtt && c.enabled) throw ConfigError("unsupported_executor", "/connections", "Planned transports must remain disabled");
                 if (c.type == ExecutorKind::Mqtt || c.type == ExecutorKind::Tcp || c.type == ExecutorKind::Udp) {
-                    if (c.network.host.empty() || !clean(c.network.host) || c.network.port < 1 || c.network.port > 65535) invalid("Network endpoint required");
+                    field = "/network";
+                    // Historical *disabled* MQTT/TCP/UDP connection templates
+                    // were allowed to store arbitrary non-whitespace hostnames.
+                    // Tightening their validation would corrupt old ConfigStores.
+                    if (c.network.host.empty() || !clean(c.network.host) ||
+                        c.network.port < 1 || c.network.port > 65535) invalid("Invalid network host/port");
+                    if (c.type == ExecutorKind::Mqtt && c.enabled &&
+                        (c.network.host.size() > 253 ||
+                         c.network.host.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-") != std::string::npos ||
+                         c.network.host.front() == '-' || c.network.host.back() == '-' ||
+                         c.network.host.front() == '.' || c.network.host.back() == '.' ||
+                         c.network.host.find("..") != std::string::npos))
+                        invalid("Enabled MQTT requires a literal IPv4/DNS hostname");
+                    if (c.type == ExecutorKind::Mqtt) {
+                        field = "/mqtt/credentials_id";
+                        if (!c.mqtt.credentialsId.empty() && (c.mqtt.credentialsId.size() > 64 ||
+                            c.mqtt.credentialsId.front() < 'a' || c.mqtt.credentialsId.front() > 'z' ||
+                            c.mqtt.credentialsId.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789_") != std::string::npos))
+                            invalid("Credentials reference must be a stable identifier, never a password");
+                    }
                 } else if (c.type == ExecutorKind::Serial) {
                     if (c.serial.port.rfind("/dev/", 0) != 0 || !clean(c.serial.port) || c.serial.baudRate < 50 || c.serial.baudRate > 4000000) invalid("Serial port and baud rate required");
                 } else if (c.type == ExecutorKind::Can) {
@@ -132,5 +151,36 @@ void validateHttpMapping(const HttpBinding& h, const Connection* c, bool observe
             if (text->find("${") != std::string::npos || text->find("{{") != std::string::npos) invalid("Templates are not supported; use declared argument");
     }
     if (body.dump().size() > 16384) invalid("Request body exceeds 16 KiB");
+}
+}
+
+namespace firefly::config {
+namespace {
+void mqttTopic(const std::string& topic) {
+    if (topic.empty() || topic.size() > 256 || topic.find_first_of("+#") != std::string::npos ||
+        std::any_of(topic.begin(), topic.end(), [](unsigned char ch) { return ch == 0 || ch < 32 || ch == 127; }))
+        throw ConfigError("malformed_binding", "/mqtt/topic", "MQTT topic must be a literal non-wildcard topic");
+}
+}
+void validateMqttBinding(const MqttBinding& binding, const Connection* connection) {
+    if (!connection || connection->type != ExecutorKind::Mqtt || !connection->enabled)
+        throw ConfigError("malformed_binding", "/mqtt", "MQTT mapping requires an enabled MQTT connection");
+    mqttTopic(binding.topic);
+    if (binding.qos < 0 || binding.qos > 1 || binding.payload.size() > 4096 ||
+        binding.payload.find("${") != std::string::npos || binding.payload.find("{{") != std::string::npos ||
+        binding.payload.find('\0') != std::string::npos)
+        throw ConfigError("malformed_binding", "/mqtt", "Invalid MQTT payload, QoS or template");
+}
+void validateMqttObservation(const MqttObservation& observation, const Connection* connection) {
+    if (!connection || connection->type != ExecutorKind::Mqtt || !connection->enabled)
+        throw ConfigError("malformed_binding", "/mqtt", "MQTT observe requires an enabled MQTT connection");
+    mqttTopic(observation.topic);
+    if (observation.qos < 0 || observation.qos > 1 || (observation.format != "text" && observation.format != "json"))
+        throw ConfigError("malformed_binding", "/mqtt", "Invalid MQTT observation format or QoS");
+    if (observation.format == "text" &&
+        (observation.field.empty() || observation.truePayload.empty() || observation.falsePayload.empty() ||
+         observation.truePayload == observation.falsePayload || observation.truePayload.size() > 128 ||
+         observation.falsePayload.size() > 128))
+        throw ConfigError("malformed_binding", "/mqtt", "Text observation requires distinct ON/OFF values and a target field");
 }
 }

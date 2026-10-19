@@ -95,7 +95,10 @@ def start(ops):
     verify_launcher(ops)
     if (ops.root / 'CUTOVER_STARTED').exists():
         raise RuntimeError('Cutover already started; no resubmission')
-    ops.gates(ops.plan['old'])
+    if ops.plan.get('recovery_only'):
+        ops.bootstrap_preflight()
+    else:
+        ops.gates(ops.plan['old'])
     ops.supervision_gate()  # Existing guard unchanged; worker checks it again.
     claim = {'plan_sha256': ops.plan_sha256, 'unit': ops.plan['worker_unit'],
              'utc': controller.utc()}

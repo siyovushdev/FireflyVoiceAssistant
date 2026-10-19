@@ -24,7 +24,21 @@ namespace firefly::admin {
 class SetupSession final {
 public:
     using Call = std::function<Json(const Json&)>;
-    SetupSession(config::ConfigStore& store, Call call) : store_(store), call_(std::move(call)), path_(store.directory()+"/setup-draft.json") {
+    // The production API injects an admission guard that validates MQTT
+    // credential references while holding the same write mutex used for
+    // ordinary Save/CAS and DELETE. Its lifetime covers Save, runtime Apply,
+    // LKG record and compensation, so a secret cannot disappear between
+    // checking a candidate and publishing it.
+    using CommitGuard = std::function<std::unique_lock<std::mutex>(const config::Catalog&)>;
+    // Establish setup ownership atomically against external broker control.
+    // The shared gate protects the active_=true transition, NOT the entire
+    // inference/voice setup. It must never require locking session mutex_.
+    using EntryGuard = std::function<std::unique_lock<std::mutex>()>;
+    SetupSession(config::ConfigStore& store, Call call, CommitGuard commitGuard = {},
+                 EntryGuard entryGuard = {})
+        : store_(store), call_(std::move(call)), commitGuard_(std::move(commitGuard)),
+          entryGuard_(std::move(entryGuard)),
+          path_(store.directory()+"/setup-draft.json") {
         disconnectSeconds_=limit("FIREFLY_SETUP_DISCONNECT_SECONDS",120,30,1800);
         inactivitySeconds_=limit("FIREFLY_SETUP_INACTIVITY_SECONDS",1800,300,7200);
         const int fd=::open(path_.c_str(),O_RDONLY|O_CLOEXEC|O_NOFOLLOW);
@@ -93,8 +107,20 @@ public:
             } else data_ = {{"base_hash",base->contentHash()},{"base_revision",base->configuration().revision},
                 {"configuration",Json::parse(base->canonicalJson())},{"messages",Json::array()},
                 {"focus",Json::array()},{"version",0},{"last_request",""},{"questions",Json::array()},{"trace",Json::array()}};
-            owner_ = token(); std::atomic_store(&publishedOwner_,std::make_shared<const std::string>(owner_));std::atomic_store(&cancelOwner_,std::shared_ptr<const std::string>()); active_ = true; data_["status"]="entering";
-            heartbeat_ = activity_ = Clock::now(); persist();
+            {
+                // Lock order: session mutex_ -> broker control gate. Broker
+                // control holds only the gate and checks active_ atomically;
+                // it never acquires session mutex_, avoiding inversion.
+                // Whichever operation gets the gate first completes BEFORE
+                // Setup admission, or is rejected once Setup is active.
+                auto admission = entryGuard_
+                    ? entryGuard_() : std::unique_lock<std::mutex>{};
+                owner_ = token();
+                std::atomic_store(&publishedOwner_,std::make_shared<const std::string>(owner_));
+                std::atomic_store(&cancelOwner_,std::shared_ptr<const std::string>());
+                active_ = true; data_["status"]="entering";
+                heartbeat_ = activity_ = Clock::now(); persist();
+            }
             if(asyncEntry) {
                 // Publish ownership immediately. The joined server worker owns
                 // entry even if the initiating HTTP connection is closed/reloaded.
@@ -233,6 +259,20 @@ public:
                 if(entity.contains("metadata") && entity["metadata"].value("origin",std::string())=="local_ai")entity["metadata"]["confirmed"]=true;
             const auto candidate=config::ConfigLoader::fromJson(data_.at("configuration").dump());
             RuntimeGeneration admission(candidate);
+            // Direct legacy SetupSession instances without a credential guard
+            // may handle non-MQTT test graphs, but MUST fail closed if a draft
+            // references any MQTT secret. Production Api always injects the
+            // shared writer lock + credential verifier.
+            if (!commitGuard_) {
+                for (const auto& connection : candidate->configuration().connections)
+                    if (connection.type == config::ExecutorKind::Mqtt &&
+                        connection.enabled && !connection.mqtt.credentialsId.empty())
+                        throw std::runtime_error("setup_credentials_verifier_unavailable");
+            }
+            // Fail before setup_restore, preflight, Save or LKG publication.
+            // Keep the guard live throughout the transaction and rollback.
+            auto commitGuard = commitGuard_
+                ? commitGuard_(candidate) : std::unique_lock<std::mutex>{};
             const auto old=store_.current();
             data_["status"]="restoring_for_admission"; persist();
             config::Catalog saved;
@@ -278,7 +318,9 @@ public:
 private:
     int disconnectSeconds_=120, inactivitySeconds_=1800;
     using Clock=std::chrono::steady_clock;
-    config::ConfigStore& store_; Call call_; std::string path_,owner_;
+    config::ConfigStore& store_; Call call_; CommitGuard commitGuard_;
+    EntryGuard entryGuard_;
+    std::string path_,owner_;
     mutable std::mutex mutex_; std::atomic<bool> active_{false};
     std::thread entryWorker_;
     bool entryRunning_=false; // Protected by mutex_; heavy runtime entry holds no session lock.

@@ -18,6 +18,128 @@ runner = importlib.util.module_from_spec(spec); spec.loader.exec_module(runner)
 
 
 class RunnerTests(unittest.TestCase):
+    def test_bootstrap_preparation_records_only_a_safe_current_source(self):
+        original = runner.load(SOURCE / 'scripts/production-rollout.py')
+        package = runner.load((SOURCE / 'tools' if (SOURCE / 'tools').is_dir() else SOURCE)
+                              / 'packaging/firefly_release.py')
+        real_path = Path
+        for link in ['releases/m20', None, '/releases/m20', 'releases/../m20']:
+            with self.subTest(link=link), tempfile.TemporaryDirectory() as tmp:
+                base = Path(tmp)
+                root, prefix, store = base / 'bundle', base / 'prefix', base / 'store'
+                prefix.mkdir(); store.mkdir()
+                (store / 'configuration.json').write_text('private fixture')
+                if link is not None:
+                    (prefix / 'current').symlink_to(link)
+                identity = dict(head='old', admin_assets_sha256='fixture-assets')
+                capsule = dict(release='old', identity=identity, binary_sha256='old-binary',
+                               before={'status': {'active': {'generation_id': 2}}})
+                helper = SimpleNamespace(require_persistent=Mock(), verify=Mock(return_value={
+                    'tree': {}, 'proof': {'binary_sha256': 'old-config'}}), control=Mock(return_value=capsule),
+                    pin=Mock(return_value='capsule-pin'), validate_capsule=Mock(), inventory=Mock(return_value={}))
+                ops = Mock()
+                def loaded(path):
+                    if path.name == 'production-rollout.py': return original
+                    if path.name == 'firefly_release.py': return package
+                    if path.name == 'firefly_checkpoint.py': return helper
+                    self.fail('Unexpected module: ' + str(path))
+                def path(value):
+                    return {'/opt/firefly/voice-assistant': prefix,
+                            '/var/lib/firefly/store': store}.get(str(value), real_path(value))
+                def command(root, argv, **kw):
+                    if argv[0] == 'cp':
+                        import shutil
+                        shutil.copytree(store, root / 'backup-store')
+                def copy_bundle(root, source):
+                    # This suite also runs inside the private bundle, where the
+                    # packaging CLI lives under tools/. Its closure is tested above.
+                    root.mkdir()
+                    for name in ['scripts/release-runner.py', 'scripts/deployment-launcher.py',
+                                 'scripts/production-rollout.py', 'packaging/firefly_recovery.py',
+                                 'tools/packaging/firefly_checkpoint.py']:
+                        source_file = SOURCE / name
+                        if not source_file.is_file() and name.startswith('tools/'):
+                            source_file = SOURCE / name[len('tools/'):]
+                        target = root / name
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        target.write_bytes(source_file.read_bytes())
+                with patch.object(runner, 'approved_source'), patch.object(runner, 'application_checks'), \
+                        patch.object(runner, 'mandatory_fixtures'), patch.object(runner, 'load', side_effect=loaded), \
+                        patch.object(runner, 'prepare_files', side_effect=copy_bundle), \
+                        patch.object(runner, 'Path', side_effect=path), patch.object(runner, 'command', side_effect=command), \
+                        patch.object(package, 'build_identity', return_value=identity), \
+                        patch.object(original, 'Production', return_value=ops):
+                    args = (root, SOURCE, 'reviewed', base / 'checkpoint', 'checkpoint-pin',
+                            prefix / 'releases/old/bin/firefly-config', base / 'capsule', 'capsule-pin')
+                    if link != 'releases/m20':
+                        with self.assertRaises((RuntimeError, package.ReleaseError)):
+                            runner.prepare_rollback(*args)
+                        self.assertFalse((root / 'PREPARED').exists())
+                    else:
+                        runner.prepare_rollback(*args)
+                        plan = json.loads((root / 'plan.json').read_bytes())
+                        self.assertEqual(plan['bootstrap_source_release'], 'm20')
+                        self.assertEqual((plan['old'], plan['new']), ('old', 'old'))
+                        receipt = json.loads((root / 'PREPARED').read_bytes())
+                        self.assertEqual(receipt['plan_sha256'], original.sha(root / 'plan.json'))
+                        ops.bootstrap_preflight.assert_called_once_with(armed=False)
+
+    def test_private_bundle_packaging_imports_and_missing_corrupt_module_failures(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / 'bundle'
+            if (SOURCE / 'tools').is_dir():
+                # The mandatory suite itself runs from the private bundle.
+                # Exercise that actual tools closure in a fresh destructive copy.
+                import shutil
+                shutil.copytree(SOURCE / 'tools', root / 'tools')
+            else:
+                runner.prepare_files(root, SOURCE)
+            tools = root / 'tools'
+            code = ('import sys; sys.path.insert(0, sys.argv[1]); '
+                    'from packaging import firefly_release, mqtt_release, firefly_checkpoint; '
+                    'assert mqtt_release.r is firefly_release')
+            argv = ['/usr/bin/python3', '-I', '-B', '-c', code, str(tools)]
+            self.assertEqual(subprocess.run(argv, cwd=tmp, capture_output=True).returncode, 0)
+            module = tools / 'packaging/mqtt_release.py'
+            contents = module.read_bytes()
+            module.unlink()
+            self.assertNotEqual(subprocess.run(argv, cwd=tmp, capture_output=True).returncode, 0)
+            module.write_text('invalid python module @@@')
+            self.assertNotEqual(subprocess.run(argv, cwd=tmp, capture_output=True).returncode, 0)
+            module.write_bytes(contents)
+            self.assertEqual(subprocess.run(argv, cwd=tmp, capture_output=True).returncode, 0)
+
+    def test_preservation_exact_frozen_properties_actual_modes_and_explicit_additions(self):
+        import copy
+        with tempfile.TemporaryDirectory() as tmp:
+            before, after = Path(tmp) / 'old', Path(tmp) / 'new'
+            entry = dict(path='lib/frozen.so', bytes=6, sha256='a' * 64)
+            old = dict(artifacts=[entry], shared_models=[dict(path='models/frozen', sha256='b' * 64)])
+            new = copy.deepcopy(old); new['mqtt'] = dict(enabled=True)
+            new['artifacts'][0]['mode'] = 0o755
+            for name in ['libmosquitto.so.1', 'libssl.so.3', 'libcrypto.so.3']:
+                new['artifacts'].append(dict(path='lib/' + name, bytes=7, sha256='c' * 64, mode=0o755))
+            for tree, doc in [(before, old), (after, new)]:
+                (tree / 'lib').mkdir(parents=True)
+                for e in doc['artifacts']:
+                    (tree / e['path']).write_bytes(b'frozen'); (tree / e['path']).chmod(0o755)
+            runner.preservation_contract(old, new, before, after)
+            for fault in ['sha256', 'bytes', 'property', 'remove', 'extra', 'shared', 'missing_mode', 'mode', 'actual_mode', 'duplicate']:
+                with self.subTest(fault=fault):
+                    bad = copy.deepcopy(new)
+                    if fault in ['sha256', 'bytes']: bad['artifacts'][0][fault] = 'changed'
+                    elif fault == 'property': bad['artifacts'][0]['shared'] = True
+                    elif fault == 'remove': bad['artifacts'].pop(0)
+                    elif fault == 'extra': bad['artifacts'].append(dict(path='lib/unknown.so'))
+                    elif fault == 'shared': bad['shared_models'][0]['sha256'] = 'changed'
+                    elif fault == 'missing_mode': bad['artifacts'][0].pop('mode')
+                    elif fault == 'mode': bad['artifacts'][0]['mode'] = 0o644
+                    elif fault == 'actual_mode': (after / entry['path']).chmod(0o6755)
+                    else: bad['artifacts'].append(copy.deepcopy(bad['artifacts'][0]))
+                    with self.assertRaisesRegex(RuntimeError, 'contract changed'):
+                        runner.preservation_contract(old, bad, before, after)
+                    (after / entry['path']).chmod(0o755)
+
     def test_new_assets_require_exact_approved_and_rebuilt_fingerprint(self):
         old, new = 'a' * 64, 'b' * 64
         self.assertEqual(runner.approved_assets(new, old, new, new), new)
@@ -66,8 +188,9 @@ class RunnerTests(unittest.TestCase):
                 (prefix / 'releases').mkdir(parents=True)
                 for release in ['old', 'new']:
                     tree = prefix / 'releases' / release; tree.mkdir()
+                    (tree / 'lib').mkdir(); (tree / 'lib/fixture').write_text('frozen!'); (tree / 'lib/fixture').chmod(0o644)
                     (tree / 'bin').mkdir(); (tree / 'bin/firefly-demo').write_text('FILE_ONLY fake binary; never executed')
-                    runner.write(tree / 'manifest.json', {'artifacts': [{'path': 'lib/fixture', 'sha256': 'same'}], 'shared_models': []})
+                    runner.write(tree / 'manifest.json', {'artifacts': [{'path': 'lib/fixture', 'sha256': 'same', 'bytes': 7}], 'shared_models': []})
                 (prefix / 'current').symlink_to('releases/old')
                 if fault == 'voice':
                     runner.write(prefix / 'releases/new/manifest.json', {'artifacts': [], 'shared_models': []})
@@ -135,6 +258,21 @@ class RunnerTests(unittest.TestCase):
                     self.assertEqual([call.args[1][-1] for call in authorized], ['old', 'new'])
                     self.assertTrue(all('verify' in call.args[1] for call in authorized))
 
+    def test_explicit_build_directory_checks_source_and_keeps_real_application_checks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            build = Path(tmp); cache = build / 'CMakeCache.txt'
+            cache.write_text('CMAKE_HOME_DIRECTORY:INTERNAL=' + str(SOURCE) + '\n')
+            with patch.object(runner, 'command') as command:
+                runner.application_checks(Path('/fixture'), SOURCE, build)
+                self.assertEqual(command.call_args_list[0].args[1][6], str(build))
+                self.assertEqual(command.call_count, 4)
+            cache.write_text('CMAKE_HOME_DIRECTORY:INTERNAL=/unreviewed/source\n')
+            with self.assertRaisesRegex(RuntimeError, 'exact approved source'):
+                runner.selected_build(SOURCE, build)
+            cache.unlink(); cache.symlink_to(SOURCE / 'CMakeLists.txt')
+            with self.assertRaisesRegex(RuntimeError, 'canonical regular'):
+                runner.selected_build(SOURCE, build)
+
     def test_application_checks_use_fixed_existing_commands_without_root_runtime(self):
         with patch.object(runner, 'command') as command:
             runner.application_checks(Path('/fixture'), Path('/source'))
@@ -189,13 +327,15 @@ class RunnerTests(unittest.TestCase):
                     copy.assert_not_called()
 
     def exercise(self, root, *, outcome='DEPLOYED_VERIFIED', guard_error=False,
-                 arm_error=False, diagnostic_error=False, recovered=False, expired=False):
+                 arm_error=False, diagnostic_error=False, recovered=False, expired=False, recovery_only=False):
         (root / 'scripts').mkdir(); (root / 'evidence').mkdir()
         file = root / 'scripts/release-runner.py'; file.write_text('fixture runner')
         sha = lambda p: hashlib.sha256(Path(p).read_bytes()).hexdigest()
         plan = dict(old='old', new='new', worker_unit='fixture-forward.service', rollback_unit='fixture-rollback.service',
                     rollback_timer='fixture-rollback.timer', deadline_monotonic=time.monotonic() + 240,
                     runner_sha256=sha(file))
+        if recovery_only:
+            plan.update(old='old', new='old', recovery_only=True)
         runner.write(root / 'plan.json', plan)
         runner.write(root / 'PREPARED', {'plan_sha256': sha(root / 'plan.json')})
         instances = []
@@ -204,7 +344,11 @@ class RunnerTests(unittest.TestCase):
             ops.plan_sha256 = sha(root / 'plan.json'); ops.recovery_deadline = ops.plan['deadline_monotonic'] + 360
             if expired:
                 ops.recovery_deadline = time.monotonic() - 1
-            ops.gates.side_effect = lambda target: {'verified_target': target}
+            def gates(target):
+                if recovery_only and not (root / 'FORWARD_LAUNCH_STARTED').exists():
+                    raise RuntimeError('Original M19 is still stopped')
+                return {'verified_target': target}
+            ops.gates.side_effect = gates
             if guard_error:
                 ops.supervision_gate.side_effect = RuntimeError('unsafe real timer configuration')
             ops.systemd_properties.return_value = {'NextElapseUSecMonotonic': {'type': 't', 'data': int((time.monotonic() + 240) * 1000000)}}
@@ -232,6 +376,33 @@ class RunnerTests(unittest.TestCase):
                 runner.run(root, 'no second launch')
             self.assertEqual((root / 'plan.json').read_bytes(), frozen)
         return result, instances, launcher, command
+
+    def test_stopped_m19_bootstrap_uses_fresh_arm_and_old_independent_acceptance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            result, instances, launcher, command = self.exercise(root, recovery_only=True)
+            self.assertEqual(result['result'], 'ROLLED_BACK')
+            self.assertEqual(result['operation'], 'M19_BOOTSTRAP_RECOVERY')
+            instances[0].gates.assert_not_called()
+            instances[0].bootstrap_preflight.assert_called_once_with(armed=False)
+            instances[1].bootstrap_preflight.assert_called_once_with()
+            self.assertEqual(instances[2].gates.call_args.args, ('old',))
+            launcher.start.assert_called_once()
+            self.assertTrue(result['watchdog_disarmed_after_verification'])
+            frozen = json.loads((root / 'plan.json').read_bytes())
+            self.assertEqual(frozen['authorization'], 'fixture authorization')
+            self.assertEqual(frozen['new'], frozen['old'])
+            self.assertIn('--on-active=240s', command.call_args.args[1])
+
+    def test_bootstrap_guard_failure_never_authorizes_start_or_disarms_watchdog(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            result, instances, launcher, _ = self.exercise(root, recovery_only=True, guard_error=True)
+            self.assertEqual(result['result'], 'BLOCKED_UNKNOWN')
+            self.assertFalse((root / 'BOOTSTRAP_AUTHORIZED').exists())
+            launcher.start.assert_not_called()
+            self.assertFalse(any(call.args[0][:2] == ['systemctl', 'stop']
+                                 for ops in instances for call in ops.run.call_args_list))
 
     def test_success_requires_independent_existing_gates_before_timer_stop(self):
         with tempfile.TemporaryDirectory() as tmp:

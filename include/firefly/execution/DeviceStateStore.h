@@ -72,12 +72,14 @@ public:
     // After Accepted hardware execution: expected property map as Predicted.
     void applyPrediction(const std::string& targetId,
                          const std::map<std::string, actions::Scalar>& expected,
-                         std::int64_t atMs);
+                         std::int64_t atMs, std::optional<std::int64_t> startedSteadyMs = std::nullopt);
     // Independent telemetry/readback — Confirmed; overrides Predicted when the
     // local steady order stamp is not older than existing property knowledge.
     // Older observations are rejected (stale_observation). Values must obey
     // built-in / Generic schema invariants (unsafe_constraint).
     void applyObservation(const StateObservation& observation);
+    // Dry-run schema/order validation before buffering an MQTT state sample.
+    void validateObservation(const StateObservation& observation) const;
     void markReachable(const std::string& targetId, std::int64_t atMs);
     void markUnreachable(const std::string& targetId, std::int64_t atMs);
 
@@ -96,6 +98,8 @@ private:
     void initializeUnknown(const config::Device& device);
     void validateObservationValue(const config::Device& device, const std::string& key,
                                   const actions::Scalar& value) const;
+    void validateObservationLocked(const StateObservation& observation,
+                                   const DeviceKnowledge& current, std::int64_t arrival) const;
     runtime::DomainView domain_;
     SteadyClockMs steadyClock_;
     WallClockMs wallClock_;

@@ -201,6 +201,36 @@ Json encodeHttp(const HttpBinding& h, bool connected) {
     if (!h.headers.empty()) value["headers"] = h.headers;
     return value;
 }
+MqttBinding decodeMqttBinding(const Json& item) {
+    MqttBinding value;
+    value.topic = item.at("topic");
+    value.payload = item.at("payload");
+    value.qos = item.at("qos");
+    value.retain = item.at("retain");
+    return value;
+}
+Json encodeMqttBinding(const MqttBinding& value) {
+    return Json{{"topic",value.topic},{"payload",value.payload},{"qos",value.qos},{"retain",value.retain}};
+}
+MqttObservation decodeMqttObservation(const Json& item) {
+    MqttObservation value;
+    value.topic = item.at("topic");
+    value.format = item.at("format");
+    value.field = item.value("field", "");
+    value.truePayload = item.value("true_payload", "ON");
+    value.falsePayload = item.value("false_payload", "OFF");
+    value.qos = item.at("qos");
+    return value;
+}
+Json encodeMqttObservation(const MqttObservation& value) {
+    Json item{{"topic",value.topic},{"format",value.format},{"qos",value.qos}};
+    if (!value.field.empty()) item["field"] = value.field;
+    if (value.format == "text") {
+        item["true_payload"] = value.truePayload;
+        item["false_payload"] = value.falsePayload;
+    }
+    return item;
+}
 Connection decodeConnection(const Json& item) {
     Connection c;
     static_cast<Identity&>(c) = identity(item);
@@ -209,11 +239,18 @@ Connection decodeConnection(const Json& item) {
     if (!item.contains(section)) throw ConfigError("missing_field", "/connections", "Transport config required");
     for (const auto* key : {"http", "network", "serial", "can"})
         if (item.contains(key) && std::string(key) != section) throw ConfigError("schema_error", "/connections", "Wrong transport config");
+    if (item.contains("mqtt") && c.type != ExecutorKind::Mqtt)
+        throw ConfigError("schema_error", "/connections/mqtt", "MQTT options require MQTT transport");
     const auto& config = item.at(section);
     if (c.type == ExecutorKind::Http) { c.http.baseUrl = config.at("base_url"); c.http.basePath = config.value("base_path", ""); }
     else if (c.type == ExecutorKind::Serial) { c.serial.port = config.at("port"); c.serial.baudRate = config.at("baud_rate"); }
     else if (c.type == ExecutorKind::Can) c.can.interface = config.at("interface");
     else { c.network.host = config.at("host"); c.network.port = config.at("port"); }
+    if (c.type == ExecutorKind::Mqtt && item.contains("mqtt")) {
+        c.mqtt.present = true;
+        c.mqtt.tls = item.at("mqtt").at("tls");
+        c.mqtt.credentialsId = item.at("mqtt").value("credentials_id", "");
+    }
     return c;
 }
 Configuration decode(const Json& value) {
@@ -276,7 +313,15 @@ Configuration decode(const Json& value) {
             ObservationBinding o;
             o.targetId = item.at("target_id"); o.connectionId = item.at("connection_id");
             o.executor = executorKind(item.at("executor"));
-            o.http = decodeHttp(item.at("http"), true);
+            if (o.executor == ExecutorKind::Mqtt) {
+                if (item.contains("http") || !item.contains("mqtt"))
+                    throw ConfigError("schema_error", "/observations", "MQTT observations require MQTT only");
+                o.mqtt = decodeMqttObservation(item.at("mqtt"));
+            } else {
+                if (item.contains("mqtt") || !item.contains("http"))
+                    throw ConfigError("schema_error", "/observations", "HTTP observations require HTTP only");
+                o.http = decodeHttp(item.at("http"), true);
+            }
             o.fields = item.at("fields").get<std::map<std::string, std::string>>();
             result.observations.push_back(std::move(o));
         }
@@ -286,7 +331,15 @@ Configuration decode(const Json& value) {
             binding.actionId = item.at("action_id");
             binding.executor = executorKind(item.at("executor"));
             binding.connectionId = item.value("connection_id", "");
-            binding.http = decodeHttp(item.at("http"), !binding.connectionId.empty());
+            if (binding.executor == ExecutorKind::Mqtt) {
+                if (item.contains("http") || !item.contains("mqtt"))
+                    throw ConfigError("schema_error", "/bindings", "MQTT bindings require MQTT only");
+                binding.mqtt = decodeMqttBinding(item.at("mqtt"));
+            } else {
+                if (item.contains("mqtt") || !item.contains("http"))
+                    throw ConfigError("schema_error", "/bindings", "HTTP bindings require HTTP only");
+                binding.http = decodeHttp(item.at("http"), !binding.connectionId.empty());
+            }
             result.bindings.push_back(std::move(binding));
         }
     }
@@ -386,16 +439,25 @@ Json encode(const Configuration& value) {
             else if (c.type == ExecutorKind::Serial) entry["serial"] = {{"port",c.serial.port},{"baud_rate",c.serial.baudRate}};
             else if (c.type == ExecutorKind::Can) entry["can"] = {{"interface",c.can.interface}};
             else entry["network"] = {{"host",c.network.host},{"port",c.network.port}};
+            if (c.type == ExecutorKind::Mqtt && (c.mqtt.present || c.mqtt.tls || !c.mqtt.credentialsId.empty())) {
+                entry["mqtt"] = {{"tls", c.mqtt.tls}};
+                if (!c.mqtt.credentialsId.empty()) entry["mqtt"]["credentials_id"] = c.mqtt.credentialsId;
+            }
             result["connections"].push_back(std::move(entry));
         }
         if (!value.observations.empty()) result["observations"] = Json::array();
-        for (const auto& o : value.observations)
-            result["observations"].push_back({{"target_id",o.targetId},{"connection_id",o.connectionId},{"executor",executorName(o.executor)},
-                {"http",encodeHttp(o.http,true)},{"fields",o.fields}});
+        for (const auto& o : value.observations) {
+            Json entry{{"target_id",o.targetId},{"connection_id",o.connectionId},
+                {"executor",executorName(o.executor)},{"fields",o.fields}};
+            if (o.executor == ExecutorKind::Mqtt) entry["mqtt"] = encodeMqttObservation(o.mqtt);
+            else entry["http"] = encodeHttp(o.http, true);
+            result["observations"].push_back(std::move(entry));
+        }
         for (const auto& binding : value.bindings) {
-            Json http = encodeHttp(binding.http, !binding.connectionId.empty());
             Json entry{{"target_id", binding.targetId}, {"action_id", binding.actionId},
-                {"executor", executorName(binding.executor)}, {"http", std::move(http)}};
+                {"executor", executorName(binding.executor)}};
+            if (binding.executor == ExecutorKind::Mqtt) entry["mqtt"] = encodeMqttBinding(binding.mqtt);
+            else entry["http"] = encodeHttp(binding.http, !binding.connectionId.empty());
             if (!binding.connectionId.empty()) entry["connection_id"] = binding.connectionId;
             result["bindings"].push_back(std::move(entry));
         }

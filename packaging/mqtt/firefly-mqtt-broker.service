@@ -1,0 +1,35 @@
+# M20 G2 file-only candidate. Never installed/enabled automatically.
+# Offline provisioning: #35/#37, owner approval before any production use.
+[Unit]
+Description=Firefly Local Mosquitto Broker
+Documentation=file:///opt/firefly/voice-assistant/current/share/firefly/doc/m20-g2-local-broker.md
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=/etc/firefly/mqtt/mosquitto.conf
+ConditionPathExists=/etc/firefly/mqtt/passwords
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=exec
+User=mosquitto
+Group=mosquitto
+ExecStart=/usr/sbin/mosquitto -c /etc/firefly/mqtt/mosquitto.conf
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+UMask=0077
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=firefly-mqtt-broker
+
+[Install]
+WantedBy=multi-user.target

@@ -60,8 +60,68 @@ int main(int argc, char** argv) {
         check(lkg && (*lkg)->contentHash() == connected->contentHash(), "corrupt-current LKG recovery retains connectivity");
         check((*lkg)->configuration().connections.size() == 1 && (*lkg)->configuration().bindings.size() == 1, "LKG complete graph");
         (void)saved;
-        // Planned schemas are persisted but cannot be enabled or bound to HTTP.
-        for (const auto& type : {"mqtt", "tcp", "udp", "serial", "can"}) {
+        // MQTT is an executable transport; its credentials are references only.
+        auto mqttConfig = value;
+        mqttConfig["connections"] = Json::array({{
+            {"id","connection_mqtt"},{"name","Local broker"},{"type","mqtt"},{"enabled",true},{"timeout_ms",2000},
+            {"network",{{"host","127.0.0.1"},{"port",1883}}},{"mqtt",{{"tls",false},{"credentials_id","relay_secret"}}}
+        }});
+        mqttConfig["bindings"] = Json::array({{
+            {"target_id","device_entrance_door"},{"action_id","action_open_entrance"},
+            {"connection_id","connection_mqtt"},{"executor","mqtt"},
+            {"mqtt",{{"topic","home/light/set"},{"payload","40"},{"qos",0},{"retain",false}}}
+        }});
+        mqttConfig["observations"] = Json::array({{
+            {"target_id","device_entrance_door"},{"connection_id","connection_mqtt"},{"executor","mqtt"},
+            {"mqtt",{{"topic","home/door/state"},{"format","json"},{"qos",0}}},
+            {"fields",{{"position","position"}}}
+        }});
+        const auto mqttSnapshot = catalog(mqttConfig);
+        check(config::ConfigLoader::fromJson(mqttSnapshot->canonicalJson())->contentHash() == mqttSnapshot->contentHash(), "MQTT canonical roundtrip");
+        auto mqttBad = mqttConfig;
+        mqttBad["bindings"][0]["mqtt"]["topic"] = "home/+/set";
+        rejects([&] { catalog(mqttBad); });
+        mqttBad = mqttConfig;
+        mqttBad["bindings"][0]["target_id"] = "device_kitchen_light";
+        mqttBad["bindings"][0]["action_id"] = "action_set_brightness";
+        rejects([&] { catalog(mqttBad); }); // fixed MQTT payload cannot silently ignore brightness
+        mqttBad = mqttConfig; mqttBad["connections"][0]["mqtt"]["credentials_id"] = "../secrets";
+        rejects([&] { catalog(mqttBad); });
+        mqttBad = mqttConfig; mqttBad["bindings"][0]["executor"] = "http";
+        rejects([&] { catalog(mqttBad); });
+        mqttBad = mqttConfig; mqttBad["observations"][0]["mqtt"]["format"] = "text";
+        rejects([&] { catalog(mqttBad); });
+        // A valid M19 store may already contain a disabled MQTT placeholder
+        // without an "mqtt" object. Adding default fields changes the content
+        // hash and makes current/backup/LKG appear corrupt on M20 startup.
+        {
+            auto oldConfig = value;
+            oldConfig["connections"] = Json::array({{
+                {"id","connection_legacy_mqtt"},{"name","Future broker"},
+                {"type","mqtt"},{"enabled",false},{"timeout_ms",2000},
+                {"network",{{"host","old_broker_host"},{"port",1883}}}
+            }});
+            // Underscore was allowed in disabled M19 placeholders. Changing
+            // validation of dormant transports would also corrupt old stores.
+            const auto historical = catalog(oldConfig);
+            const auto original = Json::parse(historical->canonicalJson());
+            check(!original["connections"][0].contains("mqtt"), "disabled M19 MQTT must not acquire a default mqtt object");
+            const auto reloaded = config::ConfigLoader::fromJson(historical->canonicalJson());
+            check(reloaded->contentHash() == historical->contentHash(), "disabled MQTT canonical hash preserved");
+            Directory historicDirectory;
+            config::ConfigStore historicStore(historicDirectory.path);
+            historicStore.initialize(historical);
+            historicStore.recordLastKnownGood(historical);
+            check(historicStore.current()->contentHash() == historical->contentHash(), "historical current store readable");
+            check(historicStore.revision(historical->configuration().revision)->contentHash() == historical->contentHash(),
+                  "historical revision/backup readable");
+            std::ofstream(historicDirectory.path + "/configuration.json") << "{broken";
+            const auto recovered = historicStore.lastKnownGood();
+            check(recovered && (*recovered)->contentHash() == historical->contentHash(),
+                  "historical LKG readable after current corruption");
+        }
+        // Other planned schemas remain disabled and cannot be bound to HTTP.
+        for (const auto& type : {"tcp", "udp", "serial", "can"}) {
             auto planned = value;
             Json entry{{"id","connection_planned"},{"name","Future"},{"type",type},{"enabled",false},{"timeout_ms",1000}};
             if (std::string(type) == "serial") entry["serial"] = {{"port","/dev/ttyUSB0"},{"baud_rate",115200}};

@@ -5,6 +5,7 @@
 #include "firefly/config/ConfigValidator.h"
 #include "firefly/config/Connectivity.h"
 #include "firefly/execution/HttpHardwareExecutor.h"
+#include "firefly/execution/MqttConnectionProbe.h"
 #include "Json.h"
 #include "SetupSession.h"
 #include "firefly/admin/AdminDraft.h"
@@ -51,6 +52,9 @@ std::shared_ptr<const RuntimeGeneration> candidate(const Json& root) {
 struct Api::Impl {
     config::ConfigStore& store;
     RuntimeClient& runtime;
+    execution::MqttCredentials secrets;
+    std::shared_ptr<LocalMqttBrokerControl> brokerControl;
+    std::mutex brokerControlOperation;
     AdminTranscriber* transcriber = nullptr;
     HealthModel health;
     std::mutex writes, runtimeOperation, state;
@@ -62,9 +66,25 @@ struct Api::Impl {
     bool ready = false;
     int workerPid = 0;
     std::string lastError;
-    Impl(config::ConfigStore& store, RuntimeClient& runtime, AdminTranscriber* transcriber)
-        : store(store), runtime(runtime), transcriber(transcriber) {
-        setup = std::make_unique<SetupSession>(store,[this](const Json& value) { return invoke(value); });
+    Impl(config::ConfigStore& store, RuntimeClient& runtime, AdminTranscriber* transcriber,
+         std::string credentialsDirectory,
+         std::shared_ptr<LocalMqttBrokerControl> control)
+        : store(store), runtime(runtime), secrets(std::move(credentialsDirectory)),
+          brokerControl(control ? std::move(control) : std::make_shared<LocalMqttBrokerControl>()),
+          transcriber(transcriber) {
+        setup = std::make_unique<SetupSession>(
+            store,
+            [this](const Json& value) { return invoke(value); },
+            [this](const config::Catalog& candidate) {
+                std::unique_lock<std::mutex> mutation(writes);
+                secrets.verifyReferences(candidate);
+                return mutation;
+            },
+            [this] {
+                // The same gate is held by broker-control operations.
+                // Setup cannot publish active=true in their critical section.
+                return std::unique_lock<std::mutex>(brokerControlOperation);
+            });
         timer = std::thread([this] { while (!timerStop) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
             if (!timerStop) try { setup->tick(); } catch (const std::exception&) { /* explicit setup status remains unavailable */ }
@@ -134,6 +154,7 @@ struct Api::Impl {
     }
     Json validate(const Json& root, bool preflight) {
         const auto generation = candidate(root);
+        secrets.verifyReferences(generation->domain.snapshot());
         Json result{{"ok", true}, {"valid", true}, {"context_bytes", generation->prompt.size()}, {"context", generation->prompt}, {"runtime_preflight", "unavailable"}};
         bool modelReady;
         { std::lock_guard<std::mutex> lock(state); modelReady = ready; }
@@ -177,8 +198,12 @@ struct Api::Impl {
         return result;
     }
 };
-Api::Api(config::ConfigStore& store, RuntimeClient& runtime, AdminTranscriber* transcriber)
-    : impl_(std::make_unique<Impl>(store, runtime, transcriber)) {}
+Api::Api(config::ConfigStore& store, RuntimeClient& runtime, AdminTranscriber* transcriber,
+         std::string mqttCredentialsDirectory,
+         std::shared_ptr<LocalMqttBrokerControl> mqttBrokerControl)
+    : impl_(std::make_unique<Impl>(store, runtime, transcriber,
+                                   std::move(mqttCredentialsDirectory),
+                                   std::move(mqttBrokerControl))) {}
 Api::~Api() = default;
 HealthModel& Api::health() { return impl_->health; }
 const HealthModel& Api::health() const { return impl_->health; }
@@ -202,6 +227,10 @@ void Api::beginShutdown() {
     impl_->health.setStopping(true);
 }
 void Api::initializeRuntime() {
+    // Serialize boot-time credential admission, runtime publication and LKG
+    // selection against concurrent Admin credential DELETE / Save / Apply.
+    // Otherwise a checked secret could disappear before being used.
+    std::lock_guard<std::mutex> mutation(impl_->writes);
     impl_->health.setPhase("configuration_loading");
     std::cerr << "STARTUP configuration loading\n";
     try {
@@ -214,8 +243,13 @@ void Api::initializeRuntime() {
         bool recovered = false;
         std::string configError;
         try {
-            catalog = impl_->store.current();
-            (void)std::make_shared<const RuntimeGeneration>(catalog);
+            // A Catalog only becomes selected AFTER all admission checks.
+            // A failed secret check must not leave a truthy rejected candidate
+            // for the later 'if (!catalog)' gate.
+            auto checkedCurrent = impl_->store.current();
+            impl_->secrets.verifyReferences(checkedCurrent);
+            (void)std::make_shared<const RuntimeGeneration>(checkedCurrent);
+            catalog = std::move(checkedCurrent);
             impl_->health.setSubsystem("configuration", SubsystemStatus::Ready);
         } catch (const std::exception& error) {
             configError = error.what();
@@ -223,6 +257,9 @@ void Api::initializeRuntime() {
             try {
                 auto lkg = impl_->store.lastKnownGood();
                 if (lkg) {
+                    // LKG is an independent admission candidate, not a bypass.
+                    // It may itself reference a deleted/malformed secret.
+                    impl_->secrets.verifyReferences(*lkg);
                     (void)std::make_shared<const RuntimeGeneration>(*lkg);
                     catalog = *lkg;
                     recovered = true;
@@ -243,6 +280,7 @@ void Api::initializeRuntime() {
             impl_->health.setSubsystem("hardware_execution", SubsystemStatus::Unavailable, "config_unusable");
             impl_->health.setSubsystem("llm", SubsystemStatus::Unavailable, "config_unusable");
             impl_->health.setPhase("recovery_mode");
+            impl_->health.refreshOverall();
             std::cerr << "STARTUP recovery mode: Admin available, execution disabled\n";
             return;
         }
@@ -256,6 +294,7 @@ void Api::initializeRuntime() {
                 impl_->health.setSubsystem("llm", SubsystemStatus::Failed, "apply_rejected");
                 impl_->health.setSubsystem("hardware_execution", SubsystemStatus::Unavailable);
                 impl_->health.setPhase("degraded_startup");
+                impl_->health.refreshOverall();
                 std::cerr << "STARTUP apply rejected; Admin remains available\n";
                 return;
             }
@@ -307,7 +346,7 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
         const std::map<std::string, std::string> routes{{"/api/admin/language-profile", "POST"}, {"/api/admin/plan", "POST"}, {"/api/admin/copilot", "POST"}, {"/api/admin/copilot/accept", "POST"}, {"/api/admin/transcribe", "POST"}, {"/api/admin/action-draft", "POST"}, {"/api/admin/templates", "GET"}, {"/api/admin/draft", "POST"}, {"/api/config/migrate", "POST"}, {"/api/admin/id", "POST"}, {"/api/admin/suggest", "POST"}, {"/api/config/diff", "POST"},
             {"/api/config/export", "GET"}, {"/api/config/import", "POST"}, {"/api/config/revision", "POST"},
             {"/api/config/restore-candidate", "POST"}, {"/api/dashboard", "GET"}, {"/api/devices/state", "GET"},
-            {"/api/connections/test", "POST"}, {"/api/connections/probe", "POST"}, {"/api/devices/command", "POST"}, {"/api/devices/poll", "POST"},
+            {"/api/connections/test", "POST"}, {"/api/connections/probe", "POST"}, {"/api/mqtt/credentials", "GET POST PUT DELETE"}, {"/api/mqtt/local-broker", "GET POST"}, {"/api/devices/command", "POST"}, {"/api/devices/poll", "POST"},
             {"/api/executions", "GET"}, {"/api/status", "GET"}, {"/api/config", "GET PUT"},
             {"/api/config/active", "GET"}, {"/api/config/validate", "POST"}, {"/api/config/apply", "POST"},
             {"/api/config/revisions", "GET"}, {"/api/config/restore", "POST"}, {"/api/config/reconcile", "POST"}, {"/api/test-command", "POST"}};
@@ -328,7 +367,8 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
         }
         Json request = method == "GET" ? Json::object() : parseMessage(body,true);
         if (impl_->setup->active() && method != "GET") {
-            if (path == "/api/config" || path == "/api/config/apply" || path == "/api/config/restore" || path == "/api/config/reconcile" || path == "/api/test-command" || path == "/api/devices/command")
+            if (path == "/api/config" || path == "/api/config/apply" || path == "/api/config/restore" || path == "/api/config/reconcile" || path == "/api/test-command" || path == "/api/devices/command" ||
+                path == "/api/mqtt/local-broker")
                 throw ApiError(409,"setup_in_progress","","Настройка активна; используйте её подтверждение или отмену.");
             if (path == "/api/connections/probe") {
                 try { impl_->setup->handle("authorize", request); }
@@ -381,6 +421,7 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
         } else if (path == "/api/config/import") {
             members(request, {"document"});
             const auto imported = config::ConfigLoader::fromJson(request.at("document").get<std::string>());
+            impl_->secrets.verifyReferences(imported);
             RuntimeGeneration admission(imported);
             reply = describe(imported);
             reply["ok"] = true; reply["saved"] = false; reply["applied"] = false;
@@ -427,13 +468,134 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
             reply = {{"ok",true},{key,live.at(key)},{"active",live.at("active")}};
             if (path == "/api/devices/state" && live.contains("playground_devices"))
                 reply["playground_devices"] = live.at("playground_devices");
+        } else if (path == "/api/mqtt/local-broker") {
+            // Broker enable/disable is operational, never part of config
+            // Save/Apply. The trusted Unix-socket helper owns the fixed unit
+            // and must verify actual systemd status before acknowledging.
+            std::lock_guard<std::mutex> control(impl_->brokerControlOperation);
+            // The pre-dispatch check is advisory only: Setup may have entered
+            // after that check but before acquiring brokerControlOperation.
+            // The SetupSession entry gate serializes active_=true with this
+            // recheck. No privileged mutation may pass it while Setup is active.
+            if (method == "POST" && impl_->setup->active())
+                throw ApiError(409, "setup_in_progress", "",
+                               "Настройка активна; изменение локального брокера запрещено.");
+            LocalMqttBrokerStatus state;
+            if (method == "GET") {
+                state = impl_->brokerControl->status();
+            } else {
+                members(request, {"operation", "confirm"});
+                if (!request.at("confirm").is_boolean() ||
+                    !request.at("confirm").get<bool>())
+                    throw ApiError(422, "mqtt_broker_confirmation_required", "/confirm",
+                                   "Explicit confirmation is required.");
+                const auto operation = request.at("operation").get<std::string>();
+                if (operation == "enable") state = impl_->brokerControl->enable();
+                else if (operation == "disable") state = impl_->brokerControl->disable();
+                else throw ApiError(422, "mqtt_broker_invalid_operation", "/operation",
+                                    "Only enable or disable are allowed.");
+            }
+            reply = {{"ok", true}, {"installed", state.installed},
+                     {"enabled", state.enabled}, {"running", state.running},
+                     {"scope", "local_mosquitto_only"}};
+        } else if (path == "/api/mqtt/credentials") {
+            // Browser/API operations use the existing loopback-only Admin
+            // Host/Origin/custom-header policy. Do not echo secret contents,
+            // username or password to the browser after write, even on error.
+            if (method == "GET") {
+                reply = {{"ok", true}, {"ids", impl_->secrets.ids()}};
+            } else {
+                if (method == "POST" || method == "PUT") {
+                    members(request, {"id", "username", "password"});
+                    const auto id = request.at("id").get<std::string>();
+                    const auto username = request.at("username").get<std::string>();
+                    const auto password = request.at("password").get<std::string>();
+                    std::lock_guard<std::mutex> mutation(impl_->writes);
+                    if (method == "POST") impl_->secrets.create(id, username, password);
+                    else impl_->secrets.rotate(id, username, password);
+                    reply = {{"ok", true}, {"id", id},
+                             {"operation", method == "POST" ? "created" : "rotated"},
+                             {"requires_apply", true}};
+                } else {
+                    members(request, {"id"});
+                    const auto id = request.at("id").get<std::string>();
+                    std::lock_guard<std::mutex> mutation(impl_->writes);
+                    const auto inUse = [&](const config::Catalog& catalog) {
+                        if (!catalog) return false;
+                        for (const auto& c : catalog->configuration().connections)
+                            if (c.type == config::ExecutorKind::Mqtt &&
+                                c.mqtt.credentialsId == id) return true;
+                        return false;
+                    };
+                    // Protect not only stored/active graphs but retained
+                    // history and LKG: a future restore must remain valid.
+                    if (inUse(impl_->store.current()))
+                        throw ApiError(409, "mqtt_credentials_in_use", "/id",
+                                       "Remove credential references from configuration first.");
+                    for (const auto& history : impl_->store.revisions())
+                        if (inUse(impl_->store.revision(history.revision)))
+                            throw ApiError(409, "mqtt_credentials_in_use", "/id",
+                                           "A retained configuration revision still uses this credential.");
+                    if (const auto lkg = impl_->store.lastKnownGood())
+                        if (inUse(*lkg))
+                            throw ApiError(409, "mqtt_credentials_in_use", "/id",
+                                           "Last Known Good still uses this credential.");
+                    Json active;
+                    {
+                        std::lock_guard<std::mutex> lock(impl_->state);
+                        active = impl_->active;
+                    }
+                    if (active.is_object() && active.contains("configuration") &&
+                        inUse(config::ConfigLoader::fromJson(active.at("configuration").dump())))
+                        throw ApiError(409, "mqtt_credentials_in_use", "/id",
+                                       "The active runtime still uses this credential.");
+                    impl_->secrets.erase(id);
+                    reply = {{"ok", true}, {"id", id}, {"operation", "deleted"}};
+                }
+            }
         } else if (path == "/api/connections/probe") {
             members(request, {"connection"});
             const auto connection = config::ConfigLoader::connectionFromJson(request.at("connection").dump());
-            const auto result = execution::HttpHardwareExecutor::testConnection(connection);
-            reply = result.success ? Json{{"ok",true},{"scope","tcp_connect_only"},{"saved",false},{"applied",false}}
-                : failure(result.error, "/connection", "TCP reachability test failed. No HTTP bytes were sent.");
-            if (!result.success) status = 422;
+            if (connection.type == config::ExecutorKind::Mqtt) {
+                // A fresh, bounded client verifies MQTT CONNECT/CONNACK with
+                // its private credentials and CA/hostname TLS trust. The
+                // active executor, broker service and ConfigStore are untouched.
+                // In particular: zero PUBLISH, SUBSCRIBE, Save or Apply.
+                const auto result = execution::MqttConnectionProbe::testConnection(
+                    connection, impl_->secrets);
+                if (result.success) {
+                    reply = {{"ok",true},{"scope","mqtt_connack_only"},
+                             {"transport","mqtt"},{"connack_accepted",true},
+                             {"tls_verified",result.tlsVerified},
+                             {"credentials_accepted",result.credentialsAccepted},
+                             {"saved",false},{"applied",false},
+                             {"published",false},{"subscribed",false}};
+                } else {
+                    status = result.code == "mqtt_probe_busy" ? 409 : 422;
+                    std::string explanation =
+                        "MQTT CONNECT не подтверждён. Проверьте адрес, сеть, TLS-сертификат и учётные данные; команды устройству не отправлялись.";
+                    if (result.code == "mqtt_probe_busy")
+                        explanation = "Другая MQTT-проверка уже выполняется. Повторите позже.";
+                    else if (result.code == "mqtt_unavailable")
+                        explanation = "MQTT не включён в эту сборку Firefly. Нужна сборка с libmosquitto.";
+                    else if (result.code.rfind("mqtt_credentials_", 0) == 0)
+                        explanation = "Защищённый MQTT-секрет отсутствует, повреждён или недоступен.";
+                    else if (result.code == "mqtt_probe_auth_rejected")
+                        explanation = "MQTT-брокер отклонил CONNECT: проверьте логин, пароль и правила авторизации.";
+                    else if (result.code == "mqtt_probe_timeout")
+                        explanation = "MQTT CONNECT не подтвердился до timeout. Доступность брокера не установлена.";
+                    else if (result.code == "mqtt_probe_tls_configuration")
+                        explanation = "Не удалось подготовить проверку TLS с системным хранилищем сертификатов.";
+                    else if (result.code == "mqtt_probe_worker_unavailable")
+                        explanation = "Отдельный MQTT probe helper отсутствует или не запускается. Проверьте комплектность сборки и права исполняемого файла.";
+                    reply = failure(result.code, "/connection", explanation);
+                }
+            } else {
+                const auto result = execution::HttpHardwareExecutor::testConnection(connection);
+                reply = result.success ? Json{{"ok",true},{"scope","tcp_connect_only"},{"saved",false},{"applied",false}}
+                    : failure(result.error, "/connection", "TCP reachability test failed. No HTTP bytes were sent.");
+                if (!result.success) status = 422;
+            }
         } else if (path == "/api/devices/command") {
             members(request, {"text", "expected_hash", "expected_action"});
             request["method"] = "guarded_command";
@@ -487,12 +649,16 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
             members(request, {"configuration", "expected"});
             const auto generation = candidate(request);
             std::lock_guard<std::mutex> mutation(impl_->writes);
+            // Serialize reference admission with credential deletion. Checking
+            // outside writes allowed DELETE to interleave before CAS Save.
+            impl_->secrets.verifyReferences(generation->domain.snapshot());
             const auto saved = impl_->store.save(generation->domain.snapshot(), expected(request));
             reply = describe(saved); reply["ok"] = true; reply["applied"] = false;
         } else if (path == "/api/config/apply") {
             members(request, {"expected"});
             std::lock_guard<std::mutex> mutation(impl_->writes);
             const auto stored = impl_->store.current(); checkExpected(stored, expected(request));
+            impl_->secrets.verifyReferences(stored);
             reply = impl_->invoke({{"method", "apply"}, {"configuration", Json::parse(stored->canonicalJson())}});
             if (!reply.value("ok", false)) status = 422;
             else {
@@ -526,7 +692,11 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
             members(request, {"revision", "expected"});
             if (!request["revision"].is_number_integer()) throw std::invalid_argument("Invalid revision");
             std::lock_guard<std::mutex> mutation(impl_->writes);
-            reply = describe(impl_->store.restore(request["revision"].get<std::int64_t>(), expected(request)));
+            const auto revision = request["revision"].get<std::int64_t>();
+            // Restore writes a new ConfigStore revision. It must not
+            // resurrect a broken credential reference without admission.
+            impl_->secrets.verifyReferences(impl_->store.revision(revision));
+            reply = describe(impl_->store.restore(revision, expected(request)));
             reply["ok"] = true; reply["applied"] = false;
         } else if (path == "/api/config/reconcile") {
             members(request, {});
@@ -538,9 +708,44 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
     catch (const config::ConfigError& error) {
         status = error.code == "revision_conflict" ? 409 : error.code == "io_error" || error.code == "durability_indeterminate" || error.code == "recovery_required" ? 503 : 422;
         reply = failure(error.code, error.path, error.what());
-    } catch (const std::exception& error) {
-        std::cerr << "Admin request: " << error.what() << '\n';
-        status = 400; reply = failure("invalid_request", "", "Request must be one JSON object with the documented fields and types.");
+    } catch (const std::runtime_error& error) {
+        // These error codes are emitted by MqttCredentials as fixed literals:
+        // never reflect a file path, account name or password in an API error.
+        const std::string code(error.what());
+        if (code.rfind("mqtt_broker_", 0) == 0) {
+            status = code == "mqtt_broker_not_installed" ? 409 : 503;
+            const auto safeCode = (code == "mqtt_broker_control_unavailable" ||
+                                   code == "mqtt_broker_not_installed" ||
+                                   code == "mqtt_broker_invalid_state" ||
+                                   code == "mqtt_broker_control_failed")
+                ? code : std::string("mqtt_broker_control_unavailable");
+            reply = failure(safeCode, "/api/mqtt/local-broker",
+                            "Локальный Mosquitto недоступен или не подтвердил изменение состояния.");
+        } else if (code.rfind("mqtt_credentials_", 0) == 0) {
+            const bool exists = code == "mqtt_credentials_exists";
+            const bool unavailable = code == "mqtt_credentials_directory_unavailable" ||
+                code == "mqtt_credentials_directory_permissions" ||
+                code == "mqtt_credentials_write" ||
+                code == "mqtt_credentials_read" ||
+                code == "mqtt_credentials_delete" ||
+                code == "mqtt_credentials_list" ||
+                code == "mqtt_credentials_random_unavailable" ||
+                code == "mqtt_credentials_atomic_create_unavailable" ||
+                code == "mqtt_credentials_durability_uncertain";
+            status = exists ? 409 : unavailable ? 503 : 422;
+            reply = failure(code, "/mqtt/credentials",
+                            exists ? "Этот ID уже существует." :
+                            unavailable ? "Защищённое хранилище MQTT недоступно. Проверьте владельца и права каталога." :
+                            "Учётные данные MQTT отсутствуют, повреждены или имеют недопустимый формат.");
+        } else {
+            std::cerr << "Admin request failed\n";
+            status = 400;
+            reply = failure("invalid_request", "", "Request must be one JSON object with the documented fields and types.");
+        }
+    } catch (const std::exception&) {
+        // Never log or reflect user-controlled request body or secret content.
+        status = 400;
+        reply = failure("invalid_request", "", "Request must be one JSON object with the documented fields and types.");
     }
     return {status, "application/json; charset=utf-8", reply.dump(-1, ' ', false, Json::error_handler_t::replace)};
 }

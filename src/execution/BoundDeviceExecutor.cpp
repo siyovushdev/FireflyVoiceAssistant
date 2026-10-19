@@ -1,6 +1,8 @@
 #include "firefly/execution/ActionExecutor.h"
 #include "firefly/execution/HttpHardwareExecutor.h"
+#include "firefly/execution/MqttHardwareExecutor.h"
 #include <nlohmann/json.hpp>
+#include <stdexcept>
 
 namespace firefly::execution {
 namespace {
@@ -31,6 +33,14 @@ std::map<std::string, std::string> physicalMappings(config::Catalog catalog) {
 BoundDeviceExecutor::BoundDeviceExecutor(config::Catalog catalog, SteadyClockMs steadyClock, WallClockMs wallClock)
     : catalog_(catalog), playground_(catalog), production_(catalog, std::move(steadyClock), std::move(wallClock)), resolver_(catalog) {
     registry_.registerExecutor(config::ExecutorKind::Http, std::make_shared<HttpHardwareExecutor>(catalog));
+    mqtt_ = std::make_shared<MqttHardwareExecutor>(catalog, production_);
+    registry_.registerExecutor(config::ExecutorKind::Mqtt, mqtt_);
+}
+void BoundDeviceExecutor::startSubscriptions() {
+    if (mqtt_) mqtt_->startSubscriptions();
+}
+void BoundDeviceExecutor::stopSubscriptions() noexcept {
+    if (mqtt_) mqtt_->stopSubscriptions();
 }
 
 ExecutionResult BoundDeviceExecutor::preview(const actions::GenericAction& action) const {
@@ -116,6 +126,45 @@ ExecutionResult BoundDeviceExecutor::execute(const actions::GenericAction& actio
         return predicted;
     }
 
+    // Derive state assignments once, before any physical action. The MQTT
+    // barrier can only buffer a matching early state, never an unrelated OFF.
+    std::map<std::string, actions::Scalar> expected;
+    if (predicted.current) {
+        if (const auto* light = std::get_if<LightState>(&*predicted.current))
+            expected.emplace("brightness", actions::Scalar(light->brightness));
+        else if (const auto* door = std::get_if<DoorState>(&*predicted.current))
+            expected.emplace("position", actions::Scalar(std::string(
+                door->position == DoorPosition::Open ? "OPEN" : "CLOSED")));
+        else if (const auto* typed = std::get_if<TypedState>(&*predicted.current)) {
+            const auto& def = catalog_->configuration().actions.at(catalog_->actionIndex().at(action.actionId()));
+            for (const auto& assign : def.assignments) {
+                if (assign.argument && !action.arguments().count(*assign.argument)) continue;
+                expected.emplace(assign.field, typed->at(assign.field));
+            }
+        }
+    }
+    struct MqttCommandWindow {
+        MqttHardwareExecutor* owner = nullptr;
+        std::string target;
+        bool committed = false;
+        ~MqttCommandWindow() { if (owner) owner->endCommand(target, committed); }
+    } window;
+    if (lookup.binding->executor == config::ExecutorKind::Mqtt && mqtt_) {
+        window.target = action.targetId();
+        try {
+            mqtt_->beginCommand(window.target, expected);
+        } catch (const std::logic_error&) {
+            // The per-target barrier rejects concurrent MQTT commands. Report
+            // a normal failed execution rather than letting a second request
+            // unwind through the Admin/voice runtime.
+            predicted.success = false;
+            predicted.status = ExecutionStatus::Failed;
+            predicted.error = "mqtt_target_busy";
+            predicted.current = std::nullopt;
+            return predicted;
+        }
+        window.owner = mqtt_.get();
+    }
     const auto hardware = registry_.execute(*lookup.binding, action);
     // Connectivity follows transport evidence, independent of Accepted|Failed.
     if (hardware.reachability == ReachabilityEvidence::Reachable)
@@ -132,25 +181,10 @@ ExecutionResult BoundDeviceExecutor::execute(const actions::GenericAction& actio
         return predicted;
     }
 
-    // Accepted ≠ Confirmed. Record Predicted knowledge only after transport accept.
-    if (predicted.current) {
-        std::map<std::string, actions::Scalar> expected;
-        if (const auto* light = std::get_if<LightState>(&*predicted.current))
-            expected.emplace("brightness", actions::Scalar(light->brightness));
-        else if (const auto* door = std::get_if<DoorState>(&*predicted.current))
-            expected.emplace("position", actions::Scalar(std::string(
-                door->position == DoorPosition::Open ? "OPEN" : "CLOSED")));
-        else if (const auto* typed = std::get_if<TypedState>(&*predicted.current)) {
-            // Preview includes virtual initial/Playground values. Only assignments
-            // actually made by this accepted action are production evidence.
-            const auto& definition = catalog_->configuration().actions.at(catalog_->actionIndex().at(action.actionId()));
-            for (const auto& assignment : definition.assignments) {
-                if (assignment.argument && !action.arguments().count(*assignment.argument)) continue;
-                expected.emplace(assignment.field, typed->at(assignment.field));
-            }
-        }
-        production_.applyPrediction(action.targetId(), expected, now);
-    }
+    // Only transport acceptance creates Predicted; after this, a validated
+    // pre-PUBACK observation may be safely replayed as Confirmed by the guard.
+    if (predicted.current) production_.applyPrediction(action.targetId(), expected, now);
+    window.committed = true;
     predicted.status = ExecutionStatus::Accepted;
     predicted.success = true;
     // Do not mutate playground simulation from production hardware acceptance.

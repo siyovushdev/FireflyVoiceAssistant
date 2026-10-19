@@ -1,0 +1,10 @@
+# Only an offline, owner-approved image provisioner may substitute LAN_IPV4.
+# Do not install this template directly as an active Mosquitto configuration.
+# No wildcard listener, default user accounts, anonymous access or WAN port.
+per_listener_settings false
+allow_anonymous false
+password_file /etc/firefly/mqtt/passwords
+persistence false
+log_dest stdout
+listener 1883 127.0.0.1
+listener 1883 @LAN_IPV4@

@@ -118,6 +118,10 @@ class StageRequest:
     build_matches: bool = False
     reuse_installed_models: bool = False
     wake_reference_release: str = ""
+    offline_candidate: bool = False
+    mqtt_root: Optional[Path] = None
+    tls_root: Optional[Path] = None
+    mqtt_provenance: Optional[Path] = None
 
 
 def _within(path: Path, root: Path) -> bool:
@@ -640,9 +644,12 @@ def _manifest_document(request: StageRequest, release: Path, model_paths: dict, 
             "path": relative,
             "sha256": sha256_file(path),
             "bytes": path.stat().st_size,
+            **({"mode": path.stat().st_mode & 0o7777} if mqtt_enabled(request.build_dir) else {}),
         })
     models = []
     for relative in (RUNTIME_MODEL, ADMIN_MODEL, VAD_MODEL, *(f"{STT_DIR}/{name}" for name in STT_FILES)):
+        if request.offline_candidate:
+            continue
         path = model_paths[relative]
         models.append({
             "path": relative,
@@ -714,6 +721,14 @@ def _manifest_document(request: StageRequest, release: Path, model_paths: dict, 
     if request.reuse_installed_models:
         document["installed_model_reference"] = {"prefix": PRODUCTION_PREFIX, "mode": "installed-read-only"}
         document["wake_model_reference"] = str(wake_reference(release, release / WAKE_MODEL))
+    if mqtt_enabled(request.build_dir):
+        from . import mqtt_release
+        document["mqtt"] = mqtt_release.metadata()
+    if request.offline_candidate:
+        from . import mqtt_release
+        document["source"]["identity"] = "committed-offline-candidate"
+        document["shared_models"] = mqtt_release.model_references()
+        document["offline_candidate"] = {"state": "OWNER_ACTIVATION_REQUIRED", "models": "frozen-target-references"}
     return document
 
 
@@ -785,17 +800,21 @@ ARTIFACT_FILES = {
 SITE_PREFIX = "share/firefly/wake/python/lib/python3.10/site-packages/"
 
 
-def assert_artifact_manifest(entries) -> dict:
+def assert_artifact_manifest(entries, *, mqtt: bool = False) -> dict:
     if not isinstance(entries, list):
         raise ReleaseError("artifacts must be a list")
     expected = {}
+    required = ARTIFACT_FILES
+    if mqtt:
+        from .mqtt_release import EXTRA_FILES
+        required = ARTIFACT_FILES | EXTRA_FILES
     for item in entries:
         if not isinstance(item, dict):
             raise ReleaseError("artifact entry is malformed")
         path = item.get("path")
         if (not isinstance(path, str) or "\x00" in path or "\\" in path or
                 any(part in ("", ".", "..") for part in path.split("/")) or
-                (path not in ARTIFACT_FILES and not path.startswith(SITE_PREFIX)) or
+                (path not in required and not path.startswith(SITE_PREFIX)) or
                 path in expected):
             raise ReleaseError(f"unsafe or unexpected artifact path: {path!r}")
         digest, size = item.get("sha256"), item.get("bytes")
@@ -803,7 +822,7 @@ def assert_artifact_manifest(entries) -> dict:
                 type(size) is not int or size < 0):
             raise ReleaseError(f"malformed artifact metadata: {path}")
         expected[path] = item
-    if not ARTIFACT_FILES.issubset(expected):
+    if not required.issubset(expected):
         raise ReleaseError("manifest is missing required release artifacts")
     return expected
 
@@ -980,7 +999,7 @@ def build_identity(binary: Path) -> dict:
 
 
 def verify_tree(prefix: Path, release_id: str, *, check_python: bool = True,
-                model_paths: Optional[dict] = None) -> dict:
+                model_paths: Optional[dict] = None, candidate_only: bool = False) -> dict:
     assert_real_path(prefix)
     if not RELEASE_ID_RE.fullmatch(release_id):
         raise ReleaseError("invalid release id")
@@ -989,7 +1008,14 @@ def verify_tree(prefix: Path, release_id: str, *, check_python: bool = True,
     if is_production_prefix(prefix):
         assert_production_ownership(prefix)
     document = load_manifest(release)
-    resolved_models = manifest_model_paths(document, prefix)
+    if candidate_only:
+        from .mqtt_release import assert_candidate
+        assert_candidate(document)
+        resolved_models = {}
+    else:
+        if document.get("offline_candidate") is not None:
+            raise ReleaseError("offline candidate requires owner finalization with actual target model verification")
+        resolved_models = manifest_model_paths(document, prefix)
     wake = release / WAKE_MODEL
     if wake.is_symlink():
         if (document.get("installed_model_reference") is None
@@ -998,7 +1024,7 @@ def verify_tree(prefix: Path, release_id: str, *, check_python: bool = True,
     elif document.get("wake_model_reference") is not None:
         raise ReleaseError("wake reference manifest requires its exact symlink")
     assert_shared_model_manifest(document.get("shared_models"))
-    expected = assert_artifact_manifest(document.get("artifacts"))
+    expected = assert_artifact_manifest(document.get("artifacts"), mqtt=document.get("mqtt", {}).get("enabled") is True)
     present = set(_rel_files(release))
     present.discard("manifest.json")
     present.discard("manifest.sha256")
@@ -1019,7 +1045,11 @@ def verify_tree(prefix: Path, release_id: str, *, check_python: bool = True,
             raise ReleaseError(f"release contains {relative}")
         if sha256_file(path) != item["sha256"] or path.stat().st_size != item["bytes"]:
             raise ReleaseError(f"checksum mismatch: {relative}")
+        if "mode" in item and (type(item["mode"]) is not int or path.stat().st_mode & 0o7777 != item["mode"]):
+            raise ReleaseError(f"artifact mode mismatch: {relative}")
     for item in document["shared_models"]:
+        if candidate_only:
+            continue  # assert_candidate checked the exact frozen references, never fictitious model bytes.
         relative = item["path"]
         path = resolved_models[relative] if document.get("installed_model_reference") else (model_paths or {}).get(relative, resolved_models[relative])
         require_regular_file(path, item["path"])
@@ -1060,6 +1090,11 @@ def verify_tree(prefix: Path, release_id: str, *, check_python: bool = True,
     if is_production_prefix(prefix):
         assert_production_runtime_prefix(document.get("runtime_prefix", ""), prefix)
         require_production_identity(document, release)
+    if document.get("mqtt", {}).get("enabled") is True:
+        from .mqtt_release import metadata, verify
+        if document["mqtt"] != metadata():
+            raise ReleaseError("invalid MQTT package contract")
+        verify(release)
     return document
 
 
@@ -1250,6 +1285,11 @@ def stage_release(request: StageRequest) -> dict:
         not request.dirty and identity_binary.get("dirty") is False and
         request.build_head == request.commit and request.build_source == source_hash and
         identity_binary.get("admin_assets_sha256") == admin_assets_fingerprint(request.build_dir))
+    if request.offline_candidate:
+        if (request.production or request.reuse_installed_models or request.wake_reference_release
+                or request.runtime_prefix != PRODUCTION_PREFIX or not request.build_matches
+                or not mqtt_enabled(request.build_dir)):
+            raise ReleaseError("offline candidate requires clean matching MQTT build and fixed runtime prefix; no production/reuse flags")
     if request.production and not request.build_matches:
         raise ReleaseError(
             "production staging requires a fresh firefly-demo built from this clean commit; "
@@ -1267,7 +1307,9 @@ def stage_release(request: StageRequest) -> dict:
         raise ReleaseError("staging requires aarch64")
     _preflight(request)
     assert_model_tree(destination)
-    if request.reuse_installed_models:
+    if request.offline_candidate:
+        reused = {}
+    elif request.reuse_installed_models:
         if (not request.production or request.runtime_prefix != PRODUCTION_PREFIX
                 or not RELEASE_ID_RE.fullmatch(request.wake_reference_release)):
             raise ReleaseError("installed model reuse requires production prefix and an immutable wake release")
@@ -1286,7 +1328,7 @@ def stage_release(request: StageRequest) -> dict:
     needed += _path_bytes(request.rkllm_library) + _path_bytes(request.sherpa_library)
     needed += _path_bytes(request.onnx_library) + _path_bytes(request.wake_site_packages)
     for relative, source in _model_inputs(request).items():
-        if relative not in reused:
+        if not request.offline_candidate and relative not in reused:
             needed += _path_bytes(source)
     _require_space(destination if destination.exists() else destination.parent, needed)
     destination.mkdir(mode=0o755, parents=True, exist_ok=True)
@@ -1330,8 +1372,13 @@ def stage_release(request: StageRequest) -> dict:
             ("libonnxruntime.so", request.onnx_library),
         ):
             _copy_regular(source, lib / name)
+        if mqtt_enabled(request.build_dir):
+            from .mqtt_release import stage
+            stage(request, release)
         model_paths = {}
         for relative, source in _model_inputs(request).items():
+            if request.offline_candidate:
+                continue
             if relative in reused:
                 model_paths[relative] = reused[relative]
                 continue
@@ -1345,7 +1392,7 @@ def stage_release(request: StageRequest) -> dict:
             if not (site / required).exists():
                 raise ReleaseError(f"wake site-packages is missing {required}")
         doc = release / "share/firefly/doc"
-        doc.mkdir(parents=True)
+        doc.mkdir(parents=True, exist_ok=True)
         for name in ("m18-relocatable-production-packaging.md", "m18-owner-acceptance-runbook.md"):
             source = request.source_root / "docs" / name
             require_regular_file(source, name)
@@ -1366,7 +1413,8 @@ def stage_release(request: StageRequest) -> dict:
         _purge_pycache(release)
         document = _manifest_document(request, release, model_paths, python_version)
         _write_manifest(release, document)
-        verify_tree(prefix, request.release_id, check_python=True, model_paths=model_paths)
+        verify_tree(prefix, request.release_id, check_python=True, model_paths=model_paths,
+                    candidate_only=request.offline_candidate)
         if request.production:
             require_production_identity(document, release)
             final_source = source_identity(request.source_root)
@@ -1374,15 +1422,15 @@ def stage_release(request: StageRequest) -> dict:
                     source_tree_fingerprint(request.source_root) != request.build_source or
                     admin_assets_fingerprint(request.build_dir) != document["build"]["admin_assets_sha256"]):
                 raise ReleaseError("production build inputs changed during staging; no release was published")
-        if not request.reuse_installed_models:
+        if not request.reuse_installed_models and not request.offline_candidate:
             created_models = publish_shared_models(prefix, destination)
         target = destination / "releases" / request.release_id
         if target.exists():
             raise ReleaseError(f"release {request.release_id} appeared during staging")
-        target.parent.mkdir(parents=True, exist_ok=True)
+        target.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
         _publish_directory(release, target)
         published_release = target
-        verify_tree(destination, request.release_id, check_python=False)
+        verify_tree(destination, request.release_id, check_python=False, candidate_only=request.offline_candidate)
         current_after = os.readlink(destination / "current") if (destination / "current").is_symlink() else None
         if current_after != current_before or ((destination / "current").exists() and not (destination / "current").is_symlink()):
             raise ReleaseError("staging changed the current symlink")
@@ -1410,6 +1458,10 @@ def stage_release(request: StageRequest) -> dict:
             os.close(lock)
 
 
+def mqtt_enabled(build_dir: Path) -> bool:
+    return bool(re.search(r"^FIREFLY_ENABLE_MQTT:BOOL=ON$", (build_dir / "CMakeCache.txt").read_text(), re.MULTILINE))
+
+
 def _preflight(request: StageRequest) -> None:
     build_binary = request.build_dir / "firefly-demo"
     cache = request.build_dir / "CMakeCache.txt"
@@ -1419,29 +1471,30 @@ def _preflight(request: StageRequest) -> None:
         ("rkllm library", request.rkllm_library),
         ("sherpa library", request.sherpa_library),
         ("onnx runtime", request.onnx_library),
-        ("runtime model", request.runtime_model),
-        ("admin model", request.admin_model),
-        ("vad model", request.vad_model),
     ):
         require_regular_file(path, label)
-    if request.stt_dir.is_symlink() or not request.stt_dir.is_dir():
-        raise ReleaseError("STT model directory must be a real directory")
-    for name in STT_FILES:
-        require_regular_file(request.stt_dir / name, f"STT {name}")
+    if not request.offline_candidate:
+        for path in (request.runtime_model, request.admin_model, request.vad_model):
+            require_regular_file(path, "model input")
+        if request.stt_dir.is_symlink() or not request.stt_dir.is_dir():
+            raise ReleaseError("STT model directory must be a real directory")
+        for name in STT_FILES:
+            require_regular_file(request.stt_dir / name, f"STT {name}")
     if request.wake_site_packages.is_symlink() or not request.wake_site_packages.is_dir():
         raise ReleaseError("wake site-packages must be a real directory")
     for name in ("docs/m18-relocatable-production-packaging.md", "docs/m18-owner-acceptance-runbook.md"):
         require_regular_file(request.source_root / name, name)
-    if request.production:
+    if request.production or request.offline_candidate:
         _expect(request.rkllm_library, PRODUCTION_SHA256["lib/librkllmrt.so"], None)
         _expect(request.sherpa_library, PRODUCTION_SHA256["lib/libsherpa-onnx-c-api.so"], None)
         _expect(request.onnx_library, PRODUCTION_SHA256["lib/libonnxruntime.so"], None)
+    if request.production:
         _expect(request.runtime_model, PRODUCTION_SHA256[RUNTIME_MODEL], None)
         _expect(request.admin_model, PRODUCTION_SHA256[ADMIN_MODEL], ADMIN_MODEL_BYTES)
         _expect(request.vad_model, PRODUCTION_SHA256[VAD_MODEL], None)
         for name in STT_FILES:
             _expect(request.stt_dir / name, PRODUCTION_SHA256[f"{STT_DIR}/{name}"], None)
-    elif request.admin_model.stat().st_size == ADMIN_MODEL_BYTES:
+    elif not request.offline_candidate and request.admin_model.stat().st_size == ADMIN_MODEL_BYTES:
         # Fixture mode must not silently accept the real multi-gigabyte model without production checks.
         raise ReleaseError("admin model has the production size; rerun with --production")
 
@@ -1734,7 +1787,7 @@ def install_release(source_prefix: Path, destination: Path, release_id: str) -> 
             if external:
                 raise ReleaseError("installed shared model disappeared during install")
             _copy_regular(sources[relative], model_path(incoming, relative))
-        (destination / "releases").mkdir(parents=True, exist_ok=True)
+        (destination / "releases").mkdir(mode=0o755, parents=True, exist_ok=True)
         _publish_directory(release_copy, target)
         published_release = target
         if not external:
@@ -1849,6 +1902,10 @@ def _request_from_args(args: argparse.Namespace) -> StageRequest:
         production=args.production,
         reuse_installed_models=args.reuse_installed_models,
         wake_reference_release=args.wake_reference_release,
+        offline_candidate=args.offline_candidate,
+        mqtt_root=Path(args.mqtt_root) if args.mqtt_root else None,
+        tls_root=Path(args.tls_root) if args.tls_root else None,
+        mqtt_provenance=Path(args.mqtt_provenance) if args.mqtt_provenance else None,
     )
 
 
@@ -1858,18 +1915,30 @@ def main(argv: list[str]) -> int:
     stage = sub.add_parser("stage")
     for name in (
         "destination", "build-dir", "source-root", "rkllm-library", "sherpa-library", "onnx-library",
-        "runtime-model", "admin-model", "stt-dir", "vad-model", "wake-site-packages",
+        "wake-site-packages",
     ):
         stage.add_argument("--" + name, required=True)
+    for name in ("runtime-model", "admin-model", "stt-dir", "vad-model"):
+        stage.add_argument("--" + name, default="")
     stage.add_argument("--release-id", default="")
     stage.add_argument("--commit", default="")
     stage.add_argument("--runtime-prefix", default="")
     stage.add_argument("--production", action="store_true")
     stage.add_argument("--reuse-installed-models", action="store_true")
     stage.add_argument("--wake-reference-release", default="")
+    stage.add_argument("--offline-candidate", action="store_true")
+    for name in ("mqtt-root", "tls-root", "mqtt-provenance"):
+        stage.add_argument("--" + name, default="")
     verify = sub.add_parser("verify")
     verify.add_argument("--destination", required=True)
     verify.add_argument("--release-id", required=True)
+    candidate = sub.add_parser("verify-candidate")
+    candidate.add_argument("--destination", required=True)
+    candidate.add_argument("--release-id", required=True)
+    final = sub.add_parser("finalize-candidate")
+    final.add_argument("--source", required=True)
+    final.add_argument("--destination", required=True)
+    final.add_argument("--release-id", required=True)
     activate_parser = sub.add_parser("activate")
     activate_parser.add_argument("--destination", required=True)
     activate_parser.add_argument("--release-id", required=True)
@@ -1904,6 +1973,13 @@ def main(argv: list[str]) -> int:
         elif args.command == "verify":
             verify_tree(Path(args.destination), args.release_id, check_python=True)
             print("verified")
+        elif args.command == "verify-candidate":
+            verify_tree(Path(args.destination), args.release_id, candidate_only=True)
+            print("candidate verified; OWNER_ACTIVATION_REQUIRED")
+        elif args.command == "finalize-candidate":
+            from .mqtt_release import finalize_candidate
+            finalize_candidate(Path(args.source), Path(args.destination), args.release_id)
+            print("private production stage prepared; NOT installed or activated")
         elif args.command == "activate":
             print(activate(Path(args.destination), args.release_id, Path(args.store),
                            fresh=args.fresh, config_tool=Path(args.config_tool) if args.config_tool else None), end="")

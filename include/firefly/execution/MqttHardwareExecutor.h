@@ -1,0 +1,86 @@
+#pragma once
+#include "firefly/execution/HardwareExecutor.h"
+#include <atomic>
+#include <cstdint>
+#include <functional>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <string_view>
+
+namespace firefly::execution {
+class DeviceStateStore;
+namespace detail { class MqttSharedOrder; }
+
+// Per-target command/observation barrier. It does not depend on wall-clock
+// resolution or on commands issued to unrelated targets. A state arriving
+// after publish is submitted but before PUBACK is buffered until prediction.
+class MqttObservationGate final {
+public:
+    MqttObservationGate();
+    ~MqttObservationGate();
+    // Private worker IPC inherits only this ordering descriptor, never state.
+    int publicationOrderDescriptor() const;
+    std::uint64_t snapshot(const std::string& target) const;
+    void begin(const std::string& target,
+               const std::map<std::string, actions::Scalar>& expected);
+    int submitPublication(const std::string& target, const std::function<int()>& publish);
+    // Tentative IPC window; nothing can confirm until an actual submission
+    // ticket and a successful transport outcome are both recorded. No IPC wait
+    // is performed while the observation mutex is held.
+    std::uint64_t authorizePublication(const std::string& target);
+    void publicationSubmitted(const std::string& target, std::uint64_t ticket);
+    void disconnected(const std::string& target, DeviceStateStore& store) noexcept;
+    void end(const std::string& target, DeviceStateStore& store, bool accepted) noexcept;
+    // true: accepted or buffered; false: obsolete or pre-publish telemetry.
+    bool accept(const std::string& target, std::uint64_t snapshot,
+                const std::map<std::string, actions::Scalar>& properties,
+                DeviceStateStore& store);
+private:
+    struct Target {
+        std::uint64_t cutoffTicket = 0;
+        // Latest successfully validated observation for this target, even if it
+        // contradicted an in-flight command and did not become Confirmed.
+        std::uint64_t lastValidTicket = 0;
+        bool inFlight = false;
+        bool published = false;
+        bool pendingSubmission = false;
+        std::uint64_t bufferedTicket = 0;
+        bool disconnectedDuringCommand = false;
+        std::map<std::string, actions::Scalar> expected;
+        std::optional<std::map<std::string, actions::Scalar>> buffered;
+    };
+    mutable std::mutex mutex_;
+    // Monotonic arrival tickets are allocated without taking the gate mutex.
+    mutable std::atomic<std::uint64_t> nextTicket_{1};
+    std::unique_ptr<detail::MqttSharedOrder> sharedOrder_;
+    std::uint64_t nextTicket() const;
+    std::map<std::string, Target> targets_;
+};
+
+// Strict codec is available in host CPU tests without any network access.
+std::map<std::string, actions::Scalar> decodeMqttObservationPayload(
+    const config::ObservationBinding& binding, std::string_view payload);
+
+// A single RuntimeGeneration owns MQTT resources. No network I/O during
+// construction, draft validation or preflight; subscriptions start after Apply.
+class MqttHardwareExecutor final : public HardwareExecutor {
+public:
+    MqttHardwareExecutor(config::Catalog catalog, DeviceStateStore& state);
+    ~MqttHardwareExecutor() override;
+    HardwareResult execute(const config::Binding& binding,
+                           const actions::GenericAction& action) override;
+    HardwareObservation observe(const config::ObservationBinding& binding) override;
+    void startSubscriptions();
+    // Retire this generation's subscriptions even while requests still retain
+    // an immutable snapshot. Never tears down in-flight command publishers.
+    void stopSubscriptions() noexcept;
+    void beginCommand(const std::string& target,
+                      const std::map<std::string, actions::Scalar>& expected);
+    void endCommand(const std::string& target, bool accepted);
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
+}

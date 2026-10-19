@@ -1,0 +1,121 @@
+# M20 G2 / Issue #33 — ручное подключение MQTT через Web Admin
+
+**Статус:** инструкция к кандидату в ветке `feature/m20-mqtt-mvp`. Не подтверждает браузерную/аппаратную приёмку. **NOT_RUN на новом SHA:** реальный Chromium через C++ HttpServer, полный MQTT=ON/OFF CTest, frontend typecheck/test/build, broker/device end-to-end. Наличие новых unit-тестов и статического review не равно runtime PASS. Настоящие systemd, LAN provisioning и физическое реле остаются отдельными gates #35–#38. Ниже только **примеры**: ни один адрес, topic или пароль нельзя принимать как значение устройства по умолчанию.
+
+## Что именно делает мастер
+
+Мастер привязывает **готовое устройство** с его собственным MQTT-протоколом: выбирает **один существующий MQTT Connection** либо создаёт новый, редактирует фиксированные command topics + TEXT/JSON payload для отдельных действий и (по желанию) один отдельный state topic. Для JSON-state используются только поля верхнего уровня; параметризованные команды и собственный wire-протокол Firefly не поддерживаются.
+
+Мастер создаёт **локальный кандидат**. Сама кнопка **«В общий Review (без Apply)»** только проверяет и добавляет его в TaskBuffer и открывает общий Review. Она **не** отправляет команды реле и **не** выполняет Save/Apply. Один отдельный **«Подтвердить применение»** после общего Review выполняет CAS Save→Apply и последующую проверку активной версии. Если сеть оборвалась или ответ неизвестен, повторной автоматической публикации/Save/Apply нет: сначала прочитайте stored/active, а не повторяйте команду вслепую.
+
+**Статус** не равен физическому состоянию:
+- Configured: выбран broker/topic — это только локальная настройка.
+- Local broker installed/enabled/running: отдельный GET `/api/mqtt/local-broker`, без команд реле; при ошибке показывается `unknown`.
+- MQTT executor connected/published: транспортный результат, не подтверждённое состояние оборудования.
+- Confirmed: только свежее валидное сообщение на отдельный state topic от устройства после допуска runtime; retained и неподходящие JSON не дают Confirmed.
+
+Мастер никогда не запускает Mosquitto. Локальная служба включается отдельным подтверждением в разделе **«Подключения → Локальный брокер Mosquitto»**. Локальный статус `running` не доказывает правильность MQTT-пароля, подписки или доступность реле. Отдельная кнопка **«Проверить MQTT-подключение (без команд)»** создаёт **новое временное соединение** к указанному локальному либо внешнему broker, проверяет MQTT CONNECT/CONNACK и, если они указаны, учётные данные и TLS CA/hostname. Успех доказывает только то, что брокер принял CONNECT на текущих параметрах, но не проверяет topic, реальное реле, состояние устройства или будущую стабильность соединения. Проверка выполняется отдельно от Review/Apply и никогда не отправляет PUBLISH или SUBSCRIBE. Реальная проверка broker/auth/TLS на новом SHA требует независимого Codex E2E.
+
+## Пример 1. Внешний брокер и реле
+
+Это **пример**, не рабочий адрес:
+
+- Host: `mqtt.example.invalid` (заменить реальным DNS/IP оператора брокера).
+- Port: `8883` (только если внешний брокер действительно использует этот TLS-порт).
+- TLS: включить, проверить доверенную CA и точный hostname; никакого insecure-skip.
+- Credentials ID: например, `relay_user`; это идентификатор заранее созданного секрета в Web Admin, **не пароль**.
+- Действие «Включить»: topic `example/relay/1/set`, payload `ON`, QoS1, **Retain OFF**.
+- Действие «Выключить»: тот же topic, payload `OFF`, QoS1, **Retain OFF**.
+- State topic: `example/relay/1/state`, формат TEXT, значение `ON` → свойство `power=true`, `OFF` → `power=false`.
+
+Все topic/payload/имена полей требуется взять из инструкции **своего** MQTT-устройства; Firefly не навязывает `ON/OFF` или `power`.
+
+Нажмите **«В общий Review (без Apply)»**, затем просмотрите diff и только после этого подтвердите применение. Реальное устройство тестируется **отдельной явно разрешённой командой** после успешного Apply и только при получении свежего state.
+
+## Пример 2. Локальный брокер Firefly
+
+- Сначала оператор образа подготавливает Mosquitto и два аккаунта `firefly_svc`/`firefly_iot`, как описано в #35. По умолчанию Mosquitto disabled/stopped.
+- В Web Admin в разделе «Подключения» включите broker отдельно, с явным подтверждением.
+- В мастере выберите **«Брокер Firefly»**. Это адрес `127.0.0.1:1883` с точки зрения самой Firefly, **не** IP для стороннего реле; реле использует настоящий LAN IPv4 Firefly и настроенный LAN listener.
+- Нажмите **«Проверить статус брокера (без команд устройству)»**. `running` показывает только состояние службы. Если статус недоступен или stopped, не интерпретируйте его как успешное MQTT-подключение.
+- Для client Firefly укажите credentials ID своего `firefly_svc`. Без подходящих credentials локальный брокер с обязательной авторизацией не подтвердит соединение.
+- Команды и состояния сопоставляются с фактическими topic стороннего устройства; далее общий Review → одно Apply.
+
+## Общий broker A/B и сочетание HTTP + MQTT
+
+- Выбор другого Connection в редакторе **не переносит** существующие команды на него: MQTT mapping A остаётся A, MQTT mapping B остаётся B. Для отдельного действия используется явная кнопка **«Перенести на выбранный брокер»**.
+- HTTP bindings того же устройства остаются неизменны при редактировании MQTT bindings, и наоборот.
+- Если у устройства уже есть HTTP GET observation, новая MQTT-подписка требует явного подтверждения замены. Простое редактирование MQTT Connection не удаляет HTTP GET.
+- При редактировании **общего** broker Connection мастер показывает, какие другие устройства его используют. Изменение адреса/порта/TLS/credentials такого Connection влияет на всех и должно быть проверено в общем Review.
+- Внутри **одной открытой задачи** переход «Устройство A → Устройство B → Устройство A» сохраняет введённые, но ещё не принятые MQTT topics, payload и JSON/TEXT observation fields **для каждого устройства**. Итоговый кандидат содержит все изменённые устройства, а не только последнее выбранное. Просмотр чужого устройства сам по себе не переписывает его существующие opaque/legacy значения.
+- Кнопка **«← Выбор протокола» → «MQTT →»** не является Cancel: редактор сохраняет выбранный Connection, текущий шаг и несохранённые поля. Статус локального брокера при возвращении читается заново; старый статус не означает «подключено».
+- Перед общим Review показываются названия всех устройств с черновиками. Если скрытый черновик неполон, мастер возвращает на нужное устройство и шаг без его очистки.
+- После явного Cancel/закрытия локального TaskBuffer никакие команды, сохранённые конфигурации и активные RuntimeGeneration не должны измениться.
+
+## Исправления по независимому ревью #33, comment 6238992410
+
+- **R1 / P2:** исправлен отсутствующий `consumers` import в обязательном frontend-тесте broker A/B. Нужен новый реальный `npm test`: корректность импорта по исходникам не равна зелёному набору.
+- **R2 / P2:** введены per-device MQTT drafts в `mqttDeviceDrafts.ts`, сохранение исходящего устройства при смене выбора и восстановление возвращённого; final projection включает **все** изменённые устройства, не трогая прочие транспортные связи. Добавлены unit-регрессии для command topics, JSON state и чистоты исходного snapshot.
+- **R3 / P2:** `ConnectionWizard.vue` кеширует `MqttWizard` через Vue `KeepAlive` при возврате к выбору HTTP/MQTT вместо уничтожения компонента. Хранимые поля и выбранный брокер остаются в пределах текущей задачи, старый local-broker status при возвращении инвалидируется и перечитывается. При явном Cancel задача удаляется.
+- Неполные скрытые device drafts проверяются до stage и возвращают пользователя к соответствующему устройству/шагу.
+
+**Developer evidence:** отдельная модель `mqttDeviceDrafts.ts` скомпилирована в TypeScript strict, 300 независимых cycles draft save/restore/projection-immutable checks PASS. **NOT_RUN на новом HEAD:** полный Vue typecheck, frontend tests/build, C++ CTest OFF/ON, Chromium navigation/review с настоящим HttpServer и реальный broker E2E. Прежний 49/50 относится к старому SHA `0603aa8`.
+
+**External authenticated MQTT probe:** добавлен как **developer code candidate**, но пока **INDEPENDENT_NOT_VERIFIED на новом SHA**. `POST /api/connections/probe` теперь ветвится по type: HTTP сохраняет прежнюю TCP-only проверку; MQTT создаёт новый short-lived libmosquitto client с реальными credentials ID из приватного #34 хранилища, проверяемым TLS/hostname и MQTT CONNACK. Server response имеет `scope=mqtt_connack_only`, `saved=false`, `applied=false`, `published=false`, `subscribed=false`; при ошибках отсутствующей библиотеки, секрета, сети, неверной авторизации или TLS не сообщает успех. Vue-мастер отвергает TCP-only response и считает прежнюю проверку устаревшей после изменения host/port/TLS/credentials. Это не readback оборудования и не подтверждение команды; `READY_TO_CLOSE` возможен только после независимого browser+real broker auth/TLS pass и остальных согласованных gate.
+
+## Исправление #33-R4: брокер новой подписки не должен меняться сам
+
+Независимый Codex review на `4f9bad9` (Issue #33 comment `6239734914`) подтвердил новый P2: после создания MQTT state subscription на **Broker A** и последующего выбора **Broker B** для другого устройства, общий Review неявно перепривязывал state A к B. Код executor выполнял ровно полученную неправильную конфигурацию, поэтому нельзя считать это проблемой MQTT-транспорта.
+
+В новом кандидате:
+
+- При первом пользовательском выборе «Подписаться на topic» `MqttWizard.vue` **сразу закрепляет ID текущего MQTT Connection** за конкретным device draft. Последующее переключение устройства, выбранного брокера или возврат к HTTP/MQTT не меняет этот ID.
+- Единственный допустимый перенос существующей подписки — **явная кнопка** «Перенести подписку на выбранный брокер». Если текущий выбранный Connection отличается от закреплённого, мастер показывает, где останется подписка.
+- `observationFromMqttDraft` больше не получает выбранный в момент финального Review ID и не использует его как fallback. При отсутствующем pinned ID возвращает фиксированную ошибку `mqtt_observation_broker_not_selected`, а не silently migrate. Hidden drafts тоже требуют pinned ID перед Stage.
+- Новые автоматические тесты воспроизводят A→B→Review: command A остаётся на A, **новая state A остаётся на A**, state B — на B, а ранее использовавшийся HTTP GET у A заменяется только с явным подтверждением. Отдельно проверяется fail-closed при пустом ID и разрешённый явный перенос.
+- **NOT_RUN для этого нового SHA:** Vue typecheck/frontend tests/build, Chromium с настоящим HttpServer, MQTT=ON/OFF CTest, два живых broker с независимым state proof, external auth/TLS probe. Прошлый OFF 68/68, ON 70/70 и frontend 53/53 относятся только к старому проверенному SHA `4f9bad9`.
+
+Никакие устройства не публикуются и не активируются самим Review. Для нового независимого verdict требуется повторить негативное browser-воспроизведение с двумя настоящими Mosquitto и проверить, что на A после Apply подтверждение приходит **только** с A/state, а сообщения на B/state не подтверждают A.
+
+## External MQTT CONNECT probe — contract на новом кандидатном HEAD
+
+1. На шаге подключения выберите внешний broker, задайте реальный адрес и порт. При необходимости заранее создайте credential ID в отдельном защищённом разделе Web Admin. **В поле мастера никогда не вводится настоящий пароль**, и он не возвращается в API.
+2. Включите TLS только если брокер предоставляет действительный сертификат для указанного host. Probe использует системный CA trust store `/etc/ssl/certs` и **проверяет имя хоста**; отключение проверки TLS не допускается. Не добавляйте исключения для самоподписанного/неверного сертификата в production ради зелёного статуса.
+3. Нажмите **«Проверить MQTT-подключение (без команд)»**. Это один ограниченный по времени CONNECT/CONNACK (по умолчанию 2000 мс, границы 50–10000 мс). HTTP ConfigStore не сохраняется, runtime не обновляется, subscriptions и commands не публикуются.
+4. Подтверждение означает только «MQTT брокер принял CONNECT с этими параметрами». Параметры после проверки изменены → прежнее свидетельство помечается устаревшим; повторите проверку. Если ответ отсутствует, rejected CONNACK, password неверен или TLS проверка не прошла, интерфейс показывает ошибку, не состояние реле.
+5. Мастер отдельно показывает локальный **systemd service** status. Это независимое свидетельство: установлен/работает — ещё не значит, что MQTT CONNECT/auth/TLS успешен.
+6. Для настоящего IoT после отдельного Review→Apply нужны самостоятельные разрешённые operational ON/OFF и свежие state messages. MQTT CONNACK **не** переводит device state в Confirmed.
+
+**Verification:** developer stage `SOURCE_REVIEW_PASS_CANDIDATE / INDEPENDENT_NOT_VERIFIED` для external authenticated MQTT probe. Разработчик добавил source и тесты к контракту. Нужны новый MQTT OFF/ON CTest, frontend test/build, Chromium read-only probe + реальные тестовые brokers с правильным и неправильным username/password, trusted/untrusted CA и hostname mismatch. До этого `NOT_RUN/INDEPENDENT_NOT_VERIFIED`, не заявлять DONE.
+
+## Исправление PROBE-R1: DNS входит в общий timeout
+
+Независимый Codex review #33 (Issue comment `6246343118`) нашёл один P2: настоящий медленный libc DNS (1250 мс) позволял запросу `timeout_ms=100` возвращать **Success через ~1254 мс**. Причина — `mosquitto_connect_async` блокирует на DNS **до** вычисления прежнего `deadline`.
+
+Следующая реализация устраняет этот обход не переносом таймера, а отдельным процессом:
+
+- Web Admin `MqttConnectionProbe::testConnection` устанавливает один общий monotonic deadline **до** чтения секретов, запуска helper, DNS, CONNECT/CONNACK, передачи ответа и завершения helper. Один сетевой probe выполняется одновременно с другими только последовательно: `mqtt_probe_busy` для второго запроса.
+- Отдельный **непривилегированный** executable `firefly-mqtt-probe-worker` (тот же UID, никакого root) получает hostname/port/TLS и временные credentials через bounded **анонимный AF_UNIX socket**, только из родительского Admin. Username/password не передаются ни в argv, ни в environment, ни в лог, ни в ConfigStore; worker запрещает core dumps. `posix_spawn` закрывает все прочие наследуемые FD и перенаправляет stdout/stderr в `/dev/null`. Путь executable фиксирован рядом с запущенным Admin/demo и проверяется на владельца/режим.
+- **Только внутри worker** настоящий libmosquitto выполняет синхронный DNS под `mosquitto_connect_async` и стандартный проверяемый TLS hostname/CA. При просрочке parent отправляет SIGKILL, дожидается завершения/reap и возвращает **`mqtt_probe_timeout`**, никогда поздний Success. Осиротевший resolver-thread не остаётся в Admin. В worker нет пути PUBLISH, SUBSCRIBE, Apply или команд оборудованию.
+- Worker изолирован от активной RuntimeGeneration и MQTT publisher/subscriber. Libmosquitto инициализируется однократно **на процесс** (по одному экземпляру независимо у runtime и worker; два процесса не разделяют global static библиотеку). Изменять hostname на заранее разрешённый IP запрещено, чтобы не терять проверку TLS имени хоста.
+- CMake собирает worker рядом с `firefly-admin`, `firefly-demo` и CPU probe tests. **Полная доставка и root-owned permissions в aarch64 release являются явным #37 packaging gate**; этот разработческий candidate ничего не устанавливает в production.
+- Новый native тест: отложенный CONNACK при `timeout_ms=100` → 422 timeout в ограниченный wallclock и немедленно успешный следующий probe (слот/процесс освобождены), без PUBLISH/SUBSCRIBE. **Это проверка замедленного broker, не сама по себе доказательство real DNS**.
+
+**Независимый обязательный gate на новом HEAD:** повторить тот же реальный rootless network namespace с DNS delay 1250 мс, бюджетом 100 мс и настоящим Mosquitto; измерить полный HttpServer request wallclock, убийство/reap worker, отсутствие позднего Success и немедленный последующий CONNECT. Также проверить username/password auth, TLS trusted CA и hostname mismatch в этом новом процессном пути, MQTT=OFF/ON, clean frontend/CTest, невозможность запуска helper при повреждённом файле или несоответствии owner/mode, отсутствие наследуемых FD и отсутствие секретов в `ps`/логе. **NOT_RUN на новом HEAD**, `READY_TO_CLOSE` пока запрещён.
+
+## Приёмка, которую ещё предстоит выполнить на новом HEAD
+
+Для Issue #33 независимый Codex должен предъявить:
+
+1. Чистый frontend typecheck/tests/build и native CTest MQTT=OFF/ON.
+2. Chromium → **настоящий** C++ HttpServer и изолированный test ConfigStore: пустой каталог, broker A/B, mixed HTTP+MQTT, reopen/edit, Cancel, reload, Review, CAS conflict, successful Apply. Не считать unit tests заменой browser.
+3. Изолированный Mosquitto с действительными credentials/TLS и реальным тестовым relay: до Apply и после Cancel **0 hardware publishes**, после отдельной разрешённой команды — ровно правильный topic/payload и отдельное свежее state → Confirmed. Никакого replay.
+4. Local-broker status GET, stopped/unavailable/missing и переходы в мастере; никакого ложного «connected» при неизвестном или failed статусе.
+5. Проверки отсутствия автоматической замены HTTP GET, переносящей A→B без явного действия, и безопасности Retain/параметризованных команд.
+6. Все неисполненные зависимости отмечаются **NOT_RUN**, а не PASS. Без аппаратной приёмки не заявлять physical ready.
+
+Production, системный Mosquitto, models/NPU/voice, PR и merge не затрагиваются до отдельного owner gate.
+
+## Подготовка G3 после независимого PROBE-R2/R3
+
+Clean build под umask 0002 теперь устанавливает защищённый mode 0755 worker; проверка владельца и запрет group/world write не отключены. Ожидание parent исправлено на абсолютный monotonic deadline, чтобы настоящий DNS timeout возвращал `mqtt_probe_timeout`, а ошибки отсутствующего/повреждённого helper оставались `mqtt_probe_worker_unavailable`. Постоянные регрессии и воспроизводимая матрица #33/#36 описаны в [G3 isolated acceptance](m20-g3-isolated-acceptance.md). Фактические результаты относятся только к SHA в соответствующем evidence/REPORT.txt. Ранее приведённые NOT_RUN и отчёты сохранены как история своих кандидатов; отдельное независимое ревью G3 ещё требуется.

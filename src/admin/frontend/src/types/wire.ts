@@ -26,18 +26,29 @@ export interface ActionDto extends WireObject {
     readonly description?: string; readonly parameters: readonly FieldDto[];
 }
 export interface HttpDto extends WireObject { readonly method: string; readonly path?: string; readonly url?: string; readonly body?: Readonly<Record<string, Scalar>>; readonly argument?: string; readonly timeout_ms?: number; readonly expected_status?: number; readonly content_type?: string; readonly headers?: Readonly<Record<string, string>> }
+export interface MqttBindingDto extends WireObject {
+    readonly topic: string; readonly payload: string; readonly qos: number; readonly retain: boolean;
+}
+export interface MqttObservationDto extends WireObject {
+    readonly topic: string; readonly format: 'text' | 'json'; readonly qos: number;
+    readonly field?: string; readonly true_payload?: string; readonly false_payload?: string;
+}
 export interface BindingDto extends WireObject {
-    readonly target_id: string; readonly action_id: string; readonly connection_id?: string; readonly executor?: string; readonly http?: HttpDto;
+    readonly target_id: string; readonly action_id: string; readonly connection_id?: string;
+    readonly executor?: string; readonly http?: HttpDto; readonly mqtt?: MqttBindingDto;
 }
 export interface ConnectionDto extends WireObject {
-    readonly id: string; readonly name: string; readonly enabled: boolean; readonly type: string; readonly timeout_ms?: number; readonly http?: WireObject & { readonly base_url: string; readonly base_path?: string };
+    readonly id: string; readonly name: string; readonly enabled: boolean; readonly type: string;
+    readonly timeout_ms?: number; readonly http?: WireObject & { readonly base_url: string; readonly base_path?: string };
+    readonly network?: WireObject & { readonly host: string; readonly port: number };
+    readonly mqtt?: WireObject & { readonly tls: boolean; readonly credentials_id?: string };
 }
 export interface ConfigurationDto extends WireObject {
     readonly schema_version: number; readonly revision: number;
     readonly system: WireObject & { readonly id: string; readonly name: string };
     readonly rooms: readonly ZoneDto[]; readonly devices: readonly DeviceDto[]; readonly actions: readonly ActionDto[];
     readonly bindings: readonly BindingDto[]; readonly connections?: readonly ConnectionDto[];
-    readonly observations?: readonly (WireObject & { readonly target_id: string; readonly connection_id: string; readonly executor?: string; readonly http?: HttpDto; readonly fields?: Readonly<Record<string, string>> })[];
+    readonly observations?: readonly (WireObject & { readonly target_id: string; readonly connection_id: string; readonly executor?: string; readonly http?: HttpDto; readonly mqtt?: MqttObservationDto; readonly fields?: Readonly<Record<string, string>> })[];
     readonly retired_ids?: readonly string[];
 }
 export interface CatalogDto extends Identity { readonly configuration: ConfigurationDto; readonly generation_id?: number }
