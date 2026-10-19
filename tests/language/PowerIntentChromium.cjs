@@ -68,6 +68,10 @@ const body = () => js('document.body?.innerText ?? ""');
             await until(() => js(`[...document.querySelectorAll('main button')].some(b => b.textContent.trim() === 'Preview' && !b.disabled)`), 'Preview enabled');
             await js(`[...document.querySelectorAll('main button')].find(b => b.textContent.trim() === 'Preview').click()`);
             await until(() => js(`document.querySelector('[aria-label="Разбор команды"] strong')?.textContent === ${JSON.stringify(text)}`), 'original phrase visible');
+            // Result arrives before Playground's asynchronous configuration
+            // refresh finishes. Wait for the visible, fully named result rather
+            // than mistaking the temporary stable-ID fallback for a failure.
+            if (action) await until(() => js(`document.querySelector('[aria-label="Разбор команды"]')?.innerText.includes(${JSON.stringify(action)})`), 'configured action name visible');
             const trace = await js('document.querySelector(\'[aria-label="Разбор команды"]\').innerText');
             assert.ok(trace.includes(route), trace);
             if (action) assert.ok(trace.includes(action), trace);
