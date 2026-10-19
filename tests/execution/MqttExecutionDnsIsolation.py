@@ -20,14 +20,8 @@ import urllib.error
 import urllib.request
 
 
-def children(pid):
-    found = set()
-    for task in Path('/proc', str(pid), 'task').iterdir():
-        try:
-            found.update(int(x) for x in (task / 'children').read_text().split())
-        except FileNotFoundError:
-            pass
-    return found
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from ProcChildren import children
 
 
 def resources(pid):
