@@ -5,6 +5,7 @@ import copy
 import hashlib
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -143,6 +144,118 @@ def voice_properties(argv):
                                    ('ExecStartEx', 'a(sasasttttuii)', [])]:
         service[name] = v(signature, [[argv[0], argv[:-1], flags, 0, 0, 0, 0, 0, 0, 0]])
     return {'Unit': unit, 'Service': service}
+
+
+class RestartGenerationGateTests(unittest.TestCase):
+    """Real CPU processes/files; only HTTP/systemd/NPU/library-map boundaries mocked."""
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.base = Path(self.temp.name)
+        self.processes = []
+        self.addCleanup(self.stop_processes)
+        self.prefix = self.base / 'prefix'
+        self.identities = {}
+        self.binaries = {}
+        for name in ['old', 'new']:
+            release = self.prefix / 'releases' / name
+            (release / 'bin').mkdir(parents=True)
+            binary = release / 'bin/firefly-demo'
+            shutil.copy2('/bin/sleep', binary)
+            self.binaries[name] = controller.sha(binary)
+            self.identities[name] = dict(head=name, dirty=False, source_sha256='source-' + name)
+        (self.prefix / 'current').symlink_to('releases/old')
+        self.root = self.base / 'bundle'; self.root.mkdir()
+        self.store = self.base / 'store'; self.store.mkdir()
+        (self.store / 'configuration.json').write_text('unchanged revision4/hash fixture')
+        backup = self.root / 'backup-store'; shutil.copytree(self.store, backup)
+        self.unit_file = self.base / 'unit'; self.unit_file.write_text('unchanged frozen unit')
+        self.ops = object.__new__(controller.Production)
+        self.ops.root, self.ops.prefix = self.root, self.prefix
+        self.ops.unit = 'firefly-voice-assistant.service'
+        self.ops.plan = dict(backup_store=str(backup), binary_sha256=self.binaries, identities=self.identities)
+        self.ops.voice_unit_gate = lambda: None
+        self.ops.current = lambda: Path(os.readlink(self.prefix / 'current')).name
+        self.spawn('old', 3)
+        self.ops.before = dict(status=copy.deepcopy(self.status),
+            argv=Path(f'/proc/{self.process.pid}/cmdline').read_bytes().decode().split('\0'),
+            unit_sha256=controller.sha(self.unit_file), store_manifest=controller.manifest(self.store))
+        self.ops.get = lambda route: copy.deepcopy(self.status) if route == '/api/status' else {'active': False}
+        self.ops.owners = lambda: [self.process.pid]
+        def command(argv, **kwargs):
+            if argv[:2] == ['systemctl', 'is-active']: return 'active'
+            if argv[:2] == ['systemctl', 'show']: return str(self.process.pid)
+            if argv == [str(self.prefix / 'releases' / self.ops.current() / 'bin/firefly-demo'), '--build-identity']:
+                return json.dumps(self.identities[self.ops.current()])
+            self.fail('Unexpected command: ' + repr(argv))
+        self.ops.run = command
+        real_path, read_text = Path, Path.read_text
+        def path(value):
+            return {'/var/lib/firefly/store': self.store,
+                    '/etc/systemd/system/firefly-voice-assistant.service': self.unit_file}.get(str(value), real_path(value))
+        def text(p, *args, **kwargs):
+            if str(p) == f'/proc/{self.process.pid}/maps':
+                return '\n'.join(str(self.prefix / 'releases' / self.ops.current() / 'lib' / name)
+                    for name in ['librkllmrt.so', 'libsherpa-onnx-c-api.so', 'libonnxruntime.so'])
+            return read_text(p, *args, **kwargs)
+        self.addCleanup(patch.stopall)
+        patch.object(controller, 'Path', side_effect=path).start()
+        patch.object(Path, 'read_text', text).start()
+
+    def stop_processes(self):
+        for p in self.processes:
+            if p.poll() is None: p.terminate()
+            p.wait(timeout=3)
+
+    def spawn(self, target, generation):
+        if hasattr(self, 'process') and self.process.poll() is None:
+            self.process.terminate(); self.process.wait(timeout=3)
+        current = self.prefix / 'current'
+        if current.exists(): current.unlink()
+        current.symlink_to('releases/' + target)
+        self.process = subprocess.Popen([str(current / 'bin/firefly-demo'), '60'])
+        self.processes.append(self.process)
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            if (Path(f'/proc/{self.process.pid}/exe').resolve() == self.prefix / 'releases' / target / 'bin/firefly-demo' and
+                    Path(f'/proc/{self.process.pid}/cmdline').read_bytes().decode().split('\0') ==
+                    [str(current / 'bin/firefly-demo'), '60', '']):
+                break
+            self.assertIsNone(self.process.poll(), 'private helper exited before exec observation')
+            time.sleep(.005)
+        else:
+            self.fail('private CPU process did not exec in time')
+        self.status = dict(ok=True, runtime_ready=True, stt_ready=True, microphone='connected',
+            voice='WAITING_WAKE', stopping=False, needs_apply=False, runtime_error='', config_recovered=False,
+            health=dict(overall='ready', subsystems={n: {'status': 'ready'} for n in
+                ['admin','configuration','runtime','llm','stt','wake']}), worker_pid=self.process.pid,
+            active=dict(generation_id=generation, revision=4, hash='same-config'),
+            stored=dict(revision=4, hash='same-config'), build=self.identities[target])
+
+    def test_preparation_preserves_same_process_generation(self):
+        self.ops.gates('old')
+        self.status['active']['generation_id'] = 1
+        with self.assertRaises(AssertionError): self.ops.gates('old')
+
+    def test_restart_new_and_rollback_old_reset_only_process_generation(self):
+        for target in ['new', 'old']:
+            with self.subTest(target=target):
+                (self.root / 'CUTOVER_STARTED').touch()
+                self.spawn(target, 1)
+                self.assertTrue(self.ops.gates(target)['store_bytes_owners_modes_unchanged'])
+
+    def test_reset_requires_cutover_new_process_and_unchanged_config(self):
+        self.spawn('new', 1)
+        with self.assertRaises(AssertionError): self.ops.gates('new')
+        (self.root / 'CUTOVER_STARTED').touch()
+        for where, field, value in [('active','generation_id',2), ('active','generation_id',True),
+                ('active','hash','changed'), ('active','revision',5), ('stored','hash','changed')]:
+            with self.subTest(where=where, field=field):
+                saved = self.status[where][field]; self.status[where][field] = value
+                with self.assertRaises(AssertionError): self.ops.gates('new')
+                self.status[where][field] = saved
+        self.status['worker_pid'] = self.ops.before['status']['worker_pid']
+        with self.assertRaises(AssertionError): self.ops.gates('new')
 
 
 class VoiceUnitGateTests(unittest.TestCase):

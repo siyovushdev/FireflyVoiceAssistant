@@ -489,7 +489,15 @@ class Production:
         assert not status['config_recovered'] and status['health']['overall'] == 'ready'
         for name in ('admin', 'configuration', 'runtime', 'llm', 'stt', 'wake'):
             assert status['health']['subsystems'][name]['status'] == 'ready', name
-        assert status['active'] == self.before['status']['active']
+        expected_active = dict(self.before['status']['active'])
+        # Generations are process-local; startup always publishes generation1.
+        # Keep exact live-generation admission until the supervised cutover,
+        # and never interpret a different config revision/hash as a restart.
+        if ((self.root / 'CUTOVER_STARTED').exists() and
+                status['worker_pid'] != self.before['status']['worker_pid']):
+            expected_active['generation_id'] = 1
+        assert type(status['active']['generation_id']) is int
+        assert status['active'] == expected_active
         assert status['stored'] == self.before['status']['stored']
         assert not self.get('/api/setup/status')['active']
         assert self.run(['systemctl', 'is-active', self.unit]) == 'active'
