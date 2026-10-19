@@ -91,7 +91,8 @@ Json commandJson(const std::string& input, const GenerationResult& result) {
         {"domain", command.domainRejected || command.decodeStatus == llm::DecodeStatus::OutsideDomain ? "REJECT" :
             std::holds_alternative<actions::GenericAction>(command.action) ? "PASS" : "NO_ACTION"},
         {"llm", {{"context_ms",command.llmTimings.contextMs},{"prefill_ms",command.llmTimings.prefillMs},
-            {"generation_ms",command.llmTimings.generationMs},{"output_tokens",command.llmTimings.outputTokens}}},
+            {"generation_ms",command.llmTimings.generationMs},{"output_tokens",command.llmTimings.outputTokens},
+            {"invoked",command.llmTimings.invoked},{"task",command.llmTimings.task}}},
         {"latency_ms", command.latencyMs}, {"revision", result.generation->domain.snapshot()->configuration().revision},
         {"hash", result.generation->domain.snapshot()->contentHash()}};
     if (command.path == CommandPath::LlmFallback && result.guardError.empty()) {

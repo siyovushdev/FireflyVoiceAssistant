@@ -10,6 +10,8 @@ enum class CommandPath { FastPath, LlmFallback, InputRejected, GroundingRejected
 struct CommandTimings {
     double contextMs = 0, prefillMs = 0, generationMs = 0;
     int outputTokens = 0;
+    bool invoked = false;
+    std::string task;
 };
 struct CommandResult {
     CommandPath path = CommandPath::InputRejected;

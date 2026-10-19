@@ -1,5 +1,6 @@
 #include "firefly/admin/AdminDraft.h"
 #include "firefly/config/LanguageProfile.h"
+#include "firefly/llm/PowerIntent.h"
 #include "Json.h"
 #include <algorithm>
 namespace firefly::admin {
@@ -29,7 +30,11 @@ std::string languageProfilePrompt(config::Catalog catalog, std::string_view enti
 Пример для названия «Офис»: {"aliases":["офис"],"mentions":["офис"],"locations":["в офисе"]}.
 Пример для названия «Кухня»: {"aliases":["кухня"],"mentions":["кухня"],"locations":["на кухне"]}.
 Сформируй профиль только для сущности из DATA.)"
-        : entity == "action" ? "Единственное поле aliases: 2..5 коротких повелительных форм данного действия."
+        : entity == "action" ? R"(Единственное поле aliases: 3..8 коротких равнозначных русских фраз данного действия.
+Предлагай не только формы одного глагола: добавь хотя бы один обычный или разговорный смысловой синоним с другим корнем, подходящий назначению и результату действия из DATA. Включи прямую и вежливую формы. Сохраняй точный смысл; включение и выключение — противоположные действия.
+Для выключения питания подходят «выключи», «выключите», «выключить», «отключи», «отключите», «отключить», «выруби», «вырубай». Для включения питания подходят «включи», «включите», «включить», «вруби», «врубай», «зажги», «зажгите». Выбери только список, соответствующий действию из DATA. Для других действий подбирай их собственные синонимы, не копируй эти примеры.
+Для управления питанием предложи 6..8 форм: обычные, вежливые и обязательно разговорные. При выключении включи «выруби» и «вырубай», при включении — «вруби» и «врубай»; одних форм «включи/выключи» недостаточно.
+Только фразы действия без названий устройств и мест. Не добавляй условия, расписания, отрицания, вопросы, новые возможности или противоположное действие. Не требуется заполнять лимит повторениями.)"
         : R"(Единственное поле aliases: 1..6 естественных речевых форм названия устройства из DATA.
 Обязательно включи название в именительном падеже и форму прямого дополнения в винительном падеже для команды «включи/выключи [устройство]». Если формы совпадают, запиши один вариант.
 Склоняй всё название, включая прилагательные; сохрани отличительные слова и номера. Не добавляй синонимы другого оборудования, состояние или действие к названию. Не создавай псевдослова, подчёркивания или идентификаторы.
@@ -43,12 +48,19 @@ std::string languageProfilePrompt(config::Catalog catalog, std::string_view enti
 }
 std::string decodeLanguageProfile(std::string_view raw, config::Catalog catalog, std::string_view entity, std::string_view id, bool initialLocation) {
     const auto existing = entityData(catalog, entity, id);
+    std::optional<bool> power;
+    const auto assignments = existing.value("assignments", Json::array());
+    if (entity == "action" && existing.at("parameters").empty() && assignments.size() == 1) {
+        const auto& assignment = assignments.front();
+        if (assignment.at("field") == "power" && assignment.contains("value") && assignment.at("value").is_boolean())
+            power = assignment.at("value").get<bool>();
+    }
     if (raw.size() > 4096) throw std::invalid_argument("Language proposal too large");
     auto root = parseMessage(raw);
     members(root, entity == "location" ? std::set<std::string>{"aliases", "mentions", "locations"} : std::set<std::string>{"aliases"});
     Json result;
     for (auto field = root.begin(); field != root.end(); ++field) {
-        const std::size_t limit = field.key() == "locations" ? 4 : entity == "action" ? 5 : 6;
+        const std::size_t limit = field.key() == "locations" ? 4 : entity == "action" ? 8 : 6;
         if (!field->is_array() || field->empty() || field->size() > limit) throw std::invalid_argument("Language array bounds");
         std::set<std::string> atoms;
         for (const auto& item : *field) {
@@ -56,6 +68,15 @@ std::string decodeLanguageProfile(std::string_view raw, config::Catalog catalog,
             if (entity == "device" && item.get_ref<const std::string&>().find('_') != std::string::npos)
                 throw std::invalid_argument("Device speech forms cannot contain identifier underscores");
             config::validateLanguageAtom(item.get<std::string>(), entity == "action");
+            if (power) {
+                if (!llm::powerRequestForm(item.get<std::string>()))
+                    throw std::invalid_argument("AI power alias must be a request, not a state description");
+                const auto polarity = llm::powerPolarity(item.get<std::string>());
+                if (polarity == llm::PowerPolarity::Contradictory ||
+                    (*power && polarity == llm::PowerPolarity::Off) ||
+                    (!*power && polarity == llm::PowerPolarity::On))
+                    throw std::invalid_argument("AI phrase contradicts the power action assignment");
+            }
             if (entity == "location" && field.key() == "locations") {
                 const auto phrase = config::normalizeLanguageAtom(item.get<std::string>());
                 if (phrase.rfind("в ", 0) != 0 && phrase.rfind("во ", 0) != 0 && phrase.rfind("на ", 0) != 0)

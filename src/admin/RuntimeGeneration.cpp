@@ -1,4 +1,6 @@
 #include "firefly/admin/RuntimeGeneration.h"
+#include "firefly/SafetyGate.h"
+#include "firefly/llm/PowerIntent.h"
 #include <atomic>
 #include <chrono>
 #include "firefly/admin/AdminDraft.h"
@@ -92,6 +94,9 @@ std::string RuntimeGeneration::defaultPrompt() const {
     return targetContexts.empty() ? prompt : R"(Ответ только {"unsupported":true}. Сервер ещё не установил однозначную цель из полного каталога. Не выбирай устройство сам.)";
 }
 std::string RuntimeGeneration::requestPrompt(std::string_view original) const {
+    if (const auto scope = llm::powerIntentScope(domain, original))
+        return llm::powerIntentRules() + (protocol == llm::CommandProtocol::StableCompact ?
+            std::string{} : "\nСхема сервера: " + scope->contract(domain));
     if (protocol != llm::CommandProtocol::Structured) {
         const auto selected = llm::selectAction(domain, original);
         if (llm::compactSupported(domain, selected))
@@ -409,18 +414,35 @@ GenerationResult RuntimeGenerations::Request::process(std::string_view input, ex
         std::string infer(std::string_view original) override {
             if (deterministicOnly_) throw config::ConfigError("deterministic_required", "/text", "Operational controls cannot use LLM fallback");
             const auto start = std::chrono::steady_clock::now();
+            powerIntent_ = llm::powerIntentScope(generation_.domain, original);
+            if (powerIntent_) {
+                timings.task = "power_intent";
+                const actions::GenericAction check(powerIntent_->explicitPower.value_or(false) ?
+                    powerIntent_->onActionId : powerIntent_->offActionId, powerIntent_->targetId, {});
+                if (std::holds_alternative<actions::Unsupported>(SafetyGate::applyPowerIntent(original, check, generation_.domain)))
+                    throw config::ConfigError("target_not_grounded", "/text", "Unresolved constraint in original power request");
+                model_.useContext(generation_.requestPrompt(original));
+                timings.contextMs = std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now() - start).count();
+                timings.invoked = true;
+                auto raw = generation_.protocol == llm::CommandProtocol::StableCompact ?
+                    model_.inferCommand(original, powerIntent_->contract(generation_.domain)) : model_.infer(original);
+                measure(); return raw;
+            }
+            timings.task = "arguments";
             if (generation_.protocol != llm::CommandProtocol::Structured)
                 selected_ = llm::selectAction(generation_.domain, original);
             if (generation_.protocol == llm::CommandProtocol::StableCompact && selected_ &&
                 llm::compactSupported(generation_.domain, *selected_)) {
                 model_.useContext(generation_.defaultPrompt());
                 timings.contextMs = std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now() - start).count();
+                timings.invoked = true;
                 auto raw = model_.inferCommand(original, llm::compactContract(generation_.domain, *selected_));
                 measure(); return raw;
             }
             model_.useContext(selected_ && llm::compactSupported(generation_.domain, *selected_)
                 ? llm::compactContext(generation_.domain, *selected_) : generation_.requestPrompt(original));
             timings.contextMs = std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now() - start).count();
+            timings.invoked = true;
             auto raw = model_.infer(original); measure(); return raw;
         }
         void measure() {
@@ -430,6 +452,7 @@ GenerationResult RuntimeGenerations::Request::process(std::string_view input, ex
             timings.outputTokens = value.value("output_tokens", 0);
         }
         llm::DecodedResult decode(std::string_view raw) const {
+            if (powerIntent_) return powerIntent_->decode(raw, generation_.domain);
             if (generation_.protocol == llm::CommandProtocol::Structured)
                 return llm::StructuredDecoder(generation_.domain).decode(raw);
             if (!selected_) return {actions::Unsupported{}, llm::DecodeStatus::InvalidShape, "No selected contract"};
@@ -440,6 +463,7 @@ GenerationResult RuntimeGenerations::Request::process(std::string_view input, ex
         const RuntimeGeneration& generation_;
         const bool deterministicOnly_;
         std::optional<llm::SelectedAction> selected_;
+        std::optional<llm::PowerIntentScope> powerIntent_;
     } bound(owner_.model_, *generation, guard != nullptr);
     CommandEngine engine(bound, generation->parser, generation->domain, [&](std::string_view raw) { return bound.decode(raw); }, generation->languageIndex.get());
     GenerationResult result{generation, engine.process(input), std::nullopt, {}};

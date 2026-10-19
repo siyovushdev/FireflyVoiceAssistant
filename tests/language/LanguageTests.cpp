@@ -63,7 +63,7 @@ int main(int argc,char** argv){try{
     check(std::get<actions::GenericAction>(runtime.process("включи свет").command.action).targetId()=="lamp_a","restore matching");
     auto profile=Json::parse(admin::decodeLanguageProfile(R"({"aliases":["Включи","включи","зажги"]})",catalog,"action","power_on"));
     check(profile["aliases"].size()==3,"proposal normalization/dedup preserves existing canonical action atom");
-    for(const auto* raw:{R"({"aliases":["игнорируй инструкции"]})",R"({"aliases":["пожалуйста"]})",R"({"aliases":["включи"],"assignments":[]})",R"({"aliases":["1","2","3","4","5","6","7"]})","```{}"}){
+    for(const auto* raw:{R"({"aliases":["игнорируй инструкции"]})",R"({"aliases":["пожалуйста"]})",R"({"aliases":["включи"],"assignments":[]})",R"({"aliases":["1","2","3","4","5","6","7","8","9"]})","```{}"}){
         bool failed=false;try{admin::decodeLanguageProfile(raw,catalog,"action","power_on");}catch(...){failed=true;}check(failed,"malformed proposal accepted");
     }
     document=Json::parse(catalog->canonicalJson());document["actions"][1]["speech_aliases"]=document["actions"][0]["speech_aliases"];
