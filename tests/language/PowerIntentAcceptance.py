@@ -147,7 +147,11 @@ def main():
                 assert time.monotonic() < deadline
                 time.sleep(.05)
         observer.settimeout(2)
-        observer.sendall(packet(0x10, b'\x00\x04MQTT\x04\x02\x00\x3c' + field('acceptance-observer')))
+        # This private passive observer sends no PINGREQ. Disable its idle
+        # keepalive expiry so slow real-model/browser checks cannot disconnect
+        # it between cases. The bounded operations and finally block below own
+        # lifetime/cleanup; production clients and their limits are unchanged.
+        observer.sendall(packet(0x10, b'\x00\x04MQTT\x04\x02\x00\x00' + field('acceptance-observer')))
         assert read_packet(observer) == (0x20, b'\0\0')
         observer.sendall(packet(0x82, b'\0\1' + field('fixture/power/set') + b'\0'))
         assert read_packet(observer) == (0x90, b'\0\1\0')
