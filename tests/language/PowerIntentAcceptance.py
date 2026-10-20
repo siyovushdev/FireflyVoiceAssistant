@@ -266,6 +266,18 @@ def main():
             ('можешь включить свет завтра', None, None),
             ('можешь пожалуйста свет', None, None),
             ('можешь ка включить свет', None, None)]
+        cases += [
+            ('да включи уже свет на кухне', 'ON', True),
+            ('да выключи уже свет на кухне', 'OFF', True),
+            ('пускай включится свет на кухне', 'ON', True)]
+        cases += [(text, None, False) for text in [
+            'да я включил свет на кухне', 'да, я выключил свет на кухне',
+            'я включил свет', 'я выключил свет', 'да включил свет',
+            'да включила свет', 'да включили свет', 'включили свет',
+            'да свет на кухне включен', 'да свет на кухне выключен',
+            'да он включил свет', 'да мы выключили свет',
+            'пусть я включил свет', 'пускай выключили свет',
+            'да включи я включил свет']]
         for text, expected, infer in cases:
             count = len(calls)
             reply = api('/api/test-command', {'text': text, 'execute': True, 'production': True})
@@ -288,6 +300,35 @@ def main():
                           'route': reply['language_route'], 'llm': reply['llm'],
                           'result': reply['result'], 'raw_rkllm': reply.get('raw_rkllm'),
                           'expected_inference': infer, 'rejection_stage': reply['rejection_stage']})
+        assert api('/api/config')['hash'] == before['hash']
+        # Separately test the actual model instruction, without the runtime's
+        # admission guard masking a bad classifier. This never executes a
+        # device request: it talks only to our private CPU model server.
+        example = next(call for call in calls if call.get('schema') and
+                       call['schema'].get('task') == 'power_intent')
+        direct = []
+        result['direct_model_checks'] = direct
+        for text, expected in [
+                ('да я включил свет на кухне', 'null'),
+                ('да, я выключил свет на кухне', 'null'),
+                ('я включил свет', 'null'), ('я выключил свет', 'null'),
+                ('включили свет', 'null'),
+                ('да включи уже свет на кухне', '[1]'),
+                ('да выключи уже свет на кухне', '[0]'),
+                ('да будет свет на кухне', '[1]')]:
+            code, response = http(model_url + '/v1/chat/completions', {'messages': [
+                {'role': 'system', 'content': example['system']},
+                {'role': 'user', 'content': json.dumps({'schema': example['schema'], 'text': text},
+                    ensure_ascii=False, separators=(',', ':'))}],
+                'max_tokens': example['budget'], 'temperature': 0, 'seed': 0,
+                'chat_template_kwargs': {'enable_thinking': False}})
+            assert code == 200, response
+            raw = response['choices'][0]['message']['content']
+            direct.append({'text': text, 'expected': expected, 'raw': raw, 'usage': response['usage']})
+            assert raw.strip() == expected, direct[-1]
+            assert response['usage']['completion_tokens'] > 0
+            assert response['usage']['prompt_tokens'] + example['budget'] <= 1024
+        assert not drain(), 'Direct model classification publishes commands'
         assert api('/api/config')['hash'] == before['hash']
         if args.chromium:
             subprocess.run(['node', str(args.root / 'tests/language/PowerIntentChromium.cjs'),
@@ -322,6 +363,7 @@ def main():
         assert not drain()
         result.update(status='PASS', real_mqtt_publish_count=sum(len(t['wire']) for t in tests),
             model_calls=len(calls), profile_aliases=aliases, on_profile_aliases=on_aliases, profile_proposal_does_not_save=True,
+            direct_model_call_count=len(direct), total_model_calls=len(calls) + len(direct),
             save_apply_publish_count=0, enriched_alias_uses_fast_path=True,
             target_RKLLM_and_hardware='NOT_RUN; CPU GGUF acceptance is not RKLLM/physical acceptance')
     except BaseException as error:

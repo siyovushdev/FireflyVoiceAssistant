@@ -38,6 +38,16 @@ and conditions remain refused. This deliberately does not cover every Russian
 sentence or word order, including `не мог бы …`. A refusal is preferable to
 guessing. Existing deterministic commands use their existing validation.
 
+An initial `да` is not itself evidence of a request. The uncovered intent must
+have a request verb (`да включи уже`) or a jussive verb (`да будет`, `пусть
+погаснет`, `пускай включится`), followed only by bounded request particles.
+Reports such as `да я включил свет`, `я выключил свет` and plural past forms
+such as `включили свет` are refused even if a model returns a valid positive
+choice. This checks request structure, rather than banning `да` or rewriting
+the transcript. The model instruction separately contrasts these reports with
+immediate requests. Direct model-only checks in the isolated harness verify
+that instruction as well as the runtime/gate and real MQTT publication path.
+
 Known action aliases do not exclude semantic fallback: `можешь включить свет`
 can need Qwen even when `включить` is already configured. The model must retain
 that explicit action/polarity. The same request analysis supplies the original

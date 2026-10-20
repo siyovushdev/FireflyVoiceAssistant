@@ -41,6 +41,33 @@ int main(int argc, char** argv) {
         if (argc != 2) return 2;
         auto doc = fixture(argv[1]);
         const auto catalog = admin_test::catalog(doc);
+        // A model returning a positive action cannot turn a statement about
+        // completed work into a request. Exercise both polarities and the gate
+        // directly, independently of the inference admission decision.
+        const std::vector<std::string> statements{
+            "да я включил свет на кухне", "да, я выключил свет на кухне",
+            "я включил свет", "я выключил свет", "да включил свет",
+            "да включила свет", "да включили свет", "включили свет",
+            "да свет на кухне включен", "да свет на кухне выключен",
+            "да он включил свет", "да мы выключили свет",
+            "пусть я включил свет", "пускай выключили свет",
+            "да включи я включил свет"};
+        for (const auto protocol : {llm::CommandProtocol::Structured, llm::CommandProtocol::ScopedCompact, llm::CommandProtocol::StableCompact}) {
+            Model adversarial; adversarial.protocol = protocol;
+            admin::RuntimeGenerations guarded(adversarial); guarded.apply(catalog);
+            for (const auto* raw : {"[1]", "[0]"}) {
+                adversarial.raw = raw;
+                for (const auto& text : statements) {
+                    check(std::holds_alternative<actions::Unsupported>(guarded.process(text).command.action),
+                        text + " statement unexpectedly executed with " + raw);
+                    for (const auto* action : {"action_on", "action_off"})
+                        check(std::holds_alternative<actions::Unsupported>(SafetyGate::applyPowerIntent(text,
+                            actions::GenericAction(action,"kitchen_light",{}), guarded.current()->domain)),
+                            text + " forged statement passed SafetyGate");
+                    check(guarded.history().empty(), "statement produced execution history");
+                }
+            }
+        }
         for (auto protocol : {llm::CommandProtocol::Structured, llm::CommandProtocol::ScopedCompact, llm::CommandProtocol::StableCompact}) {
             Model model; model.protocol = protocol;
             admin::RuntimeGenerations runtime(model); runtime.apply(catalog);
@@ -50,6 +77,10 @@ int main(int argc, char** argv) {
             for (const auto& example : std::vector<std::pair<std::string, bool>>{
                 {"Вырубай свет на кухне",false}, {"отключи свет на кухне",false},
                 {"Да будет свет на кухне",true}, {"на кухне вырубай свет",false},
+                {"да включи уже свет на кухне",true},
+                {"да выключи уже свет на кухне",false},
+                {"пусть погаснет свет на кухне",false},
+                {"пускай включится свет на кухне",true},
                 {"да будет свет на кухне пожалуйста",true},
                 {"Можешь включить свет, пожалуйста",true},
                 {"а можешь отключить свет на кухне",false},
@@ -159,7 +190,8 @@ int main(int argc, char** argv) {
             R"({"aliases":["выключи","выключите","выключить","отключи","отключите","отключить","выруби","вырубай"]})",
             catalog, "action", "action_off"));
         check(off["aliases"].size() == 8 && off["conflicts"].empty(), "eight semantic OFF synonyms admitted into draft");
-        for (const auto* alias : {"врубай", "включи", "включай", "зажги", "выключен", "горит"}) {
+        for (const auto* alias : {"врубай", "включи", "включай", "зажги", "выключен", "горит",
+                "да я выключил", "да выключили", "выключили", "пусть я выключил"}) {
             bool rejected = false;
             try { (void)admin::decodeLanguageProfile(Json{{"aliases",{alias}}}.dump(), catalog, "action", "action_off"); }
             catch (const std::invalid_argument&) { rejected = true; }
