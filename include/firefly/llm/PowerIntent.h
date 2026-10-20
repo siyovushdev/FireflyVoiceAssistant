@@ -1,6 +1,8 @@
 #pragma once
 #include "firefly/llm/StructuredOutput.h"
 #include <optional>
+#include <utility>
+#include <vector>
 
 namespace firefly::llm {
 enum class PowerPolarity { Unspecified, On, Off, Contradictory };
@@ -10,7 +12,9 @@ bool powerRequestForm(std::string_view phrase);
 // It never contains transport addresses, mutable catalog state or new actions.
 struct PowerIntentScope {
     std::string targetId, offActionId, onActionId;
-    std::size_t intentBegin = 0, intentEnd = 0;
+    // Original byte spans authorized by the shared request-form analysis:
+    // one bounded intent plus positional courtesy forms, never a rewritten input.
+    std::vector<std::pair<std::size_t, std::size_t>> requestSpans;
     std::optional<bool> explicitPower;
     std::string contract(const runtime::DomainView& domain) const;
     DecodedResult decode(std::string_view raw, const runtime::DomainView& domain) const;

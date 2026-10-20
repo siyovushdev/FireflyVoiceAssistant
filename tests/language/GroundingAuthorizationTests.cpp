@@ -2,6 +2,7 @@
 // scripted; Api, RuntimeWorker, generations, SafetyGate and HTTP executor are real.
 #include "../admin/Support.h"
 #include "firefly/SafetyGate.h"
+#include "firefly/llm/PowerIntent.h"
 #include <iostream>
 
 using namespace firefly;
@@ -13,12 +14,17 @@ bool mqttTransport = false; // Optional isolated transport fixture, never produc
 
 struct Model final : admin::ContextModel {
     llm::CommandProtocol protocol = llm::CommandProtocol::StableCompact;
-    std::string raw, prompt;
+    std::string raw, powerRaw, prompt;
     int calls = 0;
     llm::CommandProtocol commandProtocol() const override { return protocol; }
     void useContext(const std::string& value) override { prompt = value; }
     bool ready() const override { return true; }
-    std::string infer(std::string_view) override { ++calls; return raw; }
+    std::string infer(std::string_view) override {
+        ++calls;
+        // Honor the requested protocol at this inference seam. Still return
+        // an adversarial positive action for denied text, never a null stub.
+        return prompt.rfind(llm::powerIntentRules(), 0) == 0 ? powerRaw : raw;
+    }
 };
 
 struct Case {
@@ -78,6 +84,12 @@ Json run(const Json& document, const Case& test, const std::string& path, llm::C
     // Deliberately adversarial: a real registered ID / [] even for the unknown
     // location. Default unsupported output would mask the original defect.
     model.raw = protocol == llm::CommandProtocol::Structured ? typed(proposed).dump() : "[]";
+    model.powerRaw = test.action == On ? "[1]" : "[0]";
+    const auto grounded = domain.resolve(test.text, false);
+    if (grounded.devices.size() == 1 && grounded.devices.front() != test.target)
+        // Preserve an actual forged-target attack instead of converting that
+        // malicious answer into a valid scalar for the server-selected target.
+        model.powerRaw = typed(proposed).dump();
     Json response;
     bool accepted = false, executed = false;
     std::string route, source;
@@ -149,7 +161,7 @@ Json run(const Json& document, const Case& test, const std::string& path, llm::C
     bool routeCorrect = true;
     if (allowed && path != "gate-injected" && path != "engine-no-index") {
         const bool fallback = test.text.find("будь добр") != std::string::npos;
-        routeCorrect = route == (fallback ? "LLM_FALLBACK" : "INDEX_EXACT") && model.calls == (fallback ? 1 : 0);
+        routeCorrect = route == (fallback ? "LLM_POWER_INTENT" : "INDEX_EXACT") && model.calls == (fallback ? 1 : 0);
     }
     if ((test.variant == "alias-location" || test.variant == "action-location") &&
         path != "gate-injected" && path != "engine-no-index")

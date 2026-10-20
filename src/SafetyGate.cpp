@@ -252,8 +252,8 @@ actions::CandidateResult SafetyGate::applyPowerIntent(std::string_view original,
     if (scope->explicitPower && on != *scope->explicitPower) return actions::Unsupported{};
     const auto description = domain.describe(*action);
     const auto grounding = domain.resolve(original, false);
-    if (!description || !requestCovered(original, *description, grounding,
-            {{scope->intentBegin, scope->intentEnd}})) return actions::Unsupported{};
+    if (!description || !requestCovered(original, *description, grounding, scope->requestSpans))
+        return actions::Unsupported{};
     return domain.validate(candidate);
 }
 actions::CandidateResult SafetyGate::apply(std::string_view original, const actions::CandidateResult& candidate,

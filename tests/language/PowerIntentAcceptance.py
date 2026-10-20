@@ -232,7 +232,36 @@ def main():
             ('да будет свет на кухне 40', None, False), ('как вырубай свет на кухне', None, False),
             ('свет на кухне горит', None, False), ('свет на кухне выключен', None, False),
             ('приглуши свет на кухне', None, False), ('сделай свет на кухне ярче', None, False),
-            ('почини свет на кухне', None, True), ('поменяй свет на кухне', None, False)]
+            ('почини свет на кухне', None, True), ('поменяй свет на кухне', None, False),
+            ('отключи свет на кухне', 'OFF', True),
+            ('пожалуйста включи свет', 'ON', False),
+            ('выключи свет пожалуйста', 'OFF', False),
+            ('можешь включить свет пожалуйста', 'ON', True),
+            ('а можешь отключить свет на кухне', 'OFF', True),
+            ('а отключи ка свет на кухне', 'OFF', True),
+            ('а выключи ка свет на кухне', 'OFF', True),
+            ('а отключи-ка свет на кухне', 'OFF', True),
+            ('а включи-ка свет', 'ON', True),
+            ('можешь свет включить на кухне пожалуйста', 'ON', True),
+            ('свет на кухне можешь выключить пожалуйста', 'OFF', True),
+            ('пожалуйста можешь вырубить свет на кухне', 'OFF', True),
+            ('можете включить свет на кухне пожалуйста', 'ON', True),
+            ('будь добр вырубай свет на кухне', 'OFF', True),
+            ('можешь включить свет на кухне?', 'ON', True),
+            ('можешь не включать свет на кухне', None, None),
+            ('а не отключай ка свет на кухне', None, None),
+            ('можешь включить и выключить свет на кухне', None, None),
+            ('можешь включить свет в подвале', None, None),
+            ('можешь свет в подвале включить', None, None),
+            ('а можешь вырубить свет на кухне возле гаража', None, None),
+            ('можешь ли включать свет на кухне', None, None),
+            ('можешь включать свет на кухне?', None, None),
+            ('свет на кухне включён?', None, None),
+            ('скажи можешь включить свет на кухне', None, None),
+            ('если можешь включи свет на кухне', None, None),
+            ('можешь включить свет завтра', None, None),
+            ('можешь пожалуйста свет', None, None),
+            ('можешь ка включить свет', None, None)]
         for text, expected, infer in cases:
             count = len(calls)
             reply = api('/api/test-command', {'text': text, 'execute': True, 'production': True})
@@ -241,16 +270,20 @@ def main():
             summary = {k: reply.get(k) for k in ['result','route','language_route','llm','raw_rkllm','reason','rejection_stage','execution']}
             result['last_checked_case'] = {'text': text, 'wire': wire, **summary}
             assert wire == ([] if expected is None else [expected]), (text, wire, summary)
-            assert len(calls) - count == int(infer), (text, 'wrong inference routing', summary)
+            invoked = len(calls) - count
+            assert invoked in (0, 1), (text, 'unexpected inference retry', summary)
+            if infer is not None:
+                assert invoked == int(infer), (text, 'wrong inference routing', summary)
             if expected:
                 assert reply['execution']['success'] and reply['result']['targetId'] == 'kitchen_light'
                 assert reply['result']['actionId'] == ('action_on' if expected == 'ON' else 'action_off')
             else:
                 assert reply['result'] == {'unsupported': True} and reply['execution'] is None
-            assert reply['llm']['invoked'] == infer
+            assert reply['llm']['invoked'] == bool(invoked)
             tests.append({'text': text, 'expected': expected, 'wire': wire,
                           'route': reply['language_route'], 'llm': reply['llm'],
-                          'result': reply['result'], 'rejection_stage': reply['rejection_stage']})
+                          'result': reply['result'], 'raw_rkllm': reply.get('raw_rkllm'),
+                          'expected_inference': infer, 'rejection_stage': reply['rejection_stage']})
         assert api('/api/config')['hash'] == before['hash']
         if args.chromium:
             subprocess.run(['node', str(args.root / 'tests/language/PowerIntentChromium.cjs'),

@@ -16,7 +16,7 @@ public:
     bool setupBlocked() const { return generations_.setupBlocked(); }
     void setAudioDrain(std::function<void()> drain) { generations_.setAudioDrain(std::move(drain)); }
 private:
-    void remember(std::string diagnostic);
+    void remember(std::string diagnostic, const char* source);
     mutable std::mutex diagnostics_;
     const std::chrono::steady_clock::time_point started_ = std::chrono::steady_clock::now();
     std::string lastVoice_;

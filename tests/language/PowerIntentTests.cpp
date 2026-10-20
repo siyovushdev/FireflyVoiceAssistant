@@ -50,7 +50,20 @@ int main(int argc, char** argv) {
             for (const auto& example : std::vector<std::pair<std::string, bool>>{
                 {"Вырубай свет на кухне",false}, {"отключи свет на кухне",false},
                 {"Да будет свет на кухне",true}, {"на кухне вырубай свет",false},
-                {"да будет свет на кухне пожалуйста",true}}) {
+                {"да будет свет на кухне пожалуйста",true},
+                {"Можешь включить свет, пожалуйста",true},
+                {"а можешь отключить свет на кухне",false},
+                {"а отключи ка свет на кухне",false},
+                {"а отключи-ка свет на кухне",false},
+                {"а включи-ка свет",true},
+                {"можешь свет включить на кухне пожалуйста",true},
+                {"свет на кухне можешь выключить пожалуйста",false},
+                {"пожалуйста можешь вырубить свет на кухне",false},
+                {"можете включить свет на кухне пожалуйста",true},
+                {"а вырубай свет пожалуйста",false},
+                {"будь добр вырубай свет на кухне",false},
+                {"будьте добры да будет свет на кухне",true},
+                {"можешь включить свет на кухне?",true}}) {
                 const auto& [text,on] = example;
                 model.raw = on ? "[1]" : "[0]";
                 const int before = model.inferences;
@@ -69,6 +82,10 @@ int main(int argc, char** argv) {
             model.raw = "[1]";
             auto wrong = runtime.process("вырубай свет на кухне").command;
             check(std::holds_alternative<actions::Unsupported>(wrong.action), "opposite model answer fails closed");
+            model.raw = "[0]";
+            check(std::holds_alternative<actions::Unsupported>(runtime.process("можешь включить свет пожалуйста").command.action),
+                "polite wording never authorizes reversing a known ON verb");
+            model.raw = "[1]";
             const auto scope = llm::powerIntentScope(runtime.current()->domain, "да будет свет на кухне");
             check(scope.has_value(), "novel intent scope exists");
             for (const auto* raw : {"0", "1", "[]", "[2]", "[01]", "[1,0]", "[true]", "[1.0]", "[1] [0]", "[1] extra", "{\"targetId\":\"other\"}", "```[1]```", ""}) {
@@ -98,7 +115,17 @@ int main(int argc, char** argv) {
             "приглуши свет на кухне", "сделай свет на кухне ярче", "уменьши свет на кухне",
             "свет на кухне горит", "свет на кухне выключен", "свет на кухне работает", "свет на кухне будет гореть",
             "я люблю включать свет на кухне",
-            "наверное вырубай свет на кухне", "может вырубить свет на кухне"};
+            "наверное вырубай свет на кухне", "может вырубить свет на кухне",
+            "можешь не включать свет на кухне", "а не отключай ка свет на кухне",
+            "можешь включить и выключить свет на кухне", "а включи свет а потом выключи",
+            "можешь включить свет в подвале", "можешь свет в подвале включить",
+            "а можешь вырубить свет на кухне возле гаража", "а отключи ка свет на кухне 40",
+            "можешь ли включать свет на кухне", "можешь включать свет на кухне?",
+            "свет на кухне включён?", "скажи можешь включить свет на кухне",
+            "если можешь включи свет на кухне", "можешь включить свет завтра",
+            "можешь пожалуйста свет", "ка отключи свет на кухне", "можешь ка включить свет", "можешь свет ка включить",
+            "а свет на кухне горит", "можешь включить свет на кухне? отключи свет",
+            "а можешь да будет свет на кухне"};
         for (const auto& text : denied) {
             const auto r = runtime.process(text).command;
             check(std::holds_alternative<actions::Unsupported>(r.action), text + " unexpectedly accepted");
@@ -112,6 +139,17 @@ int main(int argc, char** argv) {
         check(!llm::powerIntentScope(runtime::DomainView(admin_test::catalog(multiple)), "да будет свет на кухне"), "multiple same-state actions not guessed");
         auto two = doc; auto second = two["devices"][0]; second["id"] = "other_light"; two["devices"].push_back(second);
         check(!llm::powerIntentScope(runtime::DomainView(admin_test::catalog(two)), "да будет свет на кухне"), "ambiguous devices rejected");
+        check(!llm::powerIntentScope(runtime::DomainView(admin_test::catalog(two)), "можешь включить свет пожалуйста"), "polite ambiguous target rejected");
+        auto known = doc;
+        known["actions"][1]["speech_aliases"].push_back("отключи");
+        Model knownModel; knownModel.raw = "[0]";
+        admin::RuntimeGenerations knownRuntime(knownModel); knownRuntime.apply(admin_test::catalog(known));
+        const auto knownFast = knownRuntime.process("отключи свет на кухне").command;
+        check(knownFast.path == CommandPath::FastPath && knownModel.inferences == 0, "known configured OFF alias remains fast");
+        const auto knownPolite = knownRuntime.process("а отключи ка свет на кухне").command;
+        check(knownPolite.llmTimings.task == "power_intent" &&
+            knownPolite.action == actions::CandidateResult(actions::GenericAction("action_off", "kitchen_light", {})),
+            "known action with uncovered courtesy takes the semantic path");
         // Real RuntimeWorker command serialization and deterministic-only operational guard.
         admin::RuntimeWorker worker(model);
         check(Json::parse(worker.handle(Json{{"method","apply"},{"configuration",doc}}.dump()))["ok"], "worker apply");
