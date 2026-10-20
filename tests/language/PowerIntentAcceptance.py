@@ -276,8 +276,10 @@ def main():
             'да включила свет', 'да включили свет', 'включили свет',
             'да свет на кухне включен', 'да свет на кухне выключен',
             'да он включил свет', 'да мы выключили свет',
-            'пусть я включил свет', 'пускай выключили свет',
-            'да включи я включил свет']]
+            'пусть я включил свет', 'пускай выключили свет']]
+        # This mixed clause contains a configured imperative. The existing
+        # argument-extraction route can run, but it must still fail SafetyGate.
+        cases += [('да включи я включил свет', None, None)]
         for text, expected, infer in cases:
             count = len(calls)
             reply = api('/api/test-command', {'text': text, 'execute': True, 'production': True})
@@ -295,6 +297,8 @@ def main():
                 assert reply['result']['actionId'] == ('action_on' if expected == 'ON' else 'action_off')
             else:
                 assert reply['result'] == {'unsupported': True} and reply['execution'] is None
+                if text == 'да включи я включил свет' and invoked:
+                    assert reply['llm']['task'] == 'arguments' and reply['safety'] == 'REJECT', summary
             assert reply['llm']['invoked'] == bool(invoked)
             tests.append({'text': text, 'expected': expected, 'wire': wire,
                           'route': reply['language_route'], 'llm': reply['llm'],
