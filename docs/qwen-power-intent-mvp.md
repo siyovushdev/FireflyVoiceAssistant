@@ -43,7 +43,13 @@ have a request verb (`да включи уже`) or a jussive verb (`да буд
 погаснет`, `пускай включится`), followed only by bounded request particles.
 Reports such as `да я включил свет`, `я выключил свет` and plural past forms
 such as `включили свет` are refused even if a model returns a valid positive
-choice. This checks request structure, rather than banning `да` or rewriting
+choice. A finite verb after affirmative `да` is not sufficient either:
+`Да, горит свет на кухне`, `да светит свет` and `да работает свет` are state
+reports, including without a comma. This conservative MVP admits a finite
+verb after `да` only in the explicit `да будет/будут` construction;
+imperatives such as `да включи уже` and requests introduced by `пусть/пускай`
+remain supported. Other ambiguous finite-verb constructions after `да` are
+refused. This checks request structure, rather than banning `да` or rewriting
 the transcript. The model instruction separately contrasts these reports with
 immediate requests. Direct model-only checks in the isolated harness verify
 that instruction as well as the runtime/gate and real MQTT publication path.

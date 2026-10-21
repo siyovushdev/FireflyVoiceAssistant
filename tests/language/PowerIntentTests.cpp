@@ -42,9 +42,11 @@ int main(int argc, char** argv) {
         auto doc = fixture(argv[1]);
         const auto catalog = admin_test::catalog(doc);
         // A model returning a positive action cannot turn a statement about
-        // completed work into a request. Exercise both polarities and the gate
-        // directly, independently of the inference admission decision.
+        // current state or completed work into a request. Exercise both
+        // polarities and the gate independently of inference admission.
         const std::vector<std::string> statements{
+            "Да, горит свет на кухне", "да горит свет на кухне",
+            "да светит свет на кухне", "да работает свет на кухне",
             "да я включил свет на кухне", "да, я выключил свет на кухне",
             "я включил свет", "я выключил свет", "да включил свет",
             "да включила свет", "да включили свет", "включили свет",
@@ -58,8 +60,10 @@ int main(int argc, char** argv) {
             for (const auto* raw : {"[1]", "[0]"}) {
                 adversarial.raw = raw;
                 for (const auto& text : statements) {
-                    check(std::holds_alternative<actions::Unsupported>(guarded.process(text).command.action),
+                    const auto result = guarded.process(text, execution::ExecutionIntent::Playground);
+                    check(std::holds_alternative<actions::Unsupported>(result.command.action),
                         text + " statement unexpectedly executed with " + raw);
+                    check(!result.execution, text + " statement reached the executor");
                     for (const auto* action : {"action_on", "action_off"})
                         check(std::holds_alternative<actions::Unsupported>(SafetyGate::applyPowerIntent(text,
                             actions::GenericAction(action,"kitchen_light",{}), guarded.current()->domain)),
@@ -67,6 +71,13 @@ int main(int argc, char** argv) {
                     check(guarded.history().empty(), "statement produced execution history");
                 }
             }
+            // The isolated execution path must be live, not disabled to make
+            // the negative checks pass. Playground never contacts hardware.
+            adversarial.raw = "[1]";
+            const auto control = guarded.process("да будет свет на кухне", execution::ExecutionIntent::Playground);
+            check(control.command.action == actions::CandidateResult(actions::GenericAction("action_on", "kitchen_light", {})) &&
+                control.execution && control.execution->success && guarded.history().size() == 1,
+                "jussive positive execution control");
         }
         for (auto protocol : {llm::CommandProtocol::Structured, llm::CommandProtocol::ScopedCompact, llm::CommandProtocol::StableCompact}) {
             Model model; model.protocol = protocol;
@@ -78,8 +89,10 @@ int main(int argc, char** argv) {
                 {"Вырубай свет на кухне",false}, {"отключи свет на кухне",false},
                 {"Да будет свет на кухне",true}, {"на кухне вырубай свет",false},
                 {"да включи уже свет на кухне",true},
+                {"Да, включи уже свет на кухне",true},
                 {"да выключи уже свет на кухне",false},
                 {"пусть погаснет свет на кухне",false},
+                {"пусть горит свет на кухне",true},
                 {"пускай включится свет на кухне",true},
                 {"да будет свет на кухне пожалуйста",true},
                 {"Можешь включить свет, пожалуйста",true},

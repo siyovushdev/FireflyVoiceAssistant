@@ -46,7 +46,10 @@ bool powerRequestForm(std::string_view phrase) {
     if (!optative || affirmative)
         for (const auto* suffix : {"и","ите","ай","айте","уй","уйте","ь","ьте","ть","чь"})
             request = request || ends(word, suffix);
-    if (optative) {
+    // A bare finite verb after affirmative да can report a current state:
+    // да, горит / светит / работает. Only the explicit да будет/будут
+    // construction admits that shape; пусть/пускай remain request markers.
+    if (optative && (!affirmative || word == "будет" || word == "будут")) {
         // Jussive verb forms: да будет, пусть погаснет, пускай включится.
         // A leading particle alone is never evidence of a request.
         auto finite = word;
