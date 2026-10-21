@@ -23,6 +23,9 @@ import time
 import urllib.error
 import urllib.request
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from ProcChildren import children
+
 
 class Dns:
     def __init__(self):
@@ -127,13 +130,7 @@ class Server:
                 "state": self.request("GET", "/api/devices/state")}
 
     def children(self):
-        children = set()
-        for task in Path("/proc", str(self.process.pid), "task").iterdir():
-            try:
-                children.update(int(child) for child in (task / "children").read_text().split())
-            except FileNotFoundError:
-                pass  # A completed HttpServer connection thread.
-        return children
+        return children(self.process.pid)
 
     def resources(self):
         base = Path("/proc", str(self.process.pid))

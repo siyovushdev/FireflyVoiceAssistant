@@ -65,6 +65,14 @@ Type, restart policy, exit-78 behavior, deadlines, protection and code/plan pins
 remain mandatory. The unchanged resource barrier requires confirmed empty
 service cgroup and NPU/microphone ownership before switching.
 
+Runtime generation IDs are local to one process. Before cutover, the complete
+active identity must equal the captured baseline. After the supervised cutover
+and a different worker PID, startup generation1 is required for either the new
+release or recovery of the old release. Revision/hash, stored configuration,
+bytes/owners/modes, binary/argv/library/unit and sole-owner checks stay exact;
+a changed generation in the original process or an unplanned pre-cutover reset
+does not qualify as a restart.
+
 The reviewed launcher submits asynchronously and observes completion within
 the original deadline. Its 15-second limit applies to submission only. Do not
 add an outer 15-second timeout, temporary shell/Python launcher, live assertion

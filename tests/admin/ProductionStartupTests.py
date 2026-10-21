@@ -16,6 +16,7 @@ import urllib.request
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from ProductionStartupContractTests import arguments, unit_at
+from ProcChildren import children
 
 app, root = Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve()
 base = arguments(shlex.split(unit_at(root)['Service']['ExecStart'])[1:])
@@ -81,8 +82,7 @@ with tempfile.TemporaryDirectory(prefix='firefly-production-startup-') as direct
                 assert response.status == 200 and b'<html' in response.read()
             assert get('/api/executions')['executions'] == []
             # No child was spawned on this absent-VAD branch (Amina lifecycle is a separate test).
-            for children in Path(f'/proc/{process.pid}/task').glob('*/children'):
-                assert children.read_text().strip() == ''
+            assert not children(process.pid)
             catalog = get('/api/config')
             process.send_signal(signal.SIGTERM)
             assert process.wait(timeout=10) == 0, log.read_text()

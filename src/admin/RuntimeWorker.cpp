@@ -91,7 +91,8 @@ Json commandJson(const std::string& input, const GenerationResult& result) {
         {"domain", command.domainRejected || command.decodeStatus == llm::DecodeStatus::OutsideDomain ? "REJECT" :
             std::holds_alternative<actions::GenericAction>(command.action) ? "PASS" : "NO_ACTION"},
         {"llm", {{"context_ms",command.llmTimings.contextMs},{"prefill_ms",command.llmTimings.prefillMs},
-            {"generation_ms",command.llmTimings.generationMs},{"output_tokens",command.llmTimings.outputTokens}}},
+            {"generation_ms",command.llmTimings.generationMs},{"output_tokens",command.llmTimings.outputTokens},
+            {"invoked",command.llmTimings.invoked},{"task",command.llmTimings.task}}},
         {"latency_ms", command.latencyMs}, {"revision", result.generation->domain.snapshot()->configuration().revision},
         {"hash", result.generation->domain.snapshot()->contentHash()}};
     if (command.path == CommandPath::LlmFallback && result.guardError.empty()) {
@@ -461,7 +462,7 @@ power_device означает ровно включение и выключен�
             const auto admitted = generations_.beginRequest();
             const auto result = admitted->process(input, execution::ExecutionIntent::Production, "admin-device", &guard);
             reply = commandJson(input, result);
-            remember(reply.dump());
+            remember(reply.dump(), "admin-device");
         } else if (method == "test") {
             if (request.contains("production")) members(request, {"method", "text", "execute", "production"});
             else if (request.contains("execute")) members(request, {"method", "text", "execute"});
@@ -479,7 +480,8 @@ power_device означает ровно включение и выключен�
                     : execution::ExecutionIntent::Playground;
             const auto result = admitted->process(input, intent, request.value("production", false) ? "admin-production" : "admin-test");
             reply = commandJson(input, result);
-            remember(reply.dump());
+            remember(reply.dump(), request.value("execute", false) ?
+                (request.value("production", false) ? "admin-production" : "playground") : "preview");
         } else if (method == "poll_state") {
             members(request, {"method", "target_id", "expected_hash"});
             const auto result = generations_.poll(request.at("target_id"), request.at("expected_hash"));
@@ -528,11 +530,26 @@ power_device означает ровно включение и выключен�
     return reply.dump(-1, ' ', false, Json::error_handler_t::replace);
 }
 
-void RuntimeWorker::remember(std::string diagnostic) {
+void RuntimeWorker::remember(std::string diagnostic, const char* source) {
     auto bounded = Json::parse(diagnostic);
     if (bounded.contains("input") && bounded["input"].is_string() && bounded["input"].get_ref<const std::string&>().size() > 192)
         bounded["input"] = "[oversized rejected input omitted]";
-    std::lock_guard<std::mutex> lock(diagnostics_); lastCommand_ = bounded.dump();
+    { std::lock_guard<std::mutex> lock(diagnostics_); lastCommand_ = bounded.dump(); }
+    // Terminal logcat-style decision summary; no prompt, raw model output,
+    // transport addresses, payloads or credential data are added to the journal.
+    const auto execution = bounded.find("execution");
+    const bool attempted = execution != bounded.end() && execution->is_object();
+    Json trace{{"source",source},{"input",bounded.value("input",std::string{})},
+        {"route",bounded.value("language_route",std::string{})},
+        {"llm",bounded.value("llm",Json::object())},
+        {"safety",bounded.value("safety",std::string{})},
+        {"domain",bounded.value("domain",std::string{})},
+        {"rejection_stage",bounded.value("rejection_stage",std::string{})},
+        {"execution",attempted ? (execution->value("success",false) ? "accepted" : "failed") : "not_executed"}};
+    if (bounded.contains("result") && bounded["result"].is_object())
+        for (const auto* key : {"targetId","actionId"})
+            if (bounded["result"].contains(key)) trace[key] = bounded["result"][key];
+    std::cerr << ("COMMAND_TRACE " + trace.dump(-1,' ',false,Json::error_handler_t::replace) + "\n");
 }
 void RuntimeWorker::voiceStatus(std::string state, std::string microphone) {
     std::lock_guard<std::mutex> lock(diagnostics_);
@@ -549,7 +566,7 @@ voice::VoiceResult RuntimeWorker::processVoice(voice::SpeechRecognizer& recogniz
         voice::VoiceProcessor processor(recognizer, [&](std::string_view text) {
             const auto result = request->process(text, execution::ExecutionIntent::Production, "voice");
             voiceCommand = commandJson(std::string(text), result).dump();
-            remember(voiceCommand);
+            remember(voiceCommand, "voice");
             return result.command;
         });
         auto result = processor.process(utterance);
@@ -560,7 +577,7 @@ voice::VoiceResult RuntimeWorker::processVoice(voice::SpeechRecognizer& recogniz
               {"wake_prefix_removed",result.wakePrefixRemoved},{"command_text",result.commandText},
               {"error",result.error},{"command",voiceCommand.empty()?Json(nullptr):Json::parse(voiceCommand)}}.dump(); }
         if (!result.error.empty()) remember(Json{{"input",result.recognition.text},{"error",result.error},{"result",{{"unsupported",true}}},
-            {"generation_id",request->generation()->id},{"execution",nullptr}}.dump());
+            {"generation_id",request->generation()->id},{"execution",nullptr}}.dump(), "voice");
         return result;
     } catch (const std::exception&) {
         voice::VoiceResult result; result.error = "Voice runtime unavailable or stopping"; result.processingMs = elapsedMs(); return result;

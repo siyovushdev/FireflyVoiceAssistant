@@ -13,6 +13,8 @@ struct DecodedResult {
     actions::CandidateResult value;
     DecodeStatus status = DecodeStatus::InvalidJson;
     std::string reason;
+    // Set by the native scoped decoder, never accepted from model JSON.
+    bool scopedPowerIntent = false;
     bool valid() const { return status == DecodeStatus::Action || status == DecodeStatus::Unsupported; }
 };
 // The read-only DomainView must outlive this decoder (owned by RuntimeConfig).

@@ -34,6 +34,7 @@ CommandResult CommandEngine::process(std::string_view original) {
             if (std::holds_alternative<actions::Unsupported>(candidate)) candidate = domain_.parseDeclared(original);
             result.path = std::holds_alternative<actions::GenericAction>(candidate) ? CommandPath::FastPath : CommandPath::LlmFallback;
             result.languageRoute = hit ? result.indexStatus : result.path==CommandPath::FastPath ? "LEGACY_FAST_PATH" : "LLM_FALLBACK";
+            bool scopedPowerIntent = false;
             if (result.path == CommandPath::LlmFallback) {
                 // Preserve raw model bytes; the selected strict decoder handles framing.
                 // No transcript repair or output rewriting.
@@ -43,9 +44,12 @@ CommandResult CommandEngine::process(std::string_view original) {
                 result.decodeStatus = decoded.status;
                 result.reason = decoded.reason;
                 result.invalidModelOutput = !decoded.valid();
+                scopedPowerIntent = decoded.scopedPowerIntent;
+                if (scopedPowerIntent) result.languageRoute = "LLM_POWER_INTENT";
             }
             result.candidate = candidate;
-            const auto safe = SafetyGate::apply(original, candidate, domain_);
+            const auto safe = scopedPowerIntent ? SafetyGate::applyPowerIntent(original, candidate, domain_)
+                                                : SafetyGate::apply(original, candidate, domain_);
             result.safeCandidate = safe;
             result.safetyRejected = std::holds_alternative<actions::GenericAction>(candidate) &&
                                     std::holds_alternative<actions::Unsupported>(safe);

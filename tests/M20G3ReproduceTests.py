@@ -8,8 +8,44 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
+
+from ProcChildren import children
 
 RUNNER = Path(__file__).resolve().parents[1] / 'scripts/m20-g3-reproduce.py'
+
+
+class ProcessObservation(unittest.TestCase):
+    def test_actual_child_and_reap_with_optional_proc_file_missing(self):
+        process = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])
+        read = Path.read_text
+
+        def without_children(path, *args, **kwargs):
+            if path.name == 'children':
+                raise FileNotFoundError(str(path))
+            return read(path, *args, **kwargs)
+
+        try:
+            self.assertIn(process.pid, children(os.getpid()))
+            with patch.object(Path, 'read_text', without_children):
+                self.assertIn(process.pid, children(os.getpid()))
+                process.terminate()
+                process.wait(timeout=5)
+                self.assertNotIn(process.pid, children(os.getpid()))
+        finally:
+            if process.poll() is None:
+                process.kill()
+            process.wait(timeout=5)
+
+    def test_unreadable_process_observation_fails_closed(self):
+        def unreadable(path, *args, **kwargs):
+            if path.name == 'children':
+                raise FileNotFoundError(str(path))
+            raise PermissionError(str(path))
+
+        with patch.object(Path, 'read_text', unreadable):
+            with self.assertRaises(PermissionError):
+                children(os.getpid())
 
 
 class Reproduce(unittest.TestCase):

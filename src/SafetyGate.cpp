@@ -1,5 +1,6 @@
 #include "firefly/language/Integer.h"
 #include "firefly/SafetyGate.h"
+#include "firefly/llm/PowerIntent.h"
 #include "Text.h"
 #include <algorithm>
 #include <regex>
@@ -238,6 +239,22 @@ bool requestCovered(std::string_view original, const runtime::ActionDescription&
     }
     return true;
 }
+}
+actions::CandidateResult SafetyGate::applyPowerIntent(std::string_view original,
+    const actions::CandidateResult& candidate, const runtime::DomainView& domain) {
+    const auto scope = llm::powerIntentScope(domain, original);
+    const auto* action = std::get_if<actions::GenericAction>(&candidate);
+    if (!scope || !action || action->targetId() != scope->targetId || !action->arguments().empty())
+        return actions::Unsupported{};
+    if (action->actionId() != scope->offActionId && action->actionId() != scope->onActionId)
+        return actions::Unsupported{};
+    const bool on = action->actionId() == scope->onActionId;
+    if (scope->explicitPower && on != *scope->explicitPower) return actions::Unsupported{};
+    const auto description = domain.describe(*action);
+    const auto grounding = domain.resolve(original, false);
+    if (!description || !requestCovered(original, *description, grounding, scope->requestSpans))
+        return actions::Unsupported{};
+    return domain.validate(candidate);
 }
 actions::CandidateResult SafetyGate::apply(std::string_view original, const actions::CandidateResult& candidate,
                                            const runtime::DomainView& domain) {
