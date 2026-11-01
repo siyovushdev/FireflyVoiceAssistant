@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 """Prepare a fresh recovery bundle; run one separately owner-authorized release."""
 import argparse
+import hashlib
 import importlib.util
 import json
 import os
@@ -121,7 +122,7 @@ def approved_assets(candidate, previous, approved, built_assets):
 
 
 def preservation_contract(old, new, old_release, new_release):
-    """Frozen bytes/properties and actual modes; only three explicit MQTT additions.
+    """Frozen properties/modes; explicit MQTT additions and one pinned wake revision.
 
     Legacy M19 manifests lack mode metadata. In that case the previously verified
     immutable release is the mode authority, never an inferred filename policy.
@@ -138,6 +139,28 @@ def preservation_contract(old, new, old_release, new_release):
                 result[name] = entry
         return result
     before, after = protected(old), protected(new)
+    old_wake = old.get('dependencies', {})
+    new_wake = new.get('dependencies', {})
+    wake_upgrade = {}
+    if ((old_wake.get('amina_wake'), old_wake.get('amina_sha256')) ==
+            ('v3', 'bc42cb869d2aace69c5bdf9333c502b96dedfa85df97676be85f5c289dc057d1') and
+            (new_wake.get('amina_wake'), new_wake.get('amina_sha256')) ==
+            ('v3-amila-20261029', '24000c0e3f9fd3249f56e5f836719aba8f7a3f23c1f4a2c571bdf0bf6cc8a1dd')):
+        # Only this exact model/worker/metadata revision may change together.
+        # These pins are cross-checked against the ordinary package verifier.
+        wake_upgrade = {
+            'share/firefly/wake/amina-v3.tflite': (
+                ('bc42cb869d2aace69c5bdf9333c502b96dedfa85df97676be85f5c289dc057d1', 60912),
+                ('24000c0e3f9fd3249f56e5f836719aba8f7a3f23c1f4a2c571bdf0bf6cc8a1dd', 61080)),
+            'share/firefly/wake/amina_worker.py': (
+                ('74ebee6c765c205131086891fda9b47d802959a688337c3045d7acc2c7346b63', 5732),
+                ('e9db1780ce3f560b04b4c1b94db6b4e018680d3582d8266ceed76cd14a45ffff', 5732)),
+            'share/firefly/wake/manifest.json': (
+                ('7c097b8d1b7b6bf9735fd2df11aa4117f1c8916cfe563052330511ace6b416ed', 394),
+                ('1873f5e3afd51678f5f81f28aeae67494daed0abd5fda98b0306daf78271bde1', 517)),
+        }
+        if not wake_upgrade.keys() <= before.keys() or not wake_upgrade.keys() <= after.keys():
+            raise RuntimeError('Frozen contract changed: incomplete wake revision')
     additions = set(after) - set(before)
     permitted = {'lib/libmosquitto.so.1', 'lib/libssl.so.3', 'lib/libcrypto.so.3'}
     mqtt_transition = not old.get('mqtt', {}).get('enabled') and new.get('mqtt', {}).get('enabled') is True
@@ -159,6 +182,19 @@ def preservation_contract(old, new, old_release, new_release):
             continue
         previous = before[name]
         previous_mode = (old_release / name).stat().st_mode & 0o7777
+        if name in wake_upgrade:
+            old_pin, new_pin = wake_upgrade[name]
+            for release, item, pin in [(old_release, previous, old_pin), (new_release, entry, new_pin)]:
+                path = release / name
+                if ((item.get('sha256'), item.get('bytes')) != pin or path.stat().st_size != pin[1]
+                        or hashlib.sha256(path.read_bytes()).hexdigest() != pin[0]):
+                    raise RuntimeError('Frozen contract changed: unapproved wake bytes: ' + name)
+            if (previous_mode != mode or ('mode' in previous and
+                    (type(previous['mode']) is not int or previous['mode'] != previous_mode))
+                    or {k: v for k, v in previous.items() if k not in ('mode', 'sha256', 'bytes')} !=
+                       {k: v for k, v in entry.items() if k not in ('mode', 'sha256', 'bytes')}):
+                raise RuntimeError('Frozen contract changed: wake properties: ' + name)
+            continue
         if (previous_mode != mode or ('mode' in previous and
                 (type(previous['mode']) is not int or previous['mode'] != previous_mode))
                 or {k: v for k, v in previous.items() if k != 'mode'} !=

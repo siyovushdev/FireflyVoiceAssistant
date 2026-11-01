@@ -4,6 +4,8 @@ Local Russian voice assistant for Firefly RK3588S (8 GB, Ubuntu 22.04/aarch64). 
 
 **Start here:** [production baseline and acceptance limits](docs/production-baseline.md) → [architecture](docs/architecture.md) → [build and isolated tests](docs/build-and-test.md) → [release and recovery](docs/release-procedure.md). Agents must also read [AGENTS.md](AGENTS.md).
 
+**2026-11-01 release-input update:** [Amina/Amila model promotion](docs/amina-amila-release.md) and [accepted F2 pilot handoff for later integration](docs/f2-voice-pilot-handoff.md). These documents describe the new source inputs; the installed baseline below is a dated observation.
+
 ## Version and scope
 
 As verified read-only on **2026-10-16**, fetched Git master is `c6e68419eea1f47300f7ca8d51b85997344e405c` (PR #27 merged). Installed release is `m19-c7fa1490-20261015T150156Z`, built from exact product commit `c7fa14906f8ae15f4c8fb488e9c9d7628eb8154f`; annotated tag `m19-production-20261015-c7fa149` points to that product commit. Master contains later operator/tests/docs changes. These identities are deliberately distinct and must be rechecked for future work.

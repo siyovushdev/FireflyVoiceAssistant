@@ -66,9 +66,26 @@ PRODUCTION_SHA256 = {
     "lib/libonnxruntime.so": "d860f5968f5a1ed63533e9ed198aa747ca9fe289028129877f428556089f6874",
 }
 ADMIN_MODEL_BYTES = 4848176220
-AMINA_SHA256 = "bc42cb869d2aace69c5bdf9333c502b96dedfa85df97676be85f5c289dc057d1"
-AMINA_BYTES = 60912
+LEGACY_AMINA_SHA256 = "bc42cb869d2aace69c5bdf9333c502b96dedfa85df97676be85f5c289dc057d1"
+AMINA_SHA256 = "24000c0e3f9fd3249f56e5f836719aba8f7a3f23c1f4a2c571bdf0bf6cc8a1dd"
+AMINA_BYTES = 61080
+AMINA_VERSION = "v3-amila-20261029"
+AMINA_SOURCE = "assets/wake/amina-v3-amila-20261029.tflite"
 WAKE_MODEL = "share/firefly/wake/amina-v3.tflite"
+# Coupled, exact identities: old releases remain verifiable, new staging uses
+# the promoted revision. No arbitrary model or worker can enter this contract.
+AMINA_RELEASES = {
+    "v3": {
+        "model": (LEGACY_AMINA_SHA256, 60912),
+        "worker": ("74ebee6c765c205131086891fda9b47d802959a688337c3045d7acc2c7346b63", 5732),
+        "manifest": ("7c097b8d1b7b6bf9735fd2df11aa4117f1c8916cfe563052330511ace6b416ed", 394),
+    },
+    AMINA_VERSION: {
+        "model": (AMINA_SHA256, AMINA_BYTES),
+        "worker": ("e9db1780ce3f560b04b4c1b94db6b4e018680d3582d8266ceed76cd14a45ffff", 5732),
+        "manifest": ("1873f5e3afd51678f5f81f28aeae67494daed0abd5fda98b0306daf78271bde1", 517),
+    },
+}
 PINNED_PYTHON_PACKAGES = {
     "numpy": "2.2.6",
     "ai-edge-litert": "1.2.0",
@@ -479,6 +496,7 @@ def _stop_process(process: subprocess.Popen) -> None:
 
 def check_wake(release: Path) -> str:
     """Import pinned packages and read the worker ready byte. Returns Python version."""
+    verify_wake_assets(release)
     python = release / "share/firefly/wake/python/bin/python"
     worker = release / "share/firefly/wake/amina_worker.py"
     model = release / "share/firefly/wake/amina-v3.tflite"
@@ -609,13 +627,33 @@ def wake_reference(root: Path, path: Path) -> Path:
     require_root_owned(target, Path(PRODUCTION_PREFIX))
     if target.stat().st_nlink != 1:
         raise ReleaseError("refusing hardlinked wake reference target")
-    _expect(target, AMINA_SHA256, AMINA_BYTES)
+    if (sha256_file(target), target.stat().st_size) not in {
+            value["model"] for value in AMINA_RELEASES.values()}:
+        raise ReleaseError("referenced Amina differs from the pinned release models")
     return target
 
 
 def artifact_path(release: Path, relative: str) -> Path:
     path = release / relative
     return wake_reference(release, path) if path.is_symlink() else path
+
+
+def verify_wake_assets(release: Path, document: Optional[dict] = None) -> str:
+    """Validate model, worker and metadata as one exact supported release pair."""
+    model = artifact_path(release, WAKE_MODEL)
+    identity = (sha256_file(model), model.stat().st_size)
+    version = next((name for name, value in AMINA_RELEASES.items()
+                    if value["model"] == identity), None)
+    if version is None:
+        raise ReleaseError("Amina model bytes do not match a pinned release artifact")
+    for key, relative in (("worker", "share/firefly/wake/amina_worker.py"),
+                          ("manifest", "share/firefly/wake/manifest.json")):
+        _expect(artifact_path(release, relative), *AMINA_RELEASES[version][key])
+    if document is not None:
+        deps = document.get("dependencies", {})
+        if deps.get("amina_wake") != version or deps.get("amina_sha256") != identity[0]:
+            raise ReleaseError("manifest Amina identity differs from the verified release pair")
+    return version
 
 
 def manifest_model_paths(document: dict, prefix: Path) -> dict:
@@ -693,7 +731,7 @@ def _manifest_document(request: StageRequest, release: Path, model_paths: dict, 
             "numpy": PINNED_PYTHON_PACKAGES["numpy"],
             "ai_edge_litert": PINNED_PYTHON_PACKAGES["ai-edge-litert"],
             "pymicro_features": PINNED_PYTHON_PACKAGES["pymicro-features"],
-            "amina_wake": "v3",
+            "amina_wake": AMINA_VERSION,
             "amina_sha256": AMINA_SHA256,
         },
         "distribution": {
@@ -720,7 +758,8 @@ def _manifest_document(request: StageRequest, release: Path, model_paths: dict, 
     }
     if request.reuse_installed_models:
         document["installed_model_reference"] = {"prefix": PRODUCTION_PREFIX, "mode": "installed-read-only"}
-        document["wake_model_reference"] = str(wake_reference(release, release / WAKE_MODEL))
+        if (release / WAKE_MODEL).is_symlink():
+            document["wake_model_reference"] = str(wake_reference(release, release / WAKE_MODEL))
     if mqtt_enabled(request.build_dir):
         from . import mqtt_release
         document["mqtt"] = mqtt_release.metadata()
@@ -1077,9 +1116,7 @@ def verify_tree(prefix: Path, release_id: str, *, check_python: bool = True,
     for name in ("rooms", "devices", "actions", "bindings", "connections", "observations"):
         if seed.get(name, []) != []:
             raise ReleaseError(f"empty init-config contains {name}")
-    amina = artifact_path(release, WAKE_MODEL)
-    if amina.stat().st_size != AMINA_BYTES or sha256_file(amina) != AMINA_SHA256:
-        raise ReleaseError("Amina model bytes do not match the frozen artifact")
+    verify_wake_assets(release, document)
     if check_python:
         before = set(_rel_files(release))
         version = check_wake(release)
@@ -1311,8 +1348,8 @@ def stage_release(request: StageRequest) -> dict:
         reused = {}
     elif request.reuse_installed_models:
         if (not request.production or request.runtime_prefix != PRODUCTION_PREFIX
-                or not RELEASE_ID_RE.fullmatch(request.wake_reference_release)):
-            raise ReleaseError("installed model reuse requires production prefix and an immutable wake release")
+                or (request.wake_reference_release and not RELEASE_ID_RE.fullmatch(request.wake_reference_release))):
+            raise ReleaseError("installed model reuse requires production prefix and a valid optional wake release")
         reused = installed_model_paths()
         if _model_inputs(request) != reused:
             raise ReleaseError("reuse inputs must be the exact installed model paths")
@@ -1347,16 +1384,18 @@ def stage_release(request: StageRequest) -> dict:
         subprocess.check_call(
             ["cmake", "--install", str(request.build_dir), "--prefix", str(release), "--component", "firefly-runtime"])
         wake = release / WAKE_MODEL
-        if request.reuse_installed_models:
-            # The build must also avoid copying Amina; do not silently remove a copy.
+        if request.reuse_installed_models and request.wake_reference_release:
+            # References are optional for the small model, but must be current
+            # and exact when explicitly requested. Never remove a staged copy.
             if wake.exists() or wake.is_symlink():
                 raise ReleaseError("configure FIREFLY_WAKE_MODEL_REFERENCE before no-copy production staging")
             reference = Path(PRODUCTION_PREFIX) / "releases" / request.wake_reference_release / WAKE_MODEL
+            _expect(reference, AMINA_SHA256, AMINA_BYTES)
             wake.symlink_to(reference)
             wake_reference(release, wake)
         elif not wake.exists():
             # Legacy/fixture staging from a reference-configured build remains relocatable.
-            _copy_regular(request.source_root / "assets/wake/amina-v3.tflite", wake)
+            _copy_regular(request.source_root / AMINA_SOURCE, wake)
         binary = release / "bin/firefly-demo"
         build_binary = request.build_dir / "firefly-demo"
         if not binary.is_file():

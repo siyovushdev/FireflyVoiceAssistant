@@ -134,7 +134,6 @@ def main():
              '-DFIREFLY_MOSQUITTO_INCLUDE_DIR=/deps/mqtt/include', '-DFIREFLY_MOSQUITTO_LIBRARY=/deps/mqtt/lib/libmosquitto.so',
              '-DFIREFLY_MQTT_PACKAGE_ROOT=/deps/mqtt', '-DFIREFLY_TLS_PACKAGE_ROOT=/target',
              '-DFIREFLY_WAKE_PYTHON=/deps/frozen/share/firefly/wake/python/bin/python',
-             '-DFIREFLY_WAKE_MODEL_REFERENCE=/opt/firefly/voice-assistant/releases/grounding-818157ec-20261013T040322Z/share/firefly/wake/amina-v3.tflite',
              '-DFIREFLY_MQTT_PROVENANCE=/deps/mqtt-provenance.json']
     run('configure-arm64', box + ['--', 'cmake', '-S', '/src/firefly', '-B', '/build/firefly', *flags])
     run('build-arm64', box + ['--', 'cmake', '--build', '/build/firefly', '--parallel', '2'])

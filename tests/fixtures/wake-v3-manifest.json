@@ -1,0 +1,14 @@
+{
+  "name": "Amina v3",
+  "file": "amina-v3.tflite",
+  "sha256": "bc42cb869d2aace69c5bdf9333c502b96dedfa85df97676be85f5c289dc057d1",
+  "cutoff": 0.99,
+  "window": 7,
+  "aggregation": "mean_of_last_7_scores",
+  "sample_rate": 16000,
+  "capture_channels": 2,
+  "asr_channel_index": 1,
+  "input": "int8 [1,3,40]",
+  "output": "uint8 [1,1]; use model scale and zero_point",
+  "state_tensors": 14
+}

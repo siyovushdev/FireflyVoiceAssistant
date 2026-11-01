@@ -15,7 +15,7 @@ import numpy as np
 from ai_edge_litert.interpreter import Interpreter
 from pymicro_features import MicroFrontend
 
-MODEL_SHA256 = "bc42cb869d2aace69c5bdf9333c502b96dedfa85df97676be85f5c289dc057d1"
+MODEL_SHA256 = "24000c0e3f9fd3249f56e5f836719aba8f7a3f23c1f4a2c571bdf0bf6cc8a1dd"
 
 
 class Engine:
