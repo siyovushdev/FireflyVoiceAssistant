@@ -152,9 +152,8 @@ class ProductionPackaging(unittest.TestCase):
         os.umask(cls.previous_umask)
 
     def test_installed_models_stage_install_failure_cleanup_and_legacy_verify(self):
-        if not re.search(r'^FIREFLY_WAKE_MODEL_REFERENCE:FILEPATH=.+$',
-                         (Path(ARGS['build'])/'CMakeCache.txt').read_text(), re.M):
-            self.skipTest('requires explicitly reference-configured build; mandatory for no-copy candidate')
+        wake_reference = bool(re.search(r'^FIREFLY_WAKE_MODEL_REFERENCE:FILEPATH=.+$',
+                                       (Path(ARGS['build'])/'CMakeCache.txt').read_text(), re.M))
         with tempfile.TemporaryDirectory(prefix="firefly-reference-installed-") as private:
             installed = Path(private) / "installed"
             legacy = installed / "releases" / self.release_id
@@ -177,11 +176,13 @@ class ProductionPackaging(unittest.TestCase):
                 req=request(Path(tmp),new_id,production=True,runtime_prefix=str(installed),
                             runtime_model=inputs[RUNTIME_MODEL],admin_model=inputs[ADMIN_MODEL],
                             vad_model=inputs[VAD_MODEL],stt_dir=installed/STT_DIR,
-                            reuse_installed_models=True,wake_reference_release=self.release_id)
+                            reuse_installed_models=True,wake_reference_release=self.release_id if wake_reference else '')
                 with patch.object(release,'_copy_regular',wraps=release._copy_regular) as copies:
                     document=stage_release(req)
                     self.assertFalse((req.destination/'models').exists())
-                    self.assertTrue((req.destination/'releases'/new_id/release.WAKE_MODEL).is_symlink())
+                    staged_wake = req.destination/'releases'/new_id/release.WAKE_MODEL
+                    self.assertEqual(staged_wake.is_symlink(), wake_reference)
+                    self.assertEqual(release.sha256_file(staged_wake), AMINA_SHA256)
                     self.assertFalse(any(call.args[0] in inputs.values() for call in copies.call_args_list))
                     # A failure after publication cleans only the new app release, never shared models.
                     with patch.object(release,'install_after_models',side_effect=RuntimeError('fixture fault')):

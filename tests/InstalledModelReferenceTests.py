@@ -88,7 +88,7 @@ class ModelReferenceTests(unittest.TestCase):
     def test_legacy_regular_wake_still_uses_no_follow_hashing(self):
         self.link.unlink();self.link.write_bytes(self.target.read_bytes())
         self.assertEqual(r.artifact_path(self.release,r.WAKE_MODEL),self.link)
-        self.assertEqual(r.sha256_file(self.link),r.AMINA_SHA256)
+        self.assertEqual(r.sha256_file(self.link),r.LEGACY_AMINA_SHA256)
     def test_actual_owner_guard_rejects_writable_target(self):
         guard=REAL_OWNER_GUARD
         self.target.chmod(0o666)

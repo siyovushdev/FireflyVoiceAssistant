@@ -1,7 +1,7 @@
 {
-  "name": "Amina v3",
+  "name": "Amina v3 — Amila revision",
   "file": "amina-v3.tflite",
-  "sha256": "bc42cb869d2aace69c5bdf9333c502b96dedfa85df97676be85f5c289dc057d1",
+  "sha256": "24000c0e3f9fd3249f56e5f836719aba8f7a3f23c1f4a2c571bdf0bf6cc8a1dd",
   "cutoff": 0.99,
   "window": 7,
   "aggregation": "mean_of_last_7_scores",
@@ -10,5 +10,8 @@
   "asr_channel_index": 1,
   "input": "int8 [1,3,40]",
   "output": "uint8 [1,1]; use model scale and zero_point",
-  "state_tensors": 14
+  "state_tensors": 14,
+  "revision": "v3-amila-20261029",
+  "source_file": "amina-v3-amila-20261029.tflite",
+  "bytes": 61080
 }

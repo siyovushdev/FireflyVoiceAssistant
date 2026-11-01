@@ -1,5 +1,6 @@
 """Model-backed CPU tests. No microphone, NPU, commands, or hardware."""
 import importlib.util
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -11,7 +12,7 @@ root = Path(sys.argv.pop(1))
 spec = importlib.util.spec_from_file_location('amina_worker', root / 'runtime/wake/amina_worker.py')
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
-model = root / 'assets/wake/amina-v3.tflite'
+model = root / 'assets/wake' / json.loads((root / 'assets/wake/manifest.json').read_text())['source_file']
 
 
 class Tests(unittest.TestCase):

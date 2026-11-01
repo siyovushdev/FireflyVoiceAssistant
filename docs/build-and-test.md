@@ -53,7 +53,7 @@ env -u DISPLAY cmake -S . -B build \
   -DSHERPA_ONNX_ROOT=/home/firefly/FireflyVoiceAssistantLinux/build/stt/sherpa-onnx-v1.13.7-linux-aarch64-shared-cpu \
   -DSHERPA_ONNX_INCLUDE_DIR=/home/firefly/FireflyVoiceAssistantLinux/build/stt/vad-ab \
   -DFIREFLY_WAKE_PYTHON=/home/firefly/FireflyVoiceAssistantLinux/build/wake-venv/bin/python \
-  -DFIREFLY_WAKE_MODEL_REFERENCE=/opt/firefly/voice-assistant/releases/grounding-818157ec-20261013T040322Z/share/firefly/wake/amina-v3.tflite \
+  -DFIREFLY_WAKE_MODEL_REFERENCE= \
   -DFIREFLY_ADMIN_DIST_DIR="$PWD/src/admin/frontend/dist"
 cmake --build build --parallel 1
 ```
