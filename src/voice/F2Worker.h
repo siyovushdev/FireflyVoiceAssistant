@@ -1,5 +1,6 @@
 #pragma once
 #include "F2Sentences.h"
+#include "F2AudioCache.h"
 #include "c-api.h"
 #include "nlohmann/json.hpp"
 #include <alsa/asoundlib.h>
@@ -29,6 +30,7 @@ public:
         try {
             std::lock_guard<std::mutex> lock(mutex_);
             row["event"]=std::move(event);row["elapsed_ms"]=now();
+            row["monotonic_ms"]=std::chrono::duration<double,std::milli>(Clock::now().time_since_epoch()).count();
             if(sink_)sink_(row.dump());
         } catch (...) { /* Diagnostics cannot terminate a speech worker. */ }
     }
@@ -39,7 +41,11 @@ public:
 class Speaker {
     struct Audio {std::vector<float> samples;int rate;int sequence;};
     Events& events_;
-    std::string folder_,device_;
+    std::string model_,folder_,device_;
+    std::function<std::vector<float>(const std::string&)> stock_;
+    std::function<void(const std::function<void()>&)> loadGuard_;
+    AudioCache cache_;
+    Clock::time_point requested_;
     bool wav_,plain_;
     std::unique_ptr<const SherpaOnnxOfflineTts,decltype(&SherpaOnnxDestroyOfflineTts)> tts_{nullptr,SherpaOnnxDestroyOfflineTts};
     std::mutex mutex_;
@@ -71,20 +77,34 @@ class Speaker {
             lock.unlock();
             try {
                 int id=++sequence_;
-                events_.write("synthesis_started",{{"turn",turn},{"chunk",id},{"text",text}});
-                SherpaOnnxGenerationConfig g{};g.sid=1;g.speed=1;g.num_steps=5;g.extra="{\"lang\":\"ru\"}";g.silence_scale=.2f;
-                auto start=Clock::now();
-                std::unique_ptr<const SherpaOnnxGeneratedAudio,decltype(&SherpaOnnxDestroyOfflineTtsGeneratedAudio)> a(SherpaOnnxOfflineTtsGenerateWithConfig(tts_.get(),text.c_str(),&g,progress,this),SherpaOnnxDestroyOfflineTtsGeneratedAudio);
-                if(stop_)return;
-                if(cancelled_)continue;
-                if(!a||!a->samples||a->n<=0||a->sample_rate!=44100||a->n>60*a->sample_rate)throw std::runtime_error("Invalid TTS waveform");
-                float peak=0;for(int i=0;i<a->n;++i){if(!std::isfinite(a->samples[i]))throw std::runtime_error("Nonfinite TTS PCM");peak=std::max(peak,std::abs(a->samples[i]));}
-                // Attenuate overshoot only; never amplify a quiet voice.
-                float gain=peak>.96f?.96f/peak:1.f;
-                Audio output{{a->samples,a->samples+a->n},a->sample_rate,id};
-                for(auto& x:output.samples)x*=gain;
-                events_.write("audio_ready",{{"turn",turn},{"chunk",id},{"synthesis_ms",std::chrono::duration<double,std::milli>(Clock::now()-start).count()},
-                    {"audio_s",double(a->n)/a->sample_rate},{"gain",gain},{"voice","F2"},{"steps",5}});
+                Audio output{{},44100,id};
+                if(stock_)output.samples=stock_(text);
+                std::string source="stock";
+                if(output.samples.empty()){output.samples=cache_.get(text);source="memory";}
+                if(!output.samples.empty()) {
+                    events_.write("audio_cache_hit",{{"turn",turn},{"chunk",id},{"source",source},{"text",text}});
+                } else {
+                    if(stop_||cancelled_)continue;
+                    ensureModel();
+                    if(stop_||cancelled_)continue;
+                    events_.write("synthesis_started",{{"turn",turn},{"chunk",id},{"text",text}});
+                    SherpaOnnxGenerationConfig g{};g.sid=1;g.speed=1;g.num_steps=5;g.extra="{\"lang\":\"ru\"}";g.silence_scale=.2f;
+                    auto start=Clock::now();
+                    std::unique_ptr<const SherpaOnnxGeneratedAudio,decltype(&SherpaOnnxDestroyOfflineTtsGeneratedAudio)> a(SherpaOnnxOfflineTtsGenerateWithConfig(tts_.get(),text.c_str(),&g,progress,this),SherpaOnnxDestroyOfflineTtsGeneratedAudio);
+                    if(stop_)return;
+                    if(cancelled_)continue;
+                    if(!a||!a->samples||a->n<=0||a->sample_rate!=44100||a->n>60*a->sample_rate)throw std::runtime_error("Invalid TTS waveform");
+                    float peak=0;for(int i=0;i<a->n;++i){if(!std::isfinite(a->samples[i]))throw std::runtime_error("Nonfinite TTS PCM");peak=std::max(peak,std::abs(a->samples[i]));}
+                    // Same accepted F2 profile and overshoot attenuation.
+                    float gain=peak>.96f?.96f/peak:1.f;
+                    output.samples.assign(a->samples,a->samples+a->n);
+                    for(auto& x:output.samples)x*=gain;
+                    events_.write("audio_ready",{{"turn",turn},{"chunk",id},{"synthesis_ms",std::chrono::duration<double,std::milli>(Clock::now()-start).count()},
+                        {"audio_s",double(a->n)/a->sample_rate},{"gain",gain},{"voice","F2"},{"steps",5}});
+                    // PCM reuse never bypasses freshly computed facts or turn
+                    // admission. Cache is volatile and has a strict byte cap.
+                    if(!cancelled_)cache_.put(text,output.samples);
+                }
                 lock.lock();cv_.wait(lock,[&]{return stop_||cancelled_||audio_.size()<2;});
                 if(stop_)return;
                 if(!cancelled_)audio_.push_back(std::move(output));
@@ -134,7 +154,7 @@ class Speaker {
                 while(offset<pcm.size()&&!stop_&&!cancelled_) {
                     if(Clock::now()>deadline)throw std::runtime_error("ALSA write deadline");
                     auto n=snd_pcm_writei(handle,pcm.data()+offset,pcm.size()-offset);
-                    if(n>0){offset+=static_cast<size_t>(n);if(!started){events_.write("first_playback",{{"turn",turn}});started=true;}}
+                    if(n>0){offset+=static_cast<size_t>(n);if(!started){events_.write("first_playback",{{"turn",turn},{"request_to_first_playback_ms",std::chrono::duration<double,std::milli>(Clock::now()-requested_).count()}});started=true;}}
                     else if(n==-EAGAIN||n==0)snd_pcm_wait(handle,50);
                     else if(n==-EINTR)continue;
                     else if(n==-EPIPE&&++underruns<=5){snd_pcm_prepare(handle);events_.write("underrun",{{"turn",turn}});}
@@ -144,19 +164,30 @@ class Speaker {
             }catch(const std::exception& e){close();fail(e.what());}
         }
     }
-public:
-    Speaker(Events& events,std::string model,std::string folder,std::string device,bool wav,bool plain=false):events_(events),folder_(std::move(folder)),device_(std::move(device)),wav_(wav),plain_(plain) {
-        if(wav_) {
-            std::filesystem::create_directory(folder_);
-            if(std::filesystem::is_symlink(folder_))throw std::runtime_error("Unsafe speech directory");
-        }
+    void ensureModel() {
+        if(tts_)return;
+        const auto load=[&] {
         std::vector<std::string> paths;
-        for(auto n:{"duration_predictor.int8.onnx","text_encoder.int8.onnx","vector_estimator.int8.onnx","vocoder.int8.onnx","tts.json","unicode_indexer.bin","voice.bin"})paths.push_back(model+"/"+n);
+        for(auto n:{"duration_predictor.int8.onnx","text_encoder.int8.onnx","vector_estimator.int8.onnx","vocoder.int8.onnx","tts.json","unicode_indexer.bin","voice.bin"})paths.push_back(model_+"/"+n);
         SherpaOnnxOfflineTtsConfig c{};c.model.num_threads=4;c.model.provider="cpu";c.max_num_sentences=1;c.silence_scale=.2f;
         c.model.supertonic={paths[0].c_str(),paths[1].c_str(),paths[2].c_str(),paths[3].c_str(),paths[4].c_str(),paths[5].c_str(),paths[6].c_str()};
         auto start=Clock::now();tts_.reset(SherpaOnnxCreateOfflineTts(&c));
         if(!tts_)throw std::runtime_error("TTS initialization failed");
         events_.write("tts_loaded",{{"voice","F2"},{"sid",1},{"threads",4},{"steps",5},{"load_ms",std::chrono::duration<double,std::milli>(Clock::now()-start).count()}});
+        };
+        try { if(loadGuard_)loadGuard_(load);else load(); }
+        catch(...) {tts_.reset();throw;}
+    }
+public:
+    Speaker(Events& events,std::string model,std::string folder,std::string device,bool wav,bool plain=false,
+            std::function<std::vector<float>(const std::string&)> stock={},
+            std::function<void(const std::function<void()>&)> loadGuard={})
+        :events_(events),model_(std::move(model)),folder_(std::move(folder)),device_(std::move(device)),
+         stock_(std::move(stock)),loadGuard_(std::move(loadGuard)),wav_(wav),plain_(plain) {
+        if(wav_) {
+            std::filesystem::create_directory(folder_);
+            if(std::filesystem::is_symlink(folder_))throw std::runtime_error("Unsafe speech directory");
+        }
         synthesis_=std::thread([this]{synthesize();});
         try{playback_=std::thread([this]{play();});}catch(...){stop_=true;cv_.notify_all();synthesis_.join();throw;}
     }
@@ -164,7 +195,7 @@ public:
     void begin(int turn) {
         std::lock_guard<std::mutex> lock(mutex_);
         if(active_)throw std::runtime_error("Previous speech turn still active");
-        turn_=turn;finished_=synthDone_=playDone_=false;cancelled_=false;error_.clear();texts_.clear();audio_.clear();
+        turn_=turn;requested_=Clock::now();finished_=synthDone_=playDone_=false;cancelled_=false;error_.clear();texts_.clear();audio_.clear();
         parser_=std::make_unique<Sentences>([this](std::string text){if(texts_.size()>=32)throw std::runtime_error("Speech queue full");texts_.push_back(std::move(text));cv_.notify_all();},plain_);
         active_=true;
     }

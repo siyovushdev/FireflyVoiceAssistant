@@ -38,7 +38,7 @@ with tempfile.TemporaryDirectory(prefix='firefly-operational-') as directory:
             r=voice(text);assert r['route']=='OPERATIONAL_QUESTION' and r['reply'],r
         assert Device.posts==[]
         r=voice('включи свет на кухне');assert Device.posts==[{'power':True}],r
-        assert r['kind']=='accepted' and 'физически не подтверждено' in r['reply'],r
+        assert r['kind']=='accepted' and 'не подтверждает состояние устройства' in r['reply'],r
         for text in ['Ты включила свет?','Что сейчас включено?','Что ты сделала последним?','А он сейчас работает?']:
             r=voice(text);assert 'подтверждённому наблюдению' not in r['reply'],r
         assert len(Device.posts)==1

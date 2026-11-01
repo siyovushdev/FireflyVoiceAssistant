@@ -3,6 +3,7 @@
 using namespace firefly::voice::f2;
 #include <cassert>
 #include <iostream>
+#include <future>
 #include <limits>
 #include <unistd.h>
 struct SherpaOnnxOfflineTts {};
@@ -73,6 +74,46 @@ int main() {
         assert(!speaker.finish(true,[&]{return Clock::now()-start>std::chrono::milliseconds(10);}));++checks;
         assert(speaker.cancelled()&&Clock::now()-start<std::chrono::seconds(1));++checks;
         speaker.begin(2);speaker.push("После отмены.");assert(speaker.finish(true));++checks;
+    }
+    assert(models==0&&audios==0&&fake_alsa_handles==0);++checks;
+    {
+        const auto beforeLoads=loads.load(),beforeRequests=requests.load();
+        Events events([](const std::string&) {});
+        int admissions=0;
+        Speaker speaker(events,"MISSING_MODEL","","CPU_DOUBLE",false,true,
+            [](const std::string& text){return text=="Готовая фраза."?std::vector<float>(128,.1f):std::vector<float>{};},
+            [&](const std::function<void()>& load){++admissions;load();});
+        assert(loads==beforeLoads);++checks;
+        for(int turn=1;turn<=10;++turn){speaker.begin(turn);speaker.push("Готовая фраза.");assert(speaker.finish(true));++checks;}
+        assert(loads==beforeLoads&&requests==beforeRequests&&admissions==0);++checks;
+        auto dynamic=[&](int id,const std::string& text){speaker.begin(id);speaker.push(text);assert(speaker.finish(true));};
+        dynamic(11,"Свет включён.");const auto afterFirst=requests.load();
+        dynamic(12,"Свет включён.");assert(requests==afterFirst);++checks;
+        dynamic(13,"Свет выключен.");assert(requests==afterFirst+1);++checks;
+        dynamic(14,"Свет включён.");assert(requests==afterFirst+1&&admissions==1&&loads==beforeLoads+1);++checks;
+        // A pending cached waveform must obey cancellation and release ALSA;
+        // the following turn must still work without generating another PCM.
+        fake_alsa_block=true;const auto attempts=fake_alsa_writes.load();
+        speaker.begin(15);speaker.push("Готовая фраза.");
+        auto cancelled=std::async(std::launch::async,[&]{return speaker.finish(true,[&]{return fake_alsa_writes>attempts;});});
+        assert(cancelled.wait_for(std::chrono::seconds(1))==std::future_status::ready&&!cancelled.get());++checks;
+        assert(fake_alsa_handles==0);++checks;fake_alsa_block=false;
+        dynamic(16,"Готовая фраза.");assert(requests==afterFirst+1);++checks;
+    }
+    {
+        Events events([](const std::string&) {});const auto before=models.load();
+        Speaker speaker(events,"CPU_DOUBLE","","CPU_DOUBLE",false,true,{},
+            [](const std::function<void()>& load){load();throw std::runtime_error("reserve rejected");});
+        speaker.begin(1);speaker.push("Admission failure.");assert(!speaker.finish(true)&&models==before);++checks;
+    }
+    {
+        AudioCache cache;std::vector<float> pcm(44100,.25f);
+        for(int i=0;i<100;++i){cache.put(std::to_string(i),pcm);assert(cache.bytes()<=AudioCache::MaxBytes&&cache.size()<=AudioCache::MaxEntries);}
+        assert(cache.get("0").empty()&&cache.get("99")==pcm);++checks;
+        cache.put("too large",std::vector<float>(AudioCache::MaxSamples+1));assert(cache.get("too large").empty());++checks;
+        // Byte cap, not just the entry count.
+        for(int i=0;i<10;++i)cache.put("large"+std::to_string(i),std::vector<float>(AudioCache::MaxSamples,.1f));
+        assert(cache.bytes()<=AudioCache::MaxBytes&&cache.size()<=2);++checks;
     }
     assert(models==0&&audios==0&&fake_alsa_handles==0);++checks;
     fs::remove_all(root);

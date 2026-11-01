@@ -53,7 +53,7 @@ private:
                 if((c=='.'||c=='!'||c=='?')&&i+1==input_.size()&&!final)break;
                 sentence_+=c;++i;
                 const bool decimal=c=='.'&&sentence_.size()>1&&std::isdigit(static_cast<unsigned char>(sentence_[sentence_.size()-2]))&&i<input_.size()&&std::isdigit(static_cast<unsigned char>(input_[i]));
-                if(((c=='.'||c=='!'||c=='?')&&!decimal&&(i==input_.size()||std::isspace(static_cast<unsigned char>(input_[i]))))||c=='\n'||(sentence_.size()>=96&&c==' '))flush();
+                if(((c=='.'||c=='!'||c=='?')&&!decimal&&(i==input_.size()||std::isspace(static_cast<unsigned char>(input_[i]))))||c=='\n')flush();
             }
             input_.erase(0,i);return;
         }

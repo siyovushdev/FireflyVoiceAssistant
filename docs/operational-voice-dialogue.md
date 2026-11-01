@@ -92,12 +92,34 @@ model provenance/license and release provisioning must be retained when a
 production package is prepared. This change does not install those weights or
 change the permanent unit/release pipeline.
 
-TTS loads lazily once per audio lease, after command processing releases the
+Twelve fixed full F2 sentences are embedded in the executable from SHA256-pinned
+mono S16_LE/44.1 kHz WAV files in `assets/voice/f2`. These are synthetic F2
+audio, not owner recordings. Stock replies play without TTS asset verification
+or model creation, including the first turn. Build-time verification rejects
+missing/corrupted files and profile changes. Brief accepted-command replies
+state executor acceptance and explicitly distinguish it from device state;
+detailed replies and state questions retain grounded labels and observations.
+
+Dynamic TTS loads lazily once per audio lease, after command processing releases the
 Runtime request. Loading requires 2 GiB free before and 1 GiB reserve after;
 existing Runtime/Admin admission remains unchanged. Queues hold at most 32
 text chunks and two audio chunks; every waveform is finite, 44.1 kHz and bounded.
 Overshoot is attenuated, quiet input is not amplified. Operational text is
-literal; configured names resembling markup are not silently stripped.
+literal; configured names resembling markup are not silently stripped. Plain
+operational replies are split only at sentence boundaries, without inserting
+punctuation or cutting a sentence into word fragments. Playback of the first
+complete sentence overlaps synthesis of the next.
+
+An exact-text LRU PCM cache holds at most 16 chunks / 8 MiB (20 seconds per
+entry), in RAM only, for this one fixed voice/profile. It stores no state or
+execution decisions. Every input still goes through current-generation facts,
+original command safety and normal speech admission before PCM can be selected.
+Changed device state, names or wording select different PCM. Setup/recovery
+teardown discards the entire cache with the audio lease. A cancelled or failed
+voice response never repeats a device command. `F2_TRACE first_playback` records
+the first successful ALSA write; `VOICE_REPLY_READY` allows measuring from the
+completed command/question result, including cold speaker construction. This
+is software output timing, not acoustic loopback measurement.
 
 KWS, MicroFrontend, VAD, STT, input channel 1, Amina weights/threshold/window
 are unchanged. The existing capture loop drains microphone input while
@@ -105,7 +127,7 @@ processing, speaking and for a 500 ms echo tail. No second capture process is
 opened. Beep and F2 playback are sequential. Audio resources, including cached
 TTS, drain before AI Setup loads Admin Qwen. Apply/off, Setup, audio-stop and
 shutdown interrupt speech. Failed TTS keeps the command result/diagnostic text;
-it never resends a command. Missing/unsafe assets fail optional speech only.
+it never resends a command. Missing/unsafe assets fail dynamic speech only; embedded stock replies remain available.
 
 ## Limits and recovery
 
@@ -147,6 +169,8 @@ is a reversible live setting; it does not revert configuration history.
 - `OperationalVoiceHttp`: real C++ HttpServer/ConfigStore and loopback HTTP
   device; exact positive dispatches, independent observation, zero additional
   side effects from questions/negative controls, persisted live preferences.
+- `F2StockIntegrity`, `F2Output`: pinned embedded bank, corruption/missing/path
+  rejection, cold stock without a TTS model, pending cancellation and recovery.
 - `F2Sentence`, `F2Speaker`: literal text/queue/ALSA/TTS seams,
   cancellation, timeout, errors, subsequent successful turns and cleanup.
 - Frontend typecheck/tests/build; `OperationalChromium.cjs` against the real

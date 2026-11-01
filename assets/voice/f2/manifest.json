@@ -1,0 +1,78 @@
+{
+  "profile": "Supertonic3 INT8 / F2 SID1 / ru / CPU4 / steps5 / speed1 / sherpa-onnx1.13.7",
+  "clips": [
+    {
+      "file": "00.wav",
+      "text": "Команда принята исполнителем.",
+      "size": 209610,
+      "sha256": "63b0cab77024cc62ebe357fd4e50f86c65f84adbbd23ecce2854eacfa2c7a219"
+    },
+    {
+      "file": "01.wav",
+      "text": "Это не подтверждает состояние устройства.",
+      "size": 282580,
+      "sha256": "ed474f3acf871515749000603ecf8f5bbd5ea97daaea4aae3321d2db94a6ae9b"
+    },
+    {
+      "file": "02.wav",
+      "text": "Команда не отправлена.",
+      "size": 171038,
+      "sha256": "9ca728951a4c0ab925ad978b2b49613d9eb945aa6739bfbe7f2dbe7b2436a560"
+    },
+    {
+      "file": "03.wav",
+      "text": "Ничего не отправлено.",
+      "size": 167638,
+      "sha256": "7d42ba8a9aa24e68c9df3fdf05ee6c56e4537f2fe3fe60061bc11463996473c4"
+    },
+    {
+      "file": "04.wav",
+      "text": "Не удалось распознать просьбу.",
+      "size": 206772,
+      "sha256": "c21ae618a04d8f5d16d75402bc0975a06f3b260c41ded9ca42f11422dfbca049"
+    },
+    {
+      "file": "05.wav",
+      "text": "Результат неизвестен, автоматического повтора нет.",
+      "size": 356544,
+      "sha256": "0846eb43a95c5667a29486e89e8626d59c2769b94121ef1fdd95f82f82b8ad42"
+    },
+    {
+      "file": "06.wav",
+      "text": "Не удалось подтвердить выполнение команды: устройство или исполнитель не ответили корректно.",
+      "size": 639768,
+      "sha256": "271f10d427718a212ab3b731a87058041f3d57da92443c8e22a89d99bd4f8e07"
+    },
+    {
+      "file": "07.wav",
+      "text": "Не удалось безопасно и однозначно определить разрешённую команду.",
+      "size": 453814,
+      "sha256": "1408aaaa2a196b854ae6c8b68e784ff30a72c425ee632d4e149b7897455770cf"
+    },
+    {
+      "file": "08.wav",
+      "text": "Не настроено однозначное подключение действия.",
+      "size": 324982,
+      "sha256": "526dd168121d9df7ab97ca11aca6c46d4476001e71f1724ea0f6199aeac7700d"
+    },
+    {
+      "file": "09.wav",
+      "text": "Подключение недоступно.",
+      "size": 174198,
+      "sha256": "50eee8e5d393688b3cc5c0ef229c4a6ef55ae8d6e60681ee890320e48f93da93"
+    },
+    {
+      "file": "10.wav",
+      "text": "Не удалось обработать команду безопасно.",
+      "size": 273590,
+      "sha256": "e8dd799fda7c6ee9862f7bfef555d484e17088c6cede0506188e0e878739874f"
+    },
+    {
+      "file": "11.wav",
+      "text": "Она не отправлена устройству.",
+      "size": 205078,
+      "sha256": "1098b0bdf7cc4ac16c59723a8c15e9ac039ea31164301ccbe32334932a5ebc7d"
+    }
+  ],
+  "provenance": "Locally generated with the installed pinned Supertonic3 assets through F2Worker in plain whole-sentence mode. Synthetic speech only; no microphone or owner audio."
+}

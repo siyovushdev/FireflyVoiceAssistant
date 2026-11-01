@@ -1,5 +1,6 @@
 #include "firefly/voice/F2SpeechOutput.h"
 #include "F2Worker.h"
+#include "F2StockData.h"
 #include "../config/Platform.h"
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -47,12 +48,15 @@ struct F2SpeechOutput::Impl {
     f2::Events events;
     f2::Speaker speaker;
     int turn=0;
-    Impl(const std::string& model,const std::string& playback,Events sink,const std::string& wav)
-        : events(std::move(sink)),speaker(events,model,wav,playback,!wav.empty(),true){}
+    Impl(const std::string& model,const std::string& playback,Events sink,const std::string& wav,LoadGuard guard)
+        : events(std::move(sink)),speaker(events,model,wav,playback,!wav.empty(),true,f2::stockAudio,
+            [model,guard=std::move(guard)](const std::function<void()>& load) {
+                const auto verifiedLoad=[&]{verifyAssets(model);load();};
+                if(guard)guard(verifiedLoad);else verifiedLoad();
+            }){}
 };
-F2SpeechOutput::F2SpeechOutput(const std::string& model,const std::string& playback,Events events,const std::string& wav) {
-    verifyAssets(model);
-    impl_=std::make_unique<Impl>(model,playback,std::move(events),wav);
+F2SpeechOutput::F2SpeechOutput(const std::string& model,const std::string& playback,Events events,const std::string& wav,LoadGuard guard) {
+    impl_=std::make_unique<Impl>(model,playback,std::move(events),wav,std::move(guard));
 }
 F2SpeechOutput::~F2SpeechOutput()=default;
 void F2SpeechOutput::cancel(){impl_->speaker.cancel();}

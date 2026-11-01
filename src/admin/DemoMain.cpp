@@ -275,6 +275,8 @@ int main(int argc, char** argv) {
                     const auto process = [&](const firefly::voice::Utterance& u) {
                         const auto epoch = runtime.speechEpoch();
                         auto result = runtime.processVoice(*recognizer, u);
+                        std::cerr << "VOICE_REPLY_READY monotonic_ms="
+                            << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count() << '\n';
                         const auto cancelled = [&] {
                             return interrupted() || epoch != runtime.speechEpoch() || result.replyGeneration != runtime.voiceGenerationId() || runtime.voicePreferences().responses == "off";
                         };
@@ -283,12 +285,18 @@ int main(int argc, char** argv) {
                                 {
                                     auto lease = resources->acquire();
                                     if (!speaker) {
-                                        if (ttsDirectory.empty()) throw std::runtime_error("tts_model_not_configured");
-                                        resources->checkpoint("before_f2_load", 2 * firefly::SetupResources::GiBKiB);
                                         speaker = std::make_unique<firefly::voice::F2SpeechOutput>(ttsDirectory, playbackDevice,
-                                            [](const std::string& row) { std::cerr << ("F2_TRACE " + row + "\n"); });
-                                        try { resources->checkpoint("after_f2_load", firefly::SetupResources::GiBKiB); }
-                                        catch (...) { speaker.reset(); throw; }
+                                            [](const std::string& row) { std::cerr << ("F2_TRACE " + row + "\n"); }, "",
+                                            [&](const std::function<void()>& load) {
+                                                // Stock PCM never loads the model. Dynamic speech
+                                                // uses the same resource admission and audio lease.
+                                                auto loadingLease = resources->acquire();
+                                                if (interrupted()) throw std::runtime_error("speech_cancelled");
+                                                if (ttsDirectory.empty()) throw std::runtime_error("tts_model_not_configured");
+                                                resources->checkpoint("before_f2_load", 2 * firefly::SetupResources::GiBKiB);
+                                                load();
+                                                resources->checkpoint("after_f2_load", firefly::SetupResources::GiBKiB);
+                                            });
                                     }
                                 }
                                 runtime.speechStatus("speaking");

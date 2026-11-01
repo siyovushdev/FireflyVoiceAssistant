@@ -144,7 +144,7 @@ std::string executionText(const Facts& f, const execution::ExecutionResult& e, b
     if (!d) return "В этой сессии команда была принята для устройства из прежней конфигурации. Его текущее состояние неизвестно.";
     std::string name = "действие";
     for (const auto& a : f.catalog->configuration().actions) if (a.id == e.actionId) name = a.name;
-    auto text = "Команда «" + bounded(name) + "» для «" + bounded(d->name) + "» принята исполнителем. ";
+    auto text = "Команда принята исполнителем. Действие «" + bounded(name) + "» для «" + bounded(d->name) + "». ";
     // Always distinguish transport acceptance from observation, even if a
     // separate current observation is already available by response time.
     text += stateText(f, *d, detailed);
@@ -180,6 +180,11 @@ void OperationalDialogue::rememberAttempt(const Facts& f, const std::optional<ex
     if (e && device(f, e->targetId)) context_ = {f.catalog->contentHash(), e->targetId, {}, f.steadyMs, 0, Question::State};
 }
 std::string OperationalDialogue::commandReply(const Facts& f, const std::optional<execution::ExecutionResult>& e, const std::string& rejection, bool detailed) {
+    // A receipt describes only executor acceptance. The explicit qualification
+    // remains true even if a separate observation is present; it claims neither
+    // physical execution nor causality. State questions still read fresh facts.
+    if (!detailed && e && e->success && e->status == execution::ExecutionStatus::Accepted)
+        return "Команда принята исполнителем. Это не подтверждает состояние устройства.";
     return bounded(e ? executionText(f, *e, detailed) : failure(rejection), 1000);
 }
 Reply OperationalDialogue::ask(std::string_view original, const Facts& f, bool enabled, bool detailed, const Classifier& classify) {

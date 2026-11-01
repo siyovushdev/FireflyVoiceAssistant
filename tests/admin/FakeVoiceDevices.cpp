@@ -1,6 +1,7 @@
 // Linked ONLY into voice_recovery_fixture. No ALSA/sherpa/vendor libraries,
 // real devices, model files, or child processes. DemoMain and voice loops are real.
 #include "firefly/voice/AlsaAudioSource.h"
+#include "firefly/voice/F2SpeechOutput.h"
 #include "firefly/voice/AminaWakeDetector.h"
 #include "firefly/voice/SherpaSpeech.h"
 #include "firefly/voice/WakeAcknowledgement.h"
@@ -11,6 +12,15 @@
 #include <thread>
 
 namespace firefly::voice {
+// This lifecycle fixture deliberately has no speech SDK or playback device.
+struct F2SpeechOutput::Impl {};
+F2SpeechOutput::F2SpeechOutput(const std::string&, const std::string&, Events, const std::string&, LoadGuard)
+    : impl_(std::make_unique<Impl>()) {}
+F2SpeechOutput::~F2SpeechOutput() = default;
+void F2SpeechOutput::cancel() {}
+SpeechOutcome F2SpeechOutput::speak(const std::string&, const std::function<bool()>&) {
+    return {false, false, "fixture_speech_unavailable"};
+}
 namespace {
 std::string mode() {
     const auto* path = std::getenv("FIREFLY_TEST_VOICE_CONTROL");

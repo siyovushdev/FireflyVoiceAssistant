@@ -53,5 +53,14 @@ int main() {
             if(result!=text){std::cerr<<"Plain facts changed at split "<<split<<'\n';return 1;}++checks;
         }
     }
+    {
+        std::vector<std::string> chunks;
+        const std::string first="Не удалось безопасно и однозначно определить разрешённую команду.";
+        Sentences plain([&](std::string x){chunks.push_back(x);},true);
+        for(char byte:first+" Ничего не отправлено.")plain.push(std::string(1,byte));
+        plain.finish();
+        if(chunks!=std::vector<std::string>{first,"Ничего не отправлено."})return 1;
+        ++checks;
+    }
     std::cout<<"PASS "<<checks<<" incremental speech checks (all byte/token boundaries)\n";
 }
