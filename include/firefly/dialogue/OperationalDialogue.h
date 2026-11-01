@@ -36,7 +36,7 @@ public:
     std::string commandReply(const Facts& facts, const std::optional<execution::ExecutionResult>& execution,
                              const std::string& rejection, bool detailed);
     void rememberAttempt(const Facts& facts, const std::optional<execution::ExecutionResult>& execution,
-                         const std::string& rejection);
+                         const std::string& rejection, std::string_view original = {});
     void clear();
     static bool questionLike(std::string_view original);
 private:
@@ -47,7 +47,7 @@ private:
         Question question = Question::None;
     };
     struct Attempt {
-        std::string hash, rejection;
+        std::string hash, rejection, target;
         std::optional<execution::ExecutionResult> execution;
         std::uint64_t seenSequence = 0;
     };

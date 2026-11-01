@@ -612,7 +612,7 @@ voice::VoiceResult RuntimeWorker::processVoice(voice::SpeechRecognizer& recogniz
             const auto diagnostic = Json::parse(voiceCommand);
             const std::string rejection = diagnostic.value("rejection_stage", std::string{}).empty() ? "unsupported" : diagnostic.value("rejection_stage", std::string{});
             facts = dialogueFacts(generation, generations_.history(), generations_.modelReady());
-            dialogue_.rememberAttempt(facts, result.execution, rejection);
+            dialogue_.rememberAttempt(facts, result.execution, rejection, text);
             response = dialogue_.commandReply(facts, result.execution, rejection, preferences.responses == "detailed");
             responseKind = result.execution ? (result.execution->success && result.execution->status == execution::ExecutionStatus::Accepted ? "accepted" : "failed") : "unsupported";
             responseReason = result.execution ? result.execution->error : rejection;

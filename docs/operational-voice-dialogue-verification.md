@@ -1,7 +1,9 @@
 # Operational voice dialogue + F2 — developer verification
 
 Source integration based on `d75dafbe58216c2796b4b8ac2813d063b37e87e3`.
-The final feature commit is the Draft PR head. This is developer acceptance,
+The initial acceptance below refers to `53429eb`; the subsequent
+[focused review remediation](operational-voice-dialogue-review-fixes.md) records
+the latest dialogue corrections and their separate checks. This is developer acceptance,
 not production activation or independent approval.
 
 ## Environments

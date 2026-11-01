@@ -13,7 +13,7 @@ class Device(http.server.BaseHTTPRequestHandler):
 with tempfile.TemporaryDirectory(prefix='firefly-operational-') as directory:
     root=Path(directory);root.chmod(0o700);(root/'store').mkdir(mode=0o700)
     device=http.server.ThreadingHTTPServer(('127.0.0.1',0),Device);thread=threading.Thread(target=device.serve_forever,daemon=True);thread.start()
-    doc=json.loads((Path(ROOT)/'tests/admin/v2/system.json').read_text());doc['devices']=doc['devices'][:1];d=doc['devices'][0];d.update(id='lamp',name='Свет',spoken_aliases=['свет'],room_id='kitchen')
+    doc=json.loads((Path(ROOT)/'tests/admin/v2/system.json').read_text());doc['devices']=doc['devices'][:1];d=doc['devices'][0];d.update(id='lamp',name='Свет',spoken_aliases=['свет','лампа','лампу'],room_id='kitchen')
     room=doc['rooms'][0];room.update(id='kitchen',name='Кухня',speech={'mentions':['кухня','кухне'],'locations':['на кухне']});doc['rooms']=[room]
     doc['system']['voice_dialogue']={'responses':'brief','questions_enabled':True}
     doc['connections']=[{'id':'loopback','name':'Изолированный HTTP','enabled':True,'type':'http','timeout_ms':300,'http':{'base_url':f'http://127.0.0.1:{device.server_port}'}}]
@@ -44,6 +44,20 @@ with tempfile.TemporaryDirectory(prefix='firefly-operational-') as directory:
         assert len(Device.posts)==1
         active=api('/api/config/active')['active'];state_poll=api('/api/devices/poll',{'target_id':'lamp','expected_hash':active['hash']});assert state_poll['ok']
         r=voice('Свет на кухне включен?');assert 'подтверждённому наблюдению' in r['reply'],r
+        # PR43 independent findings, actual production classes and exact I/O.
+        r=voice('Что ты сделала последним?');assert 'Свет' in r['reply'],r
+        r=voice('А он сейчас работает?');assert 'подтверждённому наблюдению' in r['reply'],r
+        r=voice('А она сейчас включена?');assert 'подтверждённому наблюдению' in r['reply'],r
+        for text in ['Лампа на кухне включена?','Лампа на кухне выключена?']:
+            r=voice(text);assert r['route']=='OPERATIONAL_QUESTION' and 'Свет' in r['reply'],r
+        for text in ['Чайник на кухне включен?','Ты включила чайник на кухне?','Почему чайник на кухне не работает?','Свет и чайник на кухне включены?','Как там чайник на кухне?']:
+            r=voice(text);assert r['route']=='OPERATIONAL_QUESTION' and '«Свет»' not in r['reply'],r
+            assert len(Device.posts)==1,Device.posts
+        r=voice('А он сейчас работает?');assert 'О каком устройстве' in r['reply'],r
+        r=voice('Не выключай свет на кухне');assert r['kind']=='unsupported',r
+        for text in ['Почему команда не выполнилась?','Почему ты не выключила свет на кухне?']:
+            r=voice(text);assert 'Ничего не отправлено' in r['reply'] and 'принята исполнителем' not in r['reply'],r
+        assert len(Device.posts)==1,Device.posts
         # Fresh unrelated questions cannot create transport calls, even though
         # the fake model always returns [1] (positive malicious control).
         for text in ['Сколько лет луне?','Не выключай свет','Да я выключил свет','Что сейчас включено?']:
@@ -51,6 +65,16 @@ with tempfile.TemporaryDirectory(prefix='firefly-operational-') as directory:
         assert len(Device.posts)==1
         r=voice('выключи свет на кухне');assert Device.posts==[{'power':True},{'power':False}],r
         assert (root/'store/configuration.json').read_bytes()==before
+        # A leading location request reaches the unchanged safe execution path
+        # with questions disabled AND enabled, once per explicit utterance.
+        for enabled in [False,True]:
+            stored=api('/api/config');candidate=stored['configuration'];candidate['system']['voice_dialogue']={'responses':'brief','questions_enabled':enabled}
+            saved=api('/api/config',{'configuration':candidate,'expected':{'revision':stored['revision'],'hash':stored['hash']}},'PUT')
+            api('/api/config/apply',{'expected':{'revision':saved['revision'],'hash':saved['hash']}})
+            r=voice('А на кухне включи свет');assert r['kind']=='accepted' and r['route']!='OPERATIONAL_QUESTION',r
+            r=voice('Лампа на кухне включена?');assert r['route']=='OPERATIONAL_QUESTION',r
+            assert ('выключены' in r['reply']) is (not enabled),r
+        assert Device.posts==[{'power':True},{'power':False},{'power':True},{'power':True}],Device.posts
         # Existing Save/CAS/Apply publishes preferences without a process restart.
         stored=api('/api/config');candidate=stored['configuration'];candidate['system']['voice_dialogue']={'responses':'off','questions_enabled':False}
         saved=api('/api/config',{'configuration':candidate,'expected':{'revision':stored['revision'],'hash':stored['hash']}},'PUT')
@@ -58,7 +82,7 @@ with tempfile.TemporaryDirectory(prefix='firefly-operational-') as directory:
         api('/api/config/apply',{'expected':{'revision':saved['revision'],'hash':saved['hash']}})
         r=voice('Что сейчас включено?');assert r['mode']=='off' and r['route']=='OPERATIONAL_QUESTION' and 'выключены' in r['reply'],r
         assert api('/api/status')['worker_pid']==pid
-        assert len(Device.posts)==2
+        assert len(Device.posts)==4
         epoch_stop=api('/api/voice/stop',{});assert epoch_stop['ok']
         # Recovery/restart reads the persisted preferences, keeps all observations
         # Unknown until fresh evidence (no config.initial pretending to be state).
@@ -67,7 +91,7 @@ with tempfile.TemporaryDirectory(prefix='firefly-operational-') as directory:
         assert select.select([child.stdout],[],[],15)[0];url=json.loads(child.stdout.readline())['url']
         r=voice('Что сейчас включено?');assert r['mode']=='off' and 'выключены' in r['reply']
         obs=r['observation'];assert all(p['knowledge']=='unknown' for dev in obs['devices'] for p in dev['properties'].values())
-        print('PASS operational HTTP: 2 exact real POST controls; questions/negations/statements zero additional POST; independent GET confirmation; Save→Apply live settings; persisted restart; no NPU/mic/production')
+        print('PASS operational HTTP: 4 exact explicit POST controls incl. leading-location commands with questions off/on; review questions/unknown objects/scoped rejections/pronouns zero extra POST; independent GET; live preferences/restart; no NPU/mic/production')
     finally:
         if not child.stdin.closed:child.stdin.close()
         try:child.wait(timeout=10)

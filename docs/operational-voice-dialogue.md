@@ -42,7 +42,9 @@ classifier, including error paths.
 Context is in RAM: at most six follow-ups within 120 seconds, tied to the
 active configuration hash. A clearly referenced device may support “он/она”;
 ambiguous references, new generations, Setup and restart clear or invalidate
-context. Context never fills a missing **command** target. Execution history
+context. Context never fills a missing **command** target. Unknown question objects do
+not select other devices in the same room; failed scope clears the old referent.
+A current-generation last-action answer retains its known device for follow-ups. Execution history
 is the existing bounded process-local history; after restart the assistant
 explicitly says that earlier execution evidence is unavailable. Playground
 activity is excluded from operational history.
@@ -54,6 +56,9 @@ that the executor accepted the command and that physical state is unconfirmed.
 Only independent fresh observations yield **Confirmed**; stale observations
 (default 60 seconds) are described as stale. Channel connectivity is not power
 state. A delivery timeout means unknown outcome with no automatic retry.
+Pre-execution rejections are associated with a device only when the original
+request supports that association; otherwise the answer states uncertainty,
+instead of presenting an older successful command as the latest attempt.
 Questions do not poll, publish, or execute devices themselves. Explicit existing
 observation mechanisms may independently refresh state. No cloud is used.
 
