@@ -13,11 +13,11 @@ export interface AdminReply extends WireObject {
 export type CatalogReply = CatalogDto & AdminReply;
 export interface SetupStatus extends AdminReply { readonly active: boolean; readonly status: string }
 const reads = ['/api/setup/status', '/api/config/revisions', '/api/config/export', '/api/dashboard', '/api/mqtt/credentials', '/api/mqtt/local-broker'];
-const posts = ['/api/mqtt/local-broker', '/api/mqtt/credentials', '/api/setup/start', '/api/setup/resume', '/api/setup/heartbeat', '/api/setup/message', '/api/setup/draft', '/api/setup/apply', '/api/setup/cancel', '/api/admin/copilot', '/api/admin/copilot/accept', '/api/admin/language-profile', '/api/admin/action-draft', '/api/admin/draft', '/api/config/validate', '/api/config/diff', '/api/config/apply', '/api/config/import', '/api/config/restore-candidate', '/api/config/reconcile', '/api/config/migrate', '/api/connections/probe', '/api/devices/command', '/api/devices/poll', '/api/test-command'];
+const posts = ['/api/voice/stop', '/api/mqtt/local-broker', '/api/mqtt/credentials', '/api/setup/start', '/api/setup/resume', '/api/setup/heartbeat', '/api/setup/message', '/api/setup/draft', '/api/setup/apply', '/api/setup/cancel', '/api/admin/copilot', '/api/admin/copilot/accept', '/api/admin/language-profile', '/api/admin/action-draft', '/api/admin/draft', '/api/config/validate', '/api/config/diff', '/api/config/apply', '/api/config/import', '/api/config/restore-candidate', '/api/config/reconcile', '/api/config/migrate', '/api/connections/probe', '/api/devices/command', '/api/devices/poll', '/api/test-command'];
 export async function adminRequest<T = AdminReply>(path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST'): Promise<T> {
     if (!(method === 'GET' && reads.includes(path) || method === 'POST' && posts.includes(path) || (method === 'PUT' && (path === '/api/config' || path === '/api/mqtt/credentials') || method === 'DELETE' && path === '/api/mqtt/credentials'))) throw Error('Недопустимая операция Admin');
-    if (setupAuth.token && body && typeof body === 'object' && !path.startsWith('/api/setup/')) body = { ...body, session_id: setupAuth.token };
-    return queued(async () => {
+    if (setupAuth.token && body && typeof body === 'object' && !path.startsWith('/api/setup/') && path !== '/api/voice/stop') body = { ...body, session_id: setupAuth.token };
+    const operation = async () => {
         let response: Response;
         try { response = await fetch(path, { method, body: body === undefined ? undefined : JSON.stringify(body),
             headers: { 'Content-Type': 'application/json', 'X-Firefly-Admin': '1' }, credentials: 'same-origin', redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(path === '/api/setup/message' ? 660000 : 120000) }); }
@@ -33,7 +33,9 @@ export async function adminRequest<T = AdminReply>(path: string, body?: unknown,
             catch { throw new AdminError([{ code: 'invalid_save_response', path: '', message: 'Ответ Save неполный. Перечитайте stored/active; повтор Save не выполняется.' }], true); }
         }
         return reply as T;
-    });
+    };
+    // A stop must not queue behind the request whose speech is being stopped.
+    return path === '/api/voice/stop' ? operation() : queued(operation);
 }
 export const identity = (catalog: Identity): { revision: number; hash: string } => ({ revision: catalog.revision, hash: catalog.hash });
 export function issuesOf(error: unknown): Issue[] { return error instanceof AdminError ? error.issues : [{ code: 'local', path: '', message: error instanceof Error ? error.message : String(error) }]; }

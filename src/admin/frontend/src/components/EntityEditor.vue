@@ -20,9 +20,22 @@ function remove() {
     else if (device.value) { const id = device.value.id; config.value.devices = config.value.devices.filter(d => d.id !== id); config.value.bindings = config.value.bindings.filter(b => b.target_id !== id); config.value.observations = config.value.observations?.filter(o => o.target_id !== id); }
 }
 const removed = computed(() => task.value.kind === 'zone' ? !zone.value : task.value.kind === 'device' ? !device.value : false);
+function setResponses(value: string) {
+    if (value !== 'off' && value !== 'brief' && value !== 'detailed') return;
+    config.value.system.voice_dialogue = { responses: value, questions_enabled: config.value.system.voice_dialogue?.questions_enabled ?? false };
+}
+function setQuestions(value: boolean) {
+    config.value.system.voice_dialogue = { responses: config.value.system.voice_dialogue?.responses ?? 'off', questions_enabled: value };
+}
 </script>
 <template>
-    <template v-if="task.kind === 'system'"><label>Название системы<input v-model="config.system.name" required data-path="/system/name" autofocus></label></template>
+    <template v-if="task.kind === 'system'"><label>Название системы<input v-model="config.system.name" required data-path="/system/name" autofocus></label>
+        <h3>Голос Амины · F2</h3>
+        <label>Голосовые ответы<select :value="config.system.voice_dialogue?.responses ?? 'off'" data-testid="voice-responses" @change="setResponses(($event.target as HTMLSelectElement).value)"><option value="off">Выключено</option><option value="brief">Кратко</option><option value="detailed">Подробно</option></select></label>
+        <label><input type="checkbox" :checked="config.system.voice_dialogue?.questions_enabled ?? false" data-testid="voice-questions" @change="setQuestions(($event.target as HTMLInputElement).checked)">Вопросы о работе ассистента и устройств</label>
+        <p>Например: «Что сейчас включено?», «Что ты сделала последним?», «А на кухне?». Ответы опираются на известные данные; отправка команды не подтверждает состояние устройства.</p>
+        <p>Изменения входят в локальный план. После Review → Apply действуют без перезапуска. В режиме «Выключено» звук не воспроизводится. Общение на посторонние темы не поддерживается.</p>
+    </template>
     <template v-if="zone"><label>Название зоны<input v-model="zone.name" required :data-path="path + '/name'" autofocus></label><ContextualAssist :entity="zone" kind="location" /><label>Родительская зона<select v-model="zone.metadata!.parent_id"><option :value="null">Без родительской зоны</option><option v-for="parent in config.rooms.filter(z => z.id !== zone!.id)" :key="parent.id" :value="parent.id">{{ parent.name }}</option></select></label><label>Альтернативные названия зоны<LineListInput :model-value="(zone.metadata!.aliases as string[] | undefined) ?? []" @update:model-value="zone.metadata!.aliases = $event" /></label><label>Описание зоны<textarea v-model="zone.metadata!.description"></textarea></label><label class="check"><input v-model="zone.metadata!.container" type="checkbox">Зона-группа (контейнер)</label><p class="field-example">* Обязательно для зоны, используемой в командах. Примеры ниже не заполняют поля.</p><label>Как назвать зону в команде{{ !zone.metadata?.container ? ' *' : '' }}<LineListInput v-model="zone.speech!.mentions" :aria-required="!zone.metadata?.container" :data-path="path + '/speech/mentions'" aria-describedby="zone-mentions-example" /></label><small id="zone-mentions-example" class="field-example">Пример: цех</small><label>Как указать местоположение{{ !zone.metadata?.container ? ' *' : '' }}<LineListInput v-model="zone.speech!.locations" :aria-required="!zone.metadata?.container" :data-path="path + '/speech/locations'" aria-describedby="zone-locations-example" /></label><small id="zone-locations-example" class="field-example">Пример: в цехе</small></template>
     <template v-if="device"><label>Название устройства<input v-model="device.name" required :data-path="path + '/name'" autofocus></label><ContextualAssist :entity="device" kind="device" /><label>Зона<select v-model="device.room_id"><option :value="null">Без зоны</option><option v-for="z in config.rooms" :key="z.id" :value="z.id">{{ z.name }}</option></select></label><label>Как обращаться к устройству, по одной форме в строке<LineListInput v-model="device.spoken_aliases" aria-describedby="device-alias-example" :data-path="path + '/spoken_aliases'" /></label><small id="device-alias-example" class="field-example">Проверьте название и форму после «включи / выключи»: розетка, розетку; вентилятор. Без нужной речевой формы команда будет отклонена.</small>
         <label>Описание устройства<textarea v-model="device.metadata!.description"></textarea></label>

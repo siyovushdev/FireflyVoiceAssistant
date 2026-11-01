@@ -45,7 +45,8 @@ export interface ConnectionDto extends WireObject {
 }
 export interface ConfigurationDto extends WireObject {
     readonly schema_version: number; readonly revision: number;
-    readonly system: WireObject & { readonly id: string; readonly name: string };
+    readonly system: WireObject & { readonly id: string; readonly name: string;
+        readonly voice_dialogue?: { readonly responses: 'off' | 'brief' | 'detailed'; readonly questions_enabled: boolean } };
     readonly rooms: readonly ZoneDto[]; readonly devices: readonly DeviceDto[]; readonly actions: readonly ActionDto[];
     readonly bindings: readonly BindingDto[]; readonly connections?: readonly ConnectionDto[];
     readonly observations?: readonly (WireObject & { readonly target_id: string; readonly connection_id: string; readonly executor?: string; readonly http?: HttpDto; readonly mqtt?: MqttObservationDto; readonly fields?: Readonly<Record<string, string>> })[];
@@ -56,6 +57,7 @@ export interface StatusDto extends WireObject {
     readonly ok: true; readonly runtime_ready: boolean; readonly runtime_busy: boolean;
     readonly needs_apply: boolean; readonly active: Identity | null; readonly stored?: Identity;
     readonly health?: WireObject & { readonly overall: string; readonly stopping?: boolean };
+    readonly speech?: WireObject & { readonly state: string; readonly error: string; readonly voice: string };
     readonly voice?: string; readonly stt_ready?: boolean; readonly runtime_error?: string;
 }
 export interface PropertyDto extends WireObject {

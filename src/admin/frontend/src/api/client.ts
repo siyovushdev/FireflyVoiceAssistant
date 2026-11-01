@@ -33,6 +33,11 @@ function catalog(value: unknown): void {
     if (value.generation_id !== undefined) number(value.generation_id);
     const config = value.configuration; object(config);
     number(config.schema_version); number(config.revision); entity(config.system);
+    object(config.system);
+    if (config.system.voice_dialogue !== undefined) {
+        const voice = config.system.voice_dialogue; object(voice); boolean(voice.questions_enabled);
+        if (!['off', 'brief', 'detailed'].includes(String(voice.responses))) invalid();
+    }
     list(config.rooms, item => { object(item); entity(item); metadata(item.metadata); });
     list(config.devices, item => {
         object(item); entity(item); string(item.kind); nullableString(item.room_id); boolean(item.enabled);
@@ -63,6 +68,9 @@ export function decodeResponse<P extends ReadEndpoint>(path: P, value: unknown):
         if (value.runtime_error !== undefined) string(value.runtime_error);
         if (value.stt_ready !== undefined) boolean(value.stt_ready);
         if (value.voice !== undefined) string(value.voice);
+        if (value.speech !== undefined) {
+            object(value.speech); string(value.speech.state); string(value.speech.error); string(value.speech.voice);
+        }
     }
     if (path === '/api/devices/state') {
         active(value.active);

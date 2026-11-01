@@ -7,6 +7,9 @@ struct VoiceResult {
     RecognitionResult recognition;
     bool inlineWake = false, wakePrefixRemoved = false;
     std::string commandText;
+    // Grounded operational response; never model-generated device facts.
+    std::string replyText, replyKind, replyReason, replyMode = "off";
+    std::uint64_t replyGeneration = 0;
     actions::CandidateResult action;
     std::string route = "NOT_CALLED", error;
     CommandTimings llmTimings;

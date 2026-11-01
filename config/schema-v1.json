@@ -35,6 +35,27 @@
                 },
                 "interpretation_profile": {
                     "const": "legacy_m4_v1"
+                },
+                "voice_dialogue": {
+                    "type": "object",
+                    "properties": {
+                        "responses": {
+                            "type": "string",
+                            "enum": [
+                                "off",
+                                "brief",
+                                "detailed"
+                            ]
+                        },
+                        "questions_enabled": {
+                            "type": "boolean"
+                        }
+                    },
+                    "required": [
+                        "responses",
+                        "questions_enabled"
+                    ],
+                    "additionalProperties": false
                 }
             },
             "required": [

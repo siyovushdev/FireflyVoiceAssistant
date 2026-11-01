@@ -194,7 +194,17 @@ export function readableDiff(before: ConfigurationDto, after: ConfigurationDto):
         changes.push({ title, before: a, after: b, beforeText, afterText: afterText === beforeText
             ? afterText + ' · Изменены технические параметры; подробности в расширенном режиме.' : afterText, consumers: affected });
     };
-    add('Система', before.system, after.system);
+    const beforeSystem = { ...before.system }, afterSystem = { ...after.system };
+    delete beforeSystem.voice_dialogue; delete afterSystem.voice_dialogue;
+    add('Система', beforeSystem, afterSystem);
+    const aVoice = before.system.voice_dialogue, bVoice = after.system.voice_dialogue;
+    if (JSON.stringify(aVoice) !== JSON.stringify(bVoice)) {
+        const describeVoice = (value: ConfigurationDto['system']['voice_dialogue']) => value
+            ? `Голос F2: ${{ off: 'выключен', brief: 'кратко', detailed: 'подробно' }[value.responses]}; вопросы о работе: ${value.questions_enabled ? 'включены' : 'выключены'}`
+            : 'По умолчанию: голос и вопросы о работе выключены';
+        changes.push({ title: 'Голосовые ответы и вопросы', before: aVoice, after: bVoice,
+            beforeText: describeVoice(aVoice), afterText: describeVoice(bVoice), consumers: [] });
+    }
     for (const [key, label] of [['rooms', 'Зона'], ['devices', 'Устройство'], ['actions', 'Действие'], ['connections', 'Подключение']] as const) {
         const previous = before[key] ?? [], next = after[key] ?? [];
         const ids = new Set([...previous, ...next].map(x => x.id));

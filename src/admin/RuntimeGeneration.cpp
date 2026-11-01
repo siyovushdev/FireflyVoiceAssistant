@@ -398,6 +398,41 @@ execution::HardwareResult RuntimeGenerations::poll(const std::string& targetId, 
     if (setupBlocked()) return {false, "setup_in_progress", {}, execution::ReachabilityEvidence::None};
     return active->executor->poll(targetId);
 }
+std::string RuntimeGenerations::Request::classifyOperationalQuestion(std::string_view original, CommandTimings* timings) {
+    if (processed_) throw std::logic_error("Request already consumed");
+    processed_ = true;
+    if (owner_.stopping_ || owner_.setupBlocked() || !owner_.model_.ready()) {
+        owner_.ready_ = !owner_.setupBlocked() && owner_.model_.ready(); return "null";
+    }
+    const std::string prompt = "Классифицируй цель вопроса в поле text. НЕ отвечай на сам вопрос. Не нужно знать состояние устройства. "
+        "Выбери ответ из schema.choices. [1] запрос состояния или доступности устройства. [2] список включённых устройств. "
+        "[3] последняя выполненная команда. [4] причина отказа. [5] возможности ассистента. "
+        "Только [1], [2], [3], [4], [5] или null. Как там свет на кухне? -> [1]. "
+        "Почему не получилось? -> [4]. Посторонняя тема или просьба действовать -> null.";
+    const auto start = std::chrono::steady_clock::now();
+    if (timings) timings->task = "operational_question";
+    try {
+        owner_.model_.useContext(prompt);
+        if (timings) {
+            timings->contextMs = std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();
+            timings->invoked = true;
+        }
+        const auto raw = owner_.model_.inferCommand(original, R"({"output":"one-element JSON array or null","choices":[[1],[2],[3],[4],[5]]})");
+        if (timings) {
+            const auto metrics = Json::parse(owner_.model_.inferenceMetrics());
+            timings->prefillMs = metrics.value("prefill_ms", 0.0);
+            timings->generationMs = metrics.value("generation_ms", 0.0);
+            timings->outputTokens = metrics.value("output_tokens", 0);
+        }
+        owner_.model_.useContext(generation_->defaultPrompt());
+        owner_.ready_ = !owner_.setupBlocked() && owner_.model_.ready();
+        return raw;
+    } catch (...) {
+        try { owner_.model_.useContext(generation_->defaultPrompt()); } catch (...) {}
+        owner_.ready_ = !owner_.setupBlocked() && owner_.model_.ready();
+        return "null";
+    }
+}
 GenerationResult RuntimeGenerations::Request::process(std::string_view input, execution::ExecutionIntent execution, std::string source, const CommandGuard* guard) {
     if (processed_) throw std::logic_error("Request already consumed");
     processed_ = true;

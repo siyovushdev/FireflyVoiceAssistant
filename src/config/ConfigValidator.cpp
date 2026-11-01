@@ -115,6 +115,11 @@ Catalog ConfigValidator::validate(Configuration configuration) {
     auto catalog = std::shared_ptr<ValidatedCatalog>(new ValidatedCatalog);
     std::map<std::string, std::string> ids;
     addIdentity(configuration.system, "/system", ids);
+    const auto& voice = configuration.system.voiceDialogue;
+    if (voice.responses != "off" && voice.responses != "brief" && voice.responses != "detailed")
+        throw ConfigError("schema_error", "/system/voice_dialogue/responses", "Unsupported voice response mode");
+    if (!voice.present && (voice.responses != "off" || voice.questionsEnabled))
+        throw ConfigError("schema_error", "/system/voice_dialogue", "Explicit preferences required");
     const auto identify = [&](const auto& values, const std::string& path) {
         for (std::size_t i = 0; i < values.size(); ++i) addIdentity(values[i], path + "/" + std::to_string(i), ids);
     };

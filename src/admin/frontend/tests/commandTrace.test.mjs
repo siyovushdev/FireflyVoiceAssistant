@@ -20,3 +20,11 @@ test('old diagnostic responses never invent a Qwen invocation or physical confir
     const preview = commandTrace({ input: 'выключи свет', route: 'deterministic', llm: { invoked: false }, predicted_execution: { executed: false } });
     assert.equal(preview.executed, false);
 });
+
+
+test('operational question never displays the previous command as its execution', () => {
+    const trace = commandTrace({ last_voice: { transcript: 'Что сейчас включено?', reply_kind: 'question', reply_text: 'Состояние неизвестно.', llm: { invoked: true }, command: null }, last_command: { input: 'Включи свет', result: { targetId: 'light', actionId: 'on' }, execution: { success: true } } });
+    assert.equal(trace.executed, false); assert.equal(trace.action, ''); assert.equal(trace.target, '');
+    assert.equal(trace.input, 'Что сейчас включено?'); assert.match(trace.route, /Вопрос о работе/);
+    assert.equal(trace.reason, 'Состояние неизвестно.');
+});

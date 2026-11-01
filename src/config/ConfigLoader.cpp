@@ -260,6 +260,10 @@ Configuration decode(const Json& value) {
     const auto& system = value.at("system");
     static_cast<Identity&>(result.system) = identity(system);
     result.system.locale = system.at("locale"); result.system.interpretationProfile = system.at("interpretation_profile");
+    if (system.contains("voice_dialogue")) {
+        const auto& voice = system.at("voice_dialogue");
+        result.system.voiceDialogue = {true, voice.at("responses").get<std::string>(), voice.at("questions_enabled").get<bool>()};
+    }
     for (const auto& item : value.at("rooms")) {
         Room room; static_cast<Identity&>(room) = identity(item);
         room.metadata = metadata(item);
@@ -385,6 +389,8 @@ Json encode(const Configuration& value) {
     Json result = {{"schema_version", value.schemaVersion}, {"revision", value.revision}, {"retired_ids", value.retiredIds}};
     auto system = identityJson(value.system);
     system["locale"] = value.system.locale; system["interpretation_profile"] = value.system.interpretationProfile;
+    if (value.system.voiceDialogue.present) system["voice_dialogue"] = {
+        {"responses", value.system.voiceDialogue.responses}, {"questions_enabled", value.system.voiceDialogue.questionsEnabled}};
     result["system"] = std::move(system);
     for (const auto* key : {"rooms", "devices", "actions", "bindings"}) result[key] = Json::array();
     for (const auto& room : value.rooms) {

@@ -7,6 +7,10 @@ function text(value: unknown): string { return typeof value === 'string' ? value
 
 export function commandTrace(value: unknown, configuration?: ConfigurationDto | null) {
     const record = object(value), voice = object(record.last_voice);
+    if (voice.reply_kind === 'question') return {
+        input: text(voice.transcript), route: object(voice.llm).invoked === true ? 'Вопрос о работе · Qwen выбрал тип вопроса' : 'Вопрос о работе · известные данные',
+        target: '', action: '', reason: text(voice.reply_text), executed: false,
+    };
     const command = object(voice.command ?? record.last_command ?? value);
     const input = text(voice.transcript) || text(command.input);
     if (!input) return null;
