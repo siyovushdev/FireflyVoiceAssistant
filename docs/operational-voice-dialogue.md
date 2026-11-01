@@ -51,8 +51,8 @@ activity is excluded from operational history.
 
 Facts come from the active ConfigStore generation, DeviceStateStore and
 production execution events. Configuration initial values are not observations.
-A transport ACK/HTTP success yields **Accepted / Predicted**. Spoken replies say
-that the executor accepted the command and that physical state is unconfirmed.
+A transport ACK/HTTP success yields **Accepted / Predicted**. Spoken replies state
+that executor acceptance does not confirm physical device state.
 Only independent fresh observations yield **Confirmed**; stale observations
 (default 60 seconds) are described as stale. Channel connectivity is not power
 state. A delivery timeout means unknown outcome with no automatic retry.
@@ -128,6 +128,8 @@ opened. Beep and F2 playback are sequential. Audio resources, including cached
 TTS, drain before AI Setup loads Admin Qwen. Apply/off, Setup, audio-stop and
 shutdown interrupt speech. Failed TTS keeps the command result/diagnostic text;
 it never resends a command. Missing/unsafe assets fail dynamic speech only; embedded stock replies remain available.
+
+See [measured F2 latency and its limits](operational-f2-latency.md).
 
 ## Limits and recovery
 
