@@ -50,10 +50,15 @@ with tempfile.TemporaryDirectory(prefix='firefly-operational-') as directory:
         assert voice('Свет на кухне выключен?')['reply']=='Да.'
         Device.read_mode='opposite';r=voice('включи свет на кухне')
         assert r['reply']=='Устройство ответило, но выполнение не подтвердилось.' and r['reason']!='state_confirmed',r
-        Device.read_mode='valid';assert voice('Свет на кухне включен?')['reply']=='Да.'
-        Device.read_mode='bad';assert voice('Свет на кухне включен?')['reply']=='Сейчас не могу проверить.'
+        Device.read_mode='valid';r=voice('Свет на кухне включен?');assert r['reply']=='Да.'
+        last_observed=r['observation']['devices'][0]['last_observation_at_ms']
+        historical='Последнее показание: питание включено. Сейчас не могу проверить.'
+        Device.read_mode='bad';r=voice('Свет на кухне включен?');assert r['reply']==historical,r
+        assert r['observation']['devices'][0]['last_observation_at_ms']==last_observed,'malformed HTTP reply refreshed telemetry'
+        assert r['observation']['devices'][0]['properties']['power']['last_observed_value'] is True
         Device.read_mode='delay';start=time.monotonic();r=voice('Свет на кухне включен?');elapsed=time.monotonic()-start
-        assert elapsed<.9 and r['reply']=='Сейчас не могу проверить.',(elapsed,r)
+        assert elapsed<.9 and r['reply']==historical,(elapsed,r)
+        assert r['observation']['devices'][0]['last_observation_at_ms']==last_observed,'timed-out HTTP read refreshed telemetry'
         start=time.monotonic();r=voice('выключи свет на кухне');elapsed=time.monotonic()-start
         assert elapsed<.9 and r['reply']=='Команду отправила, ответа пока нет.' and r['kind']=='accepted',(elapsed,r)
         assert voice('Почему команда не выполнилась?')['reply']=='Не дождалась подтверждения.'
