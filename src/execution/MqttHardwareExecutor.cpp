@@ -99,8 +99,7 @@ void MqttObservationGate::disconnected(const std::string& target, DeviceStateSto
         if (current.inFlight) current.disconnectedDuringCommand = true;
         current.published = false;
         current.buffered.reset();
-        store.invalidate(target);
-        store.markUnreachable(target, store.nowMs());
+        store.observationDisconnected(target);
     } catch (const std::exception&) {
         // Even OOM while acquiring gate storage cannot throw through a C callback.
     }
@@ -129,8 +128,7 @@ void MqttObservationGate::end(const std::string& target, DeviceStateStore& store
         // after the subscription was lost. Disconnect wins the final state
         // even when publish and disconnect raced in the same millisecond.
         try {
-            store.invalidate(target);
-            store.markUnreachable(target, store.nowMs());
+            store.observationDisconnected(target);
         } catch (const std::exception&) { /* fail closed */ }
     }
     // Keep tickets only from a healthy successful submission. An observation

@@ -77,11 +77,20 @@ export function decodeResponse<P extends ReadEndpoint>(path: P, value: unknown):
         list(value.devices, item => {
             object(item); string(item.targetId); string(item.connectivity);
             nullableNumber(item.last_success_at_ms); nullableNumber(item.last_failure_at_ms); object(item.properties);
+            if (item.availability !== undefined && !['online', 'offline', 'unknown'].includes(String(item.availability))) invalid();
+            if (item.availability_reason !== undefined) string(item.availability_reason);
+            if (item.last_observation_at_ms !== undefined) nullableNumber(item.last_observation_at_ms);
+            if (item.observation_age_ms !== undefined) { nullableNumber(item.observation_age_ms); if (typeof item.observation_age_ms === 'number' && item.observation_age_ms < 0) invalid(); }
             Object.values(item.properties).forEach(property => {
                 object(property); string(property.knowledge); boolean(property.stale);
                 number(property.updated_at_ms); nullableNumber(property.observed_at_ms);
                 if (property.value !== null && !['string', 'boolean', 'number'].includes(typeof property.value)) invalid();
                 if (typeof property.value === 'number') number(property.value);
+                if (property.observation_age_ms !== undefined) { nullableNumber(property.observation_age_ms); if (typeof property.observation_age_ms === 'number' && property.observation_age_ms < 0) invalid(); }
+                if (property.last_observed_value !== undefined && property.last_observed_value !== null) {
+                    if (!['string', 'boolean', 'number'].includes(typeof property.last_observed_value)) invalid();
+                    if (typeof property.last_observed_value === 'number') number(property.last_observed_value);
+                }
             });
         });
     }

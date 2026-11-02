@@ -99,6 +99,8 @@ Json propertyKnowledgeJson(const execution::PropertyKnowledge& property, std::in
         {"knowledge", execution::DeviceStateStore::knowledgeName(property.knowledge)},
         {"stale", execution::isStale(property, nowMs)},
         {"updated_at_ms", property.updatedAtMs},
+        {"last_observed_value", property.lastObservedValue ? actions::scalarJson(*property.lastObservedValue) : Json(nullptr)},
+        {"observation_age_ms", property.lastObservationSteadyMs && *property.lastObservationSteadyMs <= nowMs ? Json(nowMs - *property.lastObservationSteadyMs) : Json(nullptr)},
         {"observed_at_ms", property.observedAtMs > 0 ? Json(property.observedAtMs) : Json(nullptr)}};
 }
 Json deviceKnowledgeJson(const execution::DeviceKnowledge& device, std::int64_t nowMs) {
@@ -115,6 +117,12 @@ Json deviceKnowledgeJson(const execution::DeviceKnowledge& device, std::int64_t 
     return {{"targetId", device.targetId}, {"name", device.name},
         {"properties", properties},
         {"state", legacy},
+        {"availability", execution::availability(device, nowMs)},
+        {"availability_reason", device.observationDisconnected ? "observation_disconnected" :
+            !execution::observationAge(device, nowMs) ? "no_observation" :
+            *execution::observationAge(device, nowMs) > execution::kDefaultStateTtlMs ? "telemetry_timeout" : "recent_observation"},
+        {"last_observation_at_ms", device.lastObservationAtMs > 0 ? Json(device.lastObservationAtMs) : Json(nullptr)},
+        {"observation_age_ms", execution::observationAge(device, nowMs) ? Json(*execution::observationAge(device, nowMs)) : Json(nullptr)},
         {"connectivity", execution::DeviceStateStore::connectivityName(device.connectivity)},
         {"last_success_at_ms", device.lastSuccessAtMs > 0 ? Json(device.lastSuccessAtMs) : Json(nullptr)},
         {"last_failure_at_ms", device.lastFailureAtMs > 0 ? Json(device.lastFailureAtMs) : Json(nullptr)}};

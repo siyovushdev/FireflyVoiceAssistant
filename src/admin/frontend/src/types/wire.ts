@@ -63,10 +63,13 @@ export interface StatusDto extends WireObject {
 export interface PropertyDto extends WireObject {
     readonly value: Scalar | null; readonly knowledge: string; readonly stale: boolean;
     readonly updated_at_ms: number; readonly observed_at_ms: number | null;
+    readonly last_observed_value?: Scalar | null; readonly observation_age_ms?: number | null;
 }
 export interface DeviceStateDto extends WireObject {
     readonly targetId: string; readonly properties: Readonly<Record<string, PropertyDto>>;
     readonly connectivity: string; readonly last_success_at_ms: number | null; readonly last_failure_at_ms: number | null;
+    readonly availability?: 'online' | 'offline' | 'unknown'; readonly availability_reason?: string;
+    readonly last_observation_at_ms?: number | null; readonly observation_age_ms?: number | null;
 }
 export interface StatesDto extends WireObject {
     readonly ok: true; readonly active: CatalogDto | null; readonly devices: readonly DeviceStateDto[];

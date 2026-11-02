@@ -36,6 +36,7 @@ bool any(const std::vector<std::string>& words, const std::set<std::string>& val
     return std::any_of(words.begin(), words.end(), [&](const auto& word) { return values.count(word); });
 }
 bool questionCue(const std::vector<std::string>& words) {
+    if (has(words, {"онлайн", "оффлайн", "доступен", "доступно", "связь", "связи"})) return true;
     if (has(words, {"почему", "зачем", "что", "где", "как", "когда", "какие", "какое", "какая", "какой", "сколько", "ли", "состояние", "статус"})) return true;
     if (has(words, {"пусть", "пускай"})) return false;
     return any(words, statePredicates()) ||
@@ -60,7 +61,7 @@ bool coveredQuestion(const std::vector<std::string>& uncovered) {
             "что", "где", "как", "когда", "какие", "какое", "какая", "какой", "сколько", "ли", "почему", "зачем", "разве",
             "сейчас", "уже", "еще", "ещё", "тоже", "точно", "теперь", "же", "не", "нет", "пожалуйста",
             "скажи", "подскажи", "расскажи", "объясни", "сообщи", "можете", "бы",
-            "состояние", "статус", "яркость", "температура", "положение", "доступность", "связь", "связи",
+            "состояние", "статус", "яркость", "температура", "положение", "доступность", "связь", "связи", "онлайн", "оффлайн", "доступен", "доступно", "есть", "сети",
             "команда", "команды", "команду", "действие", "действия", "действий", "устройства", "устройств", "устройстве", "устройствах", "приборы", "оборудование",
             "последним", "последнее", "последнюю", "последней", "последний", "последняя", "предыдущая", "сделала", "сделал",
             "включила", "включил", "выключила", "выключил", "отключила", "отключил", "смогла", "выполнила", "выполнилась", "выполнилось", "приняла",
@@ -115,6 +116,21 @@ bool fresh(const Facts& f, const execution::PropertyKnowledge& p) {
     return p.value && p.knowledge == StateKnowledge::Confirmed && !execution::isStale(p, f.steadyMs) &&
         p.freshnessSteadyMs && *p.freshnessSteadyMs <= f.steadyMs && p.orderSteadyMs && *p.orderSteadyMs <= f.steadyMs;
 }
+std::string historicalPower(const Facts& f, const config::Device& d) {
+    const auto* known = state(f, d.id);
+    if (known) for (const auto* key : {"power", "on", "running", "brightness"}) {
+        const auto at = known->properties.find(key);
+        if (at == known->properties.end()) continue;
+        const auto& p = at->second;
+        if (!p.lastObservedValue || !p.lastObservationSteadyMs || *p.lastObservationSteadyMs > f.steadyMs) continue;
+        const auto& v = p.lastObservedValue->data();
+        std::optional<bool> on;
+        if (std::holds_alternative<bool>(v) && std::string(key) != "brightness") on = std::get<bool>(v);
+        else if (std::string(key) == "brightness" && d.kind == config::DeviceKind::Light && std::holds_alternative<std::int64_t>(v)) on = std::get<std::int64_t>(v) > 0;
+        if (on) return std::string("Последнее показание: питание ") + (*on ? "включено." : "выключено.") + " Сейчас не могу проверить.";
+    }
+    return "Сейчас не могу проверить.";
+}
 std::string stateText(const Facts& f, const config::Device& d, bool detailed) {
     auto result = label(f,d) + ": ";
     const auto* known = state(f,d.id);
@@ -127,7 +143,12 @@ std::string stateText(const Facts& f, const config::Device& d, bool detailed) {
         if (id == "brightness" && d.kind == config::DeviceKind::Light) name = "Яркость";
         if (id == "position" && d.kind == config::DeviceKind::EntranceDoor) name = "Положение";
         result += bounded(name) + ": ";
-        if (!fresh(f,p)) { result += "сейчас не могу проверить. "; continue; }
+        if (!fresh(f,p)) {
+            if (p.lastObservedValue && p.lastObservationSteadyMs && *p.lastObservationSteadyMs <= f.steadyMs)
+                result += "последнее показание «" + scalar(*p.lastObservedValue) + "», сейчас не могу проверить. ";
+            else result += "сейчас не могу проверить. ";
+            continue;
+        }
         const bool power = id == "power" || id == "on" || id == "running";
         if (power && std::holds_alternative<bool>(p.value->data())) result += std::get<bool>(p.value->data()) ? "включено. " : "выключено. ";
         else result += scalar(*p.value) + ". ";
@@ -259,7 +280,7 @@ Reply OperationalDialogue::ask(std::string_view original, const Facts& input, bo
     else if (has(uncovered, {"последним", "последнее", "последнюю", "сделала", "сделал", "включила", "выключила", "отключила", "выполнила", "приняла"})) kind = Question::LastAction;
     else if ((has(uncovered, {"умеешь", "можешь", "возможности"}) && has(uncovered, {"что", "как"})) || (has(uncovered, {"ты", "ассистент"}) && has(uncovered, {"работаешь", "готова", "доступна"}))) kind = Question::Capabilities;
     else if (has(uncovered, {"что", "какие"}) && any(uncovered, onPredicates())) kind = Question::OnList;
-    else if (any(uncovered, statePredicates()) || has(uncovered, {"состояние", "статус", "яркость", "температура", "положение"})) kind = Question::State;
+    else if (any(uncovered, statePredicates()) || has(uncovered, {"состояние", "статус", "яркость", "температура", "положение", "онлайн", "оффлайн", "доступен", "доступно", "доступность", "связь", "связи"})) kind = Question::State;
     const bool follow = w.size() > 1 && w.front() == "а";
     if (kind == Question::Unclear && follow) {
         if (context_.question == Question::State || context_.question == Question::OnList || context_.question == Question::LastAction) kind = context_.question;
@@ -365,7 +386,14 @@ Reply OperationalDialogue::ask(std::string_view original, const Facts& input, bo
         const auto p=d?powered(f,*d):std::nullopt;
         const bool propertyQuestion=has(uncovered,{"яркость","температура","положение"});
         const bool powerDevice=d && (d->kind==config::DeviceKind::Light || std::any_of(d->state.begin(),d->state.end(),[](const auto& field){return (field.id=="power"||field.id=="on"||field.id=="running")&&field.type=="boolean";}));
-        if (d && powerDevice && !detailed && !propertyQuestion && (!p || failedRead(f,d->id) || p->first!=StateKnowledge::Confirmed)) reply.text="Сейчас не могу проверить.";
+        const bool availabilityQuestion = has(uncovered,{"онлайн","оффлайн","доступен","доступно","доступность","связь","связи"});
+        if (d && availabilityQuestion) {
+            const auto* known = state(f,d->id);
+            const std::string online = known ? execution::availability(*known,f.steadyMs) : "unknown";
+            reply.text = online == "online" && !failedRead(f,d->id) ? "Устройство на связи." :
+                online == "offline" || failedRead(f,d->id) ? "Сейчас нет связи с устройством." : "Данных от устройства ещё нет.";
+        }
+        else if (d && powerDevice && !detailed && !propertyQuestion && (!p || failedRead(f,d->id) || p->first!=StateKnowledge::Confirmed)) reply.text=historicalPower(f,*d);
         else if (d && powerDevice && !detailed && !propertyQuestion && p) {
             const bool on=any(uncovered,onPredicates());
             const bool off=any(uncovered,statePredicates())&&!on;

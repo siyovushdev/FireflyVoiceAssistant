@@ -449,6 +449,8 @@ int main(int argc, char** argv) {
         executor.startSubscriptions();
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
         check(!confirmed(executor, true), "retained MQTT payload must not confirm state");
+        check(std::string(execution::availability(*executor.production().device("device_g1_relay"),
+                  executor.production().steadyNowMs())) != "online", "retained state/broker CONNECT cannot prove device online");
 
         // Send independent fresh telemetry until SUBACK/observer are ready.
         int probes = 0;
@@ -456,6 +458,13 @@ int main(int argc, char** argv) {
             if ((probes++ % 10) == 0) relay.sendState("OFF", false);
             return confirmed(executor, false);
         }), "fresh state topic never became Confirmed");
+        {
+            const auto before = executor.production().device("device_g1_relay")->lastObservationSteadyMs;
+            relay.sendState("OFF", false);
+            check(eventually([&] { return executor.production().device("device_g1_relay")->lastObservationSteadyMs > before; }),
+                  "unchanged state heartbeat must refresh observation age");
+            check(relay.commandCount() == 0, "heartbeat/readback must not publish a command");
+        }
 
         // Live strict JSON test: establish the JSON probe's known-good state.
         // Bad messages would change power to true if their extra fields were
@@ -522,6 +531,13 @@ int main(int argc, char** argv) {
             return state && state->connectivity == execution::Connectivity::Unreachable &&
                    state->properties.at("power").knowledge == execution::StateKnowledge::Unknown;
         }, 7000), "subscriber disconnect did not invalidate stale Confirmed state");
+        {
+            const auto offline = *executor.production().device("device_g1_relay");
+            check(std::string(execution::availability(offline, executor.production().steadyNowMs())) == "offline",
+                  "lost observation subscription must show offline");
+            check(offline.properties.at("power").lastObservedValue == actions::Scalar(false),
+                  "broker loss must retain the last independently observed OFF");
+        }
 
         check(eventually([&] {
             std::ifstream marker(controlDir + "/broker-restarted");
@@ -538,6 +554,8 @@ int main(int argc, char** argv) {
             if ((restoreProbes++ % 10) == 0) relay.sendState("OFF", false);
             return confirmed(executor, false);
         }, 8000), "Firefly subscriber did not recover with new state telemetry");
+        check(std::string(execution::availability(*executor.production().device("device_g1_relay"),
+                  executor.production().steadyNowMs())) == "online", "fresh OFF telemetry restores online without an ON command");
         std::this_thread::sleep_for(std::chrono::milliseconds(1200));
         check(relay.commandCount() == 2, "command replayed when broker reconnected");
         std::cout << "PASS isolated MQTT 3.1.1 broker ON QoS1 / OFF QoS0, "

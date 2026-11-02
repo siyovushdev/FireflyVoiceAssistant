@@ -45,7 +45,14 @@ int main(int argc,char**argv) {
   check(d.ask("Свет включен?",facts(),true,false).text=="Нет.","confirmed OFF direct answer");
   check(d.ask("Свет выключен?",facts(),true,false).text=="Да.","confirmed OFF positive predicate");
   check(d.ask("Свет не включен?",facts(),true,false).text=="Питание выключено.","negative question reports state rather than ambiguous yes/no");
-  now+=60001;check(d.ask("Свет включен?",facts(),true,false).text=="Сейчас не могу проверить.","stale not spoken as no");
+  now+=60001;check(d.ask("Свет включен?",facts(),true,false).text=="Последнее показание: питание выключено. Сейчас не могу проверить.","stale last observed OFF is explicitly historical, not current yes/no");
+  check(d.ask("Свет онлайн?",facts(),true,false).text=="Сейчас нет связи с устройством.","missing telemetry is not available");
+  store.applyPrediction("lamp",{{"power",actions::Scalar(true)}},100000);
+  check(d.ask("Свет включен?",facts(),true,false).text=="Последнее показание: питание выключено. Сейчас не могу проверить.","prediction must not become historical ON");
+  store.observationDisconnected("lamp");
+  check(d.ask("Свет включен?",facts(),true,false).text=="Последнее показание: питание выключено. Сейчас не могу проверить.","disconnect preserves last observation for voice");
+  store.applyObservation({"lamp",{{"power",actions::Scalar(false)}}});
+  check(d.ask("Свет онлайн?",facts(),true,false).text=="Устройство на связи.","online does not mean power ON");
   now=3000;int reads=0;
   auto refresh=[&](const std::vector<std::string>& ids){++reads;check(ids==std::vector<std::string>{"lamp"},"refresh receives only exact scoped target");auto x=facts();x.failedReads=ids;return x;};
   d.ask("Свет включен?",facts(),true,false,{},refresh);check(reads==1,"valid state question reads");

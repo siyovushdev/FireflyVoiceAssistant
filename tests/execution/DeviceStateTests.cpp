@@ -492,6 +492,46 @@ int main(int argc, char** argv) {
             check(brightness(generations.current()->executor->states()) == 40, "playground virtual mutated");
         }
 
+        // Device availability must never come from broker ACK / predictions.
+        {
+            auto catalog = config::ConfigLoader::fromJson(baseV2(root).dump());
+            std::int64_t steady = 1000, wall = 100000;
+            execution::DeviceStateStore store(catalog, [&] { return steady; }, [&] { return wall; });
+            const std::string id = "device_kitchen_light";
+            auto snapshot = [&] { return *store.device(id); };
+            auto online = [&] { return std::string(execution::availability(snapshot(), steady)); };
+            check(online() == "unknown", "telemetry starts unknown");
+            store.applyPrediction(id, {{"brightness", actions::Scalar(std::int64_t{100})}}, wall);
+            store.markReachable(id, wall);
+            check(online() == "unknown", "prediction and broker reachability do not prove online");
+            store.applyObservation({id, {{"brightness", actions::Scalar(std::int64_t{0})}}});
+            check(online() == "online", "independent OFF telemetry means online, not powered ON");
+            check(snapshot().properties.at("brightness").lastObservedValue == actions::Scalar(std::int64_t{0}), "historical zero retained");
+            wall += 90000000; steady += 15000;
+            check(execution::observationAge(snapshot(), steady) == 15000, "age uses steady clock, not wall jumps");
+            store.applyObservation({id, {{"brightness", actions::Scalar(std::int64_t{0})}}});
+            steady += 60000; check(online() == "online", "exact 60s boundary remains online");
+            ++steady; check(online() == "offline", "missing heartbeat expires without background task");
+            check(snapshot().properties.at("brightness").value == actions::Scalar(std::int64_t{0}), "timeout retains last value");
+            store.applyPrediction(id, {{"brightness", actions::Scalar(std::int64_t{100})}}, wall);
+            check(online() == "offline", "new command cannot refresh last-seen");
+            check(snapshot().properties.at("brightness").lastObservedValue == actions::Scalar(std::int64_t{0}), "prediction does not rewrite last observed OFF");
+            const auto oldAge = execution::observationAge(snapshot(), steady);
+            try { store.applyObservation({id, {{"brightness", actions::Scalar(std::int64_t{999})}}}); check(false, "invalid telemetry must fail"); } catch (const config::ConfigError&) {}
+            check(execution::observationAge(snapshot(), steady) == oldAge, "invalid payload cannot refresh heartbeat");
+            store.observationDisconnected(id);
+            check(online() == "offline" && snapshot().properties.at("brightness").knowledge == execution::StateKnowledge::Unknown, "disconnect closes current evidence");
+            check(snapshot().properties.at("brightness").lastObservedValue == actions::Scalar(std::int64_t{0}), "disconnect preserves historical OFF");
+            execution::DeviceStateStore copy(catalog, [&] { return steady; }); copy.reconcile(store);
+            check(copy.device(id)->properties.at("brightness").lastObservedValue == actions::Scalar(std::int64_t{0}), "same mapping Apply retains historical value");
+            check(std::string(execution::availability(*copy.device(id), steady)) == "offline", "Apply does not refresh evidence");
+            store.applyObservation({id, {{"brightness", actions::Scalar(std::int64_t{100})}}});
+            check(online() == "online" && !snapshot().observationDisconnected, "fresh telemetry recovers without a command");
+            store.invalidate(id);
+            check(online() == "unknown" && !snapshot().properties.at("brightness").lastObservedValue, "changed mapping clears historical and availability evidence");
+            execution::DeviceStateStore cold(catalog);
+            check(std::string(execution::availability(*cold.device(id), cold.steadyNowMs())) == "unknown", "restart never invents saved telemetry");
+        }
         std::cout << "PASS " << checks.load() << " device state / execution lifecycle checks\n";
         return 0;
     } catch (const std::exception& error) {
