@@ -5,7 +5,7 @@
 namespace firefly::voice {
 struct VoiceResult {
     RecognitionResult recognition;
-    bool inlineWake = false, wakePrefixRemoved = false;
+    bool inlineWake = false, wakePrefixRemoved = false, wakeOnly = false;
     std::string commandText;
     // Grounded operational response; never model-generated device facts.
     std::string replyText, replyKind, replyReason, replyMode = "off";

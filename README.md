@@ -8,6 +8,8 @@ Local Russian voice assistant for Firefly RK3588S (8 GB, Ubuntu 22.04/aarch64). 
 
 **Operational dialogue development:** [grounded voice questions, F2 replies and live settings](docs/operational-voice-dialogue.md). Opt-in source integration; no production activation is implied. [Natural feedback and silent confirmed success](docs/operational-natural-feedback.md); [historical latency measurements](docs/operational-f2-latency.md).
 
+**Voice input development:** [after-beep default and optional direction experiment](docs/after-beep-voice-input.md). Standalone wake → beep → command is the appliance default; automatic inline input is an explicit option.
+
 ## Version and scope
 
 As verified read-only on **2026-10-16**, fetched Git master is `c6e68419eea1f47300f7ca8d51b85997344e405c` (PR #27 merged). Installed release is `m19-c7fa1490-20261015T150156Z`, built from exact product commit `c7fa14906f8ae15f4c8fb488e9c9d7628eb8154f`; annotated tag `m19-production-20261015-c7fa149` points to that product commit. Master contains later operator/tests/docs changes. These identities are deliberately distinct and must be rechecked for future work.

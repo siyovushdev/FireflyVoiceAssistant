@@ -15,7 +15,9 @@ invalid = [
 ] + [
     ['--wake-beep-volume-percent', value]
     for value in ('', '-1', '0', '31', '100', 'nan', 'inf', '30.0', '1e1', '+30', ' 30', '30 ', '30x', '999999999999999999999')
-] + [['--wake-beep-enabled'], ['--wake-beep-volume-percent']]
+] + [['--wake-beep-enabled'], ['--wake-beep-volume-percent'], ['--wake-command-mode']] + [
+    ['--wake-command-mode',value] for value in ('','on','AUTO','inline','after_beep')
+] + [['--voice','--wake-beep-enabled','false']]
 
 with tempfile.TemporaryDirectory(prefix='firefly-beep-options-') as directory:
     temp = Path(directory)
@@ -30,15 +32,16 @@ with tempfile.TemporaryDirectory(prefix='firefly-beep-options-') as directory:
 
     help_result = subprocess.run([str(app), '--help'], text=True, capture_output=True, timeout=3)
     assert help_result.returncode == 0
-    for flag in ('--wake-beep-enabled', '--wake-beep-volume-percent'):
+    for flag in ('--wake-beep-enabled', '--wake-beep-volume-percent', '--wake-command-mode', 'default: after-beep'):
         assert flag in help_result.stdout
 
     scenarios = [
         ('default', [], 'ack-success', True, 30, 'ready'),
         ('quiet', ['--wake-beep-volume-percent', '1'], 'ack-success', True, 1, 'ready'),
         ('enabled', ['--wake-beep-enabled', 'true', '--wake-beep-volume-percent', '12'], 'ack-success', True, 12, 'ready'),
-        ('disabled', ['--wake-beep-enabled', 'false'], 'ack-success', False, 30, 'ready'),
-        ('failed', [], 'ack-failure', True, 30, 'degraded'),
+        ('disabled-auto', ['--wake-command-mode','auto','--wake-beep-enabled', 'false'], 'ack-success', False, 30, 'ready'),
+        ('failed-auto', ['--wake-command-mode','auto'], 'ack-failure', True, 30, 'degraded'),
+        ('failed-default', [], 'ack-failure', True, 30, 'degraded'),
     ]
     for name, options, mode, enabled, volume, health in scenarios:
         control = temp / (name + '-control')
@@ -59,13 +62,19 @@ with tempfile.TemporaryDirectory(prefix='firefly-beep-options-') as directory:
             while time.monotonic() < deadline:
                 text = log.read_text()
                 assert process.poll() is None, text
-                if 'VOICE_STATE LISTENING_COMMAND' in text:
+                if name=='failed-default':
+                    if 'VOICE_STATE ACKNOWLEDGEMENT_FAILED' in text and text.rfind('VOICE_STATE WAITING_WAKE')>text.rfind('VOICE_STATE ACKNOWLEDGEMENT_FAILED'):
+                        break
+                elif 'VOICE_STATE LISTENING_COMMAND' in text:
                     break
                 time.sleep(.01)
             else:
                 raise AssertionError(text)
             assert 'VOICE_STATE WAKE_DETECTED' in text and 'CONTINUATION_SEPARATED' in text, text
             assert f'VOICE_ACK enabled={str(enabled).lower()} volume_percent={volume}' in text, text
+            assert f'VOICE_INPUT mode={"auto" if name.endswith("-auto") else "after-beep"}' in text, text
+            if name=='failed-default':
+                assert 'VOICE_STATE LISTENING_COMMAND' not in text, text
             assert ('FIXTURE beep started' in text) == enabled, text
             assert ('VOICE_STATE BEEP_START' in text) == enabled, text
             assert ('VOICE_STATE ACKNOWLEDGEMENT_FAILED' in text) == (mode == 'ack-failure'), text

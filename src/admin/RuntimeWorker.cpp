@@ -676,6 +676,7 @@ voice::VoiceResult RuntimeWorker::processVoice(voice::SpeechRecognizer& recogniz
             return result.command;
         });
         auto result = processor.process(utterance);
+        if (result.wakeOnly) { responseKind = "wake_only"; responseReason = "wake_only"; }
         if (question) { result.route = "OPERATIONAL_QUESTION"; result.llmTimings = questionTimings; }
         if (response.empty() && !result.error.empty()) {
             const auto facts = dialogueFacts(generation, generations_.history(), generations_.modelReady());
@@ -690,7 +691,7 @@ voice::VoiceResult RuntimeWorker::processVoice(voice::SpeechRecognizer& recogniz
         { std::lock_guard<std::mutex> lock(diagnostics_);
           lastVoice_ = Json{{"audio_detected",true},{"duration_seconds",result.durationSeconds},
               {"processing_ms",result.processingMs},{"speech_seconds",result.speechSeconds},{"stt_ms",result.recognition.latencyMs},{"transcript",result.recognition.text},{"inline",result.inlineWake},
-              {"wake_prefix_removed",result.wakePrefixRemoved},{"command_text",result.commandText},
+              {"wake_prefix_removed",result.wakePrefixRemoved},{"wake_only",result.wakeOnly},{"command_text",result.commandText},
               {"error",result.error},{"reply_mode",result.replyMode},{"generation_id",result.replyGeneration},{"llm",{{"invoked",result.llmTimings.invoked},{"task",result.llmTimings.task}}},{"reply_text",result.replyText},{"reply_kind",result.replyKind},{"reply_reason",result.replyReason},
               {"command",voiceCommand.empty()?Json(nullptr):Json::parse(voiceCommand)}}.dump(); }
         if (!result.error.empty()) remember(Json{{"input",result.recognition.text},{"error",result.error},{"result",{{"unsupported",true}}},

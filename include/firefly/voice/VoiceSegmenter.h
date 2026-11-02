@@ -9,6 +9,8 @@ struct Utterance {
     std::string error;
     // Set only by the KWS-admitted inline capture path, never by text/Admin input.
     bool inlineWake = false;
+    // Set exclusively by a KWS-admitted session, not text/Admin input.
+    bool wakeAdmitted = false;
 };
 // Bounded PCM history, independent of ALSA, sherpa, and command semantics.
 class VoiceSegmenter {

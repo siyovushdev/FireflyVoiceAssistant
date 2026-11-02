@@ -25,6 +25,8 @@ void runWakeVoiceLoop(AudioSource& capture, WakeDetector& wake, VoiceSegmenter& 
     WakeAcknowledgement* acknowledgement) {
     config.validate();
     if (!config.enabled) throw std::invalid_argument("Wake loop requires enabled wake gating");
+    if (config.afterBeepOnly && !acknowledgement)
+        throw std::invalid_argument("After-beep mode requires wake acknowledgement");
     struct Cleanup {
         WakeAcknowledgement* output;
         ~Cleanup() { if (output) output->cancel(); }
@@ -58,6 +60,7 @@ void runWakeVoiceLoop(AudioSource& capture, WakeDetector& wake, VoiceSegmenter& 
     };
     auto submit = [&](Utterance utterance, bool inlineWake) {
         utterance.inlineWake = inlineWake;
+        utterance.wakeAdmitted = true;
         if (!utterance.error.empty()) {
             state("COMMAND_MAX_DURATION");
             VoiceResult rejected; rejected.inlineWake = inlineWake; rejected.error = utterance.error; emit(rejected); rearm();
@@ -112,7 +115,11 @@ void runWakeVoiceLoop(AudioSource& capture, WakeDetector& wake, VoiceSegmenter& 
             if (worker.valid() && worker.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
                 auto result = worker.get();
                 if (stopped()) break;
-                emit(result); rearm();
+                emit(result);
+                if (config.afterBeepOnly && result.wakeOnly) {
+                    state("WAKE_REPEATED");
+                    finishContinuation(false);
+                } else rearm();
             }
             const int n = capture.read(frame.data() + filled, FrameSamples - filled);
             if (stopped()) break;
@@ -130,6 +137,9 @@ void runWakeVoiceLoop(AudioSource& capture, WakeDetector& wake, VoiceSegmenter& 
                 }
                 if (status != AcknowledgementStatus::Playing) {
                     state(status == AcknowledgementStatus::Failed ? "ACKNOWLEDGEMENT_FAILED" : "BEEP_END");
+                    if (status == AcknowledgementStatus::Failed && config.afterBeepOnly) {
+                        acknowledgement->cancel(); rearm(); continue;
+                    }
                     phase = Phase::Draining; deadline = now() + config.acknowledgementDrain;
                 }
                 continue;
@@ -143,8 +153,14 @@ void runWakeVoiceLoop(AudioSource& capture, WakeDetector& wake, VoiceSegmenter& 
                 if (wake.accept(frame.data(), FrameSamples)) {
                     state("WAKE_DETECTED");
                     wakeOffset = static_cast<int64_t>(ring.size());
-                    segmenter.startSession(); continuation.clear();
-                    phase = Phase::CheckingContinuation; state("CHECKING_CONTINUATION");
+                    if (config.afterBeepOnly) {
+                        // Neither room speech nor a repeated wake can silently
+                        // choose inline capture. Pre-beep PCM is never a command.
+                        finishContinuation(false);
+                    } else {
+                        segmenter.startSession(); continuation.clear();
+                        phase = Phase::CheckingContinuation; state("CHECKING_CONTINUATION");
+                    }
                 }
             } else if (phase == Phase::CheckingContinuation) {
                 continuation.insert(continuation.end(), frame.begin(), frame.end());

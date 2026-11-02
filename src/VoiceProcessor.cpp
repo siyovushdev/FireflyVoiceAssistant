@@ -5,6 +5,24 @@
 #include <optional>
 namespace firefly::voice {
 namespace {
+bool wakeInvocationOnly(const std::string& text) {
+    const std::string separators = " ,:!.?;\t\r\n";
+    auto first = text.find_first_not_of(separators);
+    bool found = false;
+    while (first != std::string::npos) {
+        bool matched = false;
+        for (const std::string prefix : {"амина", "Амина", "АМИНА", "афина", "Афина", "АФИНА"}) {
+            if (text.compare(first, prefix.size(), prefix) != 0) continue;
+            const auto end = first + prefix.size();
+            if (end < text.size() && separators.find(text[end]) == std::string::npos) continue;
+            found = matched = true;
+            first = text.find_first_not_of(separators, end);
+            break;
+        }
+        if (!matched) return false;
+    }
+    return found;
+}
 std::optional<std::string> inlineCommand(const std::string& text) {
     // Exact, documented STT prefixes only. No fuzzy matching or transcript repair.
     const auto first = text.find_first_not_of(" \t\r\n");
@@ -33,6 +51,10 @@ VoiceResult VoiceProcessor::process(const Utterance& u) {
         r.recognition = recognizer_.recognize(u.audio);
         if (!r.recognition.success) { r.recognition.text.clear(); r.error = r.recognition.error; return finish(); }
         r.commandText = r.recognition.text;
+        if (u.wakeAdmitted && wakeInvocationOnly(r.recognition.text)) {
+            r.wakeOnly = true; r.route = "WAKE_ONLY";
+            return finish(); // No command/model/executor/history attempt.
+        }
         if (u.inlineWake) {
             auto commandText = inlineCommand(r.recognition.text);
             if (!commandText) { r.error = "Unrecognized or empty leading wake invocation"; return finish(); }
