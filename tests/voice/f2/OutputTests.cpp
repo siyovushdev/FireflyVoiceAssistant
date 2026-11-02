@@ -20,19 +20,19 @@ int main(){
  {
   F2SpeechOutput output("/missing-f2-model","CPU_DOUBLE",[&](const std::string&){++events;},"",
       [&](const std::function<void()>& load){++guardCalls;load();});
-  for(int i=0;i<10;++i)assert(output.speak("Команда принята исполнителем. Это не подтверждает состояние устройства.",{}).success);
+  for(int i=0;i<10;++i)assert(output.speak("Команду отправила, ответа пока нет.",{}).success);
   assert(guardCalls==0&&sdkCalls==0&&fake_alsa_writes>0&&events>0);
   const auto writes=fake_alsa_writes.load();
-  assert(output.speak("Команда принята исполнителем.",[]{return true;}).cancelled);
+  assert(output.speak("Команду отправила.",[]{return true;}).cancelled);
   assert(fake_alsa_writes==writes);
   auto dynamic=output.speak("Новое неизвестное предложение.",{});
   assert(!dynamic.success&&!dynamic.error.empty()&&guardCalls==1&&sdkCalls==0);
-  assert(output.speak("Команда не отправлена.",{}).success);
+  assert(output.speak("Не могу выполнить эту команду.",{}).success);
  }
  assert(fake_alsa_handles==0);
  {
   F2SpeechOutput output("/missing-f2-model","FAIL_PLAY");
-  const auto r=output.speak("Команда не отправлена.",{});
+  const auto r=output.speak("Не могу выполнить эту команду.",{});
   assert(!r.success&&!r.error.empty()&&sdkCalls==0);
  }
  std::cout<<"PASS public output: cold stock without model/guard/SDK, 10 repeats, pending stop, dynamic asset failure, next stock, playback failure; fake ALSA only\n";

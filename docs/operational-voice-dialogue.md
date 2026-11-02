@@ -1,7 +1,7 @@
 # Operational voice dialogue and F2
 
 This opt-in addition uses the existing single assistant process. It answers
-operational questions and speaks grounded command results; it does not add
+operational questions and speaks concise exceptions to confirmed command success; it does not add
 open-ended chat or a second command executor.
 
 ## Owner controls
@@ -59,8 +59,14 @@ state. A delivery timeout means unknown outcome with no automatic retry.
 Pre-execution rejections are associated with a device only when the original
 request supports that association; otherwise the answer states uncertainty,
 instead of presenting an older successful command as the latest attempt.
-Questions do not poll, publish, or execute devices themselves. Explicit existing
-observation mechanisms may independently refresh state. No cloud is used.
+After exact target/scope validation, state/on-list questions may perform existing
+configured observation reads: validated HTTP GET, or fresh data from the current
+MQTT subscription. One overall 500 ms budget covers at most two devices (four in
+detailed mode). HTTP reads use the smaller configured/remaining timeout; no
+arbitrary URL/topic is constructed. MQTT questions never publish a state-request
+or command. Unknown scope, disabled questions and command inputs perform no
+question read. Failed HTTP reads cannot reuse older cached data as a new answer.
+No cloud is used.
 
 Commands continue through the original input → grounding → SafetyGate → domain
 → binding → registered MQTT/HTTP executor path. Negations, statements and
@@ -92,13 +98,28 @@ model provenance/license and release provisioning must be retained when a
 production package is prepared. This change does not install those weights or
 change the permanent unit/release pipeline.
 
-Twelve fixed full F2 sentences are embedded in the executable from SHA256-pinned
+Sixteen fixed full F2 sentences are embedded in the executable from SHA256-pinned
 mono S16_LE/44.1 kHz WAV files in `assets/voice/f2`. These are synthetic F2
 audio, not owner recordings. Stock replies play without TTS asset verification
 or model creation, including the first turn. Build-time verification rejects
-missing/corrupted files and profile changes. Brief accepted-command replies
-state executor acceptance and explicitly distinguish it from device state;
-detailed replies and state questions retain grounded labels and observations.
+missing/corrupted files and profile changes. Command feedback is silent, in both enabled speech modes, only after matching
+independent observations of every requested assignment, received/ordered no
+earlier than this command. Transport ACK/PUBACK, prediction, stale, opposite,
+partial or missing data never qualify. The bounded 500 ms window performs one
+configured HTTP read or waits for existing MQTT telemetry, without retrying the
+command. Empty expected effects cannot be silently called confirmed.
+
+Otherwise feedback is short: “Команду отправила, ответа пока нет”, “Не удалось
+подтвердить выполнение”, or a brief refusal/clarification. A contradictory fresh
+sample says the device answered but execution was not confirmed. Technical
+execution details stay in logs. One-device state questions can answer “Да”/“Нет”
+from confirmed fresh power state, inverting OFF predicates correctly. Negative
+or alternative questions report the actual value to avoid ambiguous yes/no.
+Unknown or failed reads say “Сейчас не могу проверить”. Names and locations for
+group/property/history replies come from configuration; no grammatical gender
+of arbitrary device names or model-generated facts is guessed. History retains
+whether the voice confirmation window succeeded, without calling it current state.
+See [natural feedback behavior](operational-natural-feedback.md).
 
 Dynamic TTS loads lazily once per audio lease, after command processing releases the
 Runtime request. Loading requires 2 GiB free before and 1 GiB reserve after;

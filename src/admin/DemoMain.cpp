@@ -280,6 +280,8 @@ int main(int argc, char** argv) {
                         const auto cancelled = [&] {
                             return interrupted() || epoch != runtime.speechEpoch() || result.replyGeneration != runtime.voiceGenerationId() || runtime.voicePreferences().responses == "off";
                         };
+                        if (result.replyText.empty() && result.replyReason == "state_confirmed" && !cancelled())
+                            runtime.speechStatus("silent");
                         if (!result.replyText.empty() && result.replyMode != "off" && !cancelled()) {
                             try {
                                 {

@@ -6,7 +6,7 @@ Local Russian voice assistant for Firefly RK3588S (8 GB, Ubuntu 22.04/aarch64). 
 
 **2026-11-01 release-input update:** [Amina/Amila model promotion](docs/amina-amila-release.md) and [accepted F2 pilot handoff for later integration](docs/f2-voice-pilot-handoff.md). These documents describe the new source inputs; the installed baseline below is a dated observation.
 
-**Operational dialogue development:** [grounded voice questions, F2 replies and live settings](docs/operational-voice-dialogue.md). Opt-in source integration; no production activation is implied. [Fast F2 replies and measured limits](docs/operational-f2-latency.md).
+**Operational dialogue development:** [grounded voice questions, F2 replies and live settings](docs/operational-voice-dialogue.md). Opt-in source integration; no production activation is implied. [Natural feedback and silent confirmed success](docs/operational-natural-feedback.md); [historical latency measurements](docs/operational-f2-latency.md).
 
 ## Version and scope
 

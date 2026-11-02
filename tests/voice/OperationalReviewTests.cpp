@@ -63,7 +63,7 @@ int main(int argc, char** argv) {
             dialogue::OperationalDialogue d;
             for (const auto* text : {"Лампа на кухне включена?", "Лампа на кухне выключена?", "Лампа на кухне отключена?"}) {
                 auto r = d.ask(text, facts, true, false);
-                expect(r.handled && r.question == dialogue::Question::State && has(r.text,"Свет"), std::string("R1 feminine state: ") + text);
+                expect(r.handled && r.question == dialogue::Question::State && (r.text=="Да."||r.text=="Нет."), std::string("R1 feminine state: ") + text);
             }
         }
         {
@@ -86,29 +86,29 @@ int main(int argc, char** argv) {
             dialogue::OperationalDialogue d;
             d.rememberAttempt(facts, {}, "safety");
             auto global = d.ask("Почему команда не выполнилась?", facts, true, false);
-            expect(has(global.text,"Ничего не отправлено"), "R3 global last rejection remains visible");
+            expect(has(global.text,"Не могу выполнить эту команду"), "R3 global last rejection remains visible");
             auto scoped = d.ask("Почему ты не выключила свет на кухне?", facts, true, false);
-            expect(has(scoped.text,"Ничего не отправлено") && !has(scoped.text,"принята исполнителем"), "R3 unknown rejection scope cannot reveal stale success as last attempt");
-            expect(has(scoped.text,"Не могу надёжно связать"), "R3 missing target association is explicit uncertainty");
+            expect(has(scoped.text,"Не могу выполнить эту команду") && !has(scoped.text,"Команду отправила"), "R3 unknown rejection scope cannot reveal stale success as last attempt");
+            expect(has(scoped.text,"Не знаю, к какому устройству"), "R3 missing target association is explicit uncertainty");
             d.rememberAttempt(facts, {}, "safety", "Не выключай свет на кухне");
             scoped = d.ask("Почему ты не выключила свет на кухне?", facts, true, false);
-            expect(has(scoped.text,"Ничего не отправлено") && !has(scoped.text,"Не могу надёжно связать"), "R3 exact rejected request retains its independently grounded target");
+            expect(has(scoped.text,"Не могу выполнить эту команду") && !has(scoped.text,"Не знаю, к какому устройству"), "R3 exact rejected request retains its independently grounded target");
             for (const auto* text : {"Не выключай чайник на кухне", "Не выключай свет на Марсе", "Да я включил свет"}) {
                 d.rememberAttempt(facts, {}, "safety", text);
                 scoped = d.ask("Почему ты не выключила свет на кухне?", facts, true, false);
-                expect(has(scoped.text,"Не могу надёжно связать") && !has(scoped.text,"принята исполнителем"), std::string("R3 no guessed rejection target: ") + text);
+                expect(has(scoped.text,"Не знаю, к какому устройству") && !has(scoped.text,"Команду отправила"), std::string("R3 no guessed rejection target: ") + text);
             }
             facts.history.push_back({11,1,"admin-device",accepted});
             scoped = d.ask("Почему ты не выключила свет на кухне?", facts, true, false);
-            expect(has(scoped.text,"принята исполнителем"), "R3 genuinely newer device result supersedes older uncertain rejection");
+            expect(has(scoped.text,"Команду отправила"), "R3 genuinely newer device result supersedes older uncertain rejection");
             facts.history.pop_back();
         }
         {
             dialogue::OperationalDialogue d;
             auto last = d.ask("Что ты сделала последним?", facts, true, false);
-            expect(has(last.text,"«Свет»"), "R4 last action actually names its device");
+            expect(has(last.text,"Свет"), "R4 last action actually names its device");
             auto next = d.ask("А он сейчас работает?", facts, true, false);
-            expect(next.reason == "facts_only" && has(next.text,"подтверждённому наблюдению"), "R4 last-action referent survives into state question");
+            expect(next.reason == "facts_only" && next.text=="Да.", "R4 last-action referent survives into state question");
             next = d.ask("А она сейчас включена?", facts, true, false);
             expect(next.reason == "facts_only", "R4 feminine follow-up has same grounded referent");
             facts.steadyMs += 121000;
@@ -135,14 +135,15 @@ int main(int argc, char** argv) {
             expect(r.reason == "ambiguous" && !has(r.text,"Вентилятор"), "R2 existing resolver rejects a device/room mismatch");
             d.rememberAttempt(f, {}, "safety", "Не включай вентилятор в кабинете");
             r = d.ask("Почему ты не включила свет на кухне?", f, true, false);
-            expect(has(r.text,"принята исполнителем") && !has(r.text,"Ничего не отправлено"), "R3 a rejection explicitly about another device is not attributed to this one");
+            expect(has(r.text,"Команду отправила") && !has(r.text,"Не могу выполнить эту команду"), "R3 a rejection explicitly about another device is not attributed to this one");
             r = d.ask("Почему ты не включила вентилятор в кабинете?", f, true, false);
-            expect(has(r.text,"Ничего не отправлено") && !has(r.text,"Не могу надёжно связать"), "R3 second catalog device has its own grounded rejection");
+            expect(has(r.text,"Не могу выполнить эту команду") && !has(r.text,"Не знаю, к какому устройству"), "R3 second catalog device has its own grounded rejection");
             mixed["devices"][1]["spoken_aliases"].push_back("свет");
             auto sharedAlias = admin_test::catalog(mixed);
             f.catalog = sharedAlias; f.devices = execution::DeviceStateStore(sharedAlias).devices();
-            r = d.ask("Свет на кухне включен?", f, true, false);
-            expect(r.reason == "facts_only" && has(r.text,"«Свет»") && !has(r.text,"Вентилятор"), "R2 shared aliases in different rooms retain existing exact disambiguation");
+            std::vector<std::string> observedTargets;
+            r = d.ask("Свет на кухне включен?", f, true, false, {}, [&](const auto& ids){observedTargets=ids;return f;});
+            expect(r.reason == "facts_only" && observedTargets==std::vector<std::string>{"lamp"}, "R2 shared aliases in different rooms retain existing exact disambiguation");
         }
         // Full worker reaches existing CommandEngine/SafetyGate/executor facade.
         // Missing binding is intentional: history proves admission without I/O.
@@ -155,7 +156,7 @@ int main(int argc, char** argv) {
             Recognizer stt; stt.text = "А на кухне включи свет";
             voice::Utterance u; u.audio.resize(16000); u.speech = {0,16000};
             const auto r = worker.processVoice(stt, u);
-            expect(r.route != "OPERATIONAL_QUESTION" && r.replyKind == "failed" && has(r.replyText,"Команда не отправлена"), "R1 worker retains actual command admission and missing-binding result");
+            expect(r.route != "OPERATIONAL_QUESTION" && r.replyKind == "failed" && r.replyText=="Для этого действия не настроено подключение.", "R1 worker retains actual command admission and missing-binding result");
             expect(Json::parse(worker.observe())["executions"].size() == 1, "R1 exactly one real executor-facade attempt");
             stt.text = "Что ты сделала последним?";
             worker.processVoice(stt, u);

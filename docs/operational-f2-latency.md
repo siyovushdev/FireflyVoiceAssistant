@@ -1,4 +1,8 @@
-# F2 response latency
+# Historical F2 response latency at 46ac3ea
+
+The current [natural feedback policy](operational-natural-feedback.md) replaces
+the acceptance phrases and uses silence for independently confirmed commands.
+The measurements below describe the previous 46ac3ea/c1314dc implementation.
 
 The first implementation synthesized every reply, including repeated sentences.
 Warm-model hardware measurements at the initial `53429eb` source showed

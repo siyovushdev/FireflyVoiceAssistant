@@ -23,7 +23,7 @@ int main(int argc,char** argv) {
    std::cout<<Json{{"event","probe_result"},{"id",id},{"phase",phase},{"text",text},{"first_pcm_ms",first.load()},
     {"total_ms",std::chrono::duration<double,std::milli>(Clock::now()-start).count()},{"cancelled",r.cancelled}}.dump()<<std::endl;
   };
-  const std::string stock="Команда принята исполнителем. Это не подтверждает состояние устройства.";
+  const std::string stock="Команду отправила, ответа пока нет.";
   for(int i=0;i<10;++i){auto ready=Clock::now();F2SpeechOutput cold("/intentionally/missing-model",argv[2],sink);speak(cold,"cold_stock",stock,false,true,ready);}
   F2SpeechOutput output(argv[1],argv[2],sink);
   for(int i=0;i<10;++i)speak(output,"warm_stock",stock,false,true);

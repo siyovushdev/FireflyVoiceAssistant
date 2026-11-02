@@ -32,7 +32,7 @@ int main(int argc,char**argv) {
                 auto input=Json::parse(line);const auto method=input.at("method").get<std::string>();Json result;
                 if(method=="voice") {
                     rec.text=input.at("text");rec.success=input.value("stt_success",true);auto r=worker.processVoice(rec,u);
-                    result={{"text",r.commandText},{"reply",r.replyText},{"kind",r.replyKind},{"mode",r.replyMode},{"route",r.route},{"llm_invoked",r.llmTimings.invoked},{"error",r.error}};
+                    result={{"text",r.commandText},{"reply",r.replyText},{"kind",r.replyKind},{"reason",r.replyReason},{"mode",r.replyMode},{"route",r.route},{"llm_invoked",r.llmTimings.invoked},{"error",r.error}};
                 }else if(method=="runtime")result=Json::parse(worker.handle(input.at("request").dump()));
                 else if(method=="model") {model.available=input.at("available");result={{"ok",true}};}
                 else if(method=="quit")break;

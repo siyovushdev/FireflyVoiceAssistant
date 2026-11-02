@@ -38,25 +38,25 @@ with tempfile.TemporaryDirectory(prefix='firefly-operational-') as directory:
             r=voice(text);assert r['route']=='OPERATIONAL_QUESTION' and r['reply'],r
         assert Device.posts==[]
         r=voice('включи свет на кухне');assert Device.posts==[{'power':True}],r
-        assert r['kind']=='accepted' and 'не подтверждает состояние устройства' in r['reply'],r
+        assert r['kind']=='accepted' and r['reply']=='' and r['reason']=='state_confirmed',r
         for text in ['Ты включила свет?','Что сейчас включено?','Что ты сделала последним?','А он сейчас работает?']:
-            r=voice(text);assert 'подтверждённому наблюдению' not in r['reply'],r
+            r=voice(text);assert 'принята исполнителем' not in r['reply'],r
         assert len(Device.posts)==1
         active=api('/api/config/active')['active'];state_poll=api('/api/devices/poll',{'target_id':'lamp','expected_hash':active['hash']});assert state_poll['ok']
-        r=voice('Свет на кухне включен?');assert 'подтверждённому наблюдению' in r['reply'],r
+        r=voice('Свет на кухне включен?');assert r['reply']=='Да.',r
         # PR43 independent findings, actual production classes and exact I/O.
         r=voice('Что ты сделала последним?');assert 'Свет' in r['reply'],r
-        r=voice('А он сейчас работает?');assert 'подтверждённому наблюдению' in r['reply'],r
-        r=voice('А она сейчас включена?');assert 'подтверждённому наблюдению' in r['reply'],r
+        r=voice('А он сейчас работает?');assert r['reply']=='Да.',r
+        r=voice('А она сейчас включена?');assert r['reply']=='Да.',r
         for text in ['Лампа на кухне включена?','Лампа на кухне выключена?']:
-            r=voice(text);assert r['route']=='OPERATIONAL_QUESTION' and 'Свет' in r['reply'],r
+            r=voice(text);assert r['route']=='OPERATIONAL_QUESTION' and r['reply']==('Да.' if 'включена' in text else 'Нет.'),r
         for text in ['Чайник на кухне включен?','Ты включила чайник на кухне?','Почему чайник на кухне не работает?','Свет и чайник на кухне включены?','Как там чайник на кухне?']:
             r=voice(text);assert r['route']=='OPERATIONAL_QUESTION' and '«Свет»' not in r['reply'],r
             assert len(Device.posts)==1,Device.posts
-        r=voice('А он сейчас работает?');assert 'О каком устройстве' in r['reply'],r
+        r=voice('А он сейчас работает?');assert 'Не знаю, о каком устройстве' in r['reply'],r
         r=voice('Не выключай свет на кухне');assert r['kind']=='unsupported',r
         for text in ['Почему команда не выполнилась?','Почему ты не выключила свет на кухне?']:
-            r=voice(text);assert 'Ничего не отправлено' in r['reply'] and 'принята исполнителем' not in r['reply'],r
+            r=voice(text);assert 'Не могу выполнить эту команду' in r['reply'] and 'Команду отправила' not in r['reply'],r
         assert len(Device.posts)==1,Device.posts
         # Fresh unrelated questions cannot create transport calls, even though
         # the fake model always returns [1] (positive malicious control).

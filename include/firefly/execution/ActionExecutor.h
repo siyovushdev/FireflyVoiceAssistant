@@ -75,7 +75,7 @@ public:
     DeviceStateStore& production();
     const DeviceStateStore& production() const;
     void observe(const StateObservation& observation);
-    HardwareResult poll(const std::string& targetId);
+    HardwareResult poll(const std::string& targetId, std::int64_t timeoutLimitMs = 0);
     // Invoked only after the generation is published, never during preflight.
     void startSubscriptions();
     void stopSubscriptions() noexcept;

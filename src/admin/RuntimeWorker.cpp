@@ -11,6 +11,7 @@
 #include "firefly/actions/ScalarJson.h"
 #include <iostream>
 #include <algorithm>
+#include <thread>
 #include <unistd.h>
 
 namespace firefly::admin {
@@ -37,6 +38,49 @@ dialogue::Facts dialogueFacts(const RuntimeGeneration& generation, const std::ve
     facts.modelReady = modelReady;
     for (const auto& event : history) facts.history.push_back({event.sequence, event.generation, event.source, event.result});
     return facts;
+}
+// One bounded observation window under the already admitted generation request.
+// MQTT reads only the existing subscription store; no request/PUBLISH is invented.
+// HTTP uses the existing validated GET with a stricter remaining deadline.
+dialogue::Facts voiceReadback(const RuntimeGeneration& generation, dialogue::Facts facts,
+                             const std::vector<std::string>& targets, const std::function<bool()>& stopped,
+                             const execution::ExecutionResult* receipt = nullptr,
+                             const actions::GenericAction* command = nullptr, std::int64_t after = 0) {
+    using Clock = std::chrono::steady_clock;
+    const auto deadline=Clock::now()+std::chrono::milliseconds(500);
+    const auto update=[&] {
+        facts.devices=generation.executor->production().devices();
+        facts.steadyMs=generation.executor->production().steadyNowMs();
+    };
+    const auto known=[&](const std::string& target) {
+        if(receipt && command)return dialogue::OperationalDialogue::executionConfirmed(facts,*receipt,*command,after);
+        for(const auto& d:facts.devices)if(d.targetId==target)for(const auto& [field,p]:d.properties) {
+            (void)field;
+            if(p.value&&p.knowledge==execution::StateKnowledge::Confirmed&&p.freshnessSteadyMs&&
+               *p.freshnessSteadyMs<=facts.steadyMs&&!execution::isStale(p,facts.steadyMs))return true;
+        }
+        return false;
+    };
+    for(const auto& target:targets) {
+        if(stopped())break;
+        update();if(receipt&&known(target))break;
+        const auto& bindings=facts.catalog->configuration().observations;
+        const auto binding=std::find_if(bindings.begin(),bindings.end(),[&](const auto& b){return b.targetId==target;});
+        if(binding==bindings.end())continue;
+        if(binding->executor==config::ExecutorKind::Http) {
+            const auto remaining=std::chrono::duration_cast<std::chrono::milliseconds>(deadline-Clock::now()).count();
+            if(remaining<=0){facts.failedReads.push_back(target);continue;}
+            const auto read=generation.executor->poll(target,remaining);
+            if(!read.success)facts.failedReads.push_back(target);
+            std::cerr << ("VOICE_READBACK " + Json{{"target_id",target},{"transport","http"},{"ok",read.success},{"error",read.error}}.dump()+"\n");
+        } else if(binding->executor==config::ExecutorKind::Mqtt) {
+            while(!known(target)&&Clock::now()<deadline&&!stopped()) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));update();
+            }
+            std::cerr << ("VOICE_READBACK " + Json{{"target_id",target},{"transport","mqtt_state"},{"known",known(target)},{"publish",false}}.dump()+"\n");
+        }
+    }
+    update();return facts;
 }
 Json stateJson(const execution::DeviceState& state) {
     if (const auto* fields = std::get_if<execution::TypedState>(&state)) {
@@ -581,6 +625,8 @@ voice::VoiceResult RuntimeWorker::processVoice(voice::SpeechRecognizer& recogniz
     try {
         const auto request = generations_.beginRequest();
         const auto& generation = *request->generation();
+        const auto epoch=speechEpoch();
+        const auto stopped=[&]{return epoch!=speechEpoch() || generations_.setupBlocked() || voiceGenerationId()!=generation.id;};
         const auto preferences = generation.domain.snapshot()->configuration().system.voiceDialogue;
         std::string voiceCommand, response, responseKind, responseReason;
         bool question = false; CommandTimings questionTimings;
@@ -599,6 +645,8 @@ voice::VoiceResult RuntimeWorker::processVoice(voice::SpeechRecognizer& recogniz
                 if (raw == "[4]") return dialogue::Question::Failure;
                 if (raw == "[5]") return dialogue::Question::Capabilities;
                 return dialogue::Question::Unclear;
+            }, [&](const std::vector<std::string>& targets) {
+                return voiceReadback(generation,dialogueFacts(generation,generations_.history(),generations_.modelReady()),targets,stopped);
             });
             if (answer.handled) {
                 question = true; response = answer.text; responseKind = "question"; responseReason = answer.reason;
@@ -606,16 +654,25 @@ voice::VoiceResult RuntimeWorker::processVoice(voice::SpeechRecognizer& recogniz
                 CommandResult command; command.path = CommandPath::FastPath; command.action = actions::Unsupported{};
                 return command;
             }
+            const auto dispatched=generation.executor->production().steadyNowMs();
             const auto result = request->process(text, execution::ExecutionIntent::Production, "voice");
             voiceCommand = commandJson(std::string(text), result).dump();
             remember(voiceCommand, "voice");
             const auto diagnostic = Json::parse(voiceCommand);
             const std::string rejection = diagnostic.value("rejection_stage", std::string{}).empty() ? "unsupported" : diagnostic.value("rejection_stage", std::string{});
+            const auto replyRejection=diagnostic.value("ambiguous",false)?"ambiguous":rejection;
             facts = dialogueFacts(generation, generations_.history(), generations_.modelReady());
-            dialogue_.rememberAttempt(facts, result.execution, rejection, text);
-            response = dialogue_.commandReply(facts, result.execution, rejection, preferences.responses == "detailed");
+            bool confirmed=false;
+            const auto* executed=std::get_if<actions::GenericAction>(&result.command.action);
+            if(preferences.responses!="off" && result.execution && result.execution->success && executed) {
+                facts=voiceReadback(generation,std::move(facts),{result.execution->targetId},stopped,&*result.execution,executed,dispatched);
+                confirmed=dialogue::OperationalDialogue::executionConfirmed(facts,*result.execution,*executed,dispatched);
+            }
+            response = dialogue_.commandReply(facts, result.execution, replyRejection, preferences.responses == "detailed",dispatched,executed);
+            const auto feedback=confirmed ? "Выполнение было подтверждено." : response=="Команду отправила, ответа пока нет." ? "Не дождалась подтверждения." : response;
+            dialogue_.rememberAttempt(facts,result.execution,replyRejection,text,feedback);
             responseKind = result.execution ? (result.execution->success && result.execution->status == execution::ExecutionStatus::Accepted ? "accepted" : "failed") : "unsupported";
-            responseReason = result.execution ? result.execution->error : rejection;
+            responseReason = confirmed ? "state_confirmed" : result.execution ? result.execution->error : rejection;
             return result.command;
         });
         auto result = processor.process(utterance);
