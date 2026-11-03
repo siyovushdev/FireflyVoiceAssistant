@@ -647,6 +647,13 @@ if(BUILD_TESTING)
         "$<TARGET_FILE:firefly-admin>" "$<TARGET_FILE:admin_fake_worker>" "${PROJECT_SOURCE_DIR}")
 endif()
 
+# DemoMain also logs the opt-in wake verifier's bounded JSON transcript. Keep
+# the vendored header private to each real/test entrypoint, not public API.
+foreach(entrypoint firefly-demo operational_voice_native unified_http_test_app)
+    if(TARGET ${entrypoint})
+        target_include_directories(${entrypoint} SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
+    endif()
+endforeach()
 # Exercise the real appliance entrypoint without linking the vendor runtime.
 if(BUILD_TESTING)
     add_executable(voice_recovery_tests "${PROJECT_SOURCE_DIR}/tests/admin/VoiceRecoveryTests.cpp")
@@ -662,6 +669,7 @@ if(BUILD_TESTING AND FIREFLY_BUILD_ASSISTANT AND FIREFLY_BUILD_VOICE)
         "${PROJECT_SOURCE_DIR}/tests/FakeRkllmRuntime.cpp"
         "${PROJECT_SOURCE_DIR}/src/RkllmEngine.cpp")
     target_include_directories(production_startup_fixture PRIVATE "${RKLLM_INCLUDE_DIR}" "${PROJECT_SOURCE_DIR}/tests")
+    target_include_directories(production_startup_fixture SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
     target_compile_definitions(production_startup_fixture PRIVATE FIREFLY_WITH_VOICE FIREFLY_TEST_SETUP_RESOURCES)
     target_compile_options(production_startup_fixture PRIVATE -Wall -Wextra -Wpedantic)
     target_link_libraries(production_startup_fixture PRIVATE firefly_admin_transport firefly_speech)
@@ -674,6 +682,7 @@ if(BUILD_TESTING AND FIREFLY_BUILD_ASSISTANT AND FIREFLY_BUILD_VOICE)
         "${PROJECT_SOURCE_DIR}/tests/FakeRkllmRuntime.cpp"
         "${PROJECT_SOURCE_DIR}/src/RkllmEngine.cpp")
     target_include_directories(voice_recovery_fixture PRIVATE "${RKLLM_INCLUDE_DIR}" "${PROJECT_SOURCE_DIR}/tests")
+    target_include_directories(voice_recovery_fixture SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
     target_compile_definitions(voice_recovery_fixture PRIVATE FIREFLY_WITH_VOICE FIREFLY_TEST_SETUP_RESOURCES)
     target_compile_options(voice_recovery_fixture PRIVATE -Wall -Wextra -Wpedantic)
     target_link_libraries(voice_recovery_fixture PRIVATE firefly_admin_transport)
