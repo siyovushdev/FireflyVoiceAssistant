@@ -22,19 +22,28 @@ void runWakeVoiceLoop(AudioSource& capture, WakeDetector& wake, VoiceSegmenter& 
     const std::function<void(const std::string&)>& state,
     const std::function<bool()>& stopped,
     const std::function<std::chrono::steady_clock::time_point()>& now,
-    WakeAcknowledgement* acknowledgement) {
+    WakeAcknowledgement* acknowledgement,
+    const std::function<bool(const std::vector<float>&)>& confirmWake) {
     config.validate();
     if (!config.enabled) throw std::invalid_argument("Wake loop requires enabled wake gating");
     if (config.afterBeepOnly && !acknowledgement)
         throw std::invalid_argument("After-beep mode requires wake acknowledgement");
+    if (confirmWake && !config.afterBeepOnly)
+        throw std::invalid_argument("STT wake confirmation requires after-beep mode");
     struct Cleanup {
         WakeAcknowledgement* output;
         ~Cleanup() { if (output) output->cancel(); }
     } cleanup{acknowledgement};
-    enum class Phase { WaitingWake, CheckingContinuation, DecidingContinuation, Acknowledging, Draining, WaitingSpeech, Capturing, CapturingInline, Processing };
+    enum class Phase { WaitingWake, ConfirmingTail, VerifyingWake, CheckingContinuation, DecidingContinuation, Acknowledging, Draining, WaitingSpeech, Capturing, CapturingInline, Processing };
     Phase phase = Phase::WaitingWake;
     std::future<VoiceResult> worker;
     std::future<bool> continuationWorker;
+    std::future<bool> confirmationWorker;
+    auto confirmationDeadline = now();
+    bool confirmationExpired = false;
+    std::vector<float> confirmationPcm;
+    std::size_t confirmationHistory = 0;
+    constexpr std::size_t ConfirmationTailSamples = 8 * FrameSamples; // 256 ms, actual capture only
     std::array<float, FrameSamples> frame{};
     int filled = 0;
     WakePcmRing ring;
@@ -48,7 +57,7 @@ void runWakeVoiceLoop(AudioSource& capture, WakeDetector& wake, VoiceSegmenter& 
     auto deadline = now(), legacyDeadline = now(), captureDeadline = now();
     auto lastAudio = now();
     auto rearm = [&] {
-        wake.reset(); segmenter.startSession(); filled = 0; ring.clear(); continuation.clear();
+        wake.reset(); segmenter.startSession(); filled = 0; ring.clear(); continuation.clear(); confirmationPcm.clear();
         phase = Phase::WaitingWake; state("WAITING_WAKE");
     };
     auto arm = [&] {
@@ -105,6 +114,23 @@ void runWakeVoiceLoop(AudioSource& capture, WakeDetector& wake, VoiceSegmenter& 
     try {
         rearm();
         while (!stopped()) {
+            // Capture drains while the idle STT is used exclusively for wake
+            // verification. No queued candidate, command, VAD or playback here.
+            if (confirmationWorker.valid()) {
+                if (!confirmationExpired && now() >= confirmationDeadline) {
+                    confirmationExpired = true; state("WAKE_CONFIRMATION_TIMEOUT");
+                }
+                if (confirmationWorker.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
+                    bool accepted = false;
+                    try { accepted = confirmationWorker.get(); }
+                    catch (...) { state("WAKE_CONFIRMATION_FAILED"); }
+                    if (stopped()) break;
+                    if (accepted && !confirmationExpired && now() < confirmationDeadline) {
+                        state("WAKE_CONFIRMED"); finishContinuation(false);
+                    } else { state("WAKE_REJECTED"); rearm(); }
+                    if (stopped()) break;
+                }
+            }
             // At most one VAD owner: capture never touches it until get() joins
             // the probe. A 1 ms bounded wait avoids spinning on synthetic sources.
             if (continuationWorker.valid() &&
@@ -153,7 +179,13 @@ void runWakeVoiceLoop(AudioSource& capture, WakeDetector& wake, VoiceSegmenter& 
                 if (wake.accept(frame.data(), FrameSamples)) {
                     state("WAKE_DETECTED");
                     wakeOffset = static_cast<int64_t>(ring.size());
-                    if (config.afterBeepOnly) {
+                    if (confirmWake) {
+                        // Finish the name from the same capture stream. This
+                        // bounded real tail is never VAD/command input or padding.
+                        confirmationPcm = ring.snapshot(); confirmationHistory = confirmationPcm.size();
+                        phase = Phase::ConfirmingTail; state("VERIFYING_WAKE");
+                        confirmationExpired = false; confirmationDeadline = now() + std::chrono::seconds(2);
+                    } else if (config.afterBeepOnly) {
                         // Neither room speech nor a repeated wake can silently
                         // choose inline capture. Pre-beep PCM is never a command.
                         finishContinuation(false);
@@ -161,6 +193,16 @@ void runWakeVoiceLoop(AudioSource& capture, WakeDetector& wake, VoiceSegmenter& 
                         segmenter.startSession(); continuation.clear();
                         phase = Phase::CheckingContinuation; state("CHECKING_CONTINUATION");
                     }
+                }
+            } else if (phase == Phase::ConfirmingTail) {
+                if (now() >= confirmationDeadline) {
+                    state("WAKE_CONFIRMATION_TIMEOUT"); state("WAKE_REJECTED"); rearm(); continue;
+                }
+                confirmationPcm.insert(confirmationPcm.end(), frame.begin(), frame.end());
+                if (confirmationPcm.size() - confirmationHistory >= ConfirmationTailSamples) {
+                    phase = Phase::VerifyingWake;
+                    confirmationWorker = std::async(std::launch::async,
+                        [&confirmWake, pcm = std::move(confirmationPcm)] { return confirmWake(pcm); });
                 }
             } else if (phase == Phase::CheckingContinuation) {
                 continuation.insert(continuation.end(), frame.begin(), frame.end());
@@ -204,6 +246,7 @@ void runWakeVoiceLoop(AudioSource& capture, WakeDetector& wake, VoiceSegmenter& 
         if (acknowledgement) acknowledgement->cancel();
         state("stopping");
         if (continuationWorker.valid()) continuationWorker.get();
+        if (confirmationWorker.valid()) confirmationWorker.wait();
         if (worker.valid()) worker.get();
         state("stopped");
     } catch (...) {
@@ -211,6 +254,7 @@ void runWakeVoiceLoop(AudioSource& capture, WakeDetector& wake, VoiceSegmenter& 
         if (acknowledgement) acknowledgement->cancel();
         state("WAKE_UNAVAILABLE");
         if (continuationWorker.valid()) continuationWorker.wait();
+        if (confirmationWorker.valid()) confirmationWorker.wait();
         if (worker.valid()) worker.wait();
         throw;
     }

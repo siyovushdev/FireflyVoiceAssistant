@@ -48,7 +48,17 @@ SherpaRecognizer::SherpaRecognizer(const std::string&, RecognitionProfile profil
 SherpaRecognizer::~SherpaRecognizer() {
     std::cerr << "FIXTURE STT released profile=" << (impl_->profile == RecognitionProfile::Command ? "command" : "admin") << '\n';
 }
-RecognitionResult SherpaRecognizer::recognize(const std::vector<float>&) { return {}; }
+RecognitionResult SherpaRecognizer::recognize(const std::vector<float>&) {
+    const auto current = mode();
+    if (current.rfind("ack-confirm-",0)!=0) return {};
+    std::cerr << "FIXTURE confirmation STT started\n";
+    if (current=="ack-confirm-slow") std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    RecognitionResult result;
+    result.success=current!="ack-confirm-error";
+    result.text=current=="ack-confirm-reject"?"салют у нас":"афина";
+    std::cerr << "FIXTURE confirmation STT finished\n";
+    return result;
+}
 struct AlsaAudioSource::Impl {};
 AlsaAudioSource::AlsaAudioSource(const std::string&, unsigned, unsigned) {
     if (mode() == "absent") throw std::runtime_error("Cannot open ALSA capture fixture: No such device");

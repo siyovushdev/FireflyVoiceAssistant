@@ -681,6 +681,10 @@ if(BUILD_TESTING AND FIREFLY_BUILD_ASSISTANT AND FIREFLY_BUILD_VOICE)
         "${PROJECT_SOURCE_DIR}/tests/admin/WakeAcknowledgementOptionsTests.py"
         "$<TARGET_FILE:voice_recovery_fixture>" "${PROJECT_SOURCE_DIR}")
     set_tests_properties(WakeAcknowledgementOptions PROPERTIES TIMEOUT 45)
+    add_test(NAME WakeConfirmationOptions COMMAND "${Python3_EXECUTABLE}"
+        "${PROJECT_SOURCE_DIR}/tests/admin/WakeConfirmationOptionsTests.py"
+        "$<TARGET_FILE:voice_recovery_fixture>" "${PROJECT_SOURCE_DIR}")
+    set_tests_properties(WakeConfirmationOptions PROPERTIES TIMEOUT 60)
     add_test(NAME VoiceRecoveryIntegration COMMAND "${Python3_EXECUTABLE}"
         "${PROJECT_SOURCE_DIR}/tests/admin/VoiceRecoveryIntegrationTests.py"
         "$<TARGET_FILE:voice_recovery_fixture>" "${PROJECT_SOURCE_DIR}")

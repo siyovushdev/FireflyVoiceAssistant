@@ -10,6 +10,8 @@ Local Russian voice assistant for Firefly RK3588S (8 GB, Ubuntu 22.04/aarch64). 
 
 **Voice input development:** [after-beep default and optional direction experiment](docs/after-beep-voice-input.md). Standalone wake → beep → command is the appliance default; automatic inline input is an explicit option.
 
+**Wake filtering experiment:** [STT confirmation before the beep](docs/wake-stt-confirmation.md), disabled by default; includes measured speech misses and trial limits.
+
 **Device telemetry development:** [availability, last-known state and periodic ESP32 reporting](docs/device-telemetry.md). Online status requires independent device data; broker acknowledgements do not establish it.
 
 ## Version and scope
