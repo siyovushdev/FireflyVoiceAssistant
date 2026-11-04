@@ -289,7 +289,8 @@ Reply OperationalDialogue::ask(std::string_view original, const Facts& input, bo
     if (kind == Question::Unclear && classify) kind = classify(original);
     if (kind == Question::None || kind == Question::Unclear) {
         context_ = {};
-        reply.text = "Могу помочь с настроенными устройствами. Уточни вопрос."; reply.reason = "outside_operational_scope"; return reply;
+        // Silently consume unsupported questions; never fall through to a command.
+        reply.reason = "outside_operational_scope"; return reply;
     }
     reply.question = kind;
     std::vector<std::string> targets = grounding.devices;
