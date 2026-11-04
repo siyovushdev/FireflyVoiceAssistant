@@ -72,6 +72,10 @@ int main(int argc,char**argv) {
         answer=dialog.ask("Свет на марсе включен?",f,true,false);check(answer.reason=="unknown_scope","known device does not erase an unknown location");
         answer=dialog.ask("Ты включила чайник?",f,true,false);check(answer.reason=="unknown_scope","unknown device cannot silently become last lamp");
         answer=dialog.ask("Сколько лет луне?",f,true,false,[](auto){return dialogue::Question::None;});check(answer.reason=="outside_operational_scope","outside topics unsupported");
+        for (const bool detailed : {false,true}) for (const auto* text : {"Ты работаешь?","Что ты умеешь?","Что ты можешь?"}) {
+            answer=dialog.ask(text,f,true,detailed,[](auto){return dialogue::Question::Capabilities;},[](const auto&)->dialogue::Facts {throw std::runtime_error("capabilities must not read devices");});
+            check(answer.handled && answer.text.empty() && answer.reason=="capabilities_silent", "capability chatter stays handled and silent in both modes");
+        }
         answer=dialog.ask("Что сейчас включено?",f,false,false,[](auto){throw std::runtime_error("disabled questions must not invoke Qwen");return dialogue::Question::State;});check(answer.reason=="questions_disabled","questions switch");
         for(const auto* phrase:{"да будет свет на кухне","а отключи ка свет на кухне","можешь включить свет пожалуйста","не выключай свет","да я включил свет"})check(!dialogue::OperationalDialogue::questionLike(phrase),std::string("existing command/safety path preserved: ")+phrase);
         Model model;admin::RuntimeWorker worker(model);
@@ -85,6 +89,11 @@ int main(int argc,char**argv) {
                 check(Json::parse(worker.observe())["executions"].empty(),"questions never execute");
                 check(!result.replyText.empty()&&result.replyMode=="brief","worker exposes grounded reply");
             }
+        }
+        for (const auto* text : {"Ты работаешь?","Что ты умеешь?","Что ты можешь?"}) {
+            rec.text=text;auto quiet=worker.processVoice(rec,u);
+            check(quiet.route=="OPERATIONAL_QUESTION" && quiet.replyText.empty() && quiet.replyReason=="capabilities_silent" && quiet.error.empty(), "silent question must not become spoken error");
+            check(Json::parse(worker.observe())["executions"].empty(), "silent capability must not execute");
         }
         model.raw="[3]";rec.text="Как прошёл запуск?";auto classified=worker.processVoice(rec,u);
         check(classified.llmTimings.invoked&&contains(classified.replyText,"ещё не отправляла"),"bounded JSON classifier contract reaches inference and returns a read-only intent");

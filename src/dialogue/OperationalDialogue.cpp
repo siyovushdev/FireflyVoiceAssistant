@@ -334,8 +334,11 @@ Reply OperationalDialogue::ask(std::string_view original, const Facts& input, bo
         f = updated;
     }
     if (kind == Question::Capabilities) {
-        reply.text = "Я на связи.";
-        if (detailed || has(w,{"умеешь","возможности"})) reply.text += " Могу управлять настроенными устройствами и проверять их состояние.";
+        // Owner preference: no generic readiness/capability speech. Keep the
+        // question handled so silence cannot fall through into command execution.
+        context_ = {};
+        reply.reason = "capabilities_silent";
+        return reply;
     } else if (kind == Question::Failure) {
         const Event* latest = nullptr;
         for (auto it=f.history.rbegin();it!=f.history.rend();++it) if (production(*it) &&
