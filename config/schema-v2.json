@@ -56,6 +56,18 @@
             "questions_enabled"
           ],
           "additionalProperties": false
+        },
+        "voice_input": {
+          "type": "object",
+          "properties": {
+            "inline_commands": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "inline_commands"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [

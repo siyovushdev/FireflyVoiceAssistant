@@ -637,6 +637,7 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
                     {"hash",live["active"]["hash"]},{"generation_id",live["active"]["generation_id"]}};
                 for (const auto* key : {"voice","microphone","executor","last_command","last_voice","uptime_seconds","context_tokens","context_limit","build"}) reply[key] = live[key];
                 if (live.contains("speech")) reply["speech"] = live["speech"];
+                if (live.contains("voice_input")) reply["voice_input"] = live["voice_input"];
                 reply["device_count"] = live["devices"].size();
                 impl_->syncHealthFromRuntime(live);
             }

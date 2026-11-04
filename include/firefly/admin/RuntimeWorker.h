@@ -4,6 +4,7 @@
 #include <string>
 #include <chrono>
 #include "firefly/voice/VoiceProcessor.h"
+#include "firefly/voice/WakeDetector.h"
 namespace firefly::admin {
 std::string buildIdentityJson();
 class RuntimeWorker final {
@@ -18,6 +19,8 @@ public:
     std::uint64_t speechEpoch() const { return speechEpoch_.load(); }
     config::VoiceDialogueSettings voicePreferences() const;
     std::uint64_t voiceGenerationId() const;
+    void setWakeInputDefaults(bool afterBeep, bool confirmation) { afterBeepDefault_ = afterBeep; wakeConfirmation_ = confirmation; }
+    voice::WakeInputPolicy wakeInputPolicy() const;
     void speechStatus(std::string state, std::string error = {});
     bool setupBlocked() const { return generations_.setupBlocked(); }
     void setAudioDrain(std::function<void()> drain) { generations_.setAudioDrain(std::move(drain)); }
@@ -27,6 +30,8 @@ private:
     const std::chrono::steady_clock::time_point started_ = std::chrono::steady_clock::now();
     std::string lastVoice_, speechState_ = "unavailable", speechError_;
     std::atomic<std::uint64_t> speechEpoch_{0};
+    std::atomic<bool> afterBeepDefault_{true};
+    std::atomic<bool> wakeConfirmation_{false};
     dialogue::OperationalDialogue dialogue_;
     std::string lastCommand_, voiceState_ = "disabled", microphone_ = "disabled";
 private:

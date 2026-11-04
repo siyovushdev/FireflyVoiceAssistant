@@ -67,7 +67,7 @@ int main(int argc, char** argv) {
                     "  [--wake-beep-enabled true|false] [--wake-beep-volume-percent 1..30] (defaults: true, 30)\n"
                     "  [--wake-focus-socket PRIVATE_SOCKET] (optional external direction experiment)\n"
                     "  [--wake-command-mode after-beep|auto] (default: after-beep; command follows beep)\n"
-                    "  [--wake-stt-confirmation true|false] (default: false; experimental, after-beep only)\n"
+                    "  [--wake-stt-confirmation true|false] (default: false; experimental; requires wake gating and beep)\n"
                     "  [--command-listen-timeout-ms MS] (deprecated total listening cap)\n"
                     "One process appliance runtime supervised by systemd in production.\n"
                     "V1 Admin is loopback-only (127.0.0.1); remote access requires an SSH/Tailscale TCP tunnel.\n"
@@ -162,8 +162,8 @@ int main(int argc, char** argv) {
         }
 #endif
         wakeConfig.validate();
-        if (wakeSttConfirmation && (!wakeConfig.enabled || !wakeConfig.afterBeepOnly))
-            throw std::invalid_argument("STT wake confirmation requires enabled after-beep wake");
+        if (wakeSttConfirmation && (!wakeConfig.enabled || !acknowledgementConfig.enabled))
+            throw std::invalid_argument("STT wake confirmation requires enabled wake and beep");
         if (voice && wakeConfig.enabled && wakeConfig.afterBeepOnly && !acknowledgementConfig.enabled)
             throw std::invalid_argument("After-beep mode requires enabled wake beep");
         firefly::voice::WakeDirectionClient wakeDirection(wakeFocusSocket);
@@ -187,6 +187,7 @@ int main(int argc, char** argv) {
 #endif
         firefly::admin::RuntimeModel model(modelPath, adminModel, resources);
         firefly::admin::RuntimeWorker runtime(model);
+        runtime.setWakeInputDefaults(wakeConfig.afterBeepOnly, wakeSttConfirmation);
         firefly::admin::LocalRuntimeClient client(runtime);
         firefly::admin::Api api(store, client, nullptr);
         api.health().setPhase("process_started");
@@ -295,11 +296,12 @@ int main(int argc, char** argv) {
                     firefly::voice::AlsaWakeAcknowledgement acknowledgement(playbackDevice, acknowledgementConfig);
                     std::cerr << "VOICE_ACK enabled=" << (acknowledgementConfig.enabled ? "true" : "false")
                         << " volume_percent=" << acknowledgementConfig.volumePercent << '\n';
-                    std::cerr << "VOICE_INPUT mode=" << (wakeConfig.afterBeepOnly ? "after-beep" : "auto") << '\n';
+                    std::cerr << "VOICE_INPUT mode=" << (runtime.wakeInputPolicy().afterBeepOnly ? "after-beep" : "auto") << '\n';
                     std::cerr << "VOICE_WAKE_CONFIRMATION enabled=" << (wakeSttConfirmation ? "true" : "false") << '\n';
                     std::function<bool(const std::vector<float>&)> confirmWake;
                     if (wakeSttConfirmation) confirmWake = [&](const std::vector<float>& pcm) {
                         if (interrupted()) return false;
+                        const auto generation = runtime.voiceGenerationId();
                         // The recovery audio lease joins this worker before Setup
                         // can destroy recognizer. Command STT is idle in this phase.
                         firefly::voice::SttWakeConfirmation verifier(*recognizer);
@@ -307,7 +309,7 @@ int main(int argc, char** argv) {
                         nlohmann::json attempts = nlohmann::json::array();
                         for (const auto& attempt : result.attempts)
                             attempts.push_back({{"success", attempt.success}, {"text", attempt.text.substr(0,1024)}, {"stt_ms", attempt.latencyMs}});
-                        const bool cancelled = interrupted();
+                        const bool cancelled = interrupted() || generation != runtime.voiceGenerationId();
                         std::cerr << ("WAKE_CONFIRMATION " + nlohmann::json({
                             {"matched", result.accepted}, {"cancelled", cancelled}, {"reason", result.reason},
                             {"processing_ms", result.processingMs}, {"attempts", attempts}}).dump() + "\n");
@@ -396,7 +398,8 @@ int main(int argc, char** argv) {
                     if (wakeConfig.enabled)
                         firefly::voice::runWakeVoiceLoop(*capture, *wake, segmenter, wakeConfig,
                             process, emit, state, interrupted, std::chrono::steady_clock::now,
-                            acknowledgementConfig.enabled ? &acknowledgement : nullptr, confirmWake);
+                            acknowledgementConfig.enabled ? &acknowledgement : nullptr, confirmWake,
+                            [&] { return runtime.wakeInputPolicy(); });
                     else {
                         std::cerr << "VOICE wake gating explicitly disabled by configuration\n";
                         firefly::voice::runVoiceLoop(*capture, segmenter, process, emit, state, interrupted);

@@ -2,6 +2,7 @@
 import ContextualAssist from './ContextualAssist.vue';
 import { computed } from 'vue';
 import { manual } from '../stores/manual.js';
+import { system } from '../stores/system.js';
 import { allocate, newField, initial, type Action } from '../adapters/editing.js';
 import FieldSchema from './forms/FieldSchema.vue';
 import LineListInput from './forms/LineListInput.vue';
@@ -27,9 +28,19 @@ function setResponses(value: string) {
 function setQuestions(value: boolean) {
     config.value.system.voice_dialogue = { responses: config.value.system.voice_dialogue?.responses ?? 'off', questions_enabled: value };
 }
+const inlineCommands = computed(() => config.value.system.voice_input?.inline_commands ?? system.status.value?.voice_input?.inline_commands ?? false);
+function setInlineCommands(value: boolean) {
+    config.value.system.voice_input = { inline_commands: value };
+}
 </script>
 <template>
     <template v-if="task.kind === 'system'"><label>Название системы<input v-model="config.system.name" required data-path="/system/name" autofocus></label>
+        <h3>Ввод голосовых команд</h3>
+        <label><input type="checkbox" :checked="inlineCommands" data-testid="inline-commands" @change="setInlineCommands(($event.target as HTMLInputElement).checked)">Разрешить слитные команды</label>
+        <p v-if="inlineCommands">Можно сказать «Амина, включи свет» одной фразой. Если сказать только «Амина», ассистент подаст бип и будет ждать команду. В шумном помещении чужая речь может попасть в продолжение команды.</p>
+        <p v-else>Сначала скажите «Амина», дождитесь бипа и произнесите команду. Этот режим удобнее в шумном помещении.</p>
+        <p>Режим изменится после «Сохранить и применить», без перезапуска.</p>
+        <p v-if="system.status.value?.voice_input?.confirmation_enabled">Фильтр ложных пробуждений включён и работает в обоих режимах.</p>
         <h3>Голос Амины · F2</h3>
         <label>Голосовые ответы<select :value="config.system.voice_dialogue?.responses ?? 'off'" data-testid="voice-responses" @change="setResponses(($event.target as HTMLSelectElement).value)"><option value="off">Выключено</option><option value="brief">Кратко</option><option value="detailed">Подробно</option></select></label>
         <label><input type="checkbox" :checked="config.system.voice_dialogue?.questions_enabled ?? false" data-testid="voice-questions" @change="setQuestions(($event.target as HTMLInputElement).checked)">Вопросы о работе ассистента и устройств</label>

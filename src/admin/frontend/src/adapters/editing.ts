@@ -196,7 +196,15 @@ export function readableDiff(before: ConfigurationDto, after: ConfigurationDto):
     };
     const beforeSystem = { ...before.system }, afterSystem = { ...after.system };
     delete beforeSystem.voice_dialogue; delete afterSystem.voice_dialogue;
+    delete beforeSystem.voice_input; delete afterSystem.voice_input;
     add('Система', beforeSystem, afterSystem);
+    const beforeInput = before.system.voice_input, afterInput = after.system.voice_input;
+    if (JSON.stringify(beforeInput) !== JSON.stringify(afterInput)) {
+        const describe = (value: ConfigurationDto['system']['voice_input']) => value === undefined ? 'Режим по умолчанию'
+            : value.inline_commands ? 'Слитные команды разрешены: «Амина, включи свет»' : 'Только после бипа: «Амина» → бип → команда';
+        changes.push({ title: 'Ввод голосовых команд', before: beforeInput, after: afterInput,
+            beforeText: describe(beforeInput), afterText: describe(afterInput), consumers: [] });
+    }
     const aVoice = before.system.voice_dialogue, bVoice = after.system.voice_dialogue;
     if (JSON.stringify(aVoice) !== JSON.stringify(bVoice)) {
         const describeVoice = (value: ConfigurationDto['system']['voice_dialogue']) => value

@@ -624,6 +624,12 @@ config::VoiceDialogueSettings RuntimeWorker::voicePreferences() const {
 std::uint64_t RuntimeWorker::voiceGenerationId() const {
     const auto active = generations_.current(); return active ? active->id : 0;
 }
+voice::WakeInputPolicy RuntimeWorker::wakeInputPolicy() const {
+    const auto active = generations_.current();
+    if (!active) return {afterBeepDefault_.load(), 0};
+    const auto& input = active->domain.snapshot()->configuration().system.voiceInput;
+    return {input.present ? !input.inlineCommands : afterBeepDefault_.load(), active->id};
+}
 void RuntimeWorker::speechStatus(std::string state, std::string error) {
     std::lock_guard<std::mutex> lock(diagnostics_); speechState_ = std::move(state); speechError_ = std::move(error);
 }
@@ -633,6 +639,11 @@ voice::VoiceResult RuntimeWorker::processVoice(voice::SpeechRecognizer& recogniz
     try {
         const auto request = generations_.beginRequest();
         const auto& generation = *request->generation();
+        if (utterance.inputGeneration && utterance.inputGeneration != generation.id) {
+            voice::VoiceResult cancelled; cancelled.route = "CANCELLED";
+            cancelled.error = "Voice configuration changed before recognition";
+            cancelled.processingMs = elapsedMs(); return cancelled;
+        }
         const auto epoch=speechEpoch();
         const auto stopped=[&]{return epoch!=speechEpoch() || generations_.setupBlocked() || voiceGenerationId()!=generation.id;};
         const auto preferences = generation.domain.snapshot()->configuration().system.voiceDialogue;
@@ -711,6 +722,7 @@ voice::VoiceResult RuntimeWorker::processVoice(voice::SpeechRecognizer& recogniz
 }
 std::string RuntimeWorker::observe() const {
     config::VoiceDialogueSettings preferences;
+    bool inlineCommands = !afterBeepDefault_.load();
     Json reply{{"ok",true},{"protocol_version",1},{"worker_pid",::getpid()},
         {"setup_mode",generations_.setupModeName()},{"model_ready",generations_.modelReady()},{"runtime_busy",generations_.busy()},
         {"uptime_seconds",std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now()-started_).count()},
@@ -721,6 +733,8 @@ std::string RuntimeWorker::observe() const {
     if (const auto active = generations_.current()) {
         const auto& catalog = active->domain.snapshot();
         preferences = catalog->configuration().system.voiceDialogue;
+        if (catalog->configuration().system.voiceInput.present)
+            inlineCommands = catalog->configuration().system.voiceInput.inlineCommands;
         reply["active"] = {{"configuration",Json::parse(catalog->canonicalJson())},{"revision",catalog->configuration().revision},
             {"hash",catalog->contentHash()},{"context",active->prompt},{"context_strategy",active->targetContexts.empty()?"full_catalog":"explicit_target_action_scopes"},{"context_scope_count",active->targetContexts.size()},{"generation_id",active->id}};
         const auto now = active->executor->production().steadyNowMs();
@@ -730,6 +744,8 @@ std::string RuntimeWorker::observe() const {
             reply["playground_devices"].push_back(
                 {{"targetId",device.targetId},{"name",device.name},{"state",stateJson(device.state)}});
     }
+    reply["voice_input"] = {{"inline_commands", inlineCommands}, {"mode", inlineCommands ? "auto" : "after-beep"},
+        {"confirmation_enabled", wakeConfirmation_.load()}};
     for (const auto& event : generations_.history()) reply["executions"].push_back(
         {{"sequence",event.sequence},{"generation_id",event.generation},{"timestamp_ms",event.timestampMs},
          {"source",event.source},{"execution",executionJson(event.result)}});

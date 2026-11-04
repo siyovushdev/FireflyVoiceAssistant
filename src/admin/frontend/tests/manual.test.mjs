@@ -306,3 +306,15 @@ test('review states the exact speech mode and question policy in readable langua
     assert.match(changes[0].afterText, /подробно/); assert.match(changes[0].afterText, /включены/);
     assert.doesNotMatch(changes[0].afterText, /технические параметры/);
 });
+
+test('inline voice preference uses draft Cancel and exactly one normal Review Save→Apply', async () => {
+    const h = harness(); const original = clone(h.stored.configuration);
+    await h.store.begin('system'); h.store.task.value.buffer.system.voice_input = { inline_commands: true };
+    h.store.cancel(); assert.deepEqual(h.stored.configuration, original); assert.equal(writes(h).length, 0);
+    await h.store.begin('system'); h.store.task.value.buffer.system.voice_input = { inline_commands: true };
+    await h.store.stage(); assert.deepEqual(h.stored.configuration, original); assert.equal(writes(h).length, 0);
+    assert.ok(readableDiff(original, h.store.candidate.value).some(c => JSON.stringify(c).includes('Ввод голосовых команд')));
+    await h.store.prepare(); assert.equal(writes(h).length, 0); await h.store.confirm();
+    assert.equal(writes(h).length, 2); assert.equal(h.active.configuration.system.voice_input.inline_commands, true);
+    assert.deepEqual(h.active.configuration.system.voice_dialogue, original.system.voice_dialogue);
+});

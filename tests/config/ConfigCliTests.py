@@ -73,7 +73,7 @@ class ConfigCliTests(unittest.TestCase):
                 self.assertTrue(required <= properties)
                 optional = properties - required
                 self.assertTrue(not optional or optional == {"metadata"} or
-                                (optional == {"voice_dialogue"} and properties == {"id", "name", "locale", "interpretation_profile", "voice_dialogue"}) or
+                                (optional == {"voice_dialogue", "voice_input"} and properties == {"id", "name", "locale", "interpretation_profile", "voice_dialogue", "voice_input"}) or
                                 properties <= {"type", "description", "aliases", "parent_id", "container"})
             if "$ref" in node:
                 self.assertTrue(node["$ref"].startswith("#/$defs/"))

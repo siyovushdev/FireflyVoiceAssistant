@@ -14,20 +14,20 @@ with tempfile.TemporaryDirectory(prefix='firefly-wake-confirmation-') as directo
     temp=Path(directory)
     invalid=[['--wake-stt-confirmation',v] for v in ('','0','TRUE','yes')]+[
         ['--wake-stt-confirmation'],
-        ['--wake-stt-confirmation','true','--wake-command-mode','auto'],
+        ['--wake-stt-confirmation','true','--wake-command-mode','auto','--wake-beep-enabled','false'],
         ['--wake-stt-confirmation','true','--wake-enabled','false']]
     for flags in invalid:
         store=temp/'must-not-exist'
         r=subprocess.run([str(app),'--store',str(store),*flags],capture_output=True,text=True,timeout=10)
         assert r.returncode==1 and not store.exists(),(flags,r)
-    for name,mode,enabled in [('off','ack-confirm-reject',False),('confirmed','ack-confirm-success',True),('noise','ack-confirm-reject',True),('error','ack-confirm-error',True),('cancel','ack-confirm-slow',True)]:
+    for name,mode,enabled in [('off','ack-confirm-reject',False),('confirmed','ack-confirm-success',True),('inline','ack-confirm-success',True),('noise','ack-confirm-reject',True),('error','ack-confirm-error',True),('cancel','ack-confirm-slow',True)]:
         control=temp/(name+'-control');control.write_text(mode)
         store=temp/name;store.mkdir(mode=0o700);log=temp/(name+'.log')
         with log.open('w') as out:
             process=subprocess.Popen([str(app),'--store',str(store),'--init-config',str(root/'config/empty-home.json'),
                 '--model','fixture-no-npu','--admin-port','0','--voice','--stt-model-dir','fixture-no-stt',
                 '--vad-model','fixture-no-vad','--audio-device','fixture-no-alsa','--wake-python','fixture-no-child',
-                '--wake-stt-confirmation',str(enabled).lower()],stdout=out,stderr=out,
+                '--wake-stt-confirmation',str(enabled).lower(), '--wake-command-mode','auto' if name=='inline' else 'after-beep'],stdout=out,stderr=out,
                 env={**os.environ,'FIREFLY_TEST_VOICE_CONTROL':str(control)})
         try:
             deadline=time.monotonic()+15
@@ -42,7 +42,7 @@ with tempfile.TemporaryDirectory(prefix='firefly-wake-confirmation-') as directo
             assert ('VOICE_STATE VERIFYING_WAKE' in value)==enabled,value
             if name in ('noise','error','cancel'):assert 'BEEP_START' not in value,value
             else:assert 'BEEP_START' in value,value
-            if name=='confirmed':
+            if name in ('confirmed','inline'):
                 assert value.index('WAKE_CONFIRMED')<value.index('BEEP_START'),value
                 assert '"text":"афина"' in value,value
             if name in ('noise','error'):
@@ -60,4 +60,4 @@ with tempfile.TemporaryDirectory(prefix='firefly-wake-confirmation-') as directo
                 assert value.rfind('FIXTURE confirmation STT finished')<value.rfind('FIXTURE STT released profile=command'),value
         finally:
             if process.poll() is None:process.terminate();process.wait(timeout=10)
-print('7 invalid argv and 5 opt-in/default/noise/error/cancellation entrypoint cases passed; no hardware')
+print('7 invalid argv and 6 opt-in/default/inline/noise/error/cancellation entrypoint cases passed; no hardware')

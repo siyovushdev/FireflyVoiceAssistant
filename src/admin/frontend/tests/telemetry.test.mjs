@@ -36,3 +36,12 @@ test('telemetry DTO validates ages and values and preserves extra metadata', () 
     assert.equal(formatAge(0),'0 с назад');assert.equal(formatAge(61000),'1 мин назад');
     assert.equal(formatAge(null),'Данных ещё нет');
 });
+
+test('voice input DTO keeps CLI/config mode and filter capability explicit', () => {
+    for (const enabled of [false,true]) {
+        const input={inline_commands:enabled,mode:enabled?'auto':'after-beep',confirmation_enabled:true};
+        assert.deepEqual(decodeResponse('/api/status',{ok:true,runtime_ready:true,runtime_busy:false,needs_apply:false,active:null,voice_input:input}).voice_input,input);
+    }
+    for(const input of [{inline_commands:'true',mode:'auto'},{inline_commands:true,mode:'anything'},{inline_commands:true,mode:'auto',confirmation_enabled:1}])
+        assert.throws(()=>decodeResponse('/api/status',{ok:true,runtime_ready:true,runtime_busy:false,needs_apply:false,active:null,voice_input:input}));
+});

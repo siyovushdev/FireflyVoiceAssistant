@@ -1,7 +1,9 @@
 #include "firefly/voice/WakeVoiceLoop.h"
 #include <array>
+#include <algorithm>
 #include "firefly/voice/WakePcmRing.h"
 #include <future>
+#include <optional>
 #include <stdexcept>
 namespace firefly::voice {
 void WakeConfig::validate() const {
@@ -23,18 +25,24 @@ void runWakeVoiceLoop(AudioSource& capture, WakeDetector& wake, VoiceSegmenter& 
     const std::function<bool()>& stopped,
     const std::function<std::chrono::steady_clock::time_point()>& now,
     WakeAcknowledgement* acknowledgement,
-    const std::function<bool(const std::vector<float>&)>& confirmWake) {
+    const std::function<bool(const std::vector<float>&)>& confirmWake,
+    const std::function<WakeInputPolicy()>& inputPolicy) {
     config.validate();
     if (!config.enabled) throw std::invalid_argument("Wake loop requires enabled wake gating");
-    if (config.afterBeepOnly && !acknowledgement)
-        throw std::invalid_argument("After-beep mode requires wake acknowledgement");
-    if (confirmWake && !config.afterBeepOnly)
-        throw std::invalid_argument("STT wake confirmation requires after-beep mode");
+    if (confirmWake && !acknowledgement)
+        throw std::invalid_argument("STT wake confirmation requires wake acknowledgement");
+    const auto readPolicy = [&] {
+        const auto value = inputPolicy ? inputPolicy() : WakeInputPolicy{config.afterBeepOnly, 0};
+        if (value.afterBeepOnly && !acknowledgement)
+            throw std::invalid_argument("After-beep mode requires wake acknowledgement");
+        return value;
+    };
+    auto policy = readPolicy(), pendingPolicy = policy;
     struct Cleanup {
         WakeAcknowledgement* output;
         ~Cleanup() { if (output) output->cancel(); }
     } cleanup{acknowledgement};
-    enum class Phase { WaitingWake, ConfirmingTail, VerifyingWake, CheckingContinuation, DecidingContinuation, Acknowledging, Draining, WaitingSpeech, Capturing, CapturingInline, Processing };
+    enum class Phase { WaitingWake, ConfirmingTail, VerifyingWake, CheckingContinuation, DecidingContinuation, Reconfiguring, ConfigurationDrain, Acknowledging, Draining, WaitingSpeech, Capturing, CapturingInline, Processing };
     Phase phase = Phase::WaitingWake;
     std::future<VoiceResult> worker;
     std::future<bool> continuationWorker;
@@ -49,15 +57,16 @@ void runWakeVoiceLoop(AudioSource& capture, WakeDetector& wake, VoiceSegmenter& 
     WakePcmRing ring;
     std::vector<float> continuation;
     constexpr int GraceSamples = SampleRate * 256 / 1000;
-    // Capture continues while the exclusive VAD probe runs. Bound even a slow
-    // backend to one second of post-detection PCM; failure never opens gating.
-    constexpr int MaxContinuationSamples = SampleRate;
+    // The filtered path retains two seconds for confirmation plus one for the
+    // VAD handoff, so commands beginning during verification cannot disappear.
+    const std::size_t MaxContinuationSamples = (confirmWake ? 3 : 1) * SampleRate;
     continuation.reserve(MaxContinuationSamples);
     int64_t wakeOffset = 0;
+    std::optional<int64_t> wakeSpeechStart;
     auto deadline = now(), legacyDeadline = now(), captureDeadline = now();
     auto lastAudio = now();
     auto rearm = [&] {
-        wake.reset(); segmenter.startSession(); filled = 0; ring.clear(); continuation.clear(); confirmationPcm.clear();
+        wake.reset(); segmenter.startSession(); filled = 0; ring.clear(); continuation.clear(); confirmationPcm.clear(); wakeSpeechStart.reset();
         phase = Phase::WaitingWake; state("WAITING_WAKE");
     };
     auto arm = [&] {
@@ -70,6 +79,7 @@ void runWakeVoiceLoop(AudioSource& capture, WakeDetector& wake, VoiceSegmenter& 
     auto submit = [&](Utterance utterance, bool inlineWake) {
         utterance.inlineWake = inlineWake;
         utterance.wakeAdmitted = true;
+        utterance.inputGeneration = policy.generation;
         if (!utterance.error.empty()) {
             state("COMMAND_MAX_DURATION");
             VoiceResult rejected; rejected.inlineWake = inlineWake; rejected.error = utterance.error; emit(rejected); rearm();
@@ -79,13 +89,25 @@ void runWakeVoiceLoop(AudioSource& capture, WakeDetector& wake, VoiceSegmenter& 
                 [&process, u = std::move(utterance)] { return process(u); });
         }
     };
+    const auto inlineUtteranceReady = [&](Utterance& utterance) {
+        if (!utterance.error.empty()) return true;
+        if (confirmWake && utterance.speech.end <= wakeOffset) {
+            if (utterance.speech.end >= wakeOffset - SampleRate)
+                wakeSpeechStart = utterance.speech.start;
+            return false;
+        }
+        if (utterance.speech.end < wakeOffset) return false;
+        if (confirmWake && wakeSpeechStart && *wakeSpeechStart < utterance.speech.start)
+            utterance = segmenter.includeEarlierSpeech(utterance, *wakeSpeechStart);
+        return true;
+    };
     auto finishContinuation = [&](bool inlineWake) {
         state(inlineWake ? "CONTINUATION_INLINE" : "CONTINUATION_SEPARATED");
         if (stopped()) return;
         if (inlineWake) {
             auto buffered = ring.snapshot();
             buffered.insert(buffered.end(), continuation.begin(), continuation.end());
-            ring.clear(); continuation.clear(); segmenter.startSession();
+            ring.clear(); continuation.clear(); segmenter.startSession(); wakeSpeechStart.reset();
             phase = Phase::CapturingInline; state("SPEECH_START"); state("CAPTURING_INLINE_COMMAND");
             captureDeadline = now() + std::chrono::milliseconds(segmenter.maxSpeechMs() + 2000);
             legacyDeadline = now() + config.commandTimeout;
@@ -95,7 +117,7 @@ void runWakeVoiceLoop(AudioSource& capture, WakeDetector& wake, VoiceSegmenter& 
                 auto ready = segmenter.accept(buffered.data() + offset,
                     std::min<size_t>(FrameSamples, buffered.size() - offset));
                 for (auto& u : ready) {
-                    if (!u.error.empty() || u.speech.end >= wakeOffset) {
+                    if (inlineUtteranceReady(u)) {
                         submit(std::move(u), true); break;
                     }
                 }
@@ -111,12 +133,48 @@ void runWakeVoiceLoop(AudioSource& capture, WakeDetector& wake, VoiceSegmenter& 
             } else arm();
         }
     };
+    const auto beginContinuationProbe = [&] {
+        if (continuation.size() < GraceSamples)
+            throw std::runtime_error("Incomplete continuation grace audio");
+        auto buffered = ring.snapshot();
+        // The unchanged VAD accepts at most four seconds. Crop only the older
+        // pre-wake context for this control probe; final command PCM retains
+        // the entire ring and every post-wake sample, exactly once.
+        const auto history = std::min(buffered.size(), 4 * std::size_t(SampleRate) - continuation.size());
+        buffered.erase(buffered.begin(), buffered.end() - history);
+        buffered.insert(buffered.end(), continuation.begin(), continuation.end());
+        phase = Phase::DecidingContinuation;
+        continuationWorker = std::async(std::launch::async,
+            [&segmenter, pcm = std::move(buffered), offset = history] {
+                return segmenter.continuesAfterWake(pcm, offset);
+            });
+    };
     try {
+        if (inputPolicy) state(policy.afterBeepOnly ? "INPUT_MODE_AFTER_BEEP" : "INPUT_MODE_AUTO");
         rearm();
         while (!stopped()) {
+            const bool reconfiguring = phase == Phase::Reconfiguring || phase == Phase::ConfigurationDrain;
+            const auto requested = readPolicy();
+            if (requested != (reconfiguring ? pendingPolicy : policy)) {
+                pendingPolicy = requested;
+                if (acknowledgement) acknowledgement->cancel();
+                phase = Phase::Reconfiguring; confirmationExpired = true;
+                filled = 0; ring.clear(); continuation.clear(); confirmationPcm.clear(); wakeSpeechStart.reset();
+                state("INPUT_CONFIGURATION_CHANGED");
+            }
+            if (phase == Phase::Reconfiguring) {
+                const auto discardReady = [](auto& future) {
+                    if (future.valid() && future.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready)
+                        try { (void)future.get(); } catch (...) {} // cancelled generation, never emitted/replayed
+                };
+                discardReady(confirmationWorker); discardReady(continuationWorker); discardReady(worker);
+                if (!confirmationWorker.valid() && !continuationWorker.valid() && !worker.valid()) {
+                    phase = Phase::ConfigurationDrain; deadline = now() + config.acknowledgementDrain;
+                }
+            }
             // Capture drains while the idle STT is used exclusively for wake
             // verification. No queued candidate, command, VAD or playback here.
-            if (confirmationWorker.valid()) {
+            if (phase != Phase::Reconfiguring && confirmationWorker.valid()) {
                 if (!confirmationExpired && now() >= confirmationDeadline) {
                     confirmationExpired = true; state("WAKE_CONFIRMATION_TIMEOUT");
                 }
@@ -126,23 +184,28 @@ void runWakeVoiceLoop(AudioSource& capture, WakeDetector& wake, VoiceSegmenter& 
                     catch (...) { state("WAKE_CONFIRMATION_FAILED"); }
                     if (stopped()) break;
                     if (accepted && !confirmationExpired && now() < confirmationDeadline) {
-                        state("WAKE_CONFIRMED"); finishContinuation(false);
+                        state("WAKE_CONFIRMED");
+                        if (policy.afterBeepOnly) finishContinuation(false);
+                        else {
+                            state("CHECKING_CONTINUATION");
+                            beginContinuationProbe();
+                        }
                     } else { state("WAKE_REJECTED"); rearm(); }
                     if (stopped()) break;
                 }
             }
             // At most one VAD owner: capture never touches it until get() joins
             // the probe. A 1 ms bounded wait avoids spinning on synthetic sources.
-            if (continuationWorker.valid() &&
+            if (phase != Phase::Reconfiguring && continuationWorker.valid() &&
                 continuationWorker.wait_for(std::chrono::milliseconds(1)) == std::future_status::ready) {
                 finishContinuation(continuationWorker.get());
                 if (stopped()) break;
             }
-            if (worker.valid() && worker.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
+            if (phase != Phase::Reconfiguring && worker.valid() && worker.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
                 auto result = worker.get();
                 if (stopped()) break;
                 emit(result);
-                if (config.afterBeepOnly && result.wakeOnly) {
+                if (result.wakeOnly) {
                     state("WAKE_REPEATED");
                     finishContinuation(false);
                 } else rearm();
@@ -156,6 +219,14 @@ void runWakeVoiceLoop(AudioSource& capture, WakeDetector& wake, VoiceSegmenter& 
             filled += n;
             if (filled != FrameSamples) continue;
             filled = 0;
+            if (phase == Phase::Reconfiguring || phase == Phase::ConfigurationDrain) {
+                if (phase == Phase::ConfigurationDrain && now() >= deadline) {
+                    policy = pendingPolicy;
+                    state(policy.afterBeepOnly ? "INPUT_MODE_AFTER_BEEP" : "INPUT_MODE_AUTO");
+                    rearm();
+                }
+                continue;
+            }
             if (phase == Phase::Acknowledging) {
                 auto status = acknowledgement->poll();
                 if (now() >= deadline && status == AcknowledgementStatus::Playing) {
@@ -163,7 +234,7 @@ void runWakeVoiceLoop(AudioSource& capture, WakeDetector& wake, VoiceSegmenter& 
                 }
                 if (status != AcknowledgementStatus::Playing) {
                     state(status == AcknowledgementStatus::Failed ? "ACKNOWLEDGEMENT_FAILED" : "BEEP_END");
-                    if (status == AcknowledgementStatus::Failed && config.afterBeepOnly) {
+                    if (status == AcknowledgementStatus::Failed && (policy.afterBeepOnly || confirmWake)) {
                         acknowledgement->cancel(); rearm(); continue;
                     }
                     phase = Phase::Draining; deadline = now() + config.acknowledgementDrain;
@@ -179,13 +250,14 @@ void runWakeVoiceLoop(AudioSource& capture, WakeDetector& wake, VoiceSegmenter& 
                 if (wake.accept(frame.data(), FrameSamples)) {
                     state("WAKE_DETECTED");
                     wakeOffset = static_cast<int64_t>(ring.size());
+                    continuation.clear();
                     if (confirmWake) {
                         // Finish the name from the same capture stream. This
                         // bounded real tail is never VAD/command input or padding.
                         confirmationPcm = ring.snapshot(); confirmationHistory = confirmationPcm.size();
                         phase = Phase::ConfirmingTail; state("VERIFYING_WAKE");
                         confirmationExpired = false; confirmationDeadline = now() + std::chrono::seconds(2);
-                    } else if (config.afterBeepOnly) {
+                    } else if (policy.afterBeepOnly) {
                         // Neither room speech nor a repeated wake can silently
                         // choose inline capture. Pre-beep PCM is never a command.
                         finishContinuation(false);
@@ -199,21 +271,22 @@ void runWakeVoiceLoop(AudioSource& capture, WakeDetector& wake, VoiceSegmenter& 
                     state("WAKE_CONFIRMATION_TIMEOUT"); state("WAKE_REJECTED"); rearm(); continue;
                 }
                 confirmationPcm.insert(confirmationPcm.end(), frame.begin(), frame.end());
+                if (!policy.afterBeepOnly) continuation.insert(continuation.end(), frame.begin(), frame.end());
                 if (confirmationPcm.size() - confirmationHistory >= ConfirmationTailSamples) {
                     phase = Phase::VerifyingWake;
                     confirmationWorker = std::async(std::launch::async,
                         [&confirmWake, pcm = std::move(confirmationPcm)] { return confirmWake(pcm); });
                 }
+            } else if (phase == Phase::VerifyingWake) {
+                if (!policy.afterBeepOnly && !confirmationExpired) {
+                    if (continuation.size() + FrameSamples > MaxContinuationSamples)
+                        throw std::runtime_error("Wake confirmation exceeded bounded inline history");
+                    continuation.insert(continuation.end(), frame.begin(), frame.end());
+                }
             } else if (phase == Phase::CheckingContinuation) {
                 continuation.insert(continuation.end(), frame.begin(), frame.end());
                 if (continuation.size() < GraceSamples) continue;
-                auto buffered = ring.snapshot();
-                buffered.insert(buffered.end(), continuation.begin(), continuation.end());
-                phase = Phase::DecidingContinuation;
-                continuationWorker = std::async(std::launch::async,
-                    [&segmenter, pcm = std::move(buffered), offset = wakeOffset] {
-                        return segmenter.continuesAfterWake(pcm, offset);
-                    });
+                beginContinuationProbe();
             } else if (phase == Phase::DecidingContinuation) {
                 if (continuation.size() + FrameSamples > MaxContinuationSamples)
                     throw std::runtime_error("Continuation probe exceeded bounded audio history");
@@ -238,7 +311,7 @@ void runWakeVoiceLoop(AudioSource& capture, WakeDetector& wake, VoiceSegmenter& 
                 }
                 if (utterances.empty()) continue;
                 for (auto& utterance : utterances) {
-                    if (phase == Phase::CapturingInline && utterance.error.empty() && utterance.speech.end < wakeOffset) continue;
+                    if (phase == Phase::CapturingInline && !inlineUtteranceReady(utterance)) continue;
                     submit(std::move(utterance), phase == Phase::CapturingInline); break;
                 }
             }

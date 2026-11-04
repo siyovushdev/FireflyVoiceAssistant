@@ -11,8 +11,8 @@ struct Model : admin_test::Model {
     llm::CommandProtocol commandProtocol() const override{return llm::CommandProtocol::StableCompact;}
 };
 struct Recognizer:voice::SpeechRecognizer {
-    std::string text;bool success=true;
-    voice::RecognitionResult recognize(const std::vector<float>&)override {voice::RecognitionResult r;r.success=success;r.text=text;r.error=success?"":"fixture STT error";return r;}
+    std::string text;bool success=true;int calls=0;
+    voice::RecognitionResult recognize(const std::vector<float>&)override {++calls;voice::RecognitionResult r;r.success=success;r.text=text;r.error=success?"":"fixture STT error";return r;}
 };
 }
 int main(int argc,char**argv) {
@@ -31,13 +31,13 @@ int main(int argc,char**argv) {
             while(std::getline(std::cin,line)) {
                 auto input=Json::parse(line);const auto method=input.at("method").get<std::string>();Json result;
                 if(method=="voice") {
-                    rec.text=input.at("text");rec.success=input.value("stt_success",true);auto r=worker.processVoice(rec,u);
-                    result={{"text",r.commandText},{"reply",r.replyText},{"kind",r.replyKind},{"reason",r.replyReason},{"mode",r.replyMode},{"route",r.route},{"llm_invoked",r.llmTimings.invoked},{"error",r.error}};
-                }else if(method=="runtime")result=Json::parse(worker.handle(input.at("request").dump()));
+                    rec.text=input.at("text");rec.success=input.value("stt_success",true);u.inputGeneration=input.value("input_generation",std::uint64_t(0));auto r=worker.processVoice(rec,u);
+                    result={{"text",r.commandText},{"reply",r.replyText},{"kind",r.replyKind},{"reason",r.replyReason},{"mode",r.replyMode},{"route",r.route},{"llm_invoked",r.llmTimings.invoked},{"error",r.error},{"stt_calls",rec.calls}};
+                }else if(method=="input-defaults") {worker.setWakeInputDefaults(input.at("after_beep"),input.at("confirmation"));result={{"ok",true}};}else if(method=="runtime")result=Json::parse(worker.handle(input.at("request").dump()));
                 else if(method=="model") {model.available=input.at("available");result={{"ok",true}};}
                 else if(method=="quit")break;
                 else throw std::runtime_error("Unknown fixture method");
-                result["observation"]=Json::parse(worker.observe());std::cout<<result.dump()<<'\n'<<std::flush;
+                const auto policy=worker.wakeInputPolicy();result["input_policy"]={{"after_beep",policy.afterBeepOnly},{"generation_id",policy.generation}};result["observation"]=Json::parse(worker.observe());std::cout<<result.dump()<<'\n'<<std::flush;
             }
         }catch(...){stopped=1;worker.stop();http.join();server.finishClients();throw;}
         stopped=1;api.beginShutdown();worker.stop();http.join();server.finishClients();

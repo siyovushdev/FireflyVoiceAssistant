@@ -38,6 +38,9 @@ function catalog(value: unknown): void {
         const voice = config.system.voice_dialogue; object(voice); boolean(voice.questions_enabled);
         if (!['off', 'brief', 'detailed'].includes(String(voice.responses))) invalid();
     }
+    if (config.system.voice_input !== undefined) {
+        object(config.system.voice_input); boolean(config.system.voice_input.inline_commands);
+    }
     list(config.rooms, item => { object(item); entity(item); metadata(item.metadata); });
     list(config.devices, item => {
         object(item); entity(item); string(item.kind); nullableString(item.room_id); boolean(item.enabled);
@@ -70,6 +73,11 @@ export function decodeResponse<P extends ReadEndpoint>(path: P, value: unknown):
         if (value.voice !== undefined) string(value.voice);
         if (value.speech !== undefined) {
             object(value.speech); string(value.speech.state); string(value.speech.error); string(value.speech.voice);
+        }
+        if (value.voice_input !== undefined) {
+            object(value.voice_input); boolean(value.voice_input.inline_commands);
+            if (!['auto', 'after-beep'].includes(String(value.voice_input.mode))) invalid();
+            if (value.voice_input.confirmation_enabled !== undefined) boolean(value.voice_input.confirmation_enabled);
         }
     }
     if (path === '/api/devices/state') {
