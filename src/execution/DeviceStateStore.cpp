@@ -172,6 +172,8 @@ void DeviceStateStore::applyObservation(const StateObservation& observation) {
             "Observation target is not in the active generation");
     const auto arrival = steadyNowMs();
     validateObservationLocked(observation, found->second, arrival);
+    if (observation.properties.empty())
+        throw config::ConfigError("invalid_observation", "/observation/properties", "Empty observation is not device evidence");
     const auto order = observation.orderSteadyMs.value_or(arrival);
     const auto eventTime = observation.timestampMs == 0 ? nowMs() : observation.timestampMs;
     for (const auto& [key, value] : observation.properties) {
@@ -182,7 +184,12 @@ void DeviceStateStore::applyObservation(const StateObservation& observation) {
         property.observedAtMs = eventTime;
         property.freshnessSteadyMs = arrival;
         property.orderSteadyMs = order;
+        property.lastObservedValue = value;
+        property.lastObservationSteadyMs = arrival;
     }
+    found->second.lastObservationAtMs = eventTime;
+    found->second.lastObservationSteadyMs = arrival;
+    found->second.observationDisconnected = false;
     found->second.connectivity = Connectivity::Reachable;
     found->second.lastSuccessAtMs = eventTime;
 }
@@ -210,6 +217,27 @@ void DeviceStateStore::invalidate(const std::string& targetId) {
     for (auto& [key, property] : found->second.properties) { (void)key; property = {}; }
     found->second.connectivity = Connectivity::Unknown;
     found->second.lastSuccessAtMs = found->second.lastFailureAtMs = 0;
+    found->second.lastObservationAtMs = 0;
+    found->second.lastObservationSteadyMs.reset();
+    found->second.observationDisconnected = false;
+}
+
+void DeviceStateStore::observationDisconnected(const std::string& targetId) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto found = devices_.find(targetId);
+    if (found == devices_.end()) return;
+    for (auto& [key, property] : found->second.properties) {
+        (void)key;
+        property.value.reset();
+        property.knowledge = StateKnowledge::Unknown;
+        property.updatedAtMs = 0;
+        property.freshnessSteadyMs.reset();
+        property.orderSteadyMs.reset();
+        // observedAtMs / lastObservedValue / lastObservationSteadyMs survive.
+    }
+    found->second.observationDisconnected = true;
+    found->second.connectivity = Connectivity::Unreachable;
+    found->second.lastFailureAtMs = nowMs();
 }
 
 void DeviceStateStore::reconcile(const DeviceStateStore& previous) {
@@ -226,7 +254,17 @@ void DeviceStateStore::reconcile(const DeviceStateStore& previous) {
             if (!found->second.properties.count(key))
                 throw config::ConfigError("state_conflict", "/devices/" + old.targetId + "/state/" + key,
                     "Retained production property identity changed.");
-            if (property.knowledge == StateKnowledge::Unknown || !property.value) continue;
+            if (property.lastObservedValue) {
+                try { validateObservationValue(*domain_.device(old.targetId), key, *property.lastObservedValue); }
+                catch (const config::ConfigError&) {
+                    throw config::ConfigError("state_conflict", "/devices/" + old.targetId + "/state/" + key,
+                        "Historical observation violates the proposed schema.");
+                }
+            }
+            if (property.knowledge == StateKnowledge::Unknown || !property.value) {
+                found->second.properties.at(key) = property;
+                continue;
+            }
             const auto* device = domain_.device(old.targetId);
             if (device && device->kind == config::DeviceKind::Generic) {
                 const auto field = std::find_if(device->state.begin(), device->state.end(),
@@ -258,6 +296,9 @@ void DeviceStateStore::reconcile(const DeviceStateStore& previous) {
         found->second.connectivity = old.connectivity;
         found->second.lastSuccessAtMs = old.lastSuccessAtMs;
         found->second.lastFailureAtMs = old.lastFailureAtMs;
+        found->second.lastObservationAtMs = old.lastObservationAtMs;
+        found->second.lastObservationSteadyMs = old.lastObservationSteadyMs;
+        found->second.observationDisconnected = old.observationDisconnected;
     }
     devices_ = std::move(next);
 }

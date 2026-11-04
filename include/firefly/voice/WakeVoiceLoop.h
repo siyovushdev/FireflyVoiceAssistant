@@ -13,5 +13,7 @@ void runWakeVoiceLoop(AudioSource& capture, WakeDetector& wake, VoiceSegmenter& 
     const std::function<void(const std::string&)>& state,
     const std::function<bool()>& stopped,
     const std::function<std::chrono::steady_clock::time_point()>& now = std::chrono::steady_clock::now,
-    WakeAcknowledgement* acknowledgement = nullptr);
+    WakeAcknowledgement* acknowledgement = nullptr,
+    const std::function<bool(const std::vector<float>&)>& confirmWake = {},
+    const std::function<WakeInputPolicy()>& inputPolicy = {});
 }

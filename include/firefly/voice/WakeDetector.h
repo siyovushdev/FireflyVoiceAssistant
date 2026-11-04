@@ -1,12 +1,23 @@
 #pragma once
 #include <chrono>
+#include <cstdint>
 #include <string>
 namespace firefly::voice {
+struct WakeInputPolicy {
+    bool afterBeepOnly = false;
+    std::uint64_t generation = 0;
+    bool operator==(const WakeInputPolicy& other) const {
+        return afterBeepOnly == other.afterBeepOnly && generation == other.generation;
+    }
+    bool operator!=(const WakeInputPolicy& other) const { return !(*this == other); }
+};
 struct WakeConfig {
     bool enabled = true;
     std::string modelPath;
     double cutoff = 0.99;
     int window = 7;
+    // Programmatic/replay compatibility; the appliance CLI defaults this to true.
+    bool afterBeepOnly = false;
     // Explicit legacy option retains its TOTAL listening deadline; zero disables it.
     std::chrono::milliseconds commandTimeout{0};
     std::chrono::milliseconds commandStartTimeout{5000};

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { PropertyView } from '../adapters/catalog.js';
-import { formatTime } from '../adapters/catalog.js';
+import { formatTime, formatAge } from '../adapters/catalog.js';
 defineProps<{ property: PropertyView }>();
 </script>
 <template>
@@ -8,7 +8,9 @@ defineProps<{ property: PropertyView }>();
         <div class="property-value"><span>{{ property.name }}</span><strong>{{ property.value }}</strong></div>
         <span class="evidence" :class="property.tone"><span class="evidence-dot"></span>{{ property.label }}</span>
         <p v-if="property.tone === 'predicted'" class="muted">Команда принята, состояние не прочитано.</p>
+        <p v-if="property.tone === 'predicted' && property.lastObserved !== null" class="muted">Последнее показание: {{ property.lastObserved }} · {{ formatAge(property.observationAge) }}</p>
         <p v-if="property.stale" class="stale-text">Данные устарели · последнее известное значение</p>
         <small v-if="property.timestamp">{{ formatTime(property.timestamp) }}</small>
+        <small v-if="property.observationAge !== null && property.tone !== 'predicted'"> · {{ formatAge(property.observationAge) }}</small>
     </div>
 </template>

@@ -6,6 +6,14 @@ Local Russian voice assistant for Firefly RK3588S (8 GB, Ubuntu 22.04/aarch64). 
 
 **2026-11-01 release-input update:** [Amina/Amila model promotion](docs/amina-amila-release.md) and [accepted F2 pilot handoff for later integration](docs/f2-voice-pilot-handoff.md). These documents describe the new source inputs; the installed baseline below is a dated observation.
 
+**Operational dialogue development:** [grounded voice questions, F2 replies and live settings](docs/operational-voice-dialogue.md). Opt-in source integration; no production activation is implied. [Natural feedback and silent confirmed success](docs/operational-natural-feedback.md); [historical latency measurements](docs/operational-f2-latency.md).
+
+**Voice input development:** [after-beep default and optional direction experiment](docs/after-beep-voice-input.md). Standalone wake → beep → command is the appliance default; automatic inline input is an explicit option.
+
+**Wake filtering experiment:** [STT confirmation before the beep](docs/wake-stt-confirmation.md), disabled by default; includes measured speech misses and trial limits.
+
+**Device telemetry development:** [availability, last-known state and periodic ESP32 reporting](docs/device-telemetry.md). Online status requires independent device data; broker acknowledgements do not establish it.
+
 ## Version and scope
 
 As verified read-only on **2026-10-16**, fetched Git master is `c6e68419eea1f47300f7ca8d51b85997344e405c` (PR #27 merged). Installed release is `m19-c7fa1490-20261015T150156Z`, built from exact product commit `c7fa14906f8ae15f4c8fb488e9c9d7628eb8154f`; annotated tag `m19-production-20261015-c7fa149` points to that product commit. Master contains later operator/tests/docs changes. These identities are deliberately distinct and must be rechecked for future work.

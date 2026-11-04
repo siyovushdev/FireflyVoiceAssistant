@@ -67,11 +67,12 @@ const DeviceStateStore& BoundDeviceExecutor::production() const { return product
 void BoundDeviceExecutor::observe(const StateObservation& observation) {
     production_.applyObservation(observation);
 }
-HardwareResult BoundDeviceExecutor::poll(const std::string& targetId) {
+HardwareResult BoundDeviceExecutor::poll(const std::string& targetId, std::int64_t timeoutLimitMs) {
     for (const auto& binding : catalog_->configuration().observations) {
         if (binding.targetId != targetId) continue;
         const auto order = production_.steadyNowMs();
-        const auto observation = registry_.observe(binding);
+        const auto observation = timeoutLimitMs > 0 && binding.executor == config::ExecutorKind::Http
+            ? HttpHardwareExecutor(catalog_).observe(binding, timeoutLimitMs) : registry_.observe(binding);
         const auto now = production_.nowMs();
         if (observation.result.reachability == ReachabilityEvidence::Reachable) production_.markReachable(targetId, now);
         else if (observation.result.reachability == ReachabilityEvidence::Unreachable) production_.markUnreachable(targetId, now);

@@ -51,6 +51,21 @@ void validation(Checks& test, const std::string& root) {
     const auto text = detail::readFile(root + "/config/current-m4.json");
     const auto source = Json::parse(text);
     test.check(ConfigLoader::fromJson(text)->matchesCurrentLegacyDomain(), "current domain validates");
+    for (const auto& path : {"/config/current-m4.json", "/tests/admin/v2/system.json"}) {
+        auto doc = Json::parse(detail::readFile(root + path));
+        auto absent = ConfigLoader::fromJson(doc.dump());
+        test.check(!absent->configuration().system.voiceInput.present && absent->canonicalJson().find("voice_input") == std::string::npos, "absent input preference preserves legacy canonical bytes");
+        for (const bool enabled : {false, true}) {
+            doc["system"]["voice_input"] = {{"inline_commands", enabled}};
+            auto catalog = ConfigLoader::fromJson(doc.dump());
+            test.check(catalog->configuration().system.voiceInput.present && catalog->configuration().system.voiceInput.inlineCommands == enabled, "input preference decodes both schemas");
+            test.check(ConfigLoader::fromJson(catalog->canonicalJson())->contentHash() == catalog->contentHash(), "input preference canonical roundtrip");
+        }
+        for (const Json invalid : {Json(nullptr), Json{{"inline_commands", 1}}, Json{{"inline_commands", "true"}}, Json::object(), Json{{"inline_commands", true}, {"extra", false}}}) {
+            doc["system"]["voice_input"] = invalid;
+            test.rejects("", [&] { (void)ConfigLoader::fromJson(doc.dump()); });
+        }
+    }
     const auto bad = [&](const std::string& code, const auto& mutate) {
         auto value = source; mutate(value);
         test.rejects(code, [&] { (void)ConfigLoader::fromJson(value.dump()); });

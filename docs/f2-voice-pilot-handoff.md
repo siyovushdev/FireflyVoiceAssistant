@@ -7,6 +7,10 @@ archive below, with a verified HDD copy. The associated
 [Amina/Amila revision](amina-amila-release.md) is promoted independently into
 normal release inputs.
 
+The subsequent [operational dialogue integration](operational-voice-dialogue.md)
+uses this accepted F2 profile in the main process. The inventory and measurements
+below remain the historical pilot handoff, not evidence of production activation.
+
 ## Frozen implementation
 
 | Item | Value |

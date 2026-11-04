@@ -28,6 +28,9 @@ struct PropertyKnowledge {
     // Process-local only: never serialized as epoch/display timestamps.
     std::optional<std::int64_t> freshnessSteadyMs;
     std::optional<std::int64_t> orderSteadyMs;
+    // Historical observation, independent of a later command prediction.
+    std::optional<actions::Scalar> lastObservedValue;
+    std::optional<std::int64_t> lastObservationSteadyMs;
 };
 
 struct DeviceKnowledge {
@@ -37,6 +40,9 @@ struct DeviceKnowledge {
     Connectivity connectivity = Connectivity::Unknown;
     std::int64_t lastSuccessAtMs = 0;
     std::int64_t lastFailureAtMs = 0;
+    std::int64_t lastObservationAtMs = 0;
+    std::optional<std::int64_t> lastObservationSteadyMs;
+    bool observationDisconnected = false;
 };
 
 // Independent observation/readback. Future HTTP/MQTT/GPIO transports feed this
@@ -56,6 +62,19 @@ inline bool isStale(const PropertyKnowledge& property, std::int64_t steadyNowMs,
                     std::int64_t ttlMs = kDefaultStateTtlMs) {
     if (property.knowledge == StateKnowledge::Unknown || ttlMs <= 0 || !property.freshnessSteadyMs) return false;
     return steadyNowMs - *property.freshnessSteadyMs > ttlMs;
+}
+
+// Device-origin observations only; a command ACK or broker connection cannot
+// establish availability. Offline means no telemetry within the 60s budget,
+// or a lost observation connection, not proof the device is powered off.
+inline std::optional<std::int64_t> observationAge(const DeviceKnowledge& device, std::int64_t now) {
+    if (!device.lastObservationSteadyMs || *device.lastObservationSteadyMs > now) return std::nullopt;
+    return now - *device.lastObservationSteadyMs;
+}
+inline const char* availability(const DeviceKnowledge& device, std::int64_t now) {
+    if (device.observationDisconnected) return "offline";
+    const auto age = observationAge(device, now);
+    return !age ? "unknown" : *age > kDefaultStateTtlMs ? "offline" : "online";
 }
 
 // Authoritative production physical knowledge. Not owned by HardwareExecutor.
@@ -82,6 +101,8 @@ public:
     void validateObservation(const StateObservation& observation) const;
     void markReachable(const std::string& targetId, std::int64_t atMs);
     void markUnreachable(const std::string& targetId, std::int64_t atMs);
+    // Fail closed for execution, but retain explicitly historical observations.
+    void observationDisconnected(const std::string& targetId);
 
     // In-process generation Apply: retain compatible knowledge; new devices Unknown;
     // removed devices drop; incompatible schema → state_conflict.

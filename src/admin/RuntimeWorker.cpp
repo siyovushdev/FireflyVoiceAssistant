@@ -11,6 +11,7 @@
 #include "firefly/actions/ScalarJson.h"
 #include <iostream>
 #include <algorithm>
+#include <thread>
 #include <unistd.h>
 
 namespace firefly::admin {
@@ -32,6 +33,55 @@ bool hasUnexcludedBrightness(const std::string& text, const std::vector<std::str
     }
     return false;
 }
+dialogue::Facts dialogueFacts(const RuntimeGeneration& generation, const std::vector<ExecutionEvent>& history, bool modelReady) {
+    dialogue::Facts facts{generation.domain.snapshot(), generation.id, generation.executor->production().steadyNowMs(), generation.executor->production().devices(), {}};
+    facts.modelReady = modelReady;
+    for (const auto& event : history) facts.history.push_back({event.sequence, event.generation, event.source, event.result});
+    return facts;
+}
+// One bounded observation window under the already admitted generation request.
+// MQTT reads only the existing subscription store; no request/PUBLISH is invented.
+// HTTP uses the existing validated GET with a stricter remaining deadline.
+dialogue::Facts voiceReadback(const RuntimeGeneration& generation, dialogue::Facts facts,
+                             const std::vector<std::string>& targets, const std::function<bool()>& stopped,
+                             const execution::ExecutionResult* receipt = nullptr,
+                             const actions::GenericAction* command = nullptr, std::int64_t after = 0) {
+    using Clock = std::chrono::steady_clock;
+    const auto deadline=Clock::now()+std::chrono::milliseconds(500);
+    const auto update=[&] {
+        facts.devices=generation.executor->production().devices();
+        facts.steadyMs=generation.executor->production().steadyNowMs();
+    };
+    const auto known=[&](const std::string& target) {
+        if(receipt && command)return dialogue::OperationalDialogue::executionConfirmed(facts,*receipt,*command,after);
+        for(const auto& d:facts.devices)if(d.targetId==target)for(const auto& [field,p]:d.properties) {
+            (void)field;
+            if(p.value&&p.knowledge==execution::StateKnowledge::Confirmed&&p.freshnessSteadyMs&&
+               *p.freshnessSteadyMs<=facts.steadyMs&&!execution::isStale(p,facts.steadyMs))return true;
+        }
+        return false;
+    };
+    for(const auto& target:targets) {
+        if(stopped())break;
+        update();if(receipt&&known(target))break;
+        const auto& bindings=facts.catalog->configuration().observations;
+        const auto binding=std::find_if(bindings.begin(),bindings.end(),[&](const auto& b){return b.targetId==target;});
+        if(binding==bindings.end())continue;
+        if(binding->executor==config::ExecutorKind::Http) {
+            const auto remaining=std::chrono::duration_cast<std::chrono::milliseconds>(deadline-Clock::now()).count();
+            if(remaining<=0){facts.failedReads.push_back(target);continue;}
+            const auto read=generation.executor->poll(target,remaining);
+            if(!read.success)facts.failedReads.push_back(target);
+            std::cerr << ("VOICE_READBACK " + Json{{"target_id",target},{"transport","http"},{"ok",read.success},{"error",read.error}}.dump()+"\n");
+        } else if(binding->executor==config::ExecutorKind::Mqtt) {
+            while(!known(target)&&Clock::now()<deadline&&!stopped()) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));update();
+            }
+            std::cerr << ("VOICE_READBACK " + Json{{"target_id",target},{"transport","mqtt_state"},{"known",known(target)},{"publish",false}}.dump()+"\n");
+        }
+    }
+    update();return facts;
+}
 Json stateJson(const execution::DeviceState& state) {
     if (const auto* fields = std::get_if<execution::TypedState>(&state)) {
         Json result = Json::object();
@@ -49,6 +99,8 @@ Json propertyKnowledgeJson(const execution::PropertyKnowledge& property, std::in
         {"knowledge", execution::DeviceStateStore::knowledgeName(property.knowledge)},
         {"stale", execution::isStale(property, nowMs)},
         {"updated_at_ms", property.updatedAtMs},
+        {"last_observed_value", property.lastObservedValue ? actions::scalarJson(*property.lastObservedValue) : Json(nullptr)},
+        {"observation_age_ms", property.lastObservationSteadyMs && *property.lastObservationSteadyMs <= nowMs ? Json(nowMs - *property.lastObservationSteadyMs) : Json(nullptr)},
         {"observed_at_ms", property.observedAtMs > 0 ? Json(property.observedAtMs) : Json(nullptr)}};
 }
 Json deviceKnowledgeJson(const execution::DeviceKnowledge& device, std::int64_t nowMs) {
@@ -65,6 +117,12 @@ Json deviceKnowledgeJson(const execution::DeviceKnowledge& device, std::int64_t 
     return {{"targetId", device.targetId}, {"name", device.name},
         {"properties", properties},
         {"state", legacy},
+        {"availability", execution::availability(device, nowMs)},
+        {"availability_reason", device.observationDisconnected ? "observation_disconnected" :
+            !execution::observationAge(device, nowMs) ? "no_observation" :
+            *execution::observationAge(device, nowMs) > execution::kDefaultStateTtlMs ? "telemetry_timeout" : "recent_observation"},
+        {"last_observation_at_ms", device.lastObservationAtMs > 0 ? Json(device.lastObservationAtMs) : Json(nullptr)},
+        {"observation_age_ms", execution::observationAge(device, nowMs) ? Json(*execution::observationAge(device, nowMs)) : Json(nullptr)},
         {"connectivity", execution::DeviceStateStore::connectivityName(device.connectivity)},
         {"last_success_at_ms", device.lastSuccessAtMs > 0 ? Json(device.lastSuccessAtMs) : Json(nullptr)},
         {"last_failure_at_ms", device.lastFailureAtMs > 0 ? Json(device.lastFailureAtMs) : Json(nullptr)}};
@@ -139,9 +197,13 @@ std::string RuntimeWorker::handle(std::string_view bytes) {
     try {
         const auto request = parseMessage(bytes);
         const auto method = request.at("method").get<std::string>();
-        if (method == "setup_enter" || method == "setup_restore" || method == "setup_finish") {
+        if (method == "cancel_speech") {
+            members(request, {"method"}); cancelSpeech(); reply = {{"ok", true}};
+        } else if (method == "setup_enter" || method == "setup_restore" || method == "setup_finish") {
             members(request,{"method"});
-            if (method == "setup_enter") generations_.enterSetup();
+            if (method == "cancel_speech") {
+            members(request, {"method"}); cancelSpeech(); reply = {{"ok", true}};
+        } else if (method == "setup_enter") generations_.enterSetup();
             else if (method == "setup_restore") generations_.prepareRestore();
             else generations_.finishRestore();
             reply = {{"ok",true}};
@@ -555,35 +617,112 @@ void RuntimeWorker::voiceStatus(std::string state, std::string microphone) {
     std::lock_guard<std::mutex> lock(diagnostics_);
     voiceState_ = std::move(state); microphone_ = std::move(microphone);
 }
+config::VoiceDialogueSettings RuntimeWorker::voicePreferences() const {
+    const auto active = generations_.current();
+    return active ? active->domain.snapshot()->configuration().system.voiceDialogue : config::VoiceDialogueSettings{};
+}
+std::uint64_t RuntimeWorker::voiceGenerationId() const {
+    const auto active = generations_.current(); return active ? active->id : 0;
+}
+voice::WakeInputPolicy RuntimeWorker::wakeInputPolicy() const {
+    const auto active = generations_.current();
+    if (!active) return {afterBeepDefault_.load(), 0};
+    const auto& input = active->domain.snapshot()->configuration().system.voiceInput;
+    return {input.present ? !input.inlineCommands : afterBeepDefault_.load(), active->id};
+}
+void RuntimeWorker::speechStatus(std::string state, std::string error) {
+    std::lock_guard<std::mutex> lock(diagnostics_); speechState_ = std::move(state); speechError_ = std::move(error);
+}
 voice::VoiceResult RuntimeWorker::processVoice(voice::SpeechRecognizer& recognizer, const voice::Utterance& utterance) {
     const auto started = std::chrono::steady_clock::now();
     const auto elapsedMs = [&] { return std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now() - started).count(); };
-    // Admission precedes STT. The request lease survives recognition, understanding
-    // and execution, so Apply cannot splice two generations into one utterance.
     try {
         const auto request = generations_.beginRequest();
-        std::string voiceCommand;
+        const auto& generation = *request->generation();
+        if (utterance.inputGeneration && utterance.inputGeneration != generation.id) {
+            voice::VoiceResult cancelled; cancelled.route = "CANCELLED";
+            cancelled.error = "Voice configuration changed before recognition";
+            cancelled.processingMs = elapsedMs(); return cancelled;
+        }
+        const auto epoch=speechEpoch();
+        const auto stopped=[&]{return epoch!=speechEpoch() || generations_.setupBlocked() || voiceGenerationId()!=generation.id;};
+        const auto preferences = generation.domain.snapshot()->configuration().system.voiceDialogue;
+        std::string voiceCommand, response, responseKind, responseReason;
+        bool question = false; CommandTimings questionTimings;
         voice::VoiceProcessor processor(recognizer, [&](std::string_view text) {
+            validateMessage(text);
+            auto facts = dialogueFacts(generation, generations_.history(), generations_.modelReady());
+            const auto answer = dialogue_.ask(text, facts, preferences.questionsEnabled, preferences.responses == "detailed", [&](std::string_view input) {
+                auto raw = request->classifyOperationalQuestion(input, &questionTimings);
+                const auto first = raw.find_first_not_of(" \t\r\n"), last = raw.find_last_not_of(" \t\r\n");
+                raw = first == std::string::npos ? "null" : raw.substr(first, last - first + 1);
+                const std::string kind = raw == "[1]" ? "state" : raw == "[2]" ? "on_list" : raw == "[3]" ? "last_action" : raw == "[4]" ? "failure" : raw == "[5]" ? "capabilities" : "unsupported";
+                std::cerr << ("OPERATIONAL_QUESTION classifier=rkllm kind=" + kind + " facts_generated=false\n");
+                if (raw == "[1]") return dialogue::Question::State;
+                if (raw == "[2]") return dialogue::Question::OnList;
+                if (raw == "[3]") return dialogue::Question::LastAction;
+                if (raw == "[4]") return dialogue::Question::Failure;
+                if (raw == "[5]") return dialogue::Question::Capabilities;
+                return dialogue::Question::Unclear;
+            }, [&](const std::vector<std::string>& targets) {
+                return voiceReadback(generation,dialogueFacts(generation,generations_.history(),generations_.modelReady()),targets,stopped);
+            });
+            if (answer.handled) {
+                question = true; response = answer.text; responseKind = "question"; responseReason = answer.reason;
+                std::cerr << "OPERATIONAL_REPLY kind=question reason=" << answer.reason << " execution=none\n";
+                CommandResult command; command.path = CommandPath::FastPath; command.action = actions::Unsupported{};
+                return command;
+            }
+            const auto dispatched=generation.executor->production().steadyNowMs();
             const auto result = request->process(text, execution::ExecutionIntent::Production, "voice");
             voiceCommand = commandJson(std::string(text), result).dump();
             remember(voiceCommand, "voice");
+            const auto diagnostic = Json::parse(voiceCommand);
+            const std::string rejection = diagnostic.value("rejection_stage", std::string{}).empty() ? "unsupported" : diagnostic.value("rejection_stage", std::string{});
+            const auto replyRejection=diagnostic.value("ambiguous",false)?"ambiguous":rejection;
+            facts = dialogueFacts(generation, generations_.history(), generations_.modelReady());
+            bool confirmed=false;
+            const auto* executed=std::get_if<actions::GenericAction>(&result.command.action);
+            if(preferences.responses!="off" && result.execution && result.execution->success && executed) {
+                facts=voiceReadback(generation,std::move(facts),{result.execution->targetId},stopped,&*result.execution,executed,dispatched);
+                confirmed=dialogue::OperationalDialogue::executionConfirmed(facts,*result.execution,*executed,dispatched);
+            }
+            response = dialogue_.commandReply(facts, result.execution, replyRejection, preferences.responses == "detailed",dispatched,executed);
+            const auto feedback=confirmed ? "Выполнение было подтверждено." : response=="Команду отправила, ответа пока нет." ? "Не дождалась подтверждения." : response;
+            dialogue_.rememberAttempt(facts,result.execution,replyRejection,text,feedback);
+            responseKind = result.execution ? (result.execution->success && result.execution->status == execution::ExecutionStatus::Accepted ? "accepted" : "failed") : "unsupported";
+            responseReason = confirmed ? "state_confirmed" : result.execution ? result.execution->error : rejection;
             return result.command;
         });
         auto result = processor.process(utterance);
-        result.processingMs = elapsedMs(); // Includes serialized admission wait, STT and execution.
+        if (result.wakeOnly) { responseKind = "wake_only"; responseReason = "wake_only"; }
+        if (question) { result.route = "OPERATIONAL_QUESTION"; result.llmTimings = questionTimings; }
+        if (response.empty() && !result.error.empty()) {
+            const auto facts = dialogueFacts(generation, generations_.history(), generations_.modelReady());
+            dialogue_.rememberAttempt(facts, {}, "recognition");
+            response = dialogue_.commandReply(facts, {}, "recognition", false); responseKind = "recognition_error";
+        }
+        result.replyText = std::move(response); result.replyKind = std::move(responseKind); result.replyReason = std::move(responseReason);
+        result.replyMode = preferences.responses; result.replyGeneration = generation.id;
+        std::cerr << ("OPERATIONAL_RESPONSE " + Json{{"kind",result.replyKind},{"mode",result.replyMode},{"text",result.replyText},
+            {"generation_id",result.replyGeneration},{"llm_invoked",result.llmTimings.invoked}}.dump() + "\n");
+        result.processingMs = elapsedMs();
         { std::lock_guard<std::mutex> lock(diagnostics_);
           lastVoice_ = Json{{"audio_detected",true},{"duration_seconds",result.durationSeconds},
               {"processing_ms",result.processingMs},{"speech_seconds",result.speechSeconds},{"stt_ms",result.recognition.latencyMs},{"transcript",result.recognition.text},{"inline",result.inlineWake},
-              {"wake_prefix_removed",result.wakePrefixRemoved},{"command_text",result.commandText},
-              {"error",result.error},{"command",voiceCommand.empty()?Json(nullptr):Json::parse(voiceCommand)}}.dump(); }
+              {"wake_prefix_removed",result.wakePrefixRemoved},{"wake_only",result.wakeOnly},{"command_text",result.commandText},
+              {"error",result.error},{"reply_mode",result.replyMode},{"generation_id",result.replyGeneration},{"llm",{{"invoked",result.llmTimings.invoked},{"task",result.llmTimings.task}}},{"reply_text",result.replyText},{"reply_kind",result.replyKind},{"reply_reason",result.replyReason},
+              {"command",voiceCommand.empty()?Json(nullptr):Json::parse(voiceCommand)}}.dump(); }
         if (!result.error.empty()) remember(Json{{"input",result.recognition.text},{"error",result.error},{"result",{{"unsupported",true}}},
-            {"generation_id",request->generation()->id},{"execution",nullptr}}.dump(), "voice");
+            {"generation_id",generation.id},{"execution",nullptr}}.dump(), "voice");
         return result;
     } catch (const std::exception&) {
         voice::VoiceResult result; result.error = "Voice runtime unavailable or stopping"; result.processingMs = elapsedMs(); return result;
     }
 }
 std::string RuntimeWorker::observe() const {
+    config::VoiceDialogueSettings preferences;
+    bool inlineCommands = !afterBeepDefault_.load();
     Json reply{{"ok",true},{"protocol_version",1},{"worker_pid",::getpid()},
         {"setup_mode",generations_.setupModeName()},{"model_ready",generations_.modelReady()},{"runtime_busy",generations_.busy()},
         {"uptime_seconds",std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now()-started_).count()},
@@ -593,6 +732,9 @@ std::string RuntimeWorker::observe() const {
     reply["build"] = {{"product","Firefly Milestone 17 · Runtime service reliability"},{"head",BuildHead},{"source_sha256",BuildSource},{"built_utc",BuildTime}};
     if (const auto active = generations_.current()) {
         const auto& catalog = active->domain.snapshot();
+        preferences = catalog->configuration().system.voiceDialogue;
+        if (catalog->configuration().system.voiceInput.present)
+            inlineCommands = catalog->configuration().system.voiceInput.inlineCommands;
         reply["active"] = {{"configuration",Json::parse(catalog->canonicalJson())},{"revision",catalog->configuration().revision},
             {"hash",catalog->contentHash()},{"context",active->prompt},{"context_strategy",active->targetContexts.empty()?"full_catalog":"explicit_target_action_scopes"},{"context_scope_count",active->targetContexts.size()},{"generation_id",active->id}};
         const auto now = active->executor->production().steadyNowMs();
@@ -602,10 +744,13 @@ std::string RuntimeWorker::observe() const {
             reply["playground_devices"].push_back(
                 {{"targetId",device.targetId},{"name",device.name},{"state",stateJson(device.state)}});
     }
+    reply["voice_input"] = {{"inline_commands", inlineCommands}, {"mode", inlineCommands ? "auto" : "after-beep"},
+        {"confirmation_enabled", wakeConfirmation_.load()}};
     for (const auto& event : generations_.history()) reply["executions"].push_back(
         {{"sequence",event.sequence},{"generation_id",event.generation},{"timestamp_ms",event.timestampMs},
          {"source",event.source},{"execution",executionJson(event.result)}});
     { std::lock_guard<std::mutex> lock(diagnostics_);
+      reply["speech"] = {{"state", speechState_}, {"error", speechError_}, {"voice", "F2"}, {"mode", preferences.responses}, {"questions_enabled", preferences.questionsEnabled}};
       reply["last_voice"] = lastVoice_.empty() ? Json(nullptr) : Json::parse(lastVoice_);
       reply["voice"] = voiceState_; reply["microphone"] = microphone_;
       reply["last_command"] = lastCommand_.empty() ? Json(nullptr) : Json::parse(lastCommand_); }

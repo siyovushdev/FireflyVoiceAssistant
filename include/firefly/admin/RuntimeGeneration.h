@@ -75,6 +75,7 @@ public:
         GenerationResult process(std::string_view input,
             execution::ExecutionIntent execution = execution::ExecutionIntent::None,
             std::string source = "text", const CommandGuard* guard = nullptr);
+        std::string classifyOperationalQuestion(std::string_view original, CommandTimings* timings = nullptr);
         const std::shared_ptr<const RuntimeGeneration>& generation() const { return generation_; }
     private:
         friend class RuntimeGenerations;

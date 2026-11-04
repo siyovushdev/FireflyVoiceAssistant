@@ -33,6 +33,14 @@ function catalog(value: unknown): void {
     if (value.generation_id !== undefined) number(value.generation_id);
     const config = value.configuration; object(config);
     number(config.schema_version); number(config.revision); entity(config.system);
+    object(config.system);
+    if (config.system.voice_dialogue !== undefined) {
+        const voice = config.system.voice_dialogue; object(voice); boolean(voice.questions_enabled);
+        if (!['off', 'brief', 'detailed'].includes(String(voice.responses))) invalid();
+    }
+    if (config.system.voice_input !== undefined) {
+        object(config.system.voice_input); boolean(config.system.voice_input.inline_commands);
+    }
     list(config.rooms, item => { object(item); entity(item); metadata(item.metadata); });
     list(config.devices, item => {
         object(item); entity(item); string(item.kind); nullableString(item.room_id); boolean(item.enabled);
@@ -63,17 +71,34 @@ export function decodeResponse<P extends ReadEndpoint>(path: P, value: unknown):
         if (value.runtime_error !== undefined) string(value.runtime_error);
         if (value.stt_ready !== undefined) boolean(value.stt_ready);
         if (value.voice !== undefined) string(value.voice);
+        if (value.speech !== undefined) {
+            object(value.speech); string(value.speech.state); string(value.speech.error); string(value.speech.voice);
+        }
+        if (value.voice_input !== undefined) {
+            object(value.voice_input); boolean(value.voice_input.inline_commands);
+            if (!['auto', 'after-beep'].includes(String(value.voice_input.mode))) invalid();
+            if (value.voice_input.confirmation_enabled !== undefined) boolean(value.voice_input.confirmation_enabled);
+        }
     }
     if (path === '/api/devices/state') {
         active(value.active);
         list(value.devices, item => {
             object(item); string(item.targetId); string(item.connectivity);
             nullableNumber(item.last_success_at_ms); nullableNumber(item.last_failure_at_ms); object(item.properties);
+            if (item.availability !== undefined && !['online', 'offline', 'unknown'].includes(String(item.availability))) invalid();
+            if (item.availability_reason !== undefined) string(item.availability_reason);
+            if (item.last_observation_at_ms !== undefined) nullableNumber(item.last_observation_at_ms);
+            if (item.observation_age_ms !== undefined) { nullableNumber(item.observation_age_ms); if (typeof item.observation_age_ms === 'number' && item.observation_age_ms < 0) invalid(); }
             Object.values(item.properties).forEach(property => {
                 object(property); string(property.knowledge); boolean(property.stale);
                 number(property.updated_at_ms); nullableNumber(property.observed_at_ms);
                 if (property.value !== null && !['string', 'boolean', 'number'].includes(typeof property.value)) invalid();
                 if (typeof property.value === 'number') number(property.value);
+                if (property.observation_age_ms !== undefined) { nullableNumber(property.observation_age_ms); if (typeof property.observation_age_ms === 'number' && property.observation_age_ms < 0) invalid(); }
+                if (property.last_observed_value !== undefined && property.last_observed_value !== null) {
+                    if (!['string', 'boolean', 'number'].includes(typeof property.last_observed_value)) invalid();
+                    if (typeof property.last_observed_value === 'number') number(property.last_observed_value);
+                }
             });
         });
     }

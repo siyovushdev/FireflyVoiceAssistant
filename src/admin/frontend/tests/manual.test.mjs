@@ -271,3 +271,50 @@ test('opening final review clears obsolete task-staged status while preserving p
     assert.match(h.store.outcome.value, /добавлены в план/);
     await h.store.prepare(); assert.equal(h.store.outcome.value, ''); assert.equal(h.store.review.value.candidate.system.name, 'Склад');
 });
+
+test('voice preferences stay local until one Save then Apply, and Cancel keeps stored bytes', async () => {
+    const h = harness(), before = JSON.stringify(h.stored);
+    await h.store.begin('system');
+    h.store.task.value.buffer.system.voice_dialogue = { responses: 'detailed', questions_enabled: true };
+    h.store.cancel();
+    assert.equal(JSON.stringify(h.stored), before); assert.equal(writes(h).length, 0);
+    await h.store.begin('system');
+    h.store.task.value.buffer.system.voice_dialogue = { responses: 'brief', questions_enabled: true };
+    await h.store.stage(); await h.store.prepare();
+    assert.equal(writes(h).length, 0); assert.equal(h.store.canConfirm.value, true);
+    await h.store.confirm();
+    assert.deepEqual(writes(h).map(c => c.method === 'PUT' ? 'Save' : 'Apply'), ['Save', 'Apply']);
+    assert.deepEqual(h.active.configuration.system.voice_dialogue, { responses: 'brief', questions_enabled: true });
+});
+
+test('voice preference conflict never retries Save/Apply or overwrites another tab', async () => {
+    const h = harness(); await h.store.begin('system');
+    h.store.task.value.buffer.system.voice_dialogue = { responses: 'off', questions_enabled: false };
+    await h.store.stage(); await h.store.prepare();
+    h.stored = { ...h.stored, revision: 2, hash: 'c'.repeat(64) };
+    await h.store.confirm();
+    assert.equal(writes(h).length, 0); assert.ok(h.store.issues.value.length);
+});
+
+
+test('review states the exact speech mode and question policy in readable language', () => {
+    const before = clone(fixture), after = clone(fixture);
+    after.system.voice_dialogue = { responses: 'detailed', questions_enabled: true };
+    const changes = readableDiff(before, after);
+    assert.equal(changes.length, 1); assert.equal(changes[0].title, 'Голосовые ответы и вопросы');
+    assert.match(changes[0].beforeText, /выключены/);
+    assert.match(changes[0].afterText, /подробно/); assert.match(changes[0].afterText, /включены/);
+    assert.doesNotMatch(changes[0].afterText, /технические параметры/);
+});
+
+test('inline voice preference uses draft Cancel and exactly one normal Review Save→Apply', async () => {
+    const h = harness(); const original = clone(h.stored.configuration);
+    await h.store.begin('system'); h.store.task.value.buffer.system.voice_input = { inline_commands: true };
+    h.store.cancel(); assert.deepEqual(h.stored.configuration, original); assert.equal(writes(h).length, 0);
+    await h.store.begin('system'); h.store.task.value.buffer.system.voice_input = { inline_commands: true };
+    await h.store.stage(); assert.deepEqual(h.stored.configuration, original); assert.equal(writes(h).length, 0);
+    assert.ok(readableDiff(original, h.store.candidate.value).some(c => JSON.stringify(c).includes('Ввод голосовых команд')));
+    await h.store.prepare(); assert.equal(writes(h).length, 0); await h.store.confirm();
+    assert.equal(writes(h).length, 2); assert.equal(h.active.configuration.system.voice_input.inline_commands, true);
+    assert.deepEqual(h.active.configuration.system.voice_dialogue, original.system.voice_dialogue);
+});

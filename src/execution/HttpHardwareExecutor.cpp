@@ -207,9 +207,13 @@ HardwareResult HttpHardwareExecutor::execute(const config::Binding& binding, con
     return request(http, http.method == "GET" ? "" : body.dump()).result;
 }
 HardwareObservation HttpHardwareExecutor::observe(const config::ObservationBinding& binding) {
+    return observe(binding, 0);
+}
+HardwareObservation HttpHardwareExecutor::observe(const config::ObservationBinding& binding, std::int64_t timeoutLimitMs) {
     config::HttpBinding http;
     const auto ready = prepare(binding.connectionId, binding.http, http, true);
     if (!ready.success) return {ready, {}};
+    if (timeoutLimitMs > 0) http.timeoutMs = std::min(http.timeoutMs, timeoutLimitMs);
     const auto reply = request(http, "");
     if (!reply.result.success) return {reply.result, {}};
     try {

@@ -10,6 +10,8 @@ public:
     HardwareResult execute(const config::Binding& binding,
                            const actions::GenericAction& action) override;
     HardwareObservation observe(const config::ObservationBinding& binding) override;
+    // Optional stricter deadline for a bounded voice read; never extends the configured timeout.
+    HardwareObservation observe(const config::ObservationBinding& binding, std::int64_t timeoutLimitMs);
     // Connect-only reachability probe: sends zero HTTP bytes.
     static HardwareResult testConnection(const config::Connection& connection);
 private:

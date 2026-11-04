@@ -1,0 +1,102 @@
+{
+  "profile": "Supertonic3 INT8 / F2 SID1 / ru / CPU4 / steps5 / speed1 / sherpa-onnx1.13.7",
+  "provenance": "Complete synthetic F2 utterances, unchanged pinned Engine/profile, no microphone audio.",
+  "clips": [
+    {
+      "file": "00.wav",
+      "text": "Да.",
+      "size": 111088,
+      "sha256": "a5ed739302ef288e1ec89722d02bac8267cb2021f74c0063be452f4ed7de0790"
+    },
+    {
+      "file": "01.wav",
+      "text": "Нет.",
+      "size": 111196,
+      "sha256": "797a8f910a5eb37fecfeb60683dc5ab25700a2ad126b328fc1c835f4b88d61e2"
+    },
+    {
+      "file": "02.wav",
+      "text": "Питание включено.",
+      "size": 152002,
+      "sha256": "fe593ba504e8cf363f4ef3885a0ac9699ea6cc99b720c7a5aaf59c351cd6acba"
+    },
+    {
+      "file": "03.wav",
+      "text": "Питание выключено.",
+      "size": 156424,
+      "sha256": "5a0c3733a483465e4d161c0aac6fc3e827d9c2f8395cb6e5d6d8a76229cbe646"
+    },
+    {
+      "file": "04.wav",
+      "text": "Сейчас не могу проверить.",
+      "size": 186892,
+      "sha256": "fb5bcd55630b68501a82df963e757d6819ee3216b3577ed91be665408c46ba9d"
+    },
+    {
+      "file": "05.wav",
+      "text": "Команду отправила, ответа пока нет.",
+      "size": 234984,
+      "sha256": "72db88c0e4e9aa376c220f8b6bafabe8f5047fc43ed7d2b896ba3ab43433a072"
+    },
+    {
+      "file": "06.wav",
+      "text": "Устройство ответило, но выполнение не подтвердилось.",
+      "size": 363444,
+      "sha256": "def823491370857b5c9b5d7f46133e1ef5353db4729a3cd5151822d2b3bc389f"
+    },
+    {
+      "file": "07.wav",
+      "text": "Не удалось подтвердить выполнение.",
+      "size": 227572,
+      "sha256": "ff1e0570a564fe53baa1d845883f2b72ee77896942290afab227284b361605f6"
+    },
+    {
+      "file": "08.wav",
+      "text": "Не удалось связаться с устройством.",
+      "size": 237620,
+      "sha256": "f871bc53384555257f8f9980c807de05db045c684e8bc9baf5c879007dfac40b"
+    },
+    {
+      "file": "09.wav",
+      "text": "Не могу выполнить эту команду.",
+      "size": 205690,
+      "sha256": "17813ece6c23811c08cef9505f88a2f1394eee39b63758d1090d0fdb9b5e6048"
+    },
+    {
+      "file": "10.wav",
+      "text": "Уточни устройство и команду.",
+      "size": 199784,
+      "sha256": "4158a6b598f77466f719973682538ae764e58c71329980d1720467ff9c2e181b"
+    },
+    {
+      "file": "11.wav",
+      "text": "Повтори, пожалуйста.",
+      "size": 165768,
+      "sha256": "307849f5aeadfb2bf06e48e36c713d530530b357018330d34204c568f0654ee5"
+    },
+    {
+      "file": "12.wav",
+      "text": "Для этого действия не настроено подключение.",
+      "size": 300922,
+      "sha256": "95a754be60adbdc6ce22e172b08bc5dbce36f6b65b789caa7a4a668dc8f9f2d9"
+    },
+    {
+      "file": "13.wav",
+      "text": "Не знаю, о каком устройстве речь.",
+      "size": 229284,
+      "sha256": "0c34ac5524b2b7b0453a15b2e2be64a09b43f2df006a9932710b7207300ae582"
+    },
+    {
+      "file": "14.wav",
+      "text": "Команду отправила.",
+      "size": 151812,
+      "sha256": "4f1609e829282f96e27a3bbef555e0219f1706f6ed9e0c0335be3aa1cb643eee"
+    },
+    {
+      "file": "15.wav",
+      "text": "Я на связи.",
+      "size": 121474,
+      "sha256": "6601b2f033043c4ab58155e6c3b079ce53e2e6aceefb50ed0e38e2034d6642c8"
+    }
+  ]
+}

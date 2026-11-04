@@ -9,6 +9,10 @@ struct Utterance {
     std::string error;
     // Set only by the KWS-admitted inline capture path, never by text/Admin input.
     bool inlineWake = false;
+    // Set exclusively by a KWS-admitted session, not text/Admin input.
+    bool wakeAdmitted = false;
+    // Configuration heard with this audio. Zero retains non-appliance/replay compatibility.
+    std::uint64_t inputGeneration = 0;
 };
 // Bounded PCM history, independent of ALSA, sherpa, and command semantics.
 class VoiceSegmenter {
@@ -21,6 +25,9 @@ public:
     // Probe the unchanged VAD with bounded history and endpoint-only silence.
     // Resets all state afterwards; synthetic probe samples can never reach STT.
     bool continuesAfterWake(const std::vector<float>& pcm, size_t wakeOffset);
+    // Preserve the real gap when a verified wake and its command were split
+    // by VAD while confirmation was running. Only current bounded PCM is used.
+    Utterance includeEarlierSpeech(const Utterance& utterance, int64_t speechStart) const;
     bool active() const { return active_ || !pending_.empty() || discarding_; }
     bool speechSeen() const { return speechSeen_; }
     int startConfirmationMs() const { return detector_.startConfirmationMs(); }

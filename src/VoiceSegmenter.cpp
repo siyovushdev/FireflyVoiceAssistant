@@ -51,6 +51,19 @@ bool VoiceSegmenter::continuesAfterWake(const std::vector<float>& pcm, size_t wa
            actualEnd >= controlEnd + 128 * 16;
 }
 void VoiceSegmenter::discontinuity() { reset(true); }
+Utterance VoiceSegmenter::includeEarlierSpeech(const Utterance& utterance, int64_t start) const {
+    Utterance result = utterance;
+    if (!result.error.empty()) return result;
+    const auto first = std::max<int64_t>(0, start - config_.preMs * 16);
+    const auto last = utterance.speech.end + config_.postMs * 16;
+    if (start < 0 || start > utterance.speech.start || first < base_ || last > received_ ||
+        last - first > int64_t(config_.maxSpeechMs + 2000) * 16) {
+        result.audio.clear(); result.error = "Incomplete or oversized inline wake history"; return result;
+    }
+    result.speech.start = start;
+    result.audio.assign(history_.begin() + (first - base_), history_.begin() + (last - base_));
+    return result;
+}
 std::vector<Utterance> VoiceSegmenter::accept(const float* samples, int count) {
     if (count <= 0 || count > FrameSamples) throw std::invalid_argument("Invalid audio block");
     history_.insert(history_.end(), samples, samples + count); received_ += count;

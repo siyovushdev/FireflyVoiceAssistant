@@ -6,15 +6,21 @@
 #include "firefly/config/ConfigLoader.h"
 #ifdef FIREFLY_WITH_VOICE
 #include "firefly/voice/AlsaAudioSource.h"
+#include "firefly/voice/F2SpeechOutput.h"
+#ifdef FIREFLY_TEST_VOICE_REPLAY
+#include "ReplayInput.h"
+#endif
 #include "firefly/voice/SherpaSpeech.h"
 #include "firefly/voice/VoiceLoop.h"
 #include "firefly/voice/WakeVoiceLoop.h"
+#include "firefly/voice/WakeConfirmation.h"
 #include "firefly/voice/AminaWakeDetector.h"
 #include "firefly/llm/StructuredOutput.h"
 #endif
 #include "firefly/voice/WakeDetector.h"
 #include "firefly/voice/WakeAcknowledgement.h"
 #include "firefly/voice/VoiceRecovery.h"
+#include "firefly/voice/WakeDirectionClient.h"
 #ifdef FIREFLY_TEST_SETUP_RESOURCES
 #include "FakeSetupResources.h"
 #endif
@@ -22,6 +28,7 @@
 #include <csignal>
 #include <filesystem>
 #include <iostream>
+#include <nlohmann/json.hpp>
 #include <thread>
 
 namespace {
@@ -37,8 +44,9 @@ int main(int argc, char** argv) {
     }
     try {
         std::string storePath, initial, bind = "127.0.0.1", modelPath, adminModel, stt, vad;
-        std::string device = "plughw:CARD=Array,DEV=0";
+        std::string device = "plughw:CARD=Array,DEV=0", ttsDirectory, wakeFocusSocket;
         firefly::voice::WakeConfig wakeConfig;
+        wakeConfig.afterBeepOnly = true;
         firefly::voice::WakeAcknowledgementConfig acknowledgementConfig;
         std::string wakePython = "python3", playbackDevice = "plughw:CARD=rockchipes8388,DEV=0";
         const auto executableDir = std::filesystem::canonical("/proc/self/exe").parent_path();
@@ -46,17 +54,20 @@ int main(int argc, char** argv) {
         if (!std::filesystem::exists(wakeData)) wakeData = executableDir.parent_path() / "share/firefly/wake";
         wakeConfig.modelPath = (wakeData / "amina-v3.tflite").string();
         unsigned short port = 8080;
-        bool voice = false;
+        bool voice = false, wakeSttConfirmation = false;
         for (int i = 1; i < argc; ++i) {
             const std::string flag(argv[i]);
             if (flag == "--help") {
                 std::cout << "firefly-demo --store DIR --model FILE [--admin-model FILE] [--init-config FILE]\n"
                     "  [--admin-bind 127.0.0.1] [--admin-port 8080]\n"
-                    "  [--stt-model-dir DIR]\n"
+                    "  [--stt-model-dir DIR] [--tts-model-dir DIR] (accepted F2 assets)\n"
                     "  [--voice --vad-model FILE --audio-device plughw:CARD=Array,DEV=0]\n"
                     "  [--wake-enabled true|false] [--wake-model FILE] [--wake-python EXECUTABLE]\n"
                     "  [--wake-cutoff 0.99] [--wake-window 7] [--command-start-timeout-ms 5000] [--playback-device DEVICE]\n"
                     "  [--wake-beep-enabled true|false] [--wake-beep-volume-percent 1..30] (defaults: true, 30)\n"
+                    "  [--wake-focus-socket PRIVATE_SOCKET] (optional external direction experiment)\n"
+                    "  [--wake-command-mode after-beep|auto] (default: after-beep; command follows beep)\n"
+                    "  [--wake-stt-confirmation true|false] (default: false; experimental; requires wake gating and beep)\n"
                     "  [--command-listen-timeout-ms MS] (deprecated total listening cap)\n"
                     "One process appliance runtime supervised by systemd in production.\n"
                     "V1 Admin is loopback-only (127.0.0.1); remote access requires an SSH/Tailscale TCP tunnel.\n"
@@ -75,6 +86,7 @@ int main(int argc, char** argv) {
                 adminModel = value;
             }
             else if (flag == "--stt-model-dir") stt = value;
+            else if (flag == "--tts-model-dir") ttsDirectory = value;
             else if (flag == "--vad-model") vad = value;
             else if (flag == "--audio-device") device = value;
             else if (flag == "--wake-enabled") {
@@ -82,6 +94,17 @@ int main(int argc, char** argv) {
                 wakeConfig.enabled = value == "true";
             }
             else if (flag == "--wake-model") wakeConfig.modelPath = value;
+            else if (flag == "--wake-stt-confirmation") {
+                if (value != "true" && value != "false")
+                    throw std::invalid_argument("Invalid wake-stt-confirmation boolean");
+                wakeSttConfirmation = value == "true";
+            }
+            else if (flag == "--wake-focus-socket") wakeFocusSocket = value;
+            else if (flag == "--wake-command-mode") {
+                if (value != "after-beep" && value != "auto")
+                    throw std::invalid_argument("Invalid wake-command-mode");
+                wakeConfig.afterBeepOnly = value == "after-beep";
+            }
             else if (flag == "--playback-device") playbackDevice = value;
             else if (flag == "--wake-beep-enabled") {
                 if (value != "true" && value != "false") throw std::invalid_argument("Invalid wake-beep-enabled boolean");
@@ -139,6 +162,11 @@ int main(int argc, char** argv) {
         }
 #endif
         wakeConfig.validate();
+        if (wakeSttConfirmation && (!wakeConfig.enabled || !acknowledgementConfig.enabled))
+            throw std::invalid_argument("STT wake confirmation requires enabled wake and beep");
+        if (voice && wakeConfig.enabled && wakeConfig.afterBeepOnly && !acknowledgementConfig.enabled)
+            throw std::invalid_argument("After-beep mode requires enabled wake beep");
+        firefly::voice::WakeDirectionClient wakeDirection(wakeFocusSocket);
         if (storePath.empty()) throw std::invalid_argument("--store is required");
 #ifndef FIREFLY_WITH_VOICE
         if (voice || !stt.empty()) throw std::invalid_argument("Build with FIREFLY_BUILD_VOICE=ON for STT/voice");
@@ -159,6 +187,7 @@ int main(int argc, char** argv) {
 #endif
         firefly::admin::RuntimeModel model(modelPath, adminModel, resources);
         firefly::admin::RuntimeWorker runtime(model);
+        runtime.setWakeInputDefaults(wakeConfig.afterBeepOnly, wakeSttConfirmation);
         firefly::admin::LocalRuntimeClient client(runtime);
         firefly::admin::Api api(store, client, nullptr);
         api.health().setPhase("process_started");
@@ -189,17 +218,24 @@ int main(int argc, char** argv) {
         }
 #endif
 
+#ifdef FIREFLY_TEST_VOICE_REPLAY
+        std::shared_ptr<firefly::voice::test::ReplayData> replay;
+        if (const auto* file = std::getenv("FIREFLY_TEST_REPLAY_WAV"))
+            replay = std::make_shared<firefly::voice::test::ReplayData>(file);
+#endif
         firefly::voice::VoiceRecovery recovery;
 #ifdef FIREFLY_WITH_VOICE
         // Access only inside the recovery audio lease, or its idle cleanup lock.
         std::unique_ptr<firefly::voice::SherpaVad> detector;
         std::unique_ptr<firefly::voice::SherpaRecognizer> recognizer;
+        std::unique_ptr<firefly::voice::F2SpeechOutput> speaker;
 #endif
         runtime.setAudioDrain([&] {
             recovery.drain([&] {
                 auto lease = resources->acquire();
                 resources->note("before_voice_release");
 #ifdef FIREFLY_WITH_VOICE
+                speaker.reset(); runtime.speechStatus("released");
                 recognizer.reset();
                 detector.reset();
 #endif
@@ -251,15 +287,81 @@ int main(int argc, char** argv) {
                     // Preserve wake-before-capture order: ALSA starts immediately,
                     // so loading a worker afterwards could overrun its short buffer.
                     // One capture owner for wake AND command audio, ASR channel 1.
-                    firefly::voice::AlsaAudioSource capture(device, 2, 1);
+                    std::unique_ptr<firefly::voice::AudioSource> capture;
+#ifdef FIREFLY_TEST_VOICE_REPLAY
+                    if (replay) capture = std::make_unique<firefly::voice::test::ReplayInput>(replay);
+                    else
+#endif
+                    capture = std::make_unique<firefly::voice::AlsaAudioSource>(device, 2, 1);
                     firefly::voice::AlsaWakeAcknowledgement acknowledgement(playbackDevice, acknowledgementConfig);
                     std::cerr << "VOICE_ACK enabled=" << (acknowledgementConfig.enabled ? "true" : "false")
                         << " volume_percent=" << acknowledgementConfig.volumePercent << '\n';
-                    const auto process = [&](const firefly::voice::Utterance& u) { return runtime.processVoice(*recognizer, u); };
+                    std::cerr << "VOICE_INPUT mode=" << (runtime.wakeInputPolicy().afterBeepOnly ? "after-beep" : "auto") << '\n';
+                    std::cerr << "VOICE_WAKE_CONFIRMATION enabled=" << (wakeSttConfirmation ? "true" : "false") << '\n';
+                    std::function<bool(const std::vector<float>&)> confirmWake;
+                    if (wakeSttConfirmation) confirmWake = [&](const std::vector<float>& pcm) {
+                        if (interrupted()) return false;
+                        const auto generation = runtime.voiceGenerationId();
+                        // The recovery audio lease joins this worker before Setup
+                        // can destroy recognizer. Command STT is idle in this phase.
+                        firefly::voice::SttWakeConfirmation verifier(*recognizer);
+                        const auto result = verifier.confirm(pcm);
+                        nlohmann::json attempts = nlohmann::json::array();
+                        for (const auto& attempt : result.attempts)
+                            attempts.push_back({{"success", attempt.success}, {"text", attempt.text.substr(0,1024)}, {"stt_ms", attempt.latencyMs}});
+                        const bool cancelled = interrupted() || generation != runtime.voiceGenerationId();
+                        std::cerr << ("WAKE_CONFIRMATION " + nlohmann::json({
+                            {"matched", result.accepted}, {"cancelled", cancelled}, {"reason", result.reason},
+                            {"processing_ms", result.processingMs}, {"attempts", attempts}}).dump() + "\n");
+                        return result.accepted && !cancelled;
+                    };
+                    const auto process = [&](const firefly::voice::Utterance& u) {
+                        const auto epoch = runtime.speechEpoch();
+                        auto result = runtime.processVoice(*recognizer, u);
+                        std::cerr << "VOICE_REPLY_READY monotonic_ms="
+                            << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count() << '\n';
+                        const auto cancelled = [&] {
+                            return interrupted() || epoch != runtime.speechEpoch() || result.replyGeneration != runtime.voiceGenerationId() || runtime.voicePreferences().responses == "off";
+                        };
+                        if (result.replyText.empty() && result.replyReason == "state_confirmed" && !cancelled())
+                            runtime.speechStatus("silent");
+                        if (!result.replyText.empty() && result.replyMode != "off" && !cancelled()) {
+                            try {
+                                {
+                                    auto lease = resources->acquire();
+                                    if (!speaker) {
+                                        speaker = std::make_unique<firefly::voice::F2SpeechOutput>(ttsDirectory, playbackDevice,
+                                            [](const std::string& row) { std::cerr << ("F2_TRACE " + row + "\n"); }, "",
+                                            [&](const std::function<void()>& load) {
+                                                // Stock PCM never loads the model. Dynamic speech
+                                                // uses the same resource admission and audio lease.
+                                                auto loadingLease = resources->acquire();
+                                                if (interrupted()) throw std::runtime_error("speech_cancelled");
+                                                if (ttsDirectory.empty()) throw std::runtime_error("tts_model_not_configured");
+                                                resources->checkpoint("before_f2_load", 2 * firefly::SetupResources::GiBKiB);
+                                                load();
+                                                resources->checkpoint("after_f2_load", firefly::SetupResources::GiBKiB);
+                                            });
+                                    }
+                                }
+                                runtime.speechStatus("speaking");
+                                const auto spoken = speaker->speak(result.replyText, cancelled);
+                                runtime.speechStatus(spoken.success ? "ready" : spoken.cancelled ? "cancelled" : "failed", spoken.error);
+                            } catch (const std::exception&) {
+                                speaker.reset(); runtime.speechStatus("failed", "tts_unavailable");
+                                std::cerr << "VOICE_REPLY speech_failed text_result_retained=true\n";
+                            }
+                            // Processing retains capture ownership while PCM is played;
+                            // original loop drains it, including a bounded acoustic tail.
+                            for (int i=0;i<10&&!interrupted();++i) std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                        }
+                        return result;
+                    };
                     const auto emit = [](const firefly::voice::VoiceResult& result) {
                             std::cerr << "VOICE text=" << result.recognition.text << " route=" << result.route
                                 << " result=" << firefly::llm::structuredResult(result.action)
                                 << " inline=" << (result.inlineWake ? "true" : "false")
+                                << " wake_only=" << (result.wakeOnly ? "true" : "false")
                                 << " wake_prefix_removed=" << (result.wakePrefixRemoved ? "true" : "false")
                                 << " command_text=" << result.commandText
                                 << " error=" << result.error
@@ -272,6 +374,10 @@ int main(int argc, char** argv) {
                                 << " processing_ms=" << result.processingMs << '\n';
                         };
                     const auto state = [&](const std::string& value) {
+                        // Deliver directly before journal I/O and continuation probing.
+                        // Failure is an optional acoustic enhancement miss, never a
+                        // reason to authorize or repair a command.
+                        if (wakeDirection.enabled()) (void)wakeDirection.notify(value);
                         runtime.voiceStatus(value, "connected");
                         std::cerr << "VOICE_STATE " << value << " monotonic_ms="
                             << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -290,12 +396,13 @@ int main(int argc, char** argv) {
                         if (value == "WAITING_WAKE" || (!wakeConfig.enabled && value == "listening")) ready();
                     };
                     if (wakeConfig.enabled)
-                        firefly::voice::runWakeVoiceLoop(capture, *wake, segmenter, wakeConfig,
+                        firefly::voice::runWakeVoiceLoop(*capture, *wake, segmenter, wakeConfig,
                             process, emit, state, interrupted, std::chrono::steady_clock::now,
-                            acknowledgementConfig.enabled ? &acknowledgement : nullptr);
+                            acknowledgementConfig.enabled ? &acknowledgement : nullptr, confirmWake,
+                            [&] { return runtime.wakeInputPolicy(); });
                     else {
                         std::cerr << "VOICE wake gating explicitly disabled by configuration\n";
-                        firefly::voice::runVoiceLoop(capture, segmenter, process, emit, state, interrupted);
+                        firefly::voice::runVoiceLoop(*capture, segmenter, process, emit, state, interrupted);
                     }
                     runtime.voiceStatus("stopped", "closed");
                     api.health().setSubsystem("wake", SubsystemStatus::Unavailable, {}, "stopped");

@@ -347,7 +347,7 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
             {"/api/config/export", "GET"}, {"/api/config/import", "POST"}, {"/api/config/revision", "POST"},
             {"/api/config/restore-candidate", "POST"}, {"/api/dashboard", "GET"}, {"/api/devices/state", "GET"},
             {"/api/connections/test", "POST"}, {"/api/connections/probe", "POST"}, {"/api/mqtt/credentials", "GET POST PUT DELETE"}, {"/api/mqtt/local-broker", "GET POST"}, {"/api/devices/command", "POST"}, {"/api/devices/poll", "POST"},
-            {"/api/executions", "GET"}, {"/api/status", "GET"}, {"/api/config", "GET PUT"},
+            {"/api/executions", "GET"}, {"/api/status", "GET"}, {"/api/voice/stop", "POST"}, {"/api/config", "GET PUT"},
             {"/api/config/active", "GET"}, {"/api/config/validate", "POST"}, {"/api/config/apply", "POST"},
             {"/api/config/revisions", "GET"}, {"/api/config/restore", "POST"}, {"/api/config/reconcile", "POST"}, {"/api/test-command", "POST"}};
         const auto route = routes.find(std::string(path));
@@ -355,6 +355,14 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
         if ((" " + route->second + " ").find(" " + std::string(method) + " ") == std::string::npos)
             throw ApiError(405, "method_not_allowed", "", "HTTP method is not supported for this endpoint.");
         if (method == "GET" && !body.empty()) throw std::invalid_argument("Unexpected body");
+        if (path == "/api/voice/stop") {
+            const auto control = parseMessage(body, true); members(control, {});
+            // HttpServer already enforced loopback/same-origin mutation guards.
+            // Cancelling audio has no authority over devices, config or Setup.
+            if (impl_->runtime.cancelSpeech()) return {200, "application/json; charset=utf-8", "{\"ok\":true}"};
+            const auto result = impl_->invoke({{"method", "cancel_speech"}});
+            return {200, "application/json; charset=utf-8", result.dump()};
+        }
         if (path == "/api/admin/transcribe") {
             if (impl_->setup->active()) impl_->setup->handle("authorize",Json{{"session_id",setupOwner}});
             if (!impl_->transcriber || !impl_->transcriber->ready())
@@ -628,6 +636,8 @@ HttpReply Api::handle(std::string_view method, std::string_view path, std::strin
                 reply["active"] = live["active"].is_null() ? Json(nullptr) : Json{{"revision",live["active"]["revision"]},
                     {"hash",live["active"]["hash"]},{"generation_id",live["active"]["generation_id"]}};
                 for (const auto* key : {"voice","microphone","executor","last_command","last_voice","uptime_seconds","context_tokens","context_limit","build"}) reply[key] = live[key];
+                if (live.contains("speech")) reply["speech"] = live["speech"];
+                if (live.contains("voice_input")) reply["voice_input"] = live["voice_input"];
                 reply["device_count"] = live["devices"].size();
                 impl_->syncHealthFromRuntime(live);
             }

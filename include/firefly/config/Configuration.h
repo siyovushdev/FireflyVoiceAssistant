@@ -21,7 +21,21 @@ public:
 };
 
 struct Identity { std::string id, name; };
-struct System : Identity { std::string locale, interpretationProfile; };
+// Optional preferences preserve canonical bytes of older configurations.
+struct VoiceDialogueSettings {
+    bool present = false;
+    std::string responses = "off"; // off / brief / detailed
+    bool questionsEnabled = false;
+};
+struct VoiceInputSettings {
+    bool present = false;
+    bool inlineCommands = false;
+};
+struct System : Identity {
+    std::string locale, interpretationProfile;
+    VoiceDialogueSettings voiceDialogue;
+    VoiceInputSettings voiceInput;
+};
 // Location is universal; Room / rooms / roomId remain v1 wire/source compatibility names.
 struct EntityMetadata {
     std::string type, description, origin;
