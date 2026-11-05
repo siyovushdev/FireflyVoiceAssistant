@@ -237,7 +237,7 @@ with tempfile.TemporaryDirectory(prefix='firefly-connectivity-') as directory:
         save_apply(restored); assert command(False)['execution']['success']
         poll(); before_rename = state()
         restored['connections'][0]['name'] = 'Display rename only'
-        save_apply(restored); assert state() == before_rename
+        save_apply(restored); assert_property_unchanged(before_rename, state(), 'display rename')
         removed = copy.deepcopy(home); removed['devices'] = []; removed['actions'] = []
         save_apply(removed)
         assert not api('/api/config')['configuration'].get('bindings')

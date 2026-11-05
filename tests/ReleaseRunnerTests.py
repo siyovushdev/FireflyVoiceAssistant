@@ -280,7 +280,7 @@ class RunnerTests(unittest.TestCase):
             runner.application_checks(Path('/fixture'), Path('/source'))
             commands = [call.args[1] for call in command.call_args_list]
             self.assertEqual(commands[0], ['runuser', '-u', 'firefly', '--', 'ctest', '--test-dir',
-                                          '/source/build', '--output-on-failure', '--no-tests=error', '-j2'])
+                                          '/source/build', '--output-on-failure', '--no-tests=error', '-j1'])
             self.assertEqual([cmd[-1] for cmd in commands[1:]], ['typecheck', 'test', 'build'])
             self.assertTrue(all(cmd[:4] == ['runuser', '-u', 'firefly', '--'] for cmd in commands))
 
