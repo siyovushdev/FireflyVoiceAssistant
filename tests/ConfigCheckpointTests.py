@@ -154,6 +154,24 @@ class CheckpointTests(unittest.TestCase):
                     c.create(source, target, self.app)
                 self.assertFalse(target.exists()); self.assertEqual(c.inventory(source), before)
 
+    def test_explicit_supervisor_admission_still_requires_root_stopped_and_exact_store(self):
+        live = Path('/var/lib/firefly/store')
+        inactive = subprocess.CompletedProcess([], 0, stdout='ActiveState=inactive\nMainPID=0\nControlGroup=\n')
+        with patch.dict(os.environ, {}, clear=True), patch.object(c, 'inventory') as inspected, \
+                patch.object(c.os, 'geteuid', return_value=0), patch.object(c.subprocess, 'run', return_value=inactive) as manager:
+            for flag in [False, 1, '1', None]:
+                with self.assertRaises(c.CheckpointError):c.quiescent(live, owner_authorized=flag)
+            inspected.assert_not_called();manager.assert_not_called()
+            c.quiescent(live, owner_authorized=True)
+            inspected.assert_called_once_with(live);self.assertNotIn('FIREFLY_OWNER_ACCEPTED', os.environ)
+            with self.assertRaises(c.CheckpointError):c.quiescent(live.parent/'other', owner_authorized=True)
+            for state in ['ActiveState=active\nMainPID=123\nControlGroup=\n', 'ActiveState=inactive\nMainPID=123\nControlGroup=\n']:
+                manager.return_value=subprocess.CompletedProcess([],0,stdout=state)
+                with self.assertRaises(c.CheckpointError):c.quiescent(live,owner_authorized=True)
+        with patch.dict(os.environ, {'FIREFLY_OWNER_ACCEPTED':'1'}, clear=True), patch.object(c.os,'geteuid',return_value=1000), patch.object(c,'inventory') as inspected:
+            with self.assertRaises(c.CheckpointError):c.quiescent(live,owner_authorized=True)
+            inspected.assert_not_called()
+
     def test_creation_fsync_failure_and_unauthorized_production_restore_fail_closed(self):
         with patch.object(c.os, 'fsync', side_effect=OSError('fsync failed')):
             with self.assertRaises(OSError):
