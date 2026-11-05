@@ -44,6 +44,21 @@ class OperationalRelease(unittest.TestCase):
     v.verify_models(base/'target')
     (base/'target/model').write_bytes(b'x'*len(data))
     with self.assertRaises(ValueError):v.verify_models(base/'target')
+ def test_actual_staging_helper_copies_installed_checkpoint_import_closure(self):
+  with tempfile.TemporaryDirectory(prefix='firefly-profile-closure-') as directory:
+   base=Path(directory);release=base/'release';deployment=release/'share/firefly/deployment'
+   package=deployment/'packaging';package.mkdir(parents=True)
+   for name in ['__init__.py','firefly_release.py','mqtt_release.py','firefly_checkpoint.py']:
+    shutil.copyfile(ROOT/'packaging'/name,package/name)
+   r.stage_voice_helpers(ROOT,release,required=True)
+   self.assertTrue(v.ARTIFACTS.issubset({str(p.relative_to(release)) for p in package.iterdir()}))
+   code='import sys;sys.path.insert(0,sys.argv[1]);from packaging import operational_transition,voice_profile;assert operational_transition.checkpoint is not None'
+   args=[sys.executable,'-I','-B','-c',code,str(deployment)]
+   self.assertEqual(subprocess.run(args,cwd=base,capture_output=True).returncode,0)
+   module=package/'operational_transition.py';module.unlink()
+   self.assertNotEqual(subprocess.run(args,cwd=base,capture_output=True).returncode,0)
+   module.write_text('invalid @@@')
+   self.assertNotEqual(subprocess.run(args,cwd=base,capture_output=True).returncode,0)
  def test_explicit_release_checkpoint_keeps_legacy_m19_authority_closed(self):
   with tempfile.TemporaryDirectory(prefix='firefly-profile-store-') as directory:
    base=Path(directory);binary=base/'config';shutil.copy2(APP,binary);binary.chmod(0o755)
