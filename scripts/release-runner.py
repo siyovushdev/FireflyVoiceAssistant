@@ -105,8 +105,10 @@ def selected_build(source, build_dir=None):
 def application_checks(root, source, build_dir=None):
     # Existing full offline application checks run as the repository/service user,
     # never as privileged production mutation tools. No dependency downloads.
+    # Serial checks avoid competing package-copy memory and 100 ms deadline
+    # positive controls on the 8 GB appliance; the tested deadlines stay exact.
     command(root, ['runuser', '-u', 'firefly', '--', 'ctest', '--test-dir', str(selected_build(source, build_dir)),
-                   '--output-on-failure', '--no-tests=error', '-j2'], timeout=1200)
+                   '--output-on-failure', '--no-tests=error', '-j1'], timeout=1200)
     for name in ['typecheck', 'test', 'build']:
         command(root, ['runuser', '-u', 'firefly', '--', 'npm', '--prefix',
                        str(source / 'src/admin/frontend'), 'run', name], timeout=120)
