@@ -22,6 +22,18 @@ mock = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mock)
 identity = lambda x: {k: x[k] for k in ('revision', 'hash')}
 
+def assert_property_unchanged(before, after, context):
+    # Relative age advances between real HTTP requests, especially on ARM64.
+    # Keep every value, knowledge flag and absolute evidence timestamp exact;
+    # a failed poll must not reset age or fabricate a new observation either.
+    key = 'observation_age_ms'
+    old_age, new_age = before[key], after[key]
+    assert ((old_age is None and new_age is None) or
+            (type(old_age) is int and type(new_age) is int and new_age >= old_age)), context
+    assert {k: v for k, v in before.items() if k != key} == {
+        k: v for k, v in after.items() if k != key}, (context, before, after)
+
+
 with tempfile.TemporaryDirectory(prefix='firefly-connectivity-') as directory:
     device = mock.MockDevice()
     thread = threading.Thread(target=device.serve_forever, daemon=True)
@@ -156,7 +168,7 @@ with tempfile.TemporaryDirectory(prefix='firefly-connectivity-') as directory:
             before = state()
             failure = poll(422)
             assert failure['errors'][0]['code'].startswith(code), failure
-            assert state() == before, mode
+            assert_property_unchanged(before, state(), mode)
         for mode in ['chunked', 'fragmented']:
             device.mode = mode
             poll()
@@ -169,7 +181,7 @@ with tempfile.TemporaryDirectory(prefix='firefly-connectivity-') as directory:
             result = command(False)
             assert result['execution']['error'].startswith(code), result
             assert len(device.snapshot()) == count + 1
-            assert state() == before
+            assert_property_unchanged(before, state(), mode)
         device.mode = ''
         # References, schemas and SSRF/injection controls are validated before Apply.
         for edit in [lambda x: x['connections'].clear(), lambda x: x['devices'].clear(),
@@ -225,7 +237,7 @@ with tempfile.TemporaryDirectory(prefix='firefly-connectivity-') as directory:
         save_apply(restored); assert command(False)['execution']['success']
         poll(); before_rename = state()
         restored['connections'][0]['name'] = 'Display rename only'
-        save_apply(restored); assert state() == before_rename
+        save_apply(restored); assert_property_unchanged(before_rename, state(), 'display rename')
         removed = copy.deepcopy(home); removed['devices'] = []; removed['actions'] = []
         save_apply(removed)
         assert not api('/api/config')['configuration'].get('bindings')
