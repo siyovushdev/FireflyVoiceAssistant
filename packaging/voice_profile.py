@@ -18,6 +18,7 @@ FILES = {
 }
 PATHS = {'models/tts/' + name for name in FILES}
 ARTIFACT = 'share/firefly/deployment/packaging/voice_profile.py'
+ARTIFACTS = {ARTIFACT, 'share/firefly/deployment/packaging/operational_transition.py'}
 
 
 def metadata():

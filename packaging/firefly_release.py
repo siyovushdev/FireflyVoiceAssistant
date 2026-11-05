@@ -849,7 +849,8 @@ def assert_artifact_manifest(entries, *, mqtt: bool = False) -> dict:
         raise ReleaseError("artifacts must be a list")
     expected = {}
     required = ARTIFACT_FILES
-    optional = {"share/firefly/deployment/packaging/voice_profile.py"}
+    optional = {"share/firefly/deployment/packaging/voice_profile.py",
+                "share/firefly/deployment/packaging/operational_transition.py"}
     if mqtt:
         from .mqtt_release import EXTRA_FILES
         required = ARTIFACT_FILES | EXTRA_FILES
@@ -1118,8 +1119,8 @@ def verify_tree(prefix: Path, release_id: str, *, check_python: bool = True,
     unit = (release / "share/firefly/systemd/firefly-voice-assistant.service").read_text()
     profile = document.get("operational_voice")
     if profile is not None:
-        from .voice_profile import metadata, verify_models, ARTIFACT
-        if profile != metadata() or ARTIFACT not in expected:
+        from .voice_profile import metadata, verify_models, ARTIFACTS
+        if profile != metadata() or not ARTIFACTS.issubset(expected):
             raise ReleaseError("Invalid operational voice profile")
         if not candidate_only:
             model_prefix = Path(PRODUCTION_PREFIX) if document.get("installed_model_reference") else prefix
@@ -1317,6 +1318,15 @@ def _reused_models(request: StageRequest, destination: Path) -> dict:
     return reused
 
 
+def stage_voice_helpers(source_root: Path, release: Path, *, required: bool) -> None:
+    # The installed checkpoint CLI's optional sealed transition needs both
+    # modules too, not only the separately prepared private runner bundle.
+    for name in ("voice_profile.py", "operational_transition.py"):
+        source = source_root / "packaging" / name
+        if required or source.exists():
+            _copy_regular(source, release / "share/firefly/deployment/packaging" / name)
+
+
 def stage_release(request: StageRequest) -> dict:
     destination = assert_stage_destination(request.destination, request.source_root)
     request.destination = destination
@@ -1457,9 +1467,7 @@ def stage_release(request: StageRequest) -> dict:
         unit = release / "share/firefly/systemd/firefly-voice-assistant.service"
         unit.parent.mkdir(parents=True)
         unit.write_text(render_unit(request.runtime_prefix, request.operational_voice))
-        profile_module = request.source_root / "packaging/voice_profile.py"
-        if request.operational_voice or profile_module.exists():
-            _copy_regular(profile_module, release / "share/firefly/deployment/packaging/voice_profile.py")
+        stage_voice_helpers(request.source_root, release, required=request.operational_voice)
         _purge_pycache(release)
         for directory, _dirs, _files in os.walk(release, topdown=False):
             path = Path(directory)
