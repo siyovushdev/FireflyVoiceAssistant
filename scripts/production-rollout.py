@@ -19,6 +19,16 @@ import urllib.request
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from packaging.firefly_recovery import RecoveryTimeout, recover, wait_quiescent
 
+OPERATIONAL_DEPENDENCIES = [
+    'packaging/__init__.py', 'packaging/operational_transition.py', 'packaging/firefly_checkpoint.py',
+    'packaging/voice_profile.py', 'packaging/firefly_release.py', 'packaging/mqtt_release.py',
+    'tools/packaging/__init__.py', 'tools/packaging/firefly_checkpoint.py',
+    'tools/packaging/operational_transition.py',
+    'tools/packaging/voice_profile.py', 'tools/packaging/firefly_release.py',
+    'tools/packaging/mqtt_release.py', 'tools/scripts/stage-release.py',
+    'tools/scripts/config-checkpoint.py',
+]
+
 
 def utc():
     return datetime.datetime.now(datetime.timezone.utc).isoformat()
@@ -216,6 +226,12 @@ class Production:
 
     def supervisor_files(self):
         """Prove the future ExecStart uses this controller and its original plan."""
+        if self.plan.get('operational_transition') or self.plan.get('release_bootstrap'):
+            required=set(OPERATIONAL_DEPENDENCIES)
+            if set(self.plan.get('operational_tools_sha256',{}))!=required:
+                raise RuntimeError('Incomplete operational helper closure')
+        for name,digest in self.plan.get('operational_tools_sha256',{}).items():
+            if sha(self.root/name)!=digest:raise RuntimeError('Operational helper changed: '+name)
         if not self.root.is_absolute() or self.root.resolve() != self.root:
             raise RuntimeError('Supervisor root must be canonical and absolute')
         for directory in [self.root / 'scripts', self.root / 'packaging', self.root, *self.root.parents]:
@@ -275,12 +291,16 @@ class Production:
         helper.require_persistent(Path(checkpoint['recovery_capsule']))
         if time.monotonic() >= self.operation_deadline:
             raise RecoveryTimeout('M19 bootstrap verification deadline expired')
-        receipt = helper.verify(Path(checkpoint['path']), Path(checkpoint['m19_config']), checkpoint['pin'])
         capsule = helper.control(Path(checkpoint['recovery_capsule']))
         if helper.pin(capsule) != checkpoint['capsule_pin']:
-            raise RuntimeError('M19 readiness capsule changed')
+            raise RuntimeError('Readiness capsule changed')
+        operational = checkpoint.get('authority_kind') == 'immutable-operational-release'
+        receipt = (helper.verify(Path(checkpoint['path']), Path(checkpoint['m19_config']), checkpoint['pin'],
+                                 authority_sha256=capsule['config_binary_sha256']) if operational else
+                   helper.verify(Path(checkpoint['path']), Path(checkpoint['m19_config']), checkpoint['pin']))
         release = self.prefix / 'releases' / plan['old']
-        helper.validate_capsule(capsule, receipt, checkpoint['pin'], release)
+        validator = helper.validate_release_capsule if operational else helper.validate_capsule
+        validator(capsule, receipt, checkpoint['pin'], release)
         expected_before = json.loads(json.dumps(capsule['before']))
         expected_before['status']['active']['generation_id'] = 1
         if (self.before != expected_before or plan['identities'][plan['old']] != capsule['identity'] or
@@ -404,20 +424,42 @@ class Production:
                     'timer_unit': timer_unit, 'timer': timer, 'service_unit': service_unit,
                     'service': service, 'remaining_seconds': plan['deadline_monotonic'] - now})
 
+    def baseline(self, target):
+        transition = self.plan.get('operational_transition')
+        if transition and target == self.plan['new']:
+            return transition['new']['before']
+        if transition and (self.root/'CUTOVER_STARTED').exists():
+            return transition['old']['before']
+        return self.before
+
+    def requires_restore(self, target):
+        return bool(self.plan.get('operational_transition'))
+
     def switch(self, target):
+        if self.plan.get('operational_transition'):
+            from packaging.operational_transition import restore_target
+            restore_target(self.root, self.plan, target, self.run)
         # Explicit recorded rollback target avoids depending on a partially
         # written previous-release marker after an interrupted activation.
         self.run(['/usr/bin/python3', str(self.root / 'tools/scripts/stage-release.py'),
                   'activate', '--destination', str(self.prefix), '--release-id', target,
                   '--store', '/var/lib/firefly/store'], timeout=120)
 
-    def voice_unit_gate(self):
+    def voice_unit_gate(self, target=None):
         """Read-only admission for the frozen permanent unit, even while stopped.
 
         The disk pin alone cannot prove what PID 1 has loaded. Reject drop-ins,
         stale loaded configuration and alternate commands before any start;
         never repair/reload a unit as part of recovery.
         """
+        transition = getattr(self, 'plan', {}).get('operational_transition')
+        expected_unit = self.baseline(target or self.current()) if transition else self.before
+        bundle = expected_unit.get('unit_bundle')
+        if bundle is not None:
+            from packaging.operational_transition import assert_bundle, bound_sources
+            assert_bundle(bundle)
+            if bound_sources(bundle)!=expected_unit.get('bound_sources',{}):
+                raise RuntimeError('Bound wake source differs from approved baseline')
         path = Path('/etc/systemd/system/firefly-voice-assistant.service')
         for directory in path.parents:
             info = directory.lstat()
@@ -433,7 +475,7 @@ class Production:
                         or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != 0o644
                         or path.resolve() != path):
                     raise RuntimeError('Untrusted voice unit file')
-                if hashlib.sha256(stream.read()).hexdigest() != self.before['unit_sha256']:
+                if hashlib.sha256(stream.read()).hexdigest() != expected_unit['unit_sha256']:
                     raise RuntimeError('Voice unit differs from approved baseline')
                 return info.st_dev, info.st_ino, info.st_mtime_ns, info.st_ctime_ns
 
@@ -444,10 +486,10 @@ class Production:
                 ('Id', 's', self.unit), ('LoadState', 's', 'loaded'),
                 ('FragmentPath', 's', str(path)), ('SourcePath', 's', ''),
                 ('Transient', 'b', False), ('NeedDaemonReload', 'b', False),
-                ('DropInPaths', 'as', [])):
+                ('DropInPaths', 'as', sorted(p for p in bundle if p != str(path)) if bundle is not None else [])):
             if property_value(unit, name, signature) != expected:
                 raise RuntimeError('Unapproved loaded voice unit: ' + name)
-        argv = self.before['argv']
+        argv = expected_unit['argv']
         executable = '/opt/firefly/voice-assistant/current/bin/firefly-demo'
         if (not isinstance(argv, list) or len(argv) < 2 or argv[0] != executable
                 or argv[-1] != '' or any(type(arg) is not str or not arg for arg in argv[:-1])):
@@ -473,6 +515,7 @@ class Production:
                 ('ProtectHome', 's', 'read-only')):
             if property_value(service, name, signature) != expected:
                 raise RuntimeError('Unapproved loaded voice service: ' + name)
+        if bundle is not None:assert_bundle(bundle)
         if disk_pin() != original:
             raise RuntimeError('Voice unit changed during admission')
 
@@ -481,24 +524,26 @@ class Production:
         self.run(['systemctl', 'start', self.unit], timeout=30)
 
     def gates(self, target):
-        self.voice_unit_gate()
+        if self.plan.get('operational_transition'):self.voice_unit_gate(target)
+        else:self.voice_unit_gate()
         status = self.get('/api/status')
+        expected = self.baseline(target)
         assert status['ok'] and status['runtime_ready'] and status['stt_ready']
         assert status['microphone'] == 'connected' and status['voice'] == 'WAITING_WAKE'
         assert not status['stopping'] and not status['needs_apply'] and not status['runtime_error']
         assert not status['config_recovered'] and status['health']['overall'] == 'ready'
         for name in ('admin', 'configuration', 'runtime', 'llm', 'stt', 'wake'):
             assert status['health']['subsystems'][name]['status'] == 'ready', name
-        expected_active = dict(self.before['status']['active'])
+        expected_active = dict(expected['status']['active'])
         # Generations are process-local; startup always publishes generation1.
         # Keep exact live-generation admission until the supervised cutover,
         # and never interpret a different config revision/hash as a restart.
         if ((self.root / 'CUTOVER_STARTED').exists() and
-                status['worker_pid'] != self.before['status']['worker_pid']):
+                status['worker_pid'] != expected['status']['worker_pid']):
             expected_active['generation_id'] = 1
         assert type(status['active']['generation_id']) is int
         assert status['active'] == expected_active
-        assert status['stored'] == self.before['status']['stored']
+        assert status['stored'] == expected['status']['stored']
         assert not self.get('/api/setup/status')['active']
         assert self.run(['systemctl', 'is-active', self.unit]) == 'active'
         pid = int(self.run(['systemctl', 'show', self.unit, '-p', 'MainPID', '--value']))
@@ -511,18 +556,18 @@ class Production:
         assert status['build']['head'] == identity['head']
         assert status['build']['source_sha256'] == identity['source_sha256']
         argv = Path(f'/proc/{pid}/cmdline').read_bytes().decode().split('\0')
-        assert argv == self.before['argv'], 'Production flags changed'
+        assert argv == expected['argv'], 'Production flags changed'
         maps = Path(f'/proc/{pid}/maps').read_text()
         for library in ('librkllmrt.so', 'libsherpa-onnx-c-api.so', 'libonnxruntime.so'):
             lines = [line for line in maps.splitlines() if library in line]
             assert lines and all(str(release / 'lib' / library) in line for line in lines), library
-        assert sha('/etc/systemd/system/firefly-voice-assistant.service') == self.before['unit_sha256']
+        assert sha('/etc/systemd/system/firefly-voice-assistant.service') == expected['unit_sha256']
         after = manifest(Path('/var/lib/firefly/store'))
-        assert comparable(after) == comparable(self.before['store_manifest']), 'ConfigStore bytes/owner/mode changed'
+        assert comparable(after) == comparable(expected['store_manifest']), 'ConfigStore bytes/owner/mode changed'
         if not (self.root / 'CUTOVER_STARTED').exists():
-            assert after == self.before['store_manifest'], 'Store timestamps changed during preparation'
-            assert manifest(Path(self.plan['backup_store'])) == self.before['store_manifest'], 'Backup changed'
-        changed_times = [p for p in after if after[p]['mtime_ns'] != self.before['store_manifest'][p]['mtime_ns']]
+            assert after == expected['store_manifest'], 'Store timestamps changed during preparation'
+            assert manifest(Path(self.plan['backup_store'])) == expected['store_manifest'], 'Backup changed'
+        changed_times = [p for p in after if after[p]['mtime_ns'] != expected['store_manifest'][p]['mtime_ns']]
         result = {'utc': utc(), 'pid': pid, 'release': str(release), 'identity': identity,
                   'status': status, 'store_manifest': after, 'store_bytes_owners_modes_unchanged': True,
                   'store_timestamp_changes': changed_times, 'sole_npu_microphone_owner': pid,

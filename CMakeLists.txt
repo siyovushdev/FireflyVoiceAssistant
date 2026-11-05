@@ -367,3 +367,8 @@ set(FIREFLY_WAKE_PYTHON "" CACHE FILEPATH "Optional Python with frozen KWS packa
 if(BUILD_TESTING AND FIREFLY_WAKE_PYTHON)
     add_test(NAME AminaStreamingBackend COMMAND "${FIREFLY_WAKE_PYTHON}" "${PROJECT_SOURCE_DIR}/tests/WakeWorkerTests.py" "${PROJECT_SOURCE_DIR}")
 endif()
+
+if(BUILD_TESTING AND TARGET firefly-config)
+    add_test(NAME OperationalReleaseProfile COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tests/OperationalReleaseTests.py" $<TARGET_FILE:firefly-config>)
+    set_tests_properties(OperationalReleaseProfile PROPERTIES TIMEOUT 120)
+endif()

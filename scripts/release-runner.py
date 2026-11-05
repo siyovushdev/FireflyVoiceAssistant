@@ -62,7 +62,9 @@ def prepare_files(root, source):
     (root / 'evidence').mkdir(mode=0o700)
     files = ['scripts/release-runner.py', 'scripts/deployment-launcher.py',
              'scripts/production-rollout.py', 'packaging/__init__.py',
-             'packaging/firefly_recovery.py', 'tests/DeploymentLauncherTests.py',
+             'packaging/firefly_recovery.py', 'packaging/firefly_checkpoint.py',
+             'packaging/operational_transition.py', 'packaging/voice_profile.py',
+             'packaging/firefly_release.py', 'packaging/mqtt_release.py', 'tests/DeploymentLauncherTests.py',
              'tests/ReleaseRecoveryTests.py', 'tests/ReleaseRunnerTests.py',
              'tests/DeploymentLauncherSystemdTests.py']
     for name in files:
@@ -72,7 +74,7 @@ def prepare_files(root, source):
         target.chmod(0o600)
     for name in ['scripts/stage-release.py', 'packaging/__init__.py', 'packaging/firefly_release.py',
                  'packaging/mqtt_release.py', 'packaging/firefly_checkpoint.py',
-                 'scripts/config-checkpoint.py']:
+                 'packaging/voice_profile.py', 'packaging/operational_transition.py', 'scripts/config-checkpoint.py']:
         target = root / 'tools' / name
         target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         shutil.copyfile(source / name, target)
@@ -167,6 +169,11 @@ def preservation_contract(old, new, old_release, new_release):
     if (set(before) - set(after) or additions != (permitted if mqtt_transition else set())
             or old['shared_models'] != new['shared_models']):
         raise RuntimeError('Voice/libraries/unit/seed/shared-model contract changed')
+    voice_upgrade = (old.get("operational_voice") != new.get("operational_voice"))
+    if voice_upgrade:
+        from packaging.voice_profile import metadata
+        if old.get("operational_voice") is not None or new.get("operational_voice") != metadata():
+            raise RuntimeError("Unsupported operational profile transition")
     for name, entry in after.items():
         # The ordinary verifier also validates paths, bytes, references and owners.
         # Preserve every legacy property, accepting only additive mode metadata.
@@ -181,6 +188,17 @@ def preservation_contract(old, new, old_release, new_release):
                 raise RuntimeError('Frozen contract changed: MQTT library mode: ' + name)
             continue
         previous = before[name]
+        if voice_upgrade and name == 'share/firefly/systemd/firefly-voice-assistant.service':
+            from packaging.firefly_release import render_unit, PRODUCTION_PREFIX
+            if ((old_release/name).read_text()!=render_unit(PRODUCTION_PREFIX) or
+                    (new_release/name).read_text()!=render_unit(PRODUCTION_PREFIX, True)):
+                raise RuntimeError('Unapproved operational unit bytes')
+            if ({k:v for k,v in previous.items() if k not in ('mode','sha256','bytes')} !=
+                    {k:v for k,v in entry.items() if k not in ('mode','sha256','bytes')}):
+                raise RuntimeError('Operational unit properties changed')
+            if (old_release/name).stat().st_mode & 0o7777 != mode:
+                raise RuntimeError('Operational unit mode changed')
+            continue
         previous_mode = (old_release / name).stat().st_mode & 0o7777
         if name in wake_upgrade:
             old_pin, new_pin = wake_upgrade[name]
@@ -214,7 +232,7 @@ def approved_source(root, source, commit):
 
 def prepare(root, source, commit, release, approved_admin_assets_sha256=None,
             m19_checkpoint=None, m19_checkpoint_pin=None, m19_config=None,
-            m19_recovery_capsule=None, m19_recovery_capsule_pin=None, build_dir=None):
+            m19_recovery_capsule=None, m19_recovery_capsule_pin=None, build_dir=None, operational_store=None):
     approved_source(root, source, commit)
     build = selected_build(source, build_dir)
     prepare_files(root, source)
@@ -288,6 +306,15 @@ def prepare(root, source, commit, release, approved_admin_assets_sha256=None,
                        manifest_sha256=m.sha(prefix / 'releases' / old / 'manifest.json'), before=before)
         helper.validate_capsule(capsule, receipt, m19_checkpoint_pin, prefix / 'releases' / old)
         checkpoint['capsule_pin'] = helper.pin(capsule)
+    transition = None
+    if operational_store is not None:
+        from packaging.operational_transition import prepare as prepare_transition
+        debug_path = Path('/run/firefly-wake-debug/session.json')
+        debug = json.loads(debug_path.read_text()) if debug_path.exists() else None
+        transition = prepare_transition(root, prefix, old, release, before, operational_store,
+                       Path('/userdata') / (root.name + '-state'), m.manifest, debug)
+    elif documents[release].get('operational_voice') is not None:
+        raise RuntimeError('Operational profile requires explicit whole-store migration source')
     write(root / 'production-before.json', before)
     now = time.monotonic()
     plan = dict(old=old, new=release, backup_store=str(root / 'backup-store'), identities=identities,
@@ -302,6 +329,10 @@ def prepare(root, source, commit, release, approved_admin_assets_sha256=None,
                 recovery_helper_sha256=m.sha(root / 'packaging/firefly_recovery.py'),
                 launcher_sha256=m.sha(root / 'scripts/deployment-launcher.py'),
                 runner_sha256=m.sha(root / 'scripts/release-runner.py'))
+    if transition is not None:
+        plan['operational_transition'] = transition
+        names = m.OPERATIONAL_DEPENDENCIES
+        plan['operational_tools_sha256'] = {name:m.sha(root/name) for name in names}
     # This provisional, unarmed plan cannot pass supervision_gate. The one real
     # boot-bound deadline is frozen from the actual timer before any forward launch.
     write(root / 'plan.json', plan)
@@ -309,6 +340,11 @@ def prepare(root, source, commit, release, approved_admin_assets_sha256=None,
     ops = m.Production(root)
     ops.operation_deadline = time.monotonic() + 30  # Read-only preparation, timer not armed.
     ops.record('prepared-gates', ops.gates(old))
+    if transition is not None:
+        from packaging import firefly_checkpoint as transition_helper
+        persistent = Path(transition['persistent_root'])
+        transition_helper.durable(persistent/'old-readiness.json', transition['rollback_capsule'])
+        transition_helper.durable(persistent/'transition.json', transition)
     if create_capsule:
         if helper.inventory(store) != receipt['tree']:
             raise RuntimeError('M19 store changed before capsule publication')
@@ -317,7 +353,7 @@ def prepare(root, source, commit, release, approved_admin_assets_sha256=None,
 
 
 def prepare_rollback(root, source, commit, checkpoint_path, checkpoint_pin,
-                     m19_config, capsule_path, capsule_pin, build_dir=None):
+                     m19_config, capsule_path, capsule_pin, build_dir=None, operational=False):
     """Fresh supervisor from durable M19 metadata; never reuse an old lease/START."""
     approved_source(root, source, commit)
     selected_build(source, build_dir)
@@ -328,13 +364,16 @@ def prepare_rollback(root, source, commit, checkpoint_path, checkpoint_pin,
     helper = load(root / 'tools/packaging/firefly_checkpoint.py')
     helper.require_persistent(checkpoint_path)
     helper.require_persistent(capsule_path)
-    receipt = helper.verify(checkpoint_path, m19_config, checkpoint_pin)
     capsule = helper.control(capsule_path)
     if helper.pin(capsule) != capsule_pin:
-        raise RuntimeError('M19 readiness capsule pin mismatch')
+        raise RuntimeError('Readiness capsule pin mismatch')
+    receipt = (helper.verify(checkpoint_path, m19_config, checkpoint_pin,
+                             authority_sha256=capsule['config_binary_sha256']) if operational else
+               helper.verify(checkpoint_path, m19_config, checkpoint_pin))
     prefix, store = Path('/opt/firefly/voice-assistant'), Path('/var/lib/firefly/store')
     target = capsule['release']
-    helper.validate_capsule(capsule, receipt, checkpoint_pin, prefix / 'releases' / target)
+    validator = helper.validate_release_capsule if operational else helper.validate_capsule
+    validator(capsule, receipt, checkpoint_pin, prefix / 'releases' / target)
     if (m19_config != prefix / 'releases' / target / 'bin/firefly-config' or
             helper.inventory(store) != receipt['tree']):
         raise RuntimeError('Restore the complete M19 checkpoint before bootstrap preparation')
@@ -372,6 +411,11 @@ def prepare_rollback(root, source, commit, checkpoint_path, checkpoint_pin,
                 recovery_helper_sha256=m.sha(root / 'packaging/firefly_recovery.py'),
                 launcher_sha256=m.sha(root / 'scripts/deployment-launcher.py'),
                 runner_sha256=m.sha(root / 'scripts/release-runner.py'))
+    if operational:
+        plan['release_bootstrap'] = True
+        plan['m19_checkpoint']['authority_kind'] = 'immutable-operational-release'
+        names = m.OPERATIONAL_DEPENDENCIES
+        plan['operational_tools_sha256'] = {name:m.sha(root/name) for name in names}
     write(root / 'plan.json', plan)
     mandatory_fixtures(root)
     ops = m.Production(root)
@@ -429,12 +473,15 @@ def run(root, authorization):
         checkpoint = plan.get('m19_checkpoint')
         if checkpoint:
             helper = load(root / 'tools/packaging/firefly_checkpoint.py')
-            receipt = helper.verify(Path(checkpoint['path']), Path(checkpoint['m19_config']), checkpoint['pin'])
             capsule = helper.control(Path(checkpoint['recovery_capsule']))
             if helper.pin(capsule) != checkpoint['capsule_pin']:
                 raise RuntimeError('M19 readiness capsule changed')
-            helper.validate_capsule(capsule, receipt, checkpoint['pin'],
-                                    ops.prefix / 'releases' / capsule['release'])
+            operational = checkpoint.get('authority_kind') == 'immutable-operational-release'
+            receipt = (helper.verify(Path(checkpoint['path']), Path(checkpoint['m19_config']), checkpoint['pin'],
+                                     authority_sha256=capsule['config_binary_sha256']) if operational else
+                       helper.verify(Path(checkpoint['path']), Path(checkpoint['m19_config']), checkpoint['pin']))
+            validator = helper.validate_release_capsule if operational else helper.validate_capsule
+            validator(capsule, receipt, checkpoint['pin'], ops.prefix / 'releases' / capsule['release'])
         ops.record('runner-before-arm', ops.bootstrap_preflight(armed=False) if plan.get('recovery_only') else ops.gates(plan['old']))
         ops = arm(ops, authorization)
         plan = ops.plan
@@ -505,6 +552,7 @@ def main():
     prep.add_argument('--root', type=Path, required=True)
     prep.add_argument('--approved-admin-assets-sha256')
     prep.add_argument('--build-dir', type=Path)
+    prep.add_argument('--operational-store', type=Path)
     prep.add_argument('--m19-checkpoint', type=Path)
     prep.add_argument('--m19-checkpoint-pin')
     prep.add_argument('--m19-config', type=Path)
@@ -514,12 +562,13 @@ def main():
     recovery.add_argument('--source', type=Path, required=True)
     recovery.add_argument('--approved-commit', required=True)
     recovery.add_argument('--root', type=Path, required=True)
-    recovery.add_argument('--m19-checkpoint', type=Path, required=True)
-    recovery.add_argument('--m19-checkpoint-pin', required=True)
-    recovery.add_argument('--m19-config', type=Path, required=True)
-    recovery.add_argument('--m19-recovery-capsule', type=Path, required=True)
-    recovery.add_argument('--m19-recovery-capsule-pin', required=True)
+    recovery.add_argument('--m19-checkpoint', '--checkpoint', dest='m19_checkpoint', type=Path, required=True)
+    recovery.add_argument('--m19-checkpoint-pin', '--checkpoint-pin', dest='m19_checkpoint_pin', required=True)
+    recovery.add_argument('--m19-config', '--config', dest='m19_config', type=Path, required=True)
+    recovery.add_argument('--m19-recovery-capsule', '--recovery-capsule', dest='m19_recovery_capsule', type=Path, required=True)
+    recovery.add_argument('--m19-recovery-capsule-pin', '--recovery-capsule-pin', dest='m19_recovery_capsule_pin', required=True)
     recovery.add_argument('--build-dir', type=Path)
+    recovery.add_argument('--operational', action='store_true')
     execute = sub.add_parser('run')
     execute.add_argument('root', type=Path)
     execute.add_argument('--owner-authorization', required=True)
@@ -529,11 +578,11 @@ def main():
             if args.mode == 'prepare':
                 prepare(args.root, args.source, args.approved_commit, args.new_release, args.approved_admin_assets_sha256,
                         args.m19_checkpoint, args.m19_checkpoint_pin, args.m19_config,
-                        args.m19_recovery_capsule, args.m19_recovery_capsule_pin, args.build_dir)
+                        args.m19_recovery_capsule, args.m19_recovery_capsule_pin, args.build_dir, args.operational_store)
             else:
                 prepare_rollback(args.root, args.source, args.approved_commit,
                                  args.m19_checkpoint, args.m19_checkpoint_pin, args.m19_config,
-                                 args.m19_recovery_capsule, args.m19_recovery_capsule_pin, args.build_dir)
+                                 args.m19_recovery_capsule, args.m19_recovery_capsule_pin, args.build_dir, args.operational)
         except Exception as error:
             print(json.dumps({'result': 'ABORTED_BEFORE_CUTOVER', 'phase': 'prepare', 'error': repr(error)}))
             return 1
