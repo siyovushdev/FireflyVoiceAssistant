@@ -319,11 +319,12 @@ def create(store, destination, binary, *, authority_sha256=None):
     return pin(receipt)
 
 
-def quiescent(store):
+def quiescent(store, *, owner_authorized=False):
     """No implicit service actions. Production needs explicit owner AND stopped unit."""
     live = Path('/var/lib/firefly/store')
     if store == live or store.is_relative_to(Path('/var/lib/firefly')):
-        if store != live or os.geteuid() != 0 or os.environ.get('FIREFLY_OWNER_ACCEPTED') != '1':
+        if (store != live or os.geteuid() != 0 or
+                not (os.environ.get('FIREFLY_OWNER_ACCEPTED') == '1' or owner_authorized is True)):
             raise CheckpointError('Production restore requires owner authorization and root')
         p = subprocess.run(['systemctl', 'show', 'firefly-voice-assistant.service',
                             '-p', 'ActiveState', '-p', 'MainPID', '-p', 'ControlGroup'],
@@ -340,13 +341,13 @@ def quiescent(store):
     inventory(store)
 
 
-def restore(store, checkpoint, binary, expected_pin, transaction, fault=lambda _: None, *, authority_sha256=None):
+def restore(store, checkpoint, binary, expected_pin, transaction, fault=lambda _: None, *, authority_sha256=None, owner_authorized=False):
     """Durable READY journal + Linux RENAME_EXCHANGE; interrupted retry is idempotent.
 
     No individual store file is overwritten/deleted. The exchanged newer tree
     stays in transaction/preserved-store. Do not start service before VERIFIED.
     """
-    safe_path(transaction); quiescent(store)
+    safe_path(transaction); quiescent(store, owner_authorized=owner_authorized)
     if transaction.parent != store.parent or transaction == store:
         raise CheckpointError('Transaction must be a NEW sibling on the same filesystem')
     receipt = verify(checkpoint, binary, expected_pin, authority_sha256=authority_sha256)
@@ -387,7 +388,7 @@ def restore(store, checkpoint, binary, expected_pin, transaction, fault=lambda _
             if inventory(ready) != plan['restored']:
                 raise CheckpointError('Incomplete restore staging; retain it and use a NEW transaction')
             prove(ready)
-            quiescent(store)
+            quiescent(store, owner_authorized=owner_authorized)
             fault('before_exchange')
             libc = ctypes.CDLL(None, use_errno=True)
             if libc.renameat2(-100, os.fsencode(store), -100, os.fsencode(ready), 2) != 0:

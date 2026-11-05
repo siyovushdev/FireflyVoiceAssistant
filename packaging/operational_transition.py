@@ -171,7 +171,14 @@ def restore_target(root, plan, target, run):
         raise RuntimeError('Checkpoint authority must be the exact target executable')
     if hashlib.sha256(Path(state['binary']).read_bytes()).hexdigest()!=state['binary_sha256']:
         raise RuntimeError('Checkpoint authority changed')
-    checkpoint.quiescent(STORE)
+    # The supervisor has a frozen, explicitly authorized plan. In-process
+    # helpers do not inherit Production.run's subprocess environment. Pass
+    # admission explicitly; root/stopped/cgroup checks remain mandatory.
+    owner_authorized = False
+    if STORE == Path('/var/lib/firefly/store'):
+        owner_authorized = isinstance(plan.get('authorization'), str) and bool(plan['authorization'])
+        if not owner_authorized:raise RuntimeError('Frozen owner authorization required')
+    checkpoint.quiescent(STORE, owner_authorized=owner_authorized)
     checkpoint.verify(Path(state['checkpoint']),Path(state['binary']),state['checkpoint_pin'],authority_sha256=state['binary_sha256'])
     # Re-entry after a completed rollback retains its already-proven live tree.
     transaction=Path(state['transaction'])
@@ -179,7 +186,8 @@ def restore_target(root, plan, target, run):
         checkpoint.prove_catalog(STORE,Path(state['binary']),state['binary_sha256'])
     else:
         checkpoint.restore(STORE,Path(state['checkpoint']),Path(state['binary']),
-                           state['checkpoint_pin'],transaction,authority_sha256=state['binary_sha256'])
+                           state['checkpoint_pin'],transaction,authority_sha256=state['binary_sha256'],
+                           owner_authorized=owner_authorized)
     receipt=checkpoint.verify(Path(state['checkpoint']),Path(state['binary']),state['checkpoint_pin'],authority_sha256=state['binary_sha256'])
     stable=lambda tree:{name:{key:value for key,value in item.items() if key!='mtime_ns'} for name,item in tree.items()}
     if stable(checkpoint.inventory(STORE))!=stable(receipt['tree']):

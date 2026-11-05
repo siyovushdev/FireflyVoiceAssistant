@@ -58,6 +58,12 @@ unit bytes and reloads systemd. The existing packaging tool switches the pointer
 The loaded unit/argv, hashes, hardening, catalog revision/hash and sole hardware
 owner are checked before service startup and again after readiness.
 
+In-process whole-store restoration receives owner admission explicitly from the
+frozen authorized supervisor plan; the child-process environment is not an
+authorization channel for Python helpers. Root, the exact live store path, an
+inactive service, MainPID 0 and an empty cgroup remain mandatory. The standalone
+checkpoint CLI still requires its explicit owner environment marker.
+
 Recovery also restores a partially migrated store/unit when the release pointer
 still names the old executable. Unknown unit bytes block startup. A successful
 execution must have fresh independent gates and a disarmed watchdog. Archive the

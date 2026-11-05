@@ -267,6 +267,19 @@ class WholeStoreTransition(unittest.TestCase):
   op.requires_restore=lambda target:controller.Production.requires_restore(op,target)
   result=recover(op,'old',time.monotonic()+10)
   self.assertTrue(result['ready']);self.assertEqual(restored,['old']);self.assertEqual(c.inventory(self.store),expected)
+ def test_live_restore_receives_frozen_owner_admission_without_environment_leak(self):
+  live=Path('/var/lib/firefly/store');state=self.profile['new'];receipt=c.control(Path(state['checkpoint'])/'checkpoint.json')
+  inactive=subprocess.CompletedProcess([],0,stdout='ActiveState=inactive\nMainPID=0\nControlGroup=\n')
+  # Only live filesystem/systemd boundaries are substituted. Real admission
+  # policy sees no environment marker, requires root and a stopped service.
+  with patch.object(self.o,'STORE',live),patch.dict(os.environ,{},clear=True),patch.object(c.os,'geteuid',return_value=0), \
+       patch.object(c,'verify',return_value=receipt),patch.object(c,'inventory',return_value=receipt['tree']), \
+       patch.object(c.subprocess,'run',return_value=inactive),patch.object(c,'restore') as restore:
+   with self.assertRaisesRegex(RuntimeError,'Frozen owner authorization'):self.o.restore_target(self.root,self.plan,'new',self.command)
+   restore.assert_not_called();self.plan['authorization']='file:///owner-authorized-receipt.json'
+   self.o.restore_target(self.root,self.plan,'new',self.command)
+   restore.assert_called_once();self.assertIs(restore.call_args.kwargs['owner_authorized'],True)
+   self.assertNotIn('FIREFLY_OWNER_ACCEPTED',os.environ)
  def test_durable_release_capsule_rejects_changed_authority_identity_catalog_or_mode(self):
   import copy
   profile=self.profile;state=profile['old'];capsule=profile['rollback_capsule']
