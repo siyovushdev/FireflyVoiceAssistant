@@ -63,7 +63,10 @@ def recover(ops, old, deadline, *, clock=time.monotonic, pause=time.sleep):
                 raise RecoveryTimeout('Deadline reached during service stop')
             wait_quiescent(ops.resource_snapshot, ops.record,
                            min(deadline, clock() + 30), clock=clock, pause=pause)
-            if ops.current() != old:
+            # A sealed whole-store/unit transition may have been interrupted
+            # before the release pointer changed. Restore its state even when
+            # that pointer still names the old executable. Legacy ops omit this.
+            if ops.current() != old or getattr(ops, 'requires_restore', lambda _: False)(old):
                 ops.switch(old)
             if clock() >= deadline:
                 raise RecoveryTimeout('Deadline reached before service start')

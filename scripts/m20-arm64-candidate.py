@@ -85,6 +85,7 @@ def main():
     ap.add_argument('--sdk-manifest-sha256', required=True)
     ap.add_argument('--output', type=Path, required=True)
     ap.add_argument('--release-id', required=True)
+    ap.add_argument('--operational-voice', action='store_true')
     args = ap.parse_args()
     repo, sdk, output = (p.resolve() for p in (args.repo, args.sdk, args.output))
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._+-]{0,80}', args.release_id):
@@ -145,6 +146,7 @@ def main():
              '--onnx-library', '/deps/frozen/lib/libonnxruntime.so',
              '--wake-site-packages', '/deps/frozen/share/firefly/wake/python/lib/python3.10/site-packages',
              '--mqtt-root', '/deps/mqtt', '--tls-root', '/target', '--mqtt-provenance', '/deps/mqtt-provenance.json']
+    if args.operational_voice:stage += ['--operational-voice']
     target = ['unshare', '-Ur', '-m', '--', sys.executable, str(Path(__file__).with_name('m20-arm64-target.py')),
               '--sdk', str(sdk), '--output', str(output), '--host-user-ns', os.readlink('/proc/self/ns/user'), '--']
     run('stage-candidate', target + stage)

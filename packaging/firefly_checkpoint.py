@@ -189,13 +189,13 @@ def invoke(binary, store, *args):
     return json.loads(p.stdout)
 
 
-def prove_m19(tree, binary):
-    """Run real old tool on a disposable clone; never mutate checkpoint/source."""
+def prove_catalog(tree, binary, expected_binary_sha256):
+    """Prove a caller-pinned immutable config tool on a disposable whole store."""
     safe_path(binary)
     s = binary.lstat()
     if (not stat.S_ISREG(s.st_mode) or s.st_nlink != 1 or s.st_mode & 0o6022 or
-            digest(binary) != M19_CONFIG_SHA256):
-        raise CheckpointError('Expected the frozen original M19 config executable')
+            digest(binary) != expected_binary_sha256):
+        raise CheckpointError('Expected the pinned immutable config executable')
     before = inventory(tree)
     if '.pending.json' in before:
         raise CheckpointError('Pending transaction: reconcile explicitly before checkpoint')
@@ -238,7 +238,11 @@ def prove_m19(tree, binary):
     return dict(binary_sha256=digest(binary), current=current, history_cas_restore=True, lkg_verified=True)
 
 
-def verify(checkpoint, binary, expected_pin):
+def prove_m19(tree, binary):
+    return prove_catalog(tree, binary, M19_CONFIG_SHA256)
+
+
+def verify(checkpoint, binary, expected_pin, *, authority_sha256=None):
     safe_path(checkpoint)
     if checkpoint.stat().st_mode & 0o077:
         raise CheckpointError('Checkpoint must be private')
@@ -249,7 +253,8 @@ def verify(checkpoint, binary, expected_pin):
             receipt['proof']['binary_sha256'] != digest(binary) or
             inventory(checkpoint / 'store') != receipt['tree']):
         raise CheckpointError('Checkpoint identity/coverage/metadata mismatch')
-    prove_m19(checkpoint / 'store', binary)
+    (prove_m19(checkpoint / 'store', binary) if authority_sha256 is None else
+     prove_catalog(checkpoint / 'store', binary, authority_sha256))
     return receipt
 
 
@@ -294,7 +299,7 @@ def validate_capsule(data, receipt, checkpoint_pin, release_root):
     return data
 
 
-def create(store, destination, binary):
+def create(store, destination, binary, *, authority_sha256=None):
     inventory(store); safe_path(destination); safe_path(binary)
     if destination.exists() or destination.is_relative_to(store) or store.is_relative_to(destination):
         raise CheckpointError('Checkpoint must be NEW and separate from store')
@@ -302,7 +307,8 @@ def create(store, destination, binary):
         stage = Path(tmp) / 'checkpoint'
         stage.mkdir(mode=0o700)
         tree = clone(store, stage / 'store')
-        proof = prove_m19(stage / 'store', binary)
+        proof = (prove_m19(stage / 'store', binary) if authority_sha256 is None else
+                 prove_catalog(stage / 'store', binary, authority_sha256))
         receipt = dict(format=1, tree=tree, proof=proof)
         durable(stage / 'checkpoint.json', receipt)
         sync_dir(stage)
@@ -334,7 +340,7 @@ def quiescent(store):
     inventory(store)
 
 
-def restore(store, checkpoint, binary, expected_pin, transaction, fault=lambda _: None):
+def restore(store, checkpoint, binary, expected_pin, transaction, fault=lambda _: None, *, authority_sha256=None):
     """Durable READY journal + Linux RENAME_EXCHANGE; interrupted retry is idempotent.
 
     No individual store file is overwritten/deleted. The exchanged newer tree
@@ -343,7 +349,9 @@ def restore(store, checkpoint, binary, expected_pin, transaction, fault=lambda _
     safe_path(transaction); quiescent(store)
     if transaction.parent != store.parent or transaction == store:
         raise CheckpointError('Transaction must be a NEW sibling on the same filesystem')
-    receipt = verify(checkpoint, binary, expected_pin)
+    receipt = verify(checkpoint, binary, expected_pin, authority_sha256=authority_sha256)
+    prove = lambda tree: (prove_m19(tree, binary) if authority_sha256 is None else
+                          prove_catalog(tree, binary, authority_sha256))
     with locked(store):
         if not transaction.exists():
             transaction.mkdir(mode=0o700)
@@ -364,7 +372,7 @@ def restore(store, checkpoint, binary, expected_pin, transaction, fault=lambda _
             if (control(transaction / 'VERIFIED.json') != dict(checkpoint_pin=expected_pin, previous_pin=pin(plan['previous']))
                     or inventory(archived) != plan['previous']):
                 raise CheckpointError('Preserved newer store changed')
-            prove_m19(store, binary)
+            prove(store)
             with (transaction / 'VERIFIED.json').open('rb') as f:
                 os.fsync(f.fileno())
             sync_dir(transaction); sync_dir(store.parent)
@@ -378,7 +386,7 @@ def restore(store, checkpoint, binary, expected_pin, transaction, fault=lambda _
                 sync_dir(transaction)
             if inventory(ready) != plan['restored']:
                 raise CheckpointError('Incomplete restore staging; retain it and use a NEW transaction')
-            prove_m19(ready, binary)
+            prove(ready)
             quiescent(store)
             fault('before_exchange')
             libc = ctypes.CDLL(None, use_errno=True)
@@ -398,7 +406,35 @@ def restore(store, checkpoint, binary, expected_pin, transaction, fault=lambda _
             sync_dir(transaction)
         if inventory(archived) != plan['previous'] or inventory(store) != plan['restored']:
             raise CheckpointError('Exchanged tree verification failed; keep service stopped')
-        prove_m19(store, binary)
+        prove(store)
         fault('before_receipt')
         durable(transaction / 'VERIFIED.json', dict(checkpoint_pin=expected_pin, previous_pin=pin(plan['previous'])))
         return dict(result='RESTORED_VERIFIED', preserved=str(archived), retry=False)
+
+
+def validate_release_capsule(data, receipt, checkpoint_pin, release_root):
+    """A separately pinned immutable-release authority; frozen M19 stays default.
+
+    Only the new explicit operational bootstrap uses this format. The capsule
+    comes from a successful prepared baseline, never from ConfigStore or HTTP.
+    """
+    before=data['before'];manifest=json.loads((release_root/'manifest.json').read_text())
+    expected=dict(revision=receipt['proof']['current']['revision'],hash=receipt['proof']['current']['content_sha256'])
+    if (data.get('format')!=2 or data.get('authority')!='immutable-operational-release' or
+            data['release']!=release_root.name or data['checkpoint_pin']!=checkpoint_pin or
+            data['manifest_sha256']!=digest(release_root/'manifest.json') or
+            data['config_binary_sha256']!=receipt['proof']['binary_sha256'] or
+            data['config_binary_sha256']!=digest(release_root/'bin/firefly-config') or
+            data['binary_sha256']!=digest(release_root/'bin/firefly-demo') or
+            data['identity']['dirty'] is not False or
+            any(data['identity'][k]!=manifest['build'][k] for k in ['head','source_sha256','built_utc','dirty','admin_assets_sha256']) or
+            before['unit_sha256']!=digest(release_root/'share/firefly/systemd/firefly-voice-assistant.service') or
+            before['store_manifest']!=legacy_inventory(receipt['tree']) or before['status']['stored']!=expected or
+            {k:before['status']['active'][k] for k in ['revision','hash']}!=expected or
+            before['argv'][0]!=str(release_root.parent.parent/'current/bin/firefly-demo')):
+        raise CheckpointError('Immutable release readiness capsule mismatch')
+    paths={item['path'] for item in manifest['artifacts']}
+    if set(data['artifact_modes'])!=paths:raise CheckpointError('Incomplete immutable artifact modes')
+    for name,mode in data['artifact_modes'].items():
+        if type(mode) is not int or mode not in (0o644,0o755) or (release_root/name).stat().st_mode&0o7777!=mode:
+            raise CheckpointError('Immutable artifact mode changed: '+name)

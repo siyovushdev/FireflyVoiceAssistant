@@ -96,18 +96,20 @@ class RunnerTests(unittest.TestCase):
                 runner.prepare_files(root, SOURCE)
             tools = root / 'tools'
             code = ('import sys; sys.path.insert(0, sys.argv[1]); '
-                    'from packaging import firefly_release, mqtt_release, firefly_checkpoint; '
+                    'from packaging import firefly_release, mqtt_release, firefly_checkpoint, operational_transition, voice_profile; '
                     'assert mqtt_release.r is firefly_release')
             argv = ['/usr/bin/python3', '-I', '-B', '-c', code, str(tools)]
             self.assertEqual(subprocess.run(argv, cwd=tmp, capture_output=True).returncode, 0)
-            module = tools / 'packaging/mqtt_release.py'
-            contents = module.read_bytes()
-            module.unlink()
-            self.assertNotEqual(subprocess.run(argv, cwd=tmp, capture_output=True).returncode, 0)
-            module.write_text('invalid python module @@@')
-            self.assertNotEqual(subprocess.run(argv, cwd=tmp, capture_output=True).returncode, 0)
-            module.write_bytes(contents)
-            self.assertEqual(subprocess.run(argv, cwd=tmp, capture_output=True).returncode, 0)
+            for name in ['mqtt_release.py', 'operational_transition.py', 'voice_profile.py']:
+                with self.subTest(module=name):
+                    module = tools / 'packaging' / name
+                    contents = module.read_bytes()
+                    module.unlink()
+                    self.assertNotEqual(subprocess.run(argv, cwd=tmp, capture_output=True).returncode, 0)
+                    module.write_text('invalid python module @@@')
+                    self.assertNotEqual(subprocess.run(argv, cwd=tmp, capture_output=True).returncode, 0)
+                    module.write_bytes(contents)
+                    self.assertEqual(subprocess.run(argv, cwd=tmp, capture_output=True).returncode, 0)
 
     def test_preservation_exact_frozen_properties_actual_modes_and_explicit_additions(self):
         import copy

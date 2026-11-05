@@ -1,5 +1,9 @@
 # Current supervised release and recovery procedure
 
+For the opt-in permanent F2/wake-filter unit and whole accepted pilot ConfigStore
+transition, follow the [operational voice profile](operational-release-profile.md)
+in addition to this procedure. Legacy preparation remains unchanged.
+
 Start with the [dated production baseline](production-baseline.md) and [build guide](build-and-test.md). Current known release is `m19-c7fa1490-20261015T150156Z`; rollback is `m19-320b80a6-20261014T173500Z`. Recheck live identities before any future preparation. This document grants no activation permission.
 
 Large Runtime/Admin/STT/VAD models stay under `/opt/firefly/voice-assistant/models`. Stage using the existing `--production --reuse-installed-models` contract. From the [Amila revision](amina-amila-release.md), the small checked-in Amina model is packaged as a regular file: leave `FIREFLY_WAKE_MODEL_REFERENCE` empty and omit `--wake-reference-release` for its first release. An optional no-copy wake reference must point to an immutable release containing the exact **current** model; the original grounding anchor remains protected for old releases and rollback. See the [M19 large-model contract](m19-production-preparation.md). `install-release` creates an inactive immutable release only. It is not an activation, and a read-only audit does not run it.

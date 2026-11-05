@@ -139,6 +139,7 @@ class StageRequest:
     mqtt_root: Optional[Path] = None
     tls_root: Optional[Path] = None
     mqtt_provenance: Optional[Path] = None
+    operational_voice: bool = False
 
 
 def _within(path: Path, root: Path) -> bool:
@@ -261,12 +262,13 @@ def require_regular_file(path: Path, label: str) -> None:
         raise ReleaseError(f"{label} is empty: {path}")
 
 
-def render_unit(runtime_prefix: str) -> str:
+def render_unit(runtime_prefix: str, operational_voice: bool = False) -> str:
     prefix = runtime_prefix.rstrip("/")
     if (not re.fullmatch(r"/[A-Za-z0-9/_+.-]+", prefix) or
             any(part in ("", ".", "..") for part in prefix.split("/")[1:])):
         raise ReleaseError("runtime prefix must be an absolute safe path without traversal or whitespace")
     current = prefix + "/current"
+    extra = (f"  --tts-model-dir {prefix}/models/tts \\\n  --wake-stt-confirmation true \\\n" if operational_voice else "")
     return f"""# Firefly single-process appliance — M18.6 relocatable production unit.
 # Not installed by the staging tool. Owner activation: docs/m18-owner-acceptance-runbook.md
 # Argument contract is shared with scripts/firefly-dialogue.sh via FIREFLY_PREFIX.
@@ -301,7 +303,7 @@ ExecStart={current}/bin/firefly-demo \\
   --wake-python {current}/share/firefly/wake/python/bin/python \\
   --wake-model {current}/share/firefly/wake/amina-v3.tflite \\
   --wake-cutoff 0.99 --wake-window 7 \\
-  --playback-device plughw:CARD=rockchipes8388,DEV=0
+{extra}  --playback-device plughw:CARD=rockchipes8388,DEV=0
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=45
@@ -756,6 +758,9 @@ def _manifest_document(request: StageRequest, release: Path, model_paths: dict, 
         },
         "activation": {"creates_current_symlink": False},
     }
+    if request.operational_voice:
+        from .voice_profile import metadata
+        document["operational_voice"] = metadata()
     if request.reuse_installed_models:
         document["installed_model_reference"] = {"prefix": PRODUCTION_PREFIX, "mode": "installed-read-only"}
         if (release / WAKE_MODEL).is_symlink():
@@ -844,6 +849,7 @@ def assert_artifact_manifest(entries, *, mqtt: bool = False) -> dict:
         raise ReleaseError("artifacts must be a list")
     expected = {}
     required = ARTIFACT_FILES
+    optional = {"share/firefly/deployment/packaging/voice_profile.py"}
     if mqtt:
         from .mqtt_release import EXTRA_FILES
         required = ARTIFACT_FILES | EXTRA_FILES
@@ -853,7 +859,7 @@ def assert_artifact_manifest(entries, *, mqtt: bool = False) -> dict:
         path = item.get("path")
         if (not isinstance(path, str) or "\x00" in path or "\\" in path or
                 any(part in ("", ".", "..") for part in path.split("/")) or
-                (path not in required and not path.startswith(SITE_PREFIX)) or
+                (path not in required | optional and not path.startswith(SITE_PREFIX)) or
                 path in expected):
             raise ReleaseError(f"unsafe or unexpected artifact path: {path!r}")
         digest, size = item.get("sha256"), item.get("bytes")
@@ -892,12 +898,16 @@ def assert_model_tree(prefix: Path) -> None:
     if not root.exists():
         return
     present = {"models/" + path for path in _rel_files(root)}
-    if not present.issubset(ALLOWED_SHARED_MODELS):
+    extra_paths = set()
+    if (root / "tts").exists():
+        from .voice_profile import PATHS
+        extra_paths = PATHS
+    if not present.issubset(set(ALLOWED_SHARED_MODELS) | extra_paths):
         raise ReleaseError("unexpected file in shared model tree")
     for directory, dirs, _files in os.walk(root):
         for name in dirs:
             relative = str((Path(directory) / name).relative_to(root))
-            if relative not in {"runtime", "admin", "stt", "vad"}:
+            if relative not in {"runtime", "admin", "stt", "vad", "tts"}:
                 raise ReleaseError(f"unexpected shared model directory: {relative}")
 
 
@@ -1106,7 +1116,15 @@ def verify_tree(prefix: Path, release_id: str, *, check_python: bool = True,
         if identity.get(identity_key) != build.get(manifest_key):
             raise ReleaseError(f"manifest build identity mismatch: {identity_key}")
     unit = (release / "share/firefly/systemd/firefly-voice-assistant.service").read_text()
-    if unit != render_unit(document["runtime_prefix"]):
+    profile = document.get("operational_voice")
+    if profile is not None:
+        from .voice_profile import metadata, verify_models, ARTIFACT
+        if profile != metadata() or ARTIFACT not in expected:
+            raise ReleaseError("Invalid operational voice profile")
+        if not candidate_only:
+            model_prefix = Path(PRODUCTION_PREFIX) if document.get("installed_model_reference") else prefix
+            verify_models(model_prefix / "models/tts")
+    if unit != render_unit(document["runtime_prefix"], profile is not None):
         raise ReleaseError("staged systemd unit does not match the packaging contract")
     if "/home/firefly" in unit or "LD_LIBRARY_PATH" in unit:
         raise ReleaseError("staged unit still depends on a developer path or LD_LIBRARY_PATH")
@@ -1438,7 +1456,10 @@ def stage_release(request: StageRequest) -> dict:
             shutil.copyfile(source, doc / name)
         unit = release / "share/firefly/systemd/firefly-voice-assistant.service"
         unit.parent.mkdir(parents=True)
-        unit.write_text(render_unit(request.runtime_prefix))
+        unit.write_text(render_unit(request.runtime_prefix, request.operational_voice))
+        profile_module = request.source_root / "packaging/voice_profile.py"
+        if request.operational_voice or profile_module.exists():
+            _copy_regular(profile_module, release / "share/firefly/deployment/packaging/voice_profile.py")
         _purge_pycache(release)
         for directory, _dirs, _files in os.walk(release, topdown=False):
             path = Path(directory)
@@ -1945,6 +1966,7 @@ def _request_from_args(args: argparse.Namespace) -> StageRequest:
         mqtt_root=Path(args.mqtt_root) if args.mqtt_root else None,
         tls_root=Path(args.tls_root) if args.tls_root else None,
         mqtt_provenance=Path(args.mqtt_provenance) if args.mqtt_provenance else None,
+        operational_voice=args.operational_voice,
     )
 
 
@@ -1966,6 +1988,7 @@ def main(argv: list[str]) -> int:
     stage.add_argument("--reuse-installed-models", action="store_true")
     stage.add_argument("--wake-reference-release", default="")
     stage.add_argument("--offline-candidate", action="store_true")
+    stage.add_argument("--operational-voice", action="store_true")
     for name in ("mqtt-root", "tls-root", "mqtt-provenance"):
         stage.add_argument("--" + name, default="")
     verify = sub.add_parser("verify")
