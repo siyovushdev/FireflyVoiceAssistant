@@ -66,6 +66,9 @@ def provision_models(source, destination):
     _require_space(parent,sum(size for size,_ in FILES.values()))
     with tempfile.TemporaryDirectory(prefix='.f2-',dir=parent) as tmp:
         stage=Path(tmp)/'tts';stage.mkdir(mode=0o755)
+        # The privileged operator deliberately uses umask 0077. Shared model
+        # directories must still be traversable by the unprivileged service.
+        stage.chmod(0o755)
         for name,(size,_) in FILES.items():
             fd=os.open(Path(source)/name,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK|os.O_CLOEXEC)
             with os.fdopen(fd,'rb') as src,(stage/name).open('xb') as dst:
