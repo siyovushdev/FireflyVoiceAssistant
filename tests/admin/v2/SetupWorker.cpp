@@ -11,6 +11,7 @@ using admin_test::Json;
 class Model final : public admin_test::Model {
 public:
     Json request;
+    std::string documentInput;
     bool setupRequired() const override { return true; }
     void enterSetup() override {
         const char* gate=std::getenv("FIREFLY_B3_ENTRY_GATE");
@@ -22,9 +23,27 @@ public:
         }
     }
     void leaveSetup(const std::string& p) override { useContext(p); }
-    void useAdminContext(const std::string& p, int) override { prompt=p; }
+    void useAdminContext(const std::string& p, int) override { prompt=p; documentInput.clear(); }
+    void useAdminDocumentContext(const std::string& p, int budget) override {
+        useAdminContext(p,budget);
+        const auto marker=p.rfind("\nINPUT_DATA=");
+        if(marker==std::string::npos)throw std::runtime_error("fixture missing whole-document envelope");
+        documentInput=Json::parse(p.substr(marker+12)).at("text").get<std::string>();
+    }
     std::string inferAdmin(std::string_view input) override {
-        const std::string text(input);
+        const std::string text=documentInput.empty()?std::string(input):documentInput;
+        if(!documentInput.empty() && text.find("проверка ожидания")!=std::string::npos) {
+            const auto* gate=std::getenv("FIREFLY_B3_MESSAGE_GATE");
+            const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(60);
+            while(gate && ::access(gate,F_OK)==0) {
+                if(std::chrono::steady_clock::now()>deadline)throw std::runtime_error("fixture message gate timeout");
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+        }
+        if(!documentInput.empty() && text.find("Длинное описание:")==0)
+            return R"({"ops":[["location","Кабинет"],["power_device","Кабинет","Лампа"]],"complete":true})";
+        if(!documentInput.empty() && text.find("Переименуй Вентилятор")!=std::string::npos)
+            return R"({"ops":[["rename_device","Цех упаковки","Вентилятор","Вытяжка"]],"complete":true})";
         if(text.find("сломанный")!=std::string::npos)return "{broken";
         if(prompt.find("Ровно две строки JSON")!=std::string::npos)return R"({"description":"Производственная зона или оборудование","type":"equipment"})";
         if(prompt.find("Ровно поля template")!=std::string::npos)return R"({"template":"custom","capabilities":[]})";
@@ -105,7 +124,7 @@ public:
            text=="В цехе есть вентилятор, его можно включать и выключать.")
             return R"({"ops":[["location","Цех"],["power_device","Цех","Вентилятор"]]})";
         if(text=="Добавь серверный ИБП без зоны.")return R"({"ops":[["device",null,"Серверный ИБП"]]})";
-        if(text.find("без зоны")!=std::string::npos)return R"({"ops":[["power_device",null,"Контроллер стенда"]]})";
+        if(text.find("без зоны")!=std::string::npos)return R"({"ops":[["device",null,"Контроллер стенда"]]})";
         if(text.find("Детскую")!=std::string::npos)return R"({"ops":[["location","Детская"],["power_device","Детская","Свет"],["power_device","Детская","Телевизор"]]})";
         if(text.find("вентилятор")!=std::string::npos)return R"({"ops":[["power_device","Цех упаковки","Вентилятор"]]})";
         for(const auto& zone:{"Цех упаковки","Склад","Лабораторный стенд"})if(text.find(zone)!=std::string::npos)return Json{{"ops",Json::array({Json::array({"location",zone})})}}.dump();

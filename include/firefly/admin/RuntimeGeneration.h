@@ -20,6 +20,7 @@ public:
     virtual bool ready() const = 0;
     virtual int contextTokens() const { return -1; }
     virtual void useAdminContext(const std::string& prompt, int) { useContext(prompt); }
+    virtual void useAdminDocumentContext(const std::string& prompt, int budget) { useAdminContext(prompt, budget); }
     virtual bool setupRequired() const { return false; }
     virtual void enterSetup() { throw std::runtime_error("Setup profile unavailable"); }
     virtual void leaveSetup(const std::string& prompt) { useContext(prompt); }
@@ -69,6 +70,8 @@ public:
     using SuggestionDecoder = std::function<std::string(std::string_view)>;
     std::string structuredSuggestion(const std::string& prompt, std::string_view input, int budget,
                                     const SuggestionDecoder& decode);
+    std::string structuredDocumentSuggestion(const std::string& prompt, std::string_view input, int budget,
+                                            const SuggestionDecoder& decode);
     class Request final {
     public:
         ~Request();
@@ -117,6 +120,8 @@ private:
     mutable std::mutex historyMutex_;
     std::deque<ExecutionEvent> history_;
     ContextModel& model_;
+    std::string structuredSuggestionImpl(const std::string& prompt, std::string_view input, int budget,
+                                        const SuggestionDecoder& decode, bool document);
     std::shared_ptr<const RuntimeGeneration> active_;
     // Synchronous RKLLM: finish admitted old requests before context refresh.
     std::timed_mutex operation_;

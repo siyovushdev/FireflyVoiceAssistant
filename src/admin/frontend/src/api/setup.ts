@@ -8,6 +8,9 @@ export interface Session extends SetupStatus {
     readonly questions?: readonly string[];
     readonly language_warning?: string;
     readonly message_incomplete?: boolean;
+    readonly limits?: { readonly message_codepoints?: number; readonly message_bytes?: number };
+    readonly proposal_scope?: 'configuration';
+    readonly progress?: { readonly phase?: string; readonly step?: number; readonly total_steps?: number };
 }
 export interface Proposal extends WireObject { readonly configuration: ConfigurationDto; readonly operations: readonly WireObject[]; readonly rejected?: boolean }
 export interface CopilotReply extends AdminReply { readonly draft: Proposal }

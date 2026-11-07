@@ -111,7 +111,7 @@ export function setupChanges(before: ConfigurationDto, after: ConfigurationDto) 
         const zone = after.rooms.find(z => z.id === id);
         if (zone) return { ...change, afterText: `${zone.name}. Родитель: ${after.rooms.find(z => z.id === zone.metadata?.parent_id)?.name ?? 'нет'}. ${zone.metadata?.description ?? ''} Обращения: ${zone.speech?.mentions.join(', ')}. Местоположение: ${zone.speech?.locations.join(', ')}.` };
         const device = after.devices.find(d => d.id === id);
-        if (device) return { ...change, afterText: `${device.name} · ${after.rooms.find(z => z.id === device.room_id)?.name ?? 'Без зоны'}. Речевые формы: ${device.spoken_aliases?.join(', ') || 'ещё не заданы'}. Возможности: ${device.action_ids.map(id => after.actions.find(a => a.id === id)?.name).join(', ') || 'ещё не заданы'}. Подключение: ${after.bindings.some(b => b.target_id === device.id && b.executor === 'http') ? 'настроено' : 'пока не настроено'}.` };
+        if (device) return { ...change, afterText: `${device.name} · ${after.rooms.find(z => z.id === device.room_id)?.name ?? 'Без зоны'}. Речевые формы: ${device.spoken_aliases?.join(', ') || 'ещё не заданы'}. Возможности: ${device.action_ids.map(id => after.actions.find(a => a.id === id)?.name).join(', ') || 'ещё не заданы'}. Подключение: ${after.bindings.some(b => b.target_id === device.id && ['http', 'mqtt', 'modbus_tcp', 'modbus_rtu'].includes(b.executor ?? '')) ? 'настроено' : 'пока не настроено'}.` };
         return change;
     });
 }

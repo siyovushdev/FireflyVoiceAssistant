@@ -24,6 +24,9 @@ export function zoneSpeechIssues(configuration: ConfigurationDto, id: string): I
 export function issueMessage(issue: Issue): string {
     if (issue.code === 'invalid_ai_response' || issue.code === 'setup_failed' && issue.message.includes('invalid_ai_response')) return 'AI не подготовил проверяемое предложение. План этого запроса не принят; повторите просьбу полностью или заполните вручную.';
     if (issue.code === 'setup_failed' && /stale_draft_version|stale_setup_base/.test(issue.message)) return 'Версия плана изменилась. Ввод сохранён; перечитайте черновик и выполните новый review.';
+    if (issue.code === 'setup_failed' && /context_overflow|admin_step_budget|admin_context_budget/.test(issue.message)) return 'Описание вместе с текущим планом не помещается в контекст AI. План не изменён. Сократите описание или разделите его на несколько связанных просьб.';
+    if (issue.code === 'setup_failed' && issue.message.includes('setup_cancelled')) return 'Обработка остановлена. Принятый план сохранён; дождитесь восстановления ассистента.';
+    if (issue.code === 'admin_context_budget') return 'Запрос вместе с текущими настройками не поместился в память модели. Сократите или разделите задачу и отправьте снова.';
     if (issue.code === 'context_overflow') return 'Размер черновика превышает текущий лимит контекста Admin AI. План сохранён; доступна ручная настройка.';
     if (issue.code === 'invalid_alias' && /^\/rooms\/\d+$/.test(issue.path)) {
         if (issue.message === 'Command location requires explicit mentions and phrases; use a container for grouping only.')

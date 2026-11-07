@@ -33,14 +33,22 @@ export interface MqttObservationDto extends WireObject {
     readonly topic: string; readonly format: 'text' | 'json'; readonly qos: number;
     readonly field?: string; readonly true_payload?: string; readonly false_payload?: string;
 }
+export type ModbusTransport = 'modbus_tcp' | 'modbus_rtu';
+export interface ModbusMappingDto extends WireObject {
+    readonly function: number; readonly address: number;
+    readonly data_type: 'boolean' | 'uint16' | 'int16';
+    readonly value?: boolean | number; readonly argument?: string; readonly field?: string;
+}
 export interface BindingDto extends WireObject {
     readonly target_id: string; readonly action_id: string; readonly connection_id?: string;
-    readonly executor?: string; readonly http?: HttpDto; readonly mqtt?: MqttBindingDto;
+    readonly executor?: string; readonly http?: HttpDto; readonly mqtt?: MqttBindingDto; readonly modbus?: ModbusMappingDto;
 }
 export interface ConnectionDto extends WireObject {
     readonly id: string; readonly name: string; readonly enabled: boolean; readonly type: string;
     readonly timeout_ms?: number; readonly http?: WireObject & { readonly base_url: string; readonly base_path?: string };
     readonly network?: WireObject & { readonly host: string; readonly port: number };
+    readonly modbus?: WireObject & { readonly unit_id: number };
+    readonly serial?: WireObject & { readonly port: string; readonly baud_rate: number; readonly parity: 'none' | 'even' | 'odd'; readonly stop_bits: number };
     readonly mqtt?: WireObject & { readonly tls: boolean; readonly credentials_id?: string };
 }
 export interface ConfigurationDto extends WireObject {
@@ -50,7 +58,7 @@ export interface ConfigurationDto extends WireObject {
         readonly voice_input?: { readonly inline_commands: boolean } };
     readonly rooms: readonly ZoneDto[]; readonly devices: readonly DeviceDto[]; readonly actions: readonly ActionDto[];
     readonly bindings: readonly BindingDto[]; readonly connections?: readonly ConnectionDto[];
-    readonly observations?: readonly (WireObject & { readonly target_id: string; readonly connection_id: string; readonly executor?: string; readonly http?: HttpDto; readonly mqtt?: MqttObservationDto; readonly fields?: Readonly<Record<string, string>> })[];
+    readonly observations?: readonly (WireObject & { readonly target_id: string; readonly connection_id: string; readonly executor?: string; readonly http?: HttpDto; readonly mqtt?: MqttObservationDto; readonly modbus?: ModbusMappingDto; readonly fields?: Readonly<Record<string, string>> })[];
     readonly retired_ids?: readonly string[];
 }
 export interface CatalogDto extends Identity { readonly configuration: ConfigurationDto; readonly generation_id?: number }

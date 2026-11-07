@@ -294,7 +294,7 @@ Catalog ConfigValidator::validate(Configuration configuration) {
     for (std::size_t i = 0; i < configuration.bindings.size(); ++i) {
         const auto& binding = configuration.bindings[i];
         const auto path = "/bindings/" + std::to_string(i);
-        if (binding.executor != ExecutorKind::Http && binding.executor != ExecutorKind::Mqtt)
+        if (binding.executor != ExecutorKind::Http && binding.executor != ExecutorKind::Mqtt && !isModbus(binding.executor))
             throw ConfigError("unsupported_executor", path + "/executor", "Unsupported hardware executor");
         if (!catalog->devices_.count(binding.targetId))
             throw ConfigError("dangling_reference", path + "/target_id", "Unknown binding target");
@@ -322,6 +322,8 @@ Catalog ConfigValidator::validate(Configuration configuration) {
                 throw ConfigError("unsupported_executor", path + "/mqtt",
                                   "Parameterized MQTT actions require a reviewed typed argument mapping");
             validateMqttBinding(binding.mqtt, connection);
+        } else if(isModbus(binding.executor)) {
+            validateModbusBinding(binding.modbus,connection,binding.executor,configuration.actions[catalog->actions_.at(binding.actionId)]);
         } else validateHttpMapping(http, connection);
         if (binding.executor == ExecutorKind::Http && http.argument) {
             const auto& action = configuration.actions[catalog->actions_.at(binding.actionId)];
@@ -339,7 +341,7 @@ Catalog ConfigValidator::validate(Configuration configuration) {
         const auto& device = configuration.devices[catalog->devices_.at(observation.targetId)];
         const auto* connection = findConnection(configuration, observation.connectionId);
         if (!connection) throw ConfigError("dangling_reference", "/observations/connection_id", "Unknown observe connection");
-        if (!device.enabled || (observation.executor != ExecutorKind::Http && observation.executor != ExecutorKind::Mqtt))
+        if (!device.enabled || (observation.executor != ExecutorKind::Http && observation.executor != ExecutorKind::Mqtt && !isModbus(observation.executor)))
             throw ConfigError("unsafe_constraint", "/observations", "Observe target must be enabled and transport supported");
         if (!observedTargets.insert(device.id).second) throw ConfigError("duplicate_binding", "/observations", "Only one observation mapping per device");
         if (observation.executor == ExecutorKind::Mqtt) {
@@ -350,6 +352,9 @@ Catalog ConfigValidator::validate(Configuration configuration) {
                 if (device.kind != DeviceKind::Generic || field == device.state.end() || field->type != "boolean")
                     throw ConfigError("unsafe_constraint", "/observations/mqtt/field", "Text MQTT observation requires a declared boolean property");
             }
+        } else if(isModbus(observation.executor)) {
+            if(!observation.fields.empty())throw ConfigError("malformed_binding","/observations/fields","Modbus uses modbus.field, not fields");
+            validateModbusObservation(observation.modbus,connection,observation.executor,device);
         } else validateHttpMapping(observation.http, connection, true);
         if (observation.executor == ExecutorKind::Http || observation.mqtt.format == "json") {
             if (observation.fields.empty() || observation.fields.size() > 32)

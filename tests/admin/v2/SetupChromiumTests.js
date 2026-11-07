@@ -6,6 +6,7 @@ const assert = require('node:assert/strict');
 const [app, worker, root, chromium, artifacts] = process.argv.slice(2);
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'firefly-b3-browser-'));
 fs.mkdirSync(path.join(temp, 'store'), { mode: 0o700 }); fs.mkdirSync(artifacts, { recursive: true });
+const messageGate = path.join(temp, 'message-gate');
 const entryGate = path.join(temp, 'entry-gate'); fs.writeFileSync(entryGate, 'hold');
 const log = fs.openSync(path.join(artifacts, 'server.log'), 'w'), failFile = path.join(temp, 'fail-apply');
 let server, chrome, socket, output = '', nextId = 0, url, power = false;
@@ -20,6 +21,7 @@ async function until(check, label, ms = 25000) { const end = Date.now() + ms; wh
 function send(method, params = {}) { return new Promise((resolve, reject) => { const id = ++nextId; pending.set(id, { resolve, reject }); socket.send(JSON.stringify({ id, method, params })); }); }
 async function js(expression) { const r = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }); if (r.exceptionDetails) throw Error(JSON.stringify(r.exceptionDetails)); return r.result.value; }
 async function text() { return js('document.body?.innerText ?? ""'); }
+async function reloadPage() { await js('window.testReloadPending = true'); await send('Page.reload'); await until(() => js('!window.testReloadPending && document.readyState === \"complete\"'), 'new document loaded'); }
 // DOM control events; never access Vue internals or assign a configuration candidate.
 async function click(label, scope = '') {
     const lookup = `const root = (${JSON.stringify(scope)} ? document.querySelector(${JSON.stringify(scope)}) : null) || document.querySelector('dialog[open]') || document.querySelector('main'); const node = [...root.querySelectorAll('button,a')].find(n => n.textContent.trim().replace(/\\s*↗$/, '') === ${JSON.stringify(label)} && n.getClientRects().length && !n.matches(':disabled'));`;
@@ -62,7 +64,7 @@ async function screenshot(name) { const r = await send('Page.captureScreenshot',
     const config = JSON.parse(fs.readFileSync(path.join(root, 'tests/admin/v2/system.json')));
     config.rooms = []; config.devices = []; config.actions = []; config.system.name = 'Пустой стенд';
     const fixture = path.join(temp, 'empty.json'); fs.writeFileSync(fixture, JSON.stringify(config));
-    server = spawn(app, ['--store', path.join(temp, 'store'), '--init-config', fixture, '--runtime-worker', worker, '--admin-port', '0'], { stdio: ['ignore', 'pipe', log], env: { ...process.env, FIREFLY_B2_FAIL_APPLY_FILE: failFile, FIREFLY_B3_ENTRY_GATE: entryGate } });
+    server = spawn(app, ['--store', path.join(temp, 'store'), '--init-config', fixture, '--runtime-worker', worker, '--admin-port', '0'], { stdio: ['ignore', 'pipe', log], env: { ...process.env, FIREFLY_B2_FAIL_APPLY_FILE: failFile, FIREFLY_B3_ENTRY_GATE: entryGate, FIREFLY_B3_MESSAGE_GATE: messageGate } });
     server.stdout.on('data', b => output += b); await until(() => output.includes('ADMIN_LISTEN'), 'C++ server'); url = output.match(/ADMIN_LISTEN (http:\/\/\S+)/)[1];
     await until(async () => (await api('/api/status')).runtime_ready, 'runtime');
     const before = await api('/api/config');
@@ -90,7 +92,7 @@ async function screenshot(name) { const r = await send('Page.captureScreenshot',
     assert.ok(await js('document.querySelector(".setup-fields").disabled'));
     assert.ok(await js('document.querySelector("main .manual-toolbar button").disabled'));
     assert.equal(await js('[...document.querySelectorAll("main button")].some(b => b.textContent === "Начать настройку" && !b.disabled)'),false);
-    await send('Page.reload');
+    await reloadPage();
     await until(async () => (await text()).includes('Подготавливаем локальный AI'), 'reload preparation state');
     await until(() => js('!!document.querySelector(".setup-fields")'), 'same owner after reload');
     assert.equal(await js('JSON.parse(sessionStorage.getItem("firefly-v2-setup-owner")).token'),entryToken);
@@ -115,6 +117,34 @@ async function screenshot(name) { const r = await send('Page.captureScreenshot',
     async function ask(value) { await until(() => js('[...document.querySelectorAll("main label")].some(l => l.textContent.startsWith("Ваша просьба") && l.getClientRects().length)'), 'composer ready'); await fill('Ваша просьба', value); await click('Отправить'); await until(() => js('document.querySelector(".setup-fields").getAttribute("aria-busy") === "false"'), 'AI done'); await delay(150); }
     async function proposal() { await until(() => js('!!document.querySelector(".proposal-card")'), 'proposal card'); }
     async function accept(physical = false) { await click(physical ? 'Принять подключение в план' : 'Принять в план'); await until(() => js('!document.querySelector(".proposal-card")'), 'proposal accepted'); }
+    console.log('Long-document UI: exact text, reload, discard, progress and cooperative cancellation');
+    const longPrompt = 'Длинное описание: Создай зону Кабинет и лампу в кабинете, которую можно включать и выключать.\n' + 'Лампа имеет только питание, без яркости и других возможностей.\n'.repeat(70) + 'HTTP и MQTT пока не настраивай.';
+    assert.ok(Buffer.byteLength(longPrompt) > 1800);
+    await ask(longPrompt); await proposal();
+    const longRequest = requests.filter(r => r.url.endsWith('/api/setup/message')).at(-1);
+    assert.equal(JSON.parse(longRequest.body).text, longPrompt, 'multi-paragraph request reaches real HTTP route unchanged');
+    assert.equal((await api('/api/config')).hash, before.hash);
+    await reloadPage(); await until(() => js('!!document.querySelector(".proposal-card")'), 'long proposal restored');
+    assert.equal(await js('document.querySelector(".setup-screen textarea").value'), longPrompt);
+    await click('Отклонить'); await until(() => js('!document.querySelector(".proposal-card")'), 'long proposal rejected');
+    await ask('сломанный запрос для исправления');
+    await until(async () => (await api('/api/setup/status')).message_incomplete, 'failed message checkpoint');
+    await click('Исправить запрос'); await until(async () => !(await api('/api/setup/status')).message_incomplete, 'discard completed');
+    assert.equal(await js('document.querySelector(".setup-screen textarea").value'), 'сломанный запрос для исправления');
+    assert.equal((await api('/api/setup/status')).configuration.devices.length,0);
+    fs.writeFileSync(messageGate,'hold');
+    await fill('Ваша просьба', longPrompt + '\nпроверка ожидания'); await click('Отправить');
+    await until(async () => (await api('/api/setup/status')).status === 'planning','worker actually planning');
+    await until(() => js('document.querySelector("[data-testid=setup-planning-progress]")?.textContent.includes("шаг")'), 'real phase/step progress');
+    await click('Завершить настройку без Apply');
+    await until(async () => (await api('/api/setup/status')).status === 'cancel_pending','cancel reaches server while model is held');
+    assert.match(await text(),/Остановка запрошена/);await screenshot('cooperative-cancel');
+    fs.unlinkSync(messageGate);
+    await until(async () => !(await api('/api/setup/status')).active,'cancelled model restores runtime');
+    await until(async () => (await api('/api/status')).runtime_ready,'runtime restored after cancel');
+    assert.equal((await api('/api/config')).hash,before.hash);assert.equal(hardware.length,0);
+    await until(() => js('!document.querySelector(".proposal-card")'),'no late accepted candidate');
+    await click('Начать настройку');await until(() => js('!!document.querySelector(".setup-fields") && !document.querySelector(".setup-fields").disabled'),'new setup after cancel');
     console.log('B4 owner regression: compound power request, descriptive pronoun, no-zone; proposal never applies');
     for (const phrase of [
         'создай цех зону и добавь туда вентилятор где он может включаться и выключаться по питанию',
@@ -147,7 +177,7 @@ async function screenshot(name) { const r = await send('Page.captureScreenshot',
     assert.equal(draft.rooms.length, 1); assert.equal(draft.devices.length, 2); assert.ok(draft.devices.every(d => d.action_ids.length === 2)); assert.equal(draft.bindings.length, 0);
     assert.deepEqual(draft.rooms[0].speech, { mentions:["детская"], locations:["в детской"] });
     assert.equal((await api('/api/config')).hash, before.hash); assert.equal(hardware.length, 0);
-    await send('Page.reload'); await until(async () => (await text()).includes('Неподтверждённое предложение восстановлено'), 'reload requires human review'); await proposal();
+    await reloadPage(); await until(async () => (await text()).includes('Неподтверждённое предложение восстановлено'), 'reload requires human review'); await proposal();
     await click('Отклонить'); await until(() => js('!document.querySelector(".proposal-card")'), 'reject'); assert.equal((await api('/api/setup/status')).configuration.devices.length, 0);
     await ask('Создай Детскую, добавь туда Свет и Телевизор. Оба только включаются и выключаются.'); await proposal(); await accept();
     console.log('Voice component fixture (not live STT): explicit Send, closed tracks, ignored late result');
@@ -176,9 +206,9 @@ async function screenshot(name) { const r = await send('Page.captureScreenshot',
     assert.match(await text(), /Контроллер стенда · Без зоны\. Речевые формы: контроллер стенда\. Возможности: ещё не заданы/); await accept();
     draft = (await api('/api/setup/status')).configuration;
     const standalone = draft.devices.find(d => d.name === 'Контроллер стенда'); assert.equal(standalone.room_id, null); assert.equal(standalone.action_ids.length, 0); assert.equal(draft.rooms.length, 4);
-    await click('Настроить подключение: Контроллер стенда'); await click('Настроить подключение вручную'); await until(() => js('!!document.querySelector("dialog .wizard")'), 'non-power B2 fallback'); await click('Отмена');
+    await click('Точные HTTP-параметры: Контроллер стенда'); await click('Настроить подключение вручную'); await until(() => js('!!document.querySelector("dialog .wizard")'), 'non-power B2 fallback'); await click('Отмена');
     console.log('D: insufficient facts never call Copilot; follow-up accumulates explicit contract');
-    await click('Настроить подключение: Вентилятор');
+    await click('Точные HTTP-параметры: Вентилятор');
     await select('Общее подключение:', 'Создать отдельное подключение для выбранного устройства');
     const copilotBefore = requests.filter(r => r.url.endsWith('/api/admin/copilot')).length;
     await ask('Подключи насос к контроллеру.'); assert.match(await text(), /Какой адрес и протокол/);
@@ -187,7 +217,7 @@ async function screenshot(name) { const r = await send('Page.captureScreenshot',
     assert.match(await text(), /Подключение из явных фактов/);
     assert.equal(requests.filter(r => r.url.endsWith('/api/admin/copilot') || r.url.endsWith('/api/admin/copilot/accept')).length,0);
     assert.equal((await api('/api/setup/status')).configuration.bindings.length,0,'physical proposal is not yet accepted');
-    await send('Page.reload'); await until(async () => (await text()).includes('Неподтверждённое предложение восстановлено'), 'physical reload'); await proposal();
+    await reloadPage(); await until(async () => (await text()).includes('Неподтверждённое предложение восстановлено'), 'physical reload'); await proposal();
     const physicalOwner = await js('JSON.parse(sessionStorage.getItem("firefly-v2-setup-owner")).token'), physicalBase = await api('/api/setup/status');
     const racedPhysical = await fetch(url+'/api/setup/draft',{method:'POST',headers:{'Content-Type':'application/json','X-Firefly-Admin':'1',Origin:url},body:JSON.stringify({session_id:physicalOwner,version:physicalBase.version,configuration:physicalBase.configuration})});
     assert.equal(racedPhysical.status,200); await click('Принять подключение в план'); await until(async ()=>(await text()).includes('План изменён другой вкладкой'),'physical stale version');
@@ -250,7 +280,7 @@ async function screenshot(name) { const r = await send('Page.captureScreenshot',
         shared.bindings.push({ ...structuredClone(shared.bindings.find(b => b.target_id === fan.id)), target_id:light.id, action_id:a, http:{method:'POST',path:'/relay/1',body:{on:action.assignments[0].value},expected_status:200} });
     }
     await fill('Документ кандидата', JSON.stringify(shared)); await click('Проверить импорт и добавить в план'); await until(async () => (await text()).includes('Кандидат принят в план'), 'shared imported candidate');
-    await route('setup'); await click('Настроить подключение: Вытяжка');
+    await route('setup'); await click('Точные HTTP-параметры: Вытяжка');
     await select('Общее подключение:', 'Изменить общее подключение для всех этих устройств');
     await ask('http://127.0.0.1:8765 Включить POST /relay/1 {"on":true}. Выключить POST /relay/1 {"on":false}. Состояние GET /relay/1, поле on.'); await proposal();
     const impacts = await js('[...document.querySelectorAll(".proposal-card p")].filter(p => p.textContent.startsWith("Все затронутые устройства:")).map(p=>p.textContent).join(" ")');
@@ -263,12 +293,49 @@ async function screenshot(name) { const r = await send('Page.captureScreenshot',
     assert.equal(await js('[...document.querySelectorAll("main .manual-toolbar button")].some(b => !b.disabled)'), false);
     await click('Завершить настройку без Apply'); await until(async () => !(await api('/api/setup/status')).active, 'explicit cancel');
     await until(async () => !(await text()).includes('Локальный AI / проверка…'), 'idle after cancellation');
+    console.log('Modbus visible TCP/RTU drafts, A/B edits, protocol navigation, Cancel and one explicit CAS Apply');
+    // Earlier accepted HTTP edits deliberately survive cancelling Setup. Start
+    // this independent Modbus fixture from the stored baseline through the UI.
+    await route('advanced');await click('Перечитать основу и отбросить локальный план');await until(() => js('!document.querySelector("[data-testid=foreground-progress]")'),'manual baseline reloaded');
+    const modbusBase = await api('/api/config'), modbusHttpCalls = hardware.length, modbusTcpBytes = tcpBytes, modbusTcpConnections = tcpConnections;
+    await route('connections'); await click('Создать подключение'); await click('Modbus TCP →');
+    await fill('Название', 'Отменённый Modbus'); await fill('IPv4 устройства', '127.0.0.1'); await click('Отмена');
+    assert.equal((await api('/api/config')).hash, modbusBase.hash);
+    assert.doesNotMatch(await text(), /Отменённый Modbus/);
+    await route('devices');
+    for (const name of ['Насос стенда', 'Клапан стенда']) { await click('Создать устройство');await ready();await fill('Название устройства',name);await fill('Как обращаться к устройству',name.toLowerCase());await stage(); }
+    await route('connections');await click('Создать подключение');await click('Modbus TCP →');
+    await fill('Название','Стенд Modbus');await fill('IPv4 устройства','127.0.0.1');await fill('TCP-порт',String(mock.address().port));await click('Далее');
+    await select('Устройство (необязательно)','Насос стенда');await check('Включить');await fill('Адрес с нуля','17');await select('Значение','Включено / true');await click('Далее');
+    await select('Чтение состояния','Отдельное чтение Modbus');await fill('Адрес с нуля','19');await select('Свойство состояния','Питание');await click('Назад');
+    await select('Устройство (необязательно)','Клапан стенда');await check('Включить');await fill('Адрес с нуля','27');await select('Значение','Включено / true');await click('Назад');
+    await click('← Выбор протокола');await click('Modbus RTU →');await fill('Название','Отдельный RTU черновик');await click('← Выбор протокола');await click('Modbus TCP →');
+    assert.equal(await js('[...document.querySelectorAll("dialog label")].find(l=>l.textContent.startsWith("Название")).querySelector("input").value'),'Стенд Modbus');await click('Далее');
+    await select('Устройство (необязательно)','Насос стенда');assert.equal(await js('[...document.querySelectorAll("dialog label")].find(l=>l.textContent.startsWith("Адрес с нуля")).querySelector("input").value'),'17');
+    await click('Далее');assert.equal(await js('[...document.querySelectorAll("dialog label")].find(l=>l.textContent.startsWith("Адрес с нуля")).querySelector("input").value'),'19');await click('Далее');
+    assert.match(await text(),/FC5.*адрес 17/);assert.match(await text(),/FC5.*адрес 27/);assert.match(await text(),/FC1.*адрес 19/);await screenshot('modbus-draft-review');
+    await click('К общему Review');await until(() => js('[...document.querySelectorAll("dialog button")].some(b=>b.textContent==="Подтвердить применение"&&!b.disabled)'),'Modbus final review');
+    assert.equal((await api('/api/config')).hash,modbusBase.hash);assert.equal(hardware.length,modbusHttpCalls);
+    const writesBefore=requests.filter(r=>r.method==='PUT'||r.url.endsWith('/api/config/apply')).length;
+    await apply();
+    const modbusApplied=await api('/api/config');const mc=modbusApplied.configuration.connections.find(c=>c.name==='Стенд Modbus');assert.equal(mc.type,'modbus_tcp');
+    assert.equal(requests.filter(r=>r.method==='PUT'||r.url.endsWith('/api/config/apply')).length-writesBefore,2);
+    assert.deepEqual(modbusApplied.configuration.bindings.filter(b=>b.executor!=='modbus_tcp'),modbusBase.configuration.bindings);
+    assert.equal(modbusApplied.configuration.bindings.filter(b=>b.executor==='modbus_tcp').length,2);assert.equal(hardware.length,modbusHttpCalls);
+    await route('connections');
+    await js(`(() => { const row=[...document.querySelectorAll('main .zone-grid article')].find(n=>n.querySelector('h2')?.textContent==='Стенд Modbus');row.querySelector('button').click();})()`);await ready();
+    await until(() => js('!!document.querySelector("dialog .wizard input")'),'Modbus edit fields mounted');
+    await fill('Название','Отменённое изменение');await click('Отмена');assert.equal((await api('/api/config')).hash,modbusApplied.hash);
+    await click('Создать подключение');await click('Modbus RTU →');await fill('Название','Пустой RTU стенд');await fill('Serial-порт Firefly','/dev/ttyUSB98765432');await click('Далее');await click('Далее');await click('Далее');
+    assert.match(await text(),/Modbus RTU.*ttyUSB98765432.*9600/);await click('К общему Review');await until(() => js('[...document.querySelectorAll("dialog button")].some(b=>b.textContent==="Подтвердить применение"&&!b.disabled)'),'RTU final review');
+    await click('Назад к плану');assert.equal((await api('/api/config')).hash,modbusApplied.hash,'unconfirmed RTU stays only in local plan');
+    assert.equal(requests.filter(r=>/\/api\/devices\/command$/.test(r.url)).length,0);assert.equal(hardware.length,modbusHttpCalls);assert.equal(tcpBytes,modbusTcpBytes,'Modbus editing/Apply emitted zero bytes to loopback device fixture');assert.equal(tcpConnections,modbusTcpConnections,'Modbus draft/Apply did not open device connection');
     for (const [width, height] of [[390,844],[800,600],[1280,800]]) {
         await send('Emulation.setDeviceMetricsOverride', { width,height,deviceScaleFactor:1,mobile:false });
         assert.ok(await js('document.documentElement.scrollWidth <= innerWidth + 2'), 'setup fits viewport'); await screenshot('setup-' + width);
     }
     assert.equal(hardware.length, 1); assert.equal(requests.filter(r=>/\/api\/admin\/copilot/.test(r.url)).length,0,'connectivity never invokes Copilot or its acceptance'); assert.equal(external.length, 0); assert.equal(exceptions.length, 0);
-    fs.writeFileSync(path.join(artifacts, 'results.json'), JSON.stringify({ passed:true, cases:['A','B','C','D','E-malformed','F','contextual','no-zone','non-home','reload'], hardware, tcpConnections, tcpBytes, connectivityAiCalls:0, external, requests:requests.map(r=>({url:r.url,method:r.method})) }, null, 2));
+    fs.writeFileSync(path.join(artifacts, 'results.json'), JSON.stringify({ passed:true, cases:['long-document','source-reload','discard-message','cooperative-cancel','modbus-tcp-rtu-draft','modbus-device-ab','modbus-cancel-cas-apply','A','B','C','D','E-malformed','F','contextual','no-zone','non-home','reload'], hardware, tcpConnections, tcpBytes, connectivityAiCalls:0, external, requests:requests.map(r=>({url:r.url,method:r.method})) }, null, 2));
     console.log('PASS B3 visible AI setup controls; zero hardware before Apply; explicit poll=1 GET; offline');
 })().catch(async error => { console.error(error); if (socket) { try { console.error((await text()).slice(-12000)); await screenshot('failure'); } catch {} } process.exitCode = 1; }).finally(async () => {
     if (socket) socket.close(); mock.closeAllConnections(); await new Promise(resolve => mock.close(resolve));

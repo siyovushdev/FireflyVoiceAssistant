@@ -231,19 +231,44 @@ Json encodeMqttObservation(const MqttObservation& value) {
     }
     return item;
 }
+ModbusBinding decodeModbusBinding(const Json& item) {
+    ModbusBinding v; v.function=item.at("function"); v.address=item.at("address"); v.dataType=item.at("data_type");
+    if(item.contains("value"))v.value=actions::decodeScalar(item.at("value"));
+    if(item.contains("argument"))v.argument=item.at("argument").get<std::string>();
+    return v;
+}
+Json encodeModbusBinding(const ModbusBinding& v) {
+    Json j{{"function",v.function},{"address",v.address},{"data_type",v.dataType}};
+    if(v.value)j["value"]=actions::scalarJson(*v.value);
+    if(v.argument)j["argument"]=*v.argument;
+    return j;
+}
+ModbusObservation decodeModbusObservation(const Json& item) {
+    return {item.at("function"),item.at("address"),item.at("data_type"),item.at("field")};
+}
+Json encodeModbusObservation(const ModbusObservation& v) {
+    return {{"function",v.function},{"address",v.address},{"data_type",v.dataType},{"field",v.field}};
+}
 Connection decodeConnection(const Json& item) {
     Connection c;
     static_cast<Identity&>(c) = identity(item);
     c.type = executorKind(item.at("type")); c.enabled = item.at("enabled"); c.timeoutMs = item.at("timeout_ms");
-    const auto section = c.type == ExecutorKind::Http ? "http" : c.type == ExecutorKind::Serial ? "serial" : c.type == ExecutorKind::Can ? "can" : "network";
+    const auto section = c.type == ExecutorKind::Http ? "http" : (c.type == ExecutorKind::Serial || c.type == ExecutorKind::ModbusRtu) ? "serial" : c.type == ExecutorKind::Can ? "can" : "network";
     if (!item.contains(section)) throw ConfigError("missing_field", "/connections", "Transport config required");
     for (const auto* key : {"http", "network", "serial", "can"})
         if (item.contains(key) && std::string(key) != section) throw ConfigError("schema_error", "/connections", "Wrong transport config");
     if (item.contains("mqtt") && c.type != ExecutorKind::Mqtt)
         throw ConfigError("schema_error", "/connections/mqtt", "MQTT options require MQTT transport");
+    if(item.contains("modbus") != isModbus(c.type))
+        throw ConfigError("schema_error", "/connections/modbus", "Modbus options required only for Modbus transport");
+    if(isModbus(c.type))c.modbus.unitId=item.at("modbus").at("unit_id");
     const auto& config = item.at(section);
     if (c.type == ExecutorKind::Http) { c.http.baseUrl = config.at("base_url"); c.http.basePath = config.value("base_path", ""); }
-    else if (c.type == ExecutorKind::Serial) { c.serial.port = config.at("port"); c.serial.baudRate = config.at("baud_rate"); }
+    else if (c.type == ExecutorKind::Serial || c.type == ExecutorKind::ModbusRtu) {
+        c.serial.port = config.at("port"); c.serial.baudRate = config.at("baud_rate");
+        if(c.type==ExecutorKind::ModbusRtu) { c.serial.parity=config.at("parity"); c.serial.stopBits=config.at("stop_bits"); }
+        else if(config.contains("parity") || config.contains("stop_bits"))throw ConfigError("schema_error","/connections/serial","Explicit parity/stop_bits require Modbus RTU");
+    }
     else if (c.type == ExecutorKind::Can) c.can.interface = config.at("interface");
     else { c.network.host = config.at("host"); c.network.port = config.at("port"); }
     if (c.type == ExecutorKind::Mqtt && item.contains("mqtt")) {
@@ -319,7 +344,11 @@ Configuration decode(const Json& value) {
             ObservationBinding o;
             o.targetId = item.at("target_id"); o.connectionId = item.at("connection_id");
             o.executor = executorKind(item.at("executor"));
-            if (o.executor == ExecutorKind::Mqtt) {
+            if (item.contains("modbus") != isModbus(o.executor))throw ConfigError("schema_error","/observations","Wrong Modbus section");
+            if(isModbus(o.executor)) {
+                if(item.contains("http") || item.contains("mqtt"))throw ConfigError("schema_error","/observations","Only Modbus mapping allowed");
+                o.modbus=decodeModbusObservation(item.at("modbus"));
+            } else if (o.executor == ExecutorKind::Mqtt) {
                 if (item.contains("http") || !item.contains("mqtt"))
                     throw ConfigError("schema_error", "/observations", "MQTT observations require MQTT only");
                 o.mqtt = decodeMqttObservation(item.at("mqtt"));
@@ -337,7 +366,11 @@ Configuration decode(const Json& value) {
             binding.actionId = item.at("action_id");
             binding.executor = executorKind(item.at("executor"));
             binding.connectionId = item.value("connection_id", "");
-            if (binding.executor == ExecutorKind::Mqtt) {
+            if (item.contains("modbus") != isModbus(binding.executor))throw ConfigError("schema_error","/bindings","Wrong Modbus section");
+            if(isModbus(binding.executor)) {
+                if(item.contains("http") || item.contains("mqtt"))throw ConfigError("schema_error","/bindings","Only Modbus mapping allowed");
+                binding.modbus=decodeModbusBinding(item.at("modbus"));
+            } else if (binding.executor == ExecutorKind::Mqtt) {
                 if (item.contains("http") || !item.contains("mqtt"))
                     throw ConfigError("schema_error", "/bindings", "MQTT bindings require MQTT only");
                 binding.mqtt = decodeMqttBinding(item.at("mqtt"));
@@ -447,26 +480,30 @@ Json encode(const Configuration& value) {
             Json entry{{"id",c.id},{"name",c.name},{"type",executorName(c.type)}, {"enabled",c.enabled},{"timeout_ms",c.timeoutMs}};
             if (c.type == ExecutorKind::Http) entry["http"] = {{"base_url",c.http.baseUrl},{"base_path",c.http.basePath}};
             else if (c.type == ExecutorKind::Serial) entry["serial"] = {{"port",c.serial.port},{"baud_rate",c.serial.baudRate}};
+            else if (c.type == ExecutorKind::ModbusRtu) entry["serial"] = {{"port",c.serial.port},{"baud_rate",c.serial.baudRate},{"parity",c.serial.parity},{"stop_bits",c.serial.stopBits}};
             else if (c.type == ExecutorKind::Can) entry["can"] = {{"interface",c.can.interface}};
             else entry["network"] = {{"host",c.network.host},{"port",c.network.port}};
             if (c.type == ExecutorKind::Mqtt && (c.mqtt.present || c.mqtt.tls || !c.mqtt.credentialsId.empty())) {
                 entry["mqtt"] = {{"tls", c.mqtt.tls}};
                 if (!c.mqtt.credentialsId.empty()) entry["mqtt"]["credentials_id"] = c.mqtt.credentialsId;
             }
+            if(isModbus(c.type))entry["modbus"]={{"unit_id",c.modbus.unitId}};
             result["connections"].push_back(std::move(entry));
         }
         if (!value.observations.empty()) result["observations"] = Json::array();
         for (const auto& o : value.observations) {
             Json entry{{"target_id",o.targetId},{"connection_id",o.connectionId},
                 {"executor",executorName(o.executor)},{"fields",o.fields}};
-            if (o.executor == ExecutorKind::Mqtt) entry["mqtt"] = encodeMqttObservation(o.mqtt);
+            if(isModbus(o.executor))entry["modbus"]=encodeModbusObservation(o.modbus);
+            else if (o.executor == ExecutorKind::Mqtt) entry["mqtt"] = encodeMqttObservation(o.mqtt);
             else entry["http"] = encodeHttp(o.http, true);
             result["observations"].push_back(std::move(entry));
         }
         for (const auto& binding : value.bindings) {
             Json entry{{"target_id", binding.targetId}, {"action_id", binding.actionId},
                 {"executor", executorName(binding.executor)}};
-            if (binding.executor == ExecutorKind::Mqtt) entry["mqtt"] = encodeMqttBinding(binding.mqtt);
+            if(isModbus(binding.executor))entry["modbus"]=encodeModbusBinding(binding.modbus);
+            else if (binding.executor == ExecutorKind::Mqtt) entry["mqtt"] = encodeMqttBinding(binding.mqtt);
             else entry["http"] = encodeHttp(binding.http, !binding.connectionId.empty());
             if (!binding.connectionId.empty()) entry["connection_id"] = binding.connectionId;
             result["bindings"].push_back(std::move(entry));

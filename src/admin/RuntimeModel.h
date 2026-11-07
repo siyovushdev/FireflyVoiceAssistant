@@ -64,7 +64,13 @@ public:
         auto lease = resources_->acquire();
         if (!admin_ || !engine_ || !engine_->ready()) throw std::runtime_error("setup_required");
         resources_->checkpoint("admin_before_context", SetupResources::GiBKiB);
-        engine_->setSystemPrompt(prompt, tokens);
+        engine_->setSystemPrompt(prompt, tokens, 2048);
+    }
+    void useAdminDocumentContext(const std::string& prompt, int tokens) override {
+        auto lease = resources_->acquire();
+        if (!admin_ || !engine_ || !engine_->ready()) throw std::runtime_error("setup_required");
+        resources_->checkpoint("admin_before_context", SetupResources::GiBKiB);
+        engine_->setSystemPrompt(prompt, tokens, 128);
     }
     bool setupRequired() const override { return true; }
     void enterSetup() override {

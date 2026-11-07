@@ -1,5 +1,6 @@
 #pragma once
 #include "Json.h"
+#include "AdminSetupDocument.h"
 #include "firefly/config/ConfigStore.h"
 #include "firefly/admin/AdminCopilot.h"
 #include "firefly/admin/AdminDraft.h"
@@ -83,7 +84,10 @@ public:
     Json handle(std::string_view route, const Json& request) {
         if(route=="status") {
             const auto snapshot=std::atomic_load(&published_);
-            return snapshot?*snapshot:Json{{"ok",true},{"active",false},{"status","idle"}};
+            auto result=snapshot?*snapshot:Json{{"ok",true},{"active",false},{"status","idle"}};
+            const auto status=result.value("status",std::string());
+            if (result.value("active",false) && (status=="planning"||status=="entering") && cancellationRequested()) result["status"]="cancel_pending";
+            return result;
         }
         if(route!="start" && route!="resume") {
             const auto owner=std::atomic_load(&publishedOwner_);
@@ -148,7 +152,18 @@ public:
         if (route == "message" && request.value("request_id",std::string()) == data_.value("last_request",std::string()) && !request.value("request_id",std::string()).empty()) return view();
         if (request.value("version",-1) != data_.at("version").get<int>()) throw std::runtime_error("stale_draft_version");
         checkBase();
-        if (route == "draft") {
+        if (route == "discard_message") {
+            // Explicitly return to the pre-message checkpoint; never keep a
+            // partial plan or alter ConfigStore. Ownership/version already checked.
+            if(data_.contains("pending_message")) {
+                data_["configuration"]=data_["pending_message"].at("configuration");
+                data_["focus"]=data_["pending_message"].at("focus");
+            }
+            data_.erase("pending_message"); data_["message_incomplete"]=false;
+            data_["questions"]=Json::array(); data_["unresolved_text"]="";
+            data_["last_request"]=""; data_["status"]="editing";
+            data_.erase("progress"); data_.erase("proposal_scope"); advance();
+        } else if (route == "draft") {
             if(data_.value("message_incomplete",false)) throw std::runtime_error("incomplete_setup_plan: повторите незавершённую просьбу полностью");
             auto catalog=config::ConfigLoader::fromJson(request.at("configuration").dump());
             RuntimeGeneration admission(catalog);
@@ -163,7 +178,7 @@ public:
             }
             data_["focus"]=focus; data_["status"]="editing"; advance();
         } else if (route == "message") {
-            const auto text=request.at("text").get<std::string>(); validateMessage(text);
+            const auto text=request.at("text").get<std::string>(); validateMessage(text); validateSetupDocumentInput(text);
             if(data_.value("message_incomplete",false) &&
                (!data_.contains("pending_message") || data_["pending_message"].at("text")!=text))
                 throw std::runtime_error("incomplete_setup_plan: повторите незавершённую просьбу полностью");
@@ -173,19 +188,27 @@ public:
             if (data_["messages"].size()>=32) throw std::runtime_error("setup_message_limit");
             const auto unresolved=data_.value("unresolved_text",std::string());
             const auto plannedText=unresolved.empty()?text:unresolved+"\nОтвет на уточнение: "+text;
-            data_["messages"].push_back(text); data_["last_request"]=id;
-            data_["message_incomplete"]=true;
-            data_["pending_message"]={{"text",text},{"configuration",data_["configuration"]},{"focus",data_["focus"]}};
-            data_["status"]="planning"; persist();
+            // Admit the complete clarification/document before persisting any
+            // incomplete checkpoint. Oversized input remains freely editable.
+            validateMessage(plannedText);
+            auto checkpoint=data_;
+            checkpoint["messages"].push_back(text); checkpoint["last_request"]=id;
+            checkpoint["message_incomplete"]=true;
+            checkpoint["pending_message"]={{"text",text},{"configuration",data_["configuration"]},{"focus",data_["focus"]}};
+            checkpoint["status"]="planning"; checkpoint["steps"]=Json::array();
+            // Long documents must not exhaust durable draft storage after
+            // marking a message incomplete. Reserve step/clarification text and
+            // diagnostics before modifying the in-memory or persisted draft.
+            if(checkpoint.dump().size()+2*plannedText.size()+32768>1024*1024)
+                throw std::runtime_error("setup_private_storage_limit: завершите эту настройку и начните новую; запрос не добавлен");
+            data_=std::move(checkpoint); persist();
             const auto original=data_["configuration"];
             const auto originalFocus=data_["focus"];
             try {
-                // V2 proposals keep a short request and its final capability restriction
-                // in one validation unit. Legacy clients retain sentence stepping.
+                // V2 keeps the whole document, including final restrictions, in
+                // one model context. Legacy clients retain their explicit stepping.
                 const bool atomicMessage=request.value("atomic_message",false);
-                if(atomicMessage && plannedText.size()>1800)throw std::runtime_error("admin_step_budget: сократите просьбу до одного небольшого предложения");
                 auto steps=unresolved.empty() && !atomicMessage?split(plannedText):std::vector<std::string>{plannedText};
-                if(!unresolved.empty() && plannedText.size()>1800)throw std::runtime_error("admin_step_budget: уточните незавершённую просьбу меньшими частями");
                 if (steps.size()>16) throw std::runtime_error("setup_step_limit: максимум 16 связанных шагов");
                 data_["questions"]=Json::array();
                 const auto begin=Clock::now();
@@ -199,7 +222,11 @@ public:
                     if (Clock::now()-begin>std::chrono::minutes(10)) throw std::runtime_error("setup_planning_timeout");
                     const auto reply=invoke({{"method","dialogue"},{"configuration",data_["configuration"]},{"text",step},{"focus",data_["focus"]},{"context_location",contextLocation}});
 
+                    if(cancellationRequested())throw std::runtime_error("setup_cancelled");
+                    if(Clock::now()-begin>std::chrono::minutes(10))throw std::runtime_error("setup_planning_timeout");
                     const auto proposal=reply.at("suggestion");
+                    if(proposal.value("proposal_scope",std::string())=="configuration")
+                        data_["proposal_scope"]="configuration";
                     data_["steps"].back()["status"]=proposal.value("status",std::string("proposed"));
                     data_["steps"].back()["summary"]=proposal.value("summary",std::string());
                     if (!proposal.contains("configuration") || proposal.value("rejected",false)) {
@@ -214,7 +241,7 @@ public:
                         for (const auto& old:previous.at(category)) if (old.at("id")==entity.at("id")) existed=true;
                         if (!existed) {data_["focus"].push_back(entity.at("id"));if(std::string(category)=="rooms")contextLocation=entity.at("id").get<std::string>();}
                     }
-                    if(data_["focus"].size()>12) throw std::runtime_error("setup_focus_limit: уточните объекты");
+                    if(data_["focus"].size()>32) throw std::runtime_error("setup_focus_limit: уточните объекты");
                     // New language remains editable draft data; never overwrite an
                     // existing entity's manually reviewed forms.
                     for (const auto* category:{"rooms","devices","actions"}) {
@@ -248,11 +275,23 @@ public:
                     }
                     data_["summary"]=proposal.at("summary");
                 }
+                if(cancellationRequested())throw std::runtime_error("setup_cancelled");
+                if(Clock::now()-begin>std::chrono::minutes(10))throw std::runtime_error("setup_planning_timeout");
                 if (data_["questions"].empty()) { data_["status"]="editing"; data_["unresolved_text"]=""; }
                 else { data_["configuration"]=original; data_["focus"]=originalFocus; } // No partial message presented as complete.
                 data_["message_incomplete"]=false; data_.erase("pending_message");
+                // The synchronous planner owns mutex_, so ordinary heartbeats
+                // cannot enter during it. Give the client the normal bounded
+                // reconnect window to receive/review its completed request.
+                heartbeat_=Clock::now();
                 advance();
-            } catch (...) { data_["configuration"]=original; data_["focus"]=originalFocus; data_["status"]="planning_failed"; advance(); throw; }
+            } catch (...) {
+                data_["configuration"]=original; data_["focus"]=originalFocus;
+                heartbeat_=Clock::now();
+                data_["status"]="planning_failed"; data_.erase("proposal_scope"); advance();
+                if(cancellationRequested())restore();
+                throw;
+            }
         } else if (route == "apply") {
             if (data_.value("message_incomplete",false) || data_.at("status")!="editing" || !data_["questions"].empty()) throw std::runtime_error("incomplete_setup_plan");
             for(const auto* category:{"rooms","devices"})for(auto& entity:data_["configuration"].at(category))
@@ -419,7 +458,8 @@ private:
     }
     Json view() const {
         Json result={{"ok",true},{"active",active_.load()},{"status",data_.value("status",std::string("idle"))}};
-        for(const auto* key:{"configuration","version","questions","summary","language_warning","progress","message_incomplete"}) if(data_.contains(key)) result[key]=data_.at(key);
+        for(const auto* key:{"configuration","version","questions","summary","language_warning","progress","message_incomplete","proposal_scope"}) if(data_.contains(key)) result[key]=data_.at(key);
+        result["limits"]={{"message_codepoints",MaxMessageCodePoints},{"message_bytes",MaxAdminMessageBytes}};
         result["disconnect_seconds"]=disconnectSeconds_; result["inactivity_seconds"]=inactivitySeconds_;
         result["connection_note"]="Действия настроены программно. Без Binding физическое подключение не задано.";
         return result;

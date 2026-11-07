@@ -55,7 +55,7 @@ export function defaultMqttMapping(): Mutable<MqttBindingDto> {
 }
 export function projectConnectivity(config: ConfigurationDto, connection: ConnectionDto | null, targetId: string,
     mappings: readonly BindingDto[], observation?: NonNullable<ConfigurationDto['observations']>[number],
-    transport?: 'http' | 'mqtt', replaceOtherObservation = false): Draft {
+    transport?: 'http' | 'mqtt' | 'modbus_tcp' | 'modbus_rtu', replaceOtherObservation = false): Draft {
     const next = clone(config);
     if (connection) {
         const index = (next.connections ??= []).findIndex(c => c.id === connection.id);
@@ -120,6 +120,10 @@ export function connectionActionSummary(config: ConfigurationDto, targetId: stri
         return `MQTT · ${name} · ${binding.mqtt.topic} → ${binding.mqtt.payload}`;
     if (binding.executor === 'http' && binding.http)
         return `HTTP · ${name} · ${binding.http.method} ${binding.http.url ?? binding.http.path ?? ''}`;
+    if ((binding.executor === 'modbus_tcp' || binding.executor === 'modbus_rtu') && binding.modbus) {
+        const m = binding.modbus;
+        return `${binding.executor === 'modbus_tcp' ? 'Modbus TCP' : 'Modbus RTU'} · ${name} · FC${m.function} · адрес ${m.address} · ${m.data_type} → ${m.argument ? 'параметр ' + m.argument : String(m.value)}`;
+    }
     return 'неподдерживаемое подключение';
 }
 export function connectionObservationSummary(config: ConfigurationDto, targetId: string): string {
@@ -130,9 +134,30 @@ export function connectionObservationSummary(config: ConfigurationDto, targetId:
         return `MQTT · ${name} · ${observation.mqtt.topic} (${observation.mqtt.format})`;
     if (observation.executor === 'http' && observation.http)
         return `HTTP · ${name} · GET ${observation.http.path ?? observation.http.url ?? ''}`;
+    if ((observation.executor === 'modbus_tcp' || observation.executor === 'modbus_rtu') && observation.modbus) {
+        const m = observation.modbus;
+        return `${observation.executor === 'modbus_tcp' ? 'Modbus TCP' : 'Modbus RTU'} · ${name} · FC${m.function} · адрес ${m.address} → ${m.field}`;
+    }
     return 'неподдерживаемое наблюдение';
 }
+export function connectionEndpoint(connection: ConnectionDto): string {
+    if (connection.type === 'modbus_tcp') return `Modbus TCP · ${connection.network?.host ?? '—'}:${connection.network?.port ?? '—'} · Unit ${connection.modbus?.unit_id ?? '—'}`;
+    if (connection.type === 'modbus_rtu') return `Modbus RTU · ${connection.serial?.port ?? '—'} · ${connection.serial?.baud_rate ?? '—'} бод · ${connection.serial?.parity ?? '—'}/${connection.serial?.stop_bits ?? '—'} · Unit ${connection.modbus?.unit_id ?? '—'}`;
+    if (connection.type === 'mqtt') return `MQTT · ${connection.network?.host ?? '—'}:${connection.network?.port ?? '—'}`;
+    return `${connection.http?.base_url ?? ''}${connection.http?.base_path ?? ''}`;
+}
 function connectivitySummary(value: Record<string, unknown>, config: ConfigurationDto): string | null {
+    if (value.type === 'modbus_tcp' || value.type === 'modbus_rtu')
+        return `${String(value.name ?? '')} · ${connectionEndpoint(value as unknown as ConnectionDto)}${value.enabled === false ? ' · отключено' : ''}`;
+    if ((value.executor === 'modbus_tcp' || value.executor === 'modbus_rtu') && value.modbus && typeof value.modbus === 'object') {
+        const m = value.modbus as Record<string, unknown>;
+        const device = config.devices.find(d => d.id === value.target_id);
+        const action = config.actions.find(a => a.id === value.action_id);
+        const connection = config.connections?.find(c => c.id === value.connection_id);
+        return [device?.name, action?.name, connection?.name, value.executor === 'modbus_tcp' ? 'Modbus TCP' : 'Modbus RTU',
+            `FC${m.function}, адрес ${m.address} (с нуля), ${m.data_type}`,
+            m.field ? `Состояние: ${String(m.field)}` : m.argument ? `Параметр: ${String(m.argument)}` : `Значение: ${String(m.value)}`].filter(Boolean).join(' · ');
+    }
     if (value.type === 'mqtt' && value.network && typeof value.network === 'object') {
         const network = value.network as { host?: string; port?: number };
         const mqtt = value.mqtt as { tls?: boolean; credentials_id?: string } | undefined;

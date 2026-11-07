@@ -129,8 +129,8 @@ int main(int argc, char** argv) {
             require(response.value("ok", false) && response.at("trace").size() == 1,
                 "routing fixture reaches exactly one strict generation");
             const auto& entry = response.at("trace")[0];
-            const bool selectedCreation = entry.at("prompt").get<std::string>().find("Разбери просьбу о создании") != std::string::npos;
-            require(selectedCreation == creation, "only explicit brightness exclusion changes instruction selection");
+            (void)creation;
+            require(entry.at("prompt").get<std::string>().find(Json{{"text",text}}.dump()) != std::string::npos, "whole-document instructions retain every brightness restriction verbatim");
             require(entry.at("input") == text, "routing never removes restrictions from the original inference input");
             unchanged();
         }
@@ -147,8 +147,8 @@ int main(int argc, char** argv) {
         const auto overreach = call({{"method", "dialogue"}, {"configuration", empty},
             {"focus", Json::array()}, {"text", create + ", без яркости."}});
         require(!overreach.value("ok", true) && overreach.at("trace").size() == 2 &&
-            overreach.at("trace")[0].at("error") == "Brightness was not explicitly requested" &&
-            overreach.at("trace")[1].at("error") == "Brightness was not explicitly requested",
+            overreach.at("trace")[0].at("error") == "Brightness is absent or excluded by the original request" &&
+            overreach.at("trace")[1].at("error") == "Brightness is absent or excluded by the original request",
             "creation instructions cannot authorize model-invented excluded brightness");
         unchanged();
         model.script({R"({"ops":[["location","Кабинет"],["power_device","Кабинет","Лампа"]]})"});
@@ -178,10 +178,12 @@ int main(int argc, char** argv) {
                 const auto instructions=entry.at("prompt").get<std::string>();
                 require(instructions.find("{\"question\":")==std::string::npos && instructions.find("{\"unsupported\":")==std::string::npos,
                     "alternative branches are described without competing complete JSON examples");
-                const auto begin=instructions.find("{\"ops\":");
+                const auto begin=instructions.find("{\"complete\":true,\"ops\":");
                 require(begin!=std::string::npos,"dialogue instructions contain a complete plan example");
                 const auto end=instructions.find('}',begin);
-                const auto example=expandDialogueOperations(instructions.substr(begin,end-begin+1));
+                const auto wireExample=Json::parse(instructions.substr(begin,end-begin+1));
+                require(wireExample.at("complete")==true,"example is explicitly complete");
+                const auto example=expandDialogueOperations(Json{{"ops",wireExample.at("ops")}}.dump());
                 require(example.at("operations").size()==2,"instruction example is valid JSON with typed operation arrays");
             }
             require(lastDialogue.at("trace")[1].at("prompt").get<std::string>().find("квадратные скобки")!=std::string::npos,
@@ -218,7 +220,7 @@ int main(int argc, char** argv) {
             extraObject, extraBrace, "{broken", valid + "}", trailing, valid + " пояснение", "```json\n" + valid + "\n```",
             R"({"ops":[["invent_operation","Цех"]]})",
             R"({"ops":[["power_device","Цех","Вентилятор","extra"]]})",
-            R"({"ops":[["location","Цех"],["location","Цех"]]})",
+            R"({"ops":[["location","Цех"]],"complete":false})",
             std::string(4095,'x')+"Ж" // The 4096-byte capture boundary splits UTF-8.
         };
         for (const auto& raw : invalid) {

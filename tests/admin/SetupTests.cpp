@@ -8,12 +8,19 @@
 using namespace firefly::admin;
 using admin_test::Json;
 struct SetupModel : admin_test::Model {
-    bool admin=false;std::vector<std::string> events;
+    bool admin=false;std::vector<std::string> events;std::string documentInput;
     bool setupRequired() const override { return true; }
     void enterSetup() override { events.push_back("runtime_destroy");admin=true;events.push_back("admin_load"); }
     void leaveSetup(const std::string& text) override { events.push_back("admin_destroy");admin=false;useContext(text);events.push_back("runtime_load"); }
-    void useAdminContext(const std::string& p,int) override { if(!admin)throw std::runtime_error("setup_required");prompt=p; }
+    void useAdminContext(const std::string& p,int) override { if(!admin)throw std::runtime_error("setup_required");prompt=p;documentInput.clear(); }
+    void useAdminDocumentContext(const std::string& p,int budget) override {
+        useAdminContext(p,budget);
+        const auto marker=p.rfind("\nINPUT_DATA=");
+        if(marker==std::string::npos)throw std::runtime_error("missing whole-document envelope");
+        documentInput=Json::parse(p.substr(marker+12)).at("text").get<std::string>();
+    }
     std::string inferAdmin(std::string_view text) override {
+        if(!documentInput.empty())text=documentInput;
         validateMessage(text);
         const auto source=raw;
         // Scripted per-step model replies. No real language understanding is mocked
@@ -23,7 +30,7 @@ struct SetupModel : admin_test::Model {
             if(wire.contains("ops") && wire["ops"].size()>1) {
                 if(prompt.find("Извлеки НОВОЕ имя")!=std::string::npos) {
                     for(const auto& op:wire["ops"])if(op[0]=="rename_device")raw=Json{{"name",op[3]}}.dump();
-                } else if(prompt.find("Помощник настройки системы и оборудования")!=std::string::npos) {
+                } else if(!documentInput.empty()) {
                     Json selected=Json::array();
                     for(const auto& op:wire["ops"]){const auto kind=op[0].get<std::string>();
                         if((std::string(text).find("Создай")!=std::string::npos && kind=="location") ||
@@ -152,9 +159,11 @@ int main(int argc,char**argv){int failures=0,checks=0;
   check(!slowWorker.setupBlocked()&&isolatedStore.current()->contentHash()==original->contentHash(),"entry/cancel never Save or Apply and reopen restored runtime");
  }
 
- std::string emoji;for(int i=0;i<4000;++i)emoji+="😀";
- check(validateMessage(emoji)==4000,"4000 unicode accepted");
- check(rejected([&]{validateMessage(emoji+"я");}),"4001 rejected");
+ std::string emoji;for(int i=0;i<12000;++i)emoji+="😀";
+ check(validateMessage(emoji)==12000 && emoji.size()==48000,"12000 Unicode codepoints / 48000 UTF8 bytes accepted at exact boundary");
+ check(rejected([&]{validateMessage(emoji+"я");}),"UTF8 byte overflow rejected without truncation");
+ check(validateMessage(std::string(12000,'a'))==12000,"12000 ASCII codepoints accepted");
+ check(rejected([&]{validateMessage(std::string(12001,'a'));}),"Codepoint limit enforced independently of byte limit");
  check(rejected([&]{validateMessage(std::string("\xc0\xaf",2));}),"invalid UTF8 rejected");
  check(rejected([&]{validateMessage("\x01");}),"control rejected");
  check(validateMessage(std::string(193,'x'))==193&&!firefly::validInput(std::string(193,'x')),"domestic cap unchanged");
@@ -210,7 +219,9 @@ int main(int argc,char**argv){int failures=0,checks=0;
    values.insert(action.at("assignments")[0].at("value").get<bool>());
   }
   check(values==std::set<bool>{false,true},"explicit power has one ON and one OFF");
-  check(created(preview("device",text+" Только ON/OFF.")).at("action_ids").empty(),"custom proposal is never upgraded to power");
+  model.raw=Json{{"ops",Json::array({Json::array({"device",location,name})})}}.dump();
+  const auto incomplete=call({{"method","dialogue"},{"configuration",reply.at("configuration")},{"text",text+" Только ON/OFF."},{"focus",Json::array()}});
+  check(!incomplete.value("ok",false),"custom proposal missing explicit ON/OFF is rejected, never silently upgraded or accepted as complete");
  }
  for(const auto* raw:{
     R"({"ops":[["power_device",null,"Входная дверь"]]})",
@@ -436,7 +447,10 @@ int main(int argc,char**argv){int failures=0,checks=0;
   admin_test::Directory dir;firefly::config::ConfigStore store(dir.path);
   const auto base=store.initialize(firefly::config::ConfigLoader::fromFile(std::string(argv[1])+"/config/empty-home.json"));
   int dialogueCalls=0,hardware=0;
-  const std::string original="Создай Детскую, добавь туда Свет и Телевизор. Оба только включаются и выключаются.";
+  std::string original="Создай Детскую, добавь туда Свет и Телевизор. ";
+  for(int i=0;i<45;++i)original+="Я описываю обычными словами будущую настройку своей комнаты. ";
+  original+="В самом конце уточню: оба только включаются и выключаются. Без яркости и громкости.";
+  check(original.size()>1800,"Long document exceeds the previously broken atomic byte limit");
   SetupSession session(store,[&](const Json& request)->Json {
    if(request.at("method")=="dialogue") {
     ++dialogueCalls;check(request.at("text")==original,"atomic request retains final restrictions unchanged");
@@ -455,5 +469,95 @@ int main(int argc,char**argv){int failures=0,checks=0;
   session.handle("cancel",{{"session_id",token}});
  }
 
+ {
+  admin_test::Directory dir;firefly::config::ConfigStore store(dir.path);
+  const auto base=store.initialize(firefly::config::ConfigLoader::fromFile(std::string(argv[1])+"/config/empty-home.json"));
+  int calls=0;bool rejectBudget=true;
+  SetupSession session(store,[&](const Json& request)->Json {
+   if(request.at("method")=="dialogue") {
+    ++calls;
+    if(rejectBudget)return {{"ok",false},{"errors",Json::array({{{"code","admin_context_budget"},{"message","shorten document"}}})}};
+    const auto ops=expandDialogueOperations(R"({"ops":[["location","Кабинет"]]})");
+    return {{"ok",true},{"suggestion",Json::parse(decodeCopilotProposal(ops.dump(),admin_test::catalog(request.at("configuration"))))}};
+   }
+   if(request.at("method")=="language_profile")return {{"ok",false}};
+   return {{"ok",true}};
+  });
+  auto state=session.handle("start",{});const auto token=state.at("session_id");
+  const auto disk=[&]{std::ifstream f(dir.path+"/setup-draft.json");return std::string(std::istreambuf_iterator<char>(f),{});};
+  const auto before=disk();
+  check(rejected([&]{session.handle("message",{{"session_id",token},{"version",0},{"request_id","oversize"},{"text",std::string(12001,'a')},{"atomic_message",true}});}),"Oversized document rejected before planning");
+  check(calls==0 && disk()==before && session.handle("status",{}).at("version")==0,"Admission error changes neither checkpoint nor version and invokes no AI");
+  check(rejected([&]{session.handle("message",{{"session_id",token},{"version",0},{"request_id","budget"},{"text","Создай Кабинет"},{"atomic_message",true}});}),"Model context budget rejection surfaced");
+  state=session.handle("status",{});
+  check(state.at("status")=="planning_failed" && state.at("message_incomplete")==true && state.at("configuration")==Json::parse(base->canonicalJson()),"Model rejection retains pre-message checkpoint only");
+  check(rejected([&]{session.handle("apply",{{"session_id",token},{"version",state.at("version")}});}),"Failed document cannot Apply");
+  check(rejected([&]{session.handle("discard_message",{{"session_id","wrong"},{"version",state.at("version")}});}),"Discard requires matching owner");
+  check(rejected([&]{session.handle("discard_message",{{"session_id",token},{"version",0}});}),"Discard requires current draft version");
+  state=session.handle("discard_message",{{"session_id",token},{"version",state.at("version")}});
+  check(state.at("status")=="editing" && state.at("message_incomplete")==false,"Explicit discard permits editing the failed request");
+  rejectBudget=false;
+  state=session.handle("message",{{"session_id",token},{"version",state.at("version")},{"request_id","budget"},{"text","Добавь Кабинет"},{"atomic_message",true}});
+  check(state.at("status")=="editing" && state.at("configuration").at("rooms").size()==1 && calls==2,"Edited request succeeds without a new Setup session or stale idempotency response");
+  check(store.current()->contentHash()==base->contentHash(),"Discard and edited proposal never change ConfigStore");
+  session.handle("cancel",{{"session_id",token}});
+ }
+
+ {
+  admin_test::Directory dir;firefly::config::ConfigStore store(dir.path);
+  const auto base=store.initialize(firefly::config::ConfigLoader::fromFile(std::string(argv[1])+"/config/empty-home.json"));
+  std::mutex gate;std::condition_variable ready;bool entered=false,release=false;int restores=0;
+  SetupSession session(store,[&](const Json& request)->Json {
+   if(request.at("method")=="dialogue") {
+    {std::unique_lock<std::mutex> lock(gate);entered=true;ready.notify_all();ready.wait(lock,[&]{return release;});}
+    const auto ops=expandDialogueOperations(R"({"ops":[["location","Кабинет"],["power_device","Кабинет","Свет"]]})");
+    return {{"ok",true},{"suggestion",Json::parse(decodeCopilotProposal(ops.dump(),admin_test::catalog(request.at("configuration"))))}};
+   }
+   if(request.at("method")=="setup_restore" || request.at("method")=="setup_finish")++restores;
+   return {{"ok",true}};
+  });
+  auto state=session.handle("start",{});const auto token=state.at("session_id");
+  bool failed=false;std::thread planning([&]{failed=rejected([&]{session.handle("message",{{"session_id",token},{"version",0},{"request_id","cancel-late"},{"text","Создай Кабинет и Свет с включением и выключением"},{"atomic_message",true}});});});
+  {std::unique_lock<std::mutex> lock(gate);ready.wait(lock,[&]{return entered;});}
+  const auto cancelled=session.handle("cancel",{{"session_id",token}});
+  check(cancelled.at("status")=="cancel_pending","Cancel acknowledged while model call still owns planning mutex");
+  check(session.handle("status",{}).at("status")=="cancel_pending","Concurrent status keeps cancellation visible until restoration completes");
+  {std::lock_guard<std::mutex> lock(gate);release=true;}ready.notify_all();planning.join();
+  state=session.handle("status",{});
+  check(failed && !session.active() && state.at("status")=="cancelled_draft_saved" && restores==2,"Late model result triggers restoration after cancellation");
+  check(state.at("configuration")==Json::parse(base->canonicalJson()) && store.current()->contentHash()==base->contentHash(),"Cancelled late result cannot become a partial or accepted draft");
+ }
+
+ {
+  admin_test::Directory dir;firefly::config::ConfigStore store(dir.path);
+  const auto base=store.initialize(firefly::config::ConfigLoader::fromFile(std::string(argv[1])+"/config/empty-home.json"));
+  int calls=0;
+  SetupSession session(store,[&](const Json& request)->Json {
+   if(request.at("method")!="dialogue")return {{"ok",true}};
+   ++calls;
+   const auto ops=Json{{"status","ok"},{"summary","rename"},{"operations",Json::array({{{"op","rename_system"},{"name","Дом "+std::to_string(calls)}}})}};
+   return {{"ok",true},{"suggestion",Json::parse(decodeCopilotProposal(ops.dump(),admin_test::catalog(request.at("configuration"))))}};
+  });
+  auto state=session.handle("start",{});const auto token=state.at("session_id");
+  std::string document;for(int i=0;i<12000;++i)document+="😀";
+  bool bounded=false;
+  for(int i=0;i<32;++i) {
+   std::ifstream f(dir.path+"/setup-draft.json");const std::string before(std::istreambuf_iterator<char>(f),{});
+   const auto version=state.at("version");const auto previousCalls=calls;
+   try {state=session.handle("message",{{"session_id",token},{"version",version},{"request_id",std::to_string(i)},{"text",document},{"atomic_message",true}});}
+   catch(const std::exception& error) {
+    bounded=std::string(error.what()).find("setup_private_storage_limit")!=std::string::npos;
+    std::ifstream afterFile(dir.path+"/setup-draft.json");const std::string after(std::istreambuf_iterator<char>(afterFile),{});
+    state=session.handle("status",{});
+    check(bounded && calls==previousCalls && before==after && state.at("version")==version && !state.at("message_incomplete").get<bool>(),"Long history storage refusal occurs before model, checkpoint or version mutation");
+    break;
+   }
+  }
+  check(bounded,"Repeated maximum-size documents reach a bounded private storage refusal");
+  state=session.handle("message",{{"session_id",token},{"version",state.at("version")},{"request_id","short-after-storage-limit"},{"text","Переименуй систему в Дом"},{"atomic_message",true}});
+  check(state.at("status")=="editing" && !state.at("message_incomplete").get<bool>(),"Shorter request still works after long-history refusal");
+  check(store.current()->contentHash()==base->contentHash(),"Long history never changes active ConfigStore");
+  session.handle("cancel",{{"session_id",token}});
+ }
  }catch(const std::exception&e){++failures;std::cerr<<"EXCEPTION "<<e.what()<<'\n';}
  std::cout<<checks<<" checks, "<<failures<<" failures\n";return failures?1:0;}

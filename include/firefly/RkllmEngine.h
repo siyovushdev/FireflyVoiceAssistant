@@ -3,7 +3,15 @@
 #include <functional>
 #include <chrono>
 #include <memory>
+#include <stdexcept>
 namespace firefly {
+// A bounded Admin document does not fit the existing context. The caller may
+// shorten it and retry after the previous context was restored successfully.
+class AdminContextBudgetError final : public std::runtime_error {
+public:
+    explicit AdminContextBudgetError(const std::string& detail)
+        : std::runtime_error("admin_context_budget: " + detail) {}
+};
 // Structured output needs more than the old 16-token compact response budget.
 // Sampling/model/context size and KV lifecycle remain unchanged.
 inline constexpr int RkllmContextTokens = 1024;
@@ -14,10 +22,16 @@ struct RkllmConfig {
     std::string modelPath;
     std::string systemPrompt;
     bool verbose = false;
-    // Admission reservation, not sampling/context-size tuning. Admin allows
-    // larger catalogs with 128 request tokens; ordinary CLI keeps M8 defaults.
+    // Admission reservation, not sampling/context-size tuning. Admin uses 2048
+    // for ordinary requests, or 128 for a pre-admitted whole document plus its
+    // fixed short instruction. Ordinary CLI keeps M8 defaults.
     int requestTokenReserve = RkllmRequestReserve;
     std::chrono::milliseconds requestTimeout{30000};
+    // Whole-document Admin plans may contain several hundred output tokens.
+    // This finite watchdog applies only to the 768-output/128-request profile;
+    // ordinary Admin and Runtime retain their existing deadlines. Not a user
+    // setting. A smaller value also permits bounded watchdog regression tests.
+    std::chrono::milliseconds adminDocumentTimeout{240000};
     // Explicit profile; defaults preserve the command model contract.
     int contextLimit = RkllmContextTokens;
     bool adminProfile = false;
@@ -47,7 +61,11 @@ public:
     std::string inferCommand(std::string_view original, std::string_view contract);
     // Serialized full KV/context refresh. Restores the old context on failure.
     // A failed restoration makes inference unavailable until engine restart.
-    void setSystemPrompt(std::string prompt, int responseTokens = RkllmResponseTokens);
+    // An explicit request reservation is Admin-only. Zero retains the current
+    // reservation. Document contexts reserve 128 for a fixed short instruction;
+    // ordinary Admin requests restore 2048. Runtime admission is unchanged.
+    void setSystemPrompt(std::string prompt, int responseTokens = RkllmResponseTokens,
+                         int requestTokenReserve = 0);
     bool ready() const;
     int contextTokens() const;
     InferenceMetrics metrics() const;
