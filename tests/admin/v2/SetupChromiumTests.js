@@ -33,7 +33,7 @@ async function slowAction(pathname, label, button, scope = '') {
     holdPath = pathname; heldRequest = null;
     await click(button, scope);
     await until(() => heldRequest !== null, 'held foreground request ' + pathname);
-    assert.ok(await js(`(() => { const root = document.querySelector(${JSON.stringify(scope || 'dialog[open]')}) || document.querySelector('main'); const b = [...root.querySelectorAll('button')].find(n => n.textContent.trim() === ${JSON.stringify(button)}); return b && b.matches(':disabled'); })()`), 'controls disabled before response');
+    assert.ok(await js(`(() => { const root = document.querySelector(${JSON.stringify(scope || 'dialog[open]')}) || document.querySelector('main'); const b = ${JSON.stringify(button)} === 'Отправить' ? root.querySelector('form button[type=submit]') : [...root.querySelectorAll('button')].find(n => n.textContent.trim() === ${JSON.stringify(button)}); return b && b.matches(':disabled'); })()`), 'controls disabled before response');
     await until(() => js(`([...document.querySelectorAll('[data-testid="foreground-progress"]')].some(n => n.textContent.includes(${JSON.stringify(label)}) && n.getClientRects().length))`), 'visible foreground label while unresolved: ' + label);
     assert.ok(await js(`([...document.querySelectorAll('[data-testid="foreground-progress"]')].some(n => { const r = n.getBoundingClientRect(); return n.textContent.includes(${JSON.stringify(label)}) && r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth; }))`), 'progress is inside viewport');
     await screenshot('busy-' + pathname.split('/').at(-1));
@@ -118,7 +118,13 @@ async function screenshot(name) { const r = await send('Page.captureScreenshot',
     async function proposal() { await until(() => js('!!document.querySelector(".proposal-card")'), 'proposal card'); }
     async function accept(physical = false) { await click(physical ? 'Принять подключение в план' : 'Принять в план'); await until(() => js('!document.querySelector(".proposal-card")'), 'proposal accepted'); }
     console.log('Long-document UI: exact text, reload, discard, progress and cooperative cancellation');
-    const longPrompt = 'Длинное описание: Создай зону Кабинет и лампу в кабинете, которую можно включать и выключать.\n' + 'Лампа имеет только питание, без яркости и других возможностей.\n'.repeat(70) + 'HTTP и MQTT пока не настраивай.';
+    const rejectedMessages=requests.filter(r=>r.url.endsWith('/api/setup/message')).length;
+    await fill('Ваша просьба','MQTT password=test-only-value');await click('Отправить');
+    await until(()=>js('document.querySelector("[data-testid=setup-send-feedback]")?.textContent.includes("Запрос не отправлен")'),'visible rejection next to send button');
+    assert.equal(requests.filter(r=>r.url.endsWith('/api/setup/message')).length,rejectedMessages,'secret never sent');
+    assert.equal(await js('document.querySelector(".setup-screen textarea").getAttribute("aria-invalid")'),'true');
+    await screenshot('prompt-not-sent');
+    const longPrompt = 'Длинное описание: Создай зону Кабинет и лампу в кабинете, которую можно включать и выключать.\n' + 'Лампа имеет только питание, без яркости и других возможностей.\n'.repeat(70) + 'HTTP и MQTT пока не настраивай. Если требуется авторизация, не придумывай логин и пароль. Оставь этот вопрос для меня.';
     assert.ok(Buffer.byteLength(longPrompt) > 1800);
     await ask(longPrompt); await proposal();
     const longRequest = requests.filter(r => r.url.endsWith('/api/setup/message')).at(-1);
@@ -136,6 +142,13 @@ async function screenshot(name) { const r = await send('Page.captureScreenshot',
     await fill('Ваша просьба', longPrompt + '\nпроверка ожидания'); await click('Отправить');
     await until(async () => (await api('/api/setup/status')).status === 'planning','worker actually planning');
     await until(() => js('document.querySelector("[data-testid=setup-planning-progress]")?.textContent.includes("шаг")'), 'real phase/step progress');
+    assert.ok(await js('document.querySelector(".setup-screen form button[type=submit]").disabled'),'send disabled during real pending request');
+    assert.match(await js('document.querySelector(".setup-screen form button[type=submit]").textContent'),/ИИ обрабатывает/);
+    assert.match(await js('document.querySelector("[data-testid=setup-send-feedback]").textContent'),/обрабатывается AI/);
+    const pendingMessages=requests.filter(r=>r.url.endsWith('/api/setup/message')).length;
+    await js('document.querySelector(".setup-screen form button[type=submit]").click()');await delay(150);
+    assert.equal(requests.filter(r=>r.url.endsWith('/api/setup/message')).length,pendingMessages,'disabled duplicate click creates no request');
+    await screenshot('prompt-processing');
     await click('Завершить настройку без Apply');
     await until(async () => (await api('/api/setup/status')).status === 'cancel_pending','cancel reaches server while model is held');
     assert.match(await text(),/Остановка запрошена/);await screenshot('cooperative-cancel');

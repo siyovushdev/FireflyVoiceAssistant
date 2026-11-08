@@ -31,6 +31,11 @@ int main(int argc,char** argv) {
         check(rejects([&]{validateSetupDocumentInput("Пароль не знаю");}),"credentials discussion stays outside model document");
         check(!rejects([&]{validateSetupDocumentInput("MQTT без пароля. Пароль введу отдельно.");}),"separate credential entry is an allowed value-free instruction");
         check(rejects([&]{validateSetupDocumentInput("MQTT без пароля: private-value");}),"benign-prefix wording cannot hide an actual secret");
+        std::ifstream credentialFile(std::string(argv[1])+"/tests/admin/setup-credential-cases.json");
+        const auto credentialCases=Json::parse(credentialFile);
+        for(const auto& item:credentialCases) {
+            check(rejects([&]{validateSetupDocumentInput(item.at("text").get<std::string>());})==item.at("blocked").get<bool>(),"shared value-free credential instruction and secret rejection");
+        }
         check(rejects([&]{decodeSetupDocument("```json\n{}\n```",empty,input);}),"malformed response rejected");
 
         Json mqtt={{"ops",Json::array({Json::array({"location","Кухня"}),Json::array({"power_device","Кухня","Свет"}),

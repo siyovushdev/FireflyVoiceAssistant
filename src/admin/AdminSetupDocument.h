@@ -14,7 +14,7 @@ inline void validateSetupDocumentInput(std::string_view text) {
     // Only complete, value-free clauses are removed; actual secret assignments
     // remain rejected before inference, history or checkpoint persistence.
     const auto folded = std::regex_replace(detail::lowercase(text),
-        std::regex(R"((без пароля|без паролей|пароль введу отдельно|пароли введу отдельно|no password|without password)([ \t]*[.,;!?]|$))"), "$2");
+        std::regex(R"((без пароля|без паролей|пароль введу отдельно|пароли введу отдельно|пароли задаются отдельно в настройках доступа|не придумывай (?:логин и пароль|пароль и логин|пароль|пароли)|no password|without password)([ \t]*[.,;!?]|$))"), "$2");
     if (folded.find("парол") != std::string::npos || folded.find("password") != std::string::npos ||
         folded.find("passwd") != std::string::npos ||
         std::regex_search(folded, std::regex(R"((secret|token|username|login|логин)["' \t]*[:=])")))

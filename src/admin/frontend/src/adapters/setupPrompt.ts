@@ -22,6 +22,6 @@ export function planningLabel(progress?: { phase?: string; step?: number; total_
 // Credentials belong to the dedicated secret form, never the model or retry storage.
 // Reference IDs such as credentials_id remain ordinary configuration facts.
 export function containsPrivateCredentials(text: string): boolean {
-    const value = text.toLowerCase().replace(/(?:без пароля|без паролей|пароль введу отдельно|пароли введу отдельно|no password|without password)([ \t]*[.,;!?]|$)/g, '$1');
+    const value = text.toLowerCase().replace(/(?:без пароля|без паролей|пароль введу отдельно|пароли введу отдельно|пароли задаются отдельно в настройках доступа|не придумывай (?:логин и пароль|пароль и логин|пароль|пароли)|no password|without password)([ \t]*[.,;!?]|$)/g, '$1');
     return /парол|password|passwd/i.test(value) || /(?:secret|token|username|login|логин)["' \t]*[=:]/i.test(value);
 }

@@ -1,6 +1,6 @@
 import { foreground, type OperationKind } from './foreground.js';
 import { computed, ref, shallowRef } from 'vue';
-import { adminRequest, issuesOf, type Issue } from '../api/admin.js';
+import { adminRequest, AdminError, issuesOf, type Issue } from '../api/admin.js';
 import { readApi, freezeDeep } from '../api/client.js';
 import { setupAuth, setupRequest, type Session } from '../api/setup.js';
 import { clone, consumers } from '../adapters/editing.js';
@@ -15,6 +15,7 @@ interface Pending { lane: 'semantic' | 'connectivity'; before: ConfigurationDto;
 export const session = shallowRef<Session | null>(null);
 export const messagePending = ref(false), cancelBusy = ref(false), cancelRequested = ref(false);
 export const setupBusy = ref(false), setupIssues = ref<Issue[]>([]), composer = ref(''), setupNotice = ref('');
+export const sendFeedback = ref(''), sendFailed = ref(false);
 export const zoneContext = ref(''), deviceContext = ref(''), lane = ref<'semantic' | 'connectivity'>('semantic');
 export const conversation = ref<{ role: string; text: string }[]>([]);
 export const proposal = shallowRef<Pending | null>(null);
@@ -242,11 +243,14 @@ export function connectDevice(id: string) {
     lane.value = 'connectivity'; setupNotice.value = 'Укажите известный HTTP contract устройства. Неизвестные поля останутся пустыми.';
 }
 export async function sendMessage(retry = false) {
+    if (setupBusy.value || cancelBusy.value) return;
+    sendFeedback.value = 'Проверяем запрос…'; sendFailed.value = false;
+    let submitted = false;
     await setupRun(async () => {
         if (!owned.value || transitioning.value || proposal.value || manual.task.value || manual.voiceBusy.value) throw Error('Начните настройку и завершите текущий review или ручную задачу.');
         const text = retry ? retryText.value : composer.value;
         if (!text.trim()) throw Error('Введите просьбу.');
-        if (containsPrivateCredentials(text)) throw Error('Пароли и логины задайте отдельно в настройках доступа. В запросе используйте credentials_id. Текст не отправлен AI и не сохранён для повтора.');
+        if (containsPrivateCredentials(text)) throw new AdminError([{ code: 'admin_private_credentials', path: '/text', message: 'Возможно, в тексте указаны данные доступа. Задайте их отдельно в настройках доступа; здесь используйте credentials_id. Текст не отправлен AI и не сохранён для повтора.' }]);
         if (session.value?.message_incomplete && !retry) throw Error('Незавершённую просьбу нужно повторить полностью через «Повторить просьбу» либо отменить настройку.');
         const input = lane.value === 'semantic' && !retry ? contextualInput(text) : text;
         const size = measurePrompt(input, limits.value);
@@ -272,6 +276,8 @@ export async function sendMessage(retry = false) {
             persist();
             let value: Session;
             messagePending.value = true;
+            sendFeedback.value = 'Запрос отправляется и обрабатывается AI. Дождитесь предложения или уточнения.';
+            submitted = true;
             try { value = await setupRequest('message', { version: session.value?.version, request_id: crypto.randomUUID(), text: input, atomic_message: true }); }
             catch (error) { receive(await setupRequest('status')); persist(); throw error; }
             finally { messagePending.value = false; }
@@ -290,6 +296,14 @@ export async function sendMessage(retry = false) {
         }
         setupNotice.value = lane.value === 'connectivity' ? 'Подключение собрано из явных фактов. Проверьте предложение: оно ещё не принято в план.' : 'AI подготовил предложение. Оно ещё не принято в план.'; composer.value = ''; persist();
     });
+    if (setupIssues.value.length) {
+        sendFailed.value = true;
+        sendFeedback.value = submitted ? 'Готовое предложение не получено. Причина указана ниже; автоматического повтора нет.' : 'Запрос не отправлен. Исправьте ошибку, указанную ниже.';
+    } else if (cancelRequested.value || !setupAuth.token) {
+        sendFeedback.value = 'Обработка остановлена. Изменения не применены.';
+    } else {
+        sendFeedback.value = setupNotice.value;
+    }
 }
 function verifyPendingConnectivity(pending: Pending) {
     if (pending.source !== 'explicit' || pending.facts !== connectivityContext()

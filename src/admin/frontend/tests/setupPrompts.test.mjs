@@ -1,13 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { promptLimits, measurePrompt, planningLabel } from '../.test-build/adapters/setupPrompt.js';
+import { promptLimits, measurePrompt, planningLabel, containsPrivateCredentials } from '../.test-build/adapters/setupPrompt.js';
 import { clone, powerOnly } from '../.test-build/adapters/editing.js';
 import * as setup from '../.test-build/stores/setup.js';
 import { setupAuth } from '../.test-build/api/setup.js';
 import { manual } from '../.test-build/stores/manual.js';
 const base = JSON.parse(readFileSync(new URL('../../../../config/empty-home.json', import.meta.url)));
 const limits = { message_codepoints: 12000, message_bytes: 48000 };
+const credentialCases = JSON.parse(readFileSync(new URL('../../../../tests/admin/setup-credential-cases.json', import.meta.url)));
 const defer = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
 function candidate() {
     const c = clone(base), d = { id:'lamp', name:'Лампа', kind:'generic', room_id:null, enabled:true, spoken_aliases:['лампа'], state:[], action_ids:[] };
@@ -16,7 +17,7 @@ function candidate() {
 async function fixture(handler) {
     const previous = globalThis.fetch, memory = new Map(), calls=[];
     globalThis.sessionStorage = { getItem:k=>memory.get(k)??null, setItem:(k,v)=>memory.set(k,v), removeItem:k=>memory.delete(k) };
-    setupAuth.token=''; setup.session.value=null; setup.proposal.value=null; setup.setupBusy.value=false; setup.messagePending.value=false; setup.cancelBusy.value=false; setup.cancelRequested.value=false; setup.composer.value=''; setup.conversation.value=[]; setup.context();
+    setupAuth.token=''; setup.session.value=null; setup.proposal.value=null; setup.setupBusy.value=false; setup.messagePending.value=false; setup.cancelBusy.value=false; setup.cancelRequested.value=false; setup.composer.value=''; setup.conversation.value=[]; setup.sendFeedback.value=''; setup.sendFailed.value=false; setup.context();
     manual.base.value=null; manual.candidate.value=null; manual.task.value=null; manual.busy.value=false;
     let state={ok:true,active:false,status:'idle',limits};
     const ctx={ calls, memory, get state(){return state;}, set state(v){state=v;}, close(){globalThis.fetch=previous;setupAuth.token='';setup.session.value=null;setup.proposal.value=null;setup.cancelRequested.value=false;} };
@@ -88,8 +89,27 @@ test('server-grounded connection proposal is validated before Review; unmarked p
 test('private credentials stay only in editable composer and never reach session storage, history, or AI',async()=>{
     for(const text of ['MQTT password=not-a-real-secret','Логин=fictional','Пароль неизвестен', '{"token":"fictional"}']) {
         const ctx=await fixture(()=>{throw Error('Unexpected mutation');});
-        try {setup.composer.value=text;await setup.sendMessage();assert.equal(setup.composer.value,text);assert.match(setup.setupIssues.value[0].message,/credentials_id/);assert.equal(setup.conversation.value.length,0);assert.equal(ctx.calls.some(c=>c.path==='/api/setup/message'),false);assert.equal([...ctx.memory.values()].some(v=>v.includes(text)),false);}finally{ctx.close();}
+        try {setup.composer.value=text;await setup.sendMessage();assert.equal(setup.composer.value,text);assert.match(setup.setupIssues.value[0].message,/credentials_id/);assert.equal(setup.setupIssues.value[0].path,'/text');assert.equal(setup.sendFailed.value,true);assert.match(setup.sendFeedback.value,/Запрос не отправлен/);assert.equal(setup.conversation.value.length,0);assert.equal(ctx.calls.some(c=>c.path==='/api/setup/message'),false);assert.equal([...ctx.memory.values()].some(v=>v.includes(text)),false);}finally{ctx.close();}
     }
+});
+test('client and server share value-free credential instruction cases; assignments still stay private',()=>{
+    for(const c of credentialCases)assert.equal(containsPrivateCredentials(c.text),c.blocked,c.text);
+});
+test('long owner prompt with value-free credential instructions is sent once and has immediate feedback while pending',async()=>{
+    const entered=defer(),finish=defer();
+    const text='Подготовь три тестовые зоны и четыре устройства.\n'+'Существующие настройки сохрани, команды не отправляй.\n'.repeat(60)+'Если требуется авторизация, не придумывай логин и пароль. Оставь этот вопрос для меня.';
+    const ctx=await fixture(async(path,body,c)=>{assert.equal(path,'/api/setup/message');assert.equal(body.text,text);entered.resolve();await finish.promise;return c.state={...c.state,version:1,configuration:candidate()};});
+    try {
+        setup.composer.value=text;const pending=setup.sendMessage();await entered.promise;
+        assert.equal(setup.setupBusy.value,true);assert.equal(setup.messagePending.value,true);assert.equal(setup.sendFailed.value,false);assert.match(setup.sendFeedback.value,/обрабатывается AI/);
+        await setup.sendMessage();assert.equal(ctx.calls.filter(c=>c.path==='/api/setup/message').length,1,'duplicate submit is ignored while pending');
+        finish.resolve();await pending;assert.equal(setup.setupBusy.value,false);assert.equal(setup.messagePending.value,false);assert.equal(setup.sendFailed.value,false);assert.ok(setup.proposal.value);assert.match(setup.sendFeedback.value,/AI подготовил предложение/);
+        assert.equal(ctx.calls.some(c=>/apply|command|probe|poll/.test(c.path)),false);
+    }finally{finish.resolve();ctx.close();}
+});
+test('server failure after submission does not claim the request was never sent or retry it',async()=>{
+    const ctx=await fixture(()=>({ok:false,errors:[{code:'setup_failed',path:'/text',message:'test model failure'}]}));
+    try {setup.composer.value='Создай лампу';await setup.sendMessage();assert.equal(setup.sendFailed.value,true);assert.match(setup.sendFeedback.value,/Готовое предложение не получено/);assert.doesNotMatch(setup.sendFeedback.value,/Запрос не отправлен/);assert.equal(ctx.calls.filter(c=>c.path==='/api/setup/message').length,1);}finally{ctx.close();}
 });
 test('completed proposal after reload during planning is recovered for review without acceptance or another AI request',async()=>{
     const ctx=await fixture(()=>{throw Error('Unexpected mutation');});
