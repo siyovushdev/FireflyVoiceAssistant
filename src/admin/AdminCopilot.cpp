@@ -615,7 +615,7 @@ static std::string decodeCopilot(std::string_view raw, config::Catalog draft, bo
     members(proposal, {"status", "summary", "operations"});
     requireText(proposal.at("status"), 32);
     requireText(proposal.at("summary"), 320);
-    if (!proposal.at("operations").is_array() || proposal.at("operations").size() > (document ? 12 : 8))
+    if (!proposal.at("operations").is_array() || proposal.at("operations").size() > (document ? 64 : 8))
         throw std::invalid_argument("Copilot operation limit exceeded");
     const auto status = proposal.at("status").get<std::string>();
     if (status == "ambiguous" || status == "unsupported") {

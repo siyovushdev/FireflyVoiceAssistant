@@ -252,6 +252,13 @@ public:
                             if(existed)continue;
                             if(cancellationRequested())throw std::runtime_error("setup_cancelled");
                             if(Clock::now()-begin>std::chrono::minutes(10)) throw std::runtime_error("setup_planning_timeout");
+                            // Preserve the validated core plan instead of losing
+                            // it to optional language generation. One profile
+                            // can include two bounded context/generation runs.
+                            if(Clock::now()-begin>std::chrono::seconds(345)) {
+                                data_["language_warning"]="Основной план готов. Для оставшихся объектов сохранены базовые речевые формы; дополнительные варианты можно подготовить отдельно.";
+                                break;
+                            }
                             if(++languageCalls>10) { data_["language_warning"]="Лимит предложений языка: остальные поля доступны вручную."; break; }
                             try {
                                 data_["progress"]["phase"]="language_profile";persist();
@@ -442,7 +449,13 @@ private:
             data_["trace"].push_back(record);
         }
         if(result.contains("trace"))persist();
-        if(!result.value("ok",false)) throw std::runtime_error(result.value("errors",Json::array()).dump());
+        if(!result.value("ok",false)) {
+            const auto errors=result.value("errors",Json::array());
+            if(errors.is_array()&&!errors.empty()&&errors[0].is_object())
+                throw config::ConfigError(errors[0].value("code",std::string("invalid_ai_response")),
+                    errors[0].value("path",std::string()),errors[0].value("message",std::string("AI не подготовила план.")));
+            throw std::runtime_error("AI не подготовила план; настройки не изменены.");
+        }
         return result;
     }
     void checkBase() {

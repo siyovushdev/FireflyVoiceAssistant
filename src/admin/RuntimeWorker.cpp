@@ -6,6 +6,7 @@
 #include "AdminBuild.h"
 #include "DialogueOperations.h"
 #include "AdminSetupDocument.h"
+#include "AdminSetupPlanning.h"
 #include "firefly/admin/AdminRequestPolicy.h"
 #include "../Text.h"
 #include "firefly/admin/AdminDraft.h"
@@ -300,7 +301,11 @@ std::string RuntimeWorker::handle(std::string_view bytes) {
                     })}};
                     return decodeCopilotProposal(proposal.dump(),catalog);
                 }));
-            } else reply = Json::parse(generations_.structuredDocumentSuggestion(setupDocumentPrompt(catalog,input,request.at("focus"),contextLocation),input,768,[&](std::string_view raw) {
+            } else if(stagedSetupDocument(input)) reply=planSetupDocument(catalog,input,request.at("focus"),contextLocation,
+                [&](const std::string& prompt,std::string_view original,int budget,const RuntimeGenerations::SuggestionDecoder& decode,int retries) {
+                    return Json::parse(generations_.structuredDocumentSuggestion(prompt,original,budget,decode,retries));
+                });
+            else reply = Json::parse(generations_.structuredDocumentSuggestion(setupDocumentPrompt(catalog,input,request.at("focus"),contextLocation),input,768,[&](std::string_view raw) {
                 return decodeSetupDocument(raw,catalog,input,request.at("focus"),contextLocation);
             }));
         } else if (method == "language_profile") {

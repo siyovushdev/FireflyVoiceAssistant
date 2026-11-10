@@ -1,5 +1,6 @@
 #include "Support.h"
 #include "AdminSetupDocument.h"
+#include "AdminSetupPlanning.h"
 #include "firefly/config/ConfigStore.h"
 #include <iostream>
 using namespace firefly::admin;
@@ -60,6 +61,9 @@ int main(int argc,char** argv) {
         const std::string observationOnly="Для Света в Кухня MQTT Брокер: topic home/light/newstate, format text, field power, true_payload ON, false_payload OFF.";
         auto changedObservation=mqtt["ops"][5];changedObservation[4]["mqtt"]["topic"]="home/light/newstate";
         check(!rejects([&]{decodeSetupDocument(Json{{"ops",Json::array({changedObservation})},{"complete",true}}.dump(),admin_test::catalog(connected.at("configuration")),observationOnly);}),"read-only true_payload does not require an invented write command");
+        check(rejects([&]{decodeSetupDocument(Json{{"ops",Json::array({mqtt["ops"][5]})},{"complete",true}}.dump(),admin_test::catalog(connected.at("configuration")),"Для Света в Кухня MQTT Брокер: topic home/light/state, format text, field power, true_payload OFF, false_payload ON.");}),"an unchanged old read mapping cannot override a newly explicit inverse mapping");
+        auto qosObservation=mqtt["ops"][5];qosObservation[4]["mqtt"]["qos"]=1;
+        check(!rejects([&]{decodeSetupDocument(Json{{"ops",Json::array({qosObservation})},{"complete",true}}.dump(),admin_test::catalog(connected.at("configuration")),"Для Света в Кухня измени MQTT Брокер QoS 1 независимого состояния, остальные настройки сохрани.");}),"QoS-only edit preserves the already admitted unchanged read mapping");
         const Json flatMqtt={{"ops",Json::array({mqtt["ops"][0],mqtt["ops"][1],
             Json::array({"mqtt_connection","Брокер","127.0.0.1",1883,false,nullptr}),
             Json::array({"mqtt_binding","Кухня","Свет","ON","Брокер","home/light/set","ON",0,false}),
@@ -95,7 +99,7 @@ int main(int argc,char** argv) {
             Json::array({"connection","HTTP стенд",{{"type","http"},{"http",{{"base_url","http://127.0.0.1:9001"},{"base_path",""}}}}}),
             Json::array({"binding","Кухня","Свет","ON","HTTP стенд",{{"http",{{"method","POST"},{"path","/set"},{"body",{{"power",true}}},{"expected_status",200}}}}}),
             Json::array({"observe","Кухня","Свет","HTTP стенд",{{"http",{{"method","GET"},{"path","/state"},{"expected_status",200}}},{"fields",{{"power","power"}}}}})})},{"complete",true}};
-        const std::string httpText="Создай Кухня Свет включать и выключать. HTTP стенд http://127.0.0.1:9001 POST /set body {\"power\":true}, GET /state поле power.";
+        const std::string httpText="Создай Кухня Свет включать и выключать. HTTP стенд http://127.0.0.1:9001. Включение: POST /set body {\"power\":true}. Состояние: GET /state поле power.";
         auto httpResult=Json::parse(decodeSetupDocument(http.dump(),empty,httpText));
         check(httpResult.at("configuration").at("bindings").size()==1&&httpResult.at("configuration").at("observations").size()==1,"explicit HTTP creation and observed state config");
         invented=http;invented["ops"][3][5]["http"]["path"]="/factory-reset";check(rejects([&]{decodeSetupDocument(invented.dump(),empty,httpText);}),"invented HTTP path rejected");
@@ -127,6 +131,89 @@ int main(int argc,char** argv) {
         check(rejects([&]{decodeSetupDocument(R"({"ops":[["rename_device","Кухня","Свет","Новый"]]})",semantic,"Переименуй его в Новый");}),"model cannot select referent without unambiguous focus");
         // The generic old Copilot API cannot bypass original-document grounding.
         check(rejects([&]{decodeCopilotProposal(Json{{"status","ok"},{"summary","test"},{"operations",Json::array({{{"op","setup_connection"},{"name","x"},{"settings",{{"type","mqtt"}}}}})}}.dump(),empty);}),"document-only transport operations unavailable to legacy decoder");
+        std::ifstream mixedFile(std::string(argv[1])+"/tests/admin/setup-mixed-document.json");
+        const auto mixed=Json::parse(mixedFile);const auto mixedText=mixed.at("text").get<std::string>();
+        const auto mixedResult=Json::parse(decodeSetupDocument(mixed.at("response").dump(),empty,mixedText));
+        const auto& full=mixedResult.at("configuration");
+        check(full.at("rooms").size()==3&&full.at("devices").size()==4&&full.at("connections").size()==4&&full.at("bindings").size()==8&&full.at("observations").size()==3,"owner's complete natural mixed transport document expands atomically");
+        check(mixedResult.at("operations").size()==22,"compact wire retains all 22 operations beyond old 12 limit");
+        auto encodedBodies=mixed.at("response");
+        for(const int i:{3,5})encodedBodies["ops"][1][5][i]=encodedBodies["ops"][1][5][i].dump();
+        check(Json::parse(decodeSetupDocument(encodedBodies.dump(),empty,mixedText)).at("configuration")==full,"strict JSON-encoded HTTP body objects have identical meaning and grounding");
+        encodedBodies["ops"][1][5][3]="{\"on\":true";
+        check(rejects([&]{decodeSetupDocument(encodedBodies.dump(),empty,mixedText);}),"malformed encoded HTTP body is never repaired");
+        encodedBodies["ops"][1][5][3]="true";
+        check(rejects([&]{decodeSetupDocument(encodedBodies.dump(),empty,mixedText);}),"encoded scalar cannot replace HTTP object");
+        const auto mixedExisting=Json::parse(decodeSetupDocument(mixed.at("response").dump(),semantic,mixedText));
+        check(mixedExisting.at("configuration").at("devices").size()==semantic->configuration().devices.size()+4,"mixed document coexists with existing Свет and Лампа");
+        check(setup_document::mentionedTargets("Рабочая лампа",{"Лампа","Рабочая лампа"})==std::set<std::string>{"Рабочая лампа"},"long device name does not also select its shorter existing suffix");
+        check(setup_document::mentionedTargets("Лампа и Рабочая лампа",{"Лампа","Рабочая лампа"}).size()==2,"independent mention of short name remains a distinct target");
+        auto objects=mixed.at("response");
+        for(auto& op:objects["ops"])op=Json{{"op",op[0]},{"zone",op[1]},{"device",op[2]},{"connection",op[4]},{"commands",op[5]},{"observation",op[6]}};
+        check(Json::parse(decodeSetupDocument(objects.dump(),empty,mixedText)).at("configuration")==full,"named compact JSON objects use identical strict expansion with device-derived connection names");
+        objects["ops"][0]["surprise"]="ignored?";
+        check(rejects([&]{decodeSetupDocument(objects.dump(),empty,mixedText);}),"named compact operation rejects unknown members");
+        auto occupied=connected.at("configuration");occupied["connections"][0]["name"]="Торшер";
+        const auto collision=Json::parse(decodeSetupDocument(mixed.at("response").dump(),admin_test::catalog(occupied),mixedText));
+        check(std::find(collision.at("configuration").at("connections").begin(),collision.at("configuration").at("connections").end(),occupied.at("connections")[0])!=collision.at("configuration").at("connections").end(),"default connection name collision preserves the existing connection exactly");
+        Json inventory=Json::array(),parts=Json::array();
+        for(const auto& op:mixed["response"]["ops"]) {
+            inventory.push_back(Json::array({op[1],op[2],op[4][0]}));
+            parts.push_back(Json{{"connection",op[4]},{"commands",op[5]},{"observation",op[6]}});
+        }
+        int stages=0;
+        const SetupDocumentCall stagedCall=[&](const std::string&,std::string_view original,int budget,const std::function<std::string(std::string_view)>& decode,int retries) {
+            check(original==mixedText,"every planning stage receives the complete original request");
+            check(budget==384&&retries==(stages?0:1),"stages share one format retry and use bounded small responses");
+            const auto raw=stages==0?Json{{"devices",inventory}}:parts.at(stages-1);
+            try {
+                const auto decoded=Json::parse(decode(raw.dump()));
+                return Json{{"ok",true},{"suggestion",decoded},{"retry_count",stages++?0:1},{"trace",Json::array()}};
+            } catch(const std::exception&) {
+                ++stages;return Json{{"ok",false},{"retry_count",0},{"trace",Json::array()}};
+            }
+        };
+        const auto staged=planSetupDocument(semantic,mixedText,Json::array(),"",stagedCall);
+        check(stages==5&&staged.at("ok")==true&&staged.at("suggestion").at("configuration")==mixedExisting.at("configuration"),"staged model results become one unchanged complete-document validated plan");
+        stages=0;const auto safeParts=parts;parts[2]["commands"][2]=1234;
+        check(planSetupDocument(semantic,mixedText,Json::array(),"",stagedCall).at("ok")==false,"stage validation rejects an invented fact before the final plan");
+        parts=safeParts;stages=0;parts[0]["connection"][4]="iot_credentials";
+        const auto borrowed=planSetupDocument(priorCatalog,mixedText,Json::array(),"",stagedCall);
+        check(!borrowed.at("ok").get<bool>()&&stages==2&&!borrowed.contains("suggestion"),"new endpoint cannot borrow an existing catalog credential; rejected during its own stage");
+        parts=safeParts;stages=0;parts[1]["connection"][1]="http://192.168.68.111:1883";
+        const auto crossed=planSetupDocument(semantic,mixedText,Json::array(),"",stagedCall);
+        check(!crossed.at("ok").get<bool>()&&stages==3,"HTTP device cannot borrow MQTT endpoint even when both numbers occur in original document");
+        parts=safeParts;stages=0;parts[0]["observation"]=nullptr;
+        check(!planSetupDocument(semantic,mixedText,Json::array(),"",stagedCall).at("ok").get<bool>()&&stages==2,"stated independent MQTT state cannot be omitted in its stage");
+        parts=safeParts;stages=0;parts[0]["connection"].back()=1000;parts[1]["connection"].back()=2000;
+        const auto defaults=planSetupDocument(semantic,mixedText,Json::array(),"",stagedCall);
+        check(defaults.at("ok")==true&&defaults.at("suggestion").at("configuration")==mixedExisting.at("configuration"),"server owns default and explicit source timeout; model guesses cannot cross devices");
+        check(setupConnectionTimeout("MQTT порт 1883") == 2000&&setupConnectionTimeout("Тайм-аут: 1000 мс.")==1000,"source timeout or unchanged application default");
+        check(rejects([&]{setupConnectionTimeout("Тайм-аут: 2 секунды");})&&rejects([&]{setupConnectionTimeout("timeout 1000; timeout 2000");}),"unsupported timeout units and contradictions require clarification");
+        check(rejects([&]{setupConnectionTimeout("timeout -1");})&&rejects([&]{setupConnectionTimeout("timeout 1.5 ms");})&&rejects([&]{setupConnectionTimeout("timeout 2 minutes");}),"timeout parser cannot discard minus, decimal or unknown units");
+        parts=safeParts;stages=0;parts[1]=Json{{"question","Уточните HTTP-порт"}};
+        const auto question=planSetupDocument(semantic,mixedText,Json::array(),"",stagedCall);
+        check(stages==3&&question.at("suggestion").value("rejected",false)&&!question.at("suggestion").contains("configuration"),"a later clarification cannot expose an accepted prefix");
+        parts=safeParts;stages=0;auto instant=std::chrono::steady_clock::time_point{};std::vector<int> offered;
+        const auto timed=planSetupDocument(semantic,mixedText,Json::array(),"",
+            [&](const std::string&,std::string_view,int,const std::function<std::string(std::string_view)>& decode,int retries) {
+                offered.push_back(retries);const auto raw=stages?parts.at(stages-1):Json{{"devices",inventory}};
+                ++stages;instant+=std::chrono::seconds(90);
+                return Json{{"ok",true},{"suggestion",Json::parse(decode(raw.dump()))},{"retry_count",0},{"trace",Json::array()}};
+            },[&]{return instant;});
+        check(timed.at("ok")==true&&offered==std::vector<int>({1,1,1,1,0})&&timed.at("retry_count")==0,"late stage can complete once without reserving or inventing an unused format retry");
+        for(const auto& device:full.at("devices"))check(device.at("action_ids").size()==2,"separate ON/OFF specification lines preserve power actions");
+        for(const auto& connection:full.at("connections"))check(connection.at("timeout_ms")== (connection.at("type")=="mqtt"?2000:1000),"explicit per-connection timeout preserved");
+        auto badMixed=mixed.at("response");badMixed["ops"][0][4][1]="192.168.68.199";
+        check(rejects([&]{decodeSetupDocument(badMixed.dump(),empty,mixedText);}),"compact decoder does not bypass endpoint grounding");
+        badMixed=mixed.at("response");badMixed["ops"][1][4][1]="http://192.168.68.120:9999";
+        check(rejects([&]{decodeSetupDocument(badMixed.dump(),empty,mixedText);}),"composed HTTP URL cannot invent a port");
+        badMixed=mixed.at("response");badMixed["ops"][0][5][2]="TOGGLE";
+        check(rejects([&]{decodeSetupDocument(badMixed.dump(),empty,mixedText);}),"compact decoder rejects invented payload");
+        badMixed=mixed.at("response");badMixed["ops"][0][6]=Json::array({"http","/state",Json::object(),200});
+        check(rejects([&]{decodeSetupDocument(badMixed.dump(),empty,mixedText);}),"compact observation cannot cross transports");
+        check(rejects([&]{decodeSetupDocument(mixed.at("response").dump(),empty,mixedText+" Не добавляй Подсветка.");}),"compact plan respects final exclusions");
+        check(rejects([&]{decodeSetupDocument(mixed.at("response").dump(),admin_test::catalog(full),mixedText);}),"compact create cannot replace an existing device");
         check(store.current()->contentHash()==baseHash,"all forced negative outputs leave real store unchanged");
     } catch(const std::exception& error) {++failures;std::cerr<<"EXCEPTION "<<error.what()<<'\n';}
     std::cout<<checks<<" checks, "<<failures<<" failures\n";return failures?1:0;

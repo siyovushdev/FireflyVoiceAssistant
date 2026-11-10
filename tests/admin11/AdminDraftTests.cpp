@@ -155,7 +155,8 @@ int main(int argc,char** argv){try{
         const auto& context=documentModel.contexts[i];
         check(context.find("<|im_end|>")==std::string::npos && context.find("\\u003c|im_end|>")!=std::string::npos,"Chat delimiters remain quoted document data");
         const auto marker=context.rfind("\nINPUT_DATA=");
-        check(marker!=std::string::npos && Json::parse(context.substr(marker+12)).at("text")==document,"Entire original document and final restrictions reach every attempt unchanged");
+        const auto end=context.find("\nTRUSTED_TASK_AND_SCHEMA:",marker);
+        check(marker!=std::string::npos && end!=std::string::npos && end>marker && Json::parse(context.substr(marker+12,end-marker-12)).at("text")==document,"Entire original document and final restrictions reach every attempt unchanged");
         check(documentModel.requests[i].size()<=128 && documentModel.requests[i].find(document)==std::string::npos,"Native request reserve contains only the short instruction");
         check(documentReply.at("trace")[i].at("input")==document,"Diagnostic input is original document, not the fixed instruction");
     }

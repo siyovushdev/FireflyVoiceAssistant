@@ -71,7 +71,7 @@ public:
     std::string structuredSuggestion(const std::string& prompt, std::string_view input, int budget,
                                     const SuggestionDecoder& decode);
     std::string structuredDocumentSuggestion(const std::string& prompt, std::string_view input, int budget,
-                                            const SuggestionDecoder& decode);
+                                            const SuggestionDecoder& decode, int formatRetries = 1);
     class Request final {
     public:
         ~Request();
@@ -121,7 +121,7 @@ private:
     std::deque<ExecutionEvent> history_;
     ContextModel& model_;
     std::string structuredSuggestionImpl(const std::string& prompt, std::string_view input, int budget,
-                                        const SuggestionDecoder& decode, bool document);
+                                        const SuggestionDecoder& decode, bool document, int formatRetries = 1);
     std::shared_ptr<const RuntimeGeneration> active_;
     // Synchronous RKLLM: finish admitted old requests before context refresh.
     std::timed_mutex operation_;

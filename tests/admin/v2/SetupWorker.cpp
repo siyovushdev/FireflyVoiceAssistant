@@ -28,7 +28,9 @@ public:
         useAdminContext(p,budget);
         const auto marker=p.rfind("\nINPUT_DATA=");
         if(marker==std::string::npos)throw std::runtime_error("fixture missing whole-document envelope");
-        documentInput=Json::parse(p.substr(marker+12)).at("text").get<std::string>();
+        const auto end=p.find("\nTRUSTED_TASK_AND_SCHEMA:",marker);
+        if(end==std::string::npos)throw std::runtime_error("fixture missing trusted task boundary");
+        documentInput=Json::parse(p.substr(marker+12,end-marker-12)).at("text").get<std::string>();
     }
     std::string inferAdmin(std::string_view input) override {
         const std::string text=documentInput.empty()?std::string(input):documentInput;

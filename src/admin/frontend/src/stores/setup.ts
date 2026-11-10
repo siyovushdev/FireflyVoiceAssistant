@@ -73,6 +73,11 @@ function receive(value: Session) {
     session.value = value; manual.setup.value = value;
     if (!value.active && setupAuth.token) {
         setupAuth.token = ''; sessionStorage.removeItem(storageKey);
+        // Losing session ownership (for example after a development restart)
+        // invalidates authority, not the user's safe retry text in this tab.
+        const safeSource = containsPrivateCredentials(sourceText.value) ? '' : sourceText.value;
+        const safeRetry = containsPrivateCredentials(retryText.value) ? '' : retryText.value;
+        if (safeSource || safeRetry) sessionStorage.setItem(storageKey, JSON.stringify({ sourceText: safeSource, retryText: safeRetry }));
         initialPlanPending.value = false; proposal.value = null; cancelRequested.value = false;
     }
 }
@@ -129,7 +134,15 @@ export async function restoreSession(foregroundRequest = false) {
         let saved: { token?: string; initialPlanPending?: boolean; accepted?: ConfigurationDto; proposal?: Pending; retryText?: string; sourceText?: string; version?: number; facts?: ReturnType<typeof emptyFacts>; device?: string; zone?: string; lane?: 'semantic' | 'connectivity'; shared?: string } = {};
         try { saved = JSON.parse(sessionStorage.getItem(storageKey) ?? '{}'); } catch { /* No authority inferred from invalid storage. */ }
         const value = await setupRequest('status'); receive(value);
-        if (!value.active) return;
+        if (!value.active) {
+            // A service restart invalidates the owner token, not the safe text
+            // retained in this browser tab. Restore input without claiming the
+            // session or submitting anything.
+            retryText.value = saved.retryText && !containsPrivateCredentials(saved.retryText) ? saved.retryText : '';
+            sourceText.value = saved.sourceText && !containsPrivateCredentials(saved.sourceText) ? saved.sourceText : '';
+            if (!composer.value) composer.value = sourceText.value || retryText.value;
+            return;
+        }
         if (!saved.token) {
             setupAuth.token = '';
             setupNotice.value = 'Настройка открыта другим браузером. Доступен только просмотр.';
@@ -189,7 +202,9 @@ export async function startSetup(resume = false) {
         setupAuth.token = value.session_id!;
         // Persist identity before any follow-up request or model-ready handling.
         sessionStorage.setItem(storageKey, JSON.stringify({ token: setupAuth.token }));
-        cancelRequested.value = false; sourceText.value = ''; retryText.value = ''; conversation.value = [];
+        cancelRequested.value = false;
+        if (!resume || !value.message_incomplete) { sourceText.value = ''; retryText.value = ''; }
+        conversation.value = [];
         lane.value = 'semantic'; facts.value = emptyFacts(); manual.base.value = base; accepted.value = manual.candidate.value ?? base.configuration;
         proposal.value = null; initialPlanPending.value = !resume && JSON.stringify(accepted.value) !== JSON.stringify(value.configuration);
         if (resume && value.configuration && JSON.stringify(value.configuration) !== JSON.stringify(accepted.value)) proposal.value = { lane: 'semantic', before: accepted.value, after: value.configuration, version: value.version!, scope: value.proposal_scope };
@@ -229,7 +244,7 @@ export async function discardMessage() {
         receive(value);
         if (value.message_incomplete || JSON.stringify(value.configuration) !== JSON.stringify(accepted.value)) throw Error('Исходный план не подтверждён. Перечитайте серверный черновик.');
         proposal.value = null; manual.review.value = null;
-        composer.value = sourceText.value || retryText.value;
+        composer.value = sourceText.value || retryText.value || composer.value;
         // A legacy retry may contain prefixed context; do not add it a second time.
         if (!sourceText.value) { zoneContext.value = ''; deviceContext.value = ''; }
         retryText.value = ''; persist();
@@ -244,11 +259,14 @@ export function connectDevice(id: string) {
 }
 export async function sendMessage(retry = false) {
     if (setupBusy.value || cancelBusy.value) return;
-    sendFeedback.value = 'Проверяем запрос…'; sendFailed.value = false;
+    sendFeedback.value = 'Проверяем запрос…'; sendFailed.value = false; setupNotice.value = '';
     let submitted = false;
     await setupRun(async () => {
         if (!owned.value || transitioning.value || proposal.value || manual.task.value || manual.voiceBusy.value) throw Error('Начните настройку и завершите текущий review или ручную задачу.');
-        const text = retry ? retryText.value : composer.value;
+        // After recovering a server draft in a fresh tab only the visible
+        // composer may remain. The server still requires exact pending-text
+        // equality; never silently retry a different/incomplete document.
+        const text = retry ? retryText.value || composer.value : composer.value;
         if (!text.trim()) throw Error('Введите просьбу.');
         if (containsPrivateCredentials(text)) throw new AdminError([{ code: 'admin_private_credentials', path: '/text', message: 'Возможно, в тексте указаны данные доступа. Задайте их отдельно в настройках доступа; здесь используйте credentials_id. Текст не отправлен AI и не сохранён для повтора.' }]);
         if (session.value?.message_incomplete && !retry) throw Error('Незавершённую просьбу нужно повторить полностью через «Повторить просьбу» либо отменить настройку.');
@@ -271,7 +289,7 @@ export async function sendMessage(retry = false) {
             proposal.value = { lane: 'connectivity', source: 'explicit', before, after: freezeDeep(after), version, facts: fingerprint };
         } else {
             retryText.value = input;
-            if (!retry) sourceText.value = text;
+            if (!retry || !sourceText.value) sourceText.value = text;
             // Persist checkpoint before sending: response loss/reload must not imply acceptance.
             persist();
             let value: Session;

@@ -1,0 +1,622 @@
+{
+  "catalog": {
+    "actions": [
+      {
+        "assignments": [
+          {
+            "field": "power",
+            "value": true
+          }
+        ],
+        "description": "Питание → Включено.",
+        "enabled": true,
+        "id": "action_podsvetka_vklyuchit",
+        "name": "Включить",
+        "operation": "mock.assign.v1",
+        "origin": "local_ai",
+        "parameters": [],
+        "speech_aliases": [
+          "включи",
+          "включить",
+          "включите"
+        ]
+      },
+      {
+        "assignments": [
+          {
+            "field": "power",
+            "value": false
+          }
+        ],
+        "description": "Питание → Выключено.",
+        "enabled": true,
+        "id": "action_podsvetka_vyklyuchit",
+        "name": "Выключить",
+        "operation": "mock.assign.v1",
+        "origin": "local_ai",
+        "parameters": [],
+        "speech_aliases": [
+          "выключи",
+          "выключить",
+          "выключите"
+        ]
+      },
+      {
+        "assignments": [
+          {
+            "field": "power",
+            "value": true
+          }
+        ],
+        "description": "Питание → Включено.",
+        "enabled": true,
+        "id": "action_rabochaya_lampa_vklyuchit",
+        "name": "Включить",
+        "operation": "mock.assign.v1",
+        "origin": "local_ai",
+        "parameters": [],
+        "speech_aliases": [
+          "включи",
+          "включить",
+          "включите"
+        ]
+      },
+      {
+        "assignments": [
+          {
+            "field": "power",
+            "value": false
+          }
+        ],
+        "description": "Питание → Выключено.",
+        "enabled": true,
+        "id": "action_rabochaya_lampa_vyklyuchit",
+        "name": "Выключить",
+        "operation": "mock.assign.v1",
+        "origin": "local_ai",
+        "parameters": [],
+        "speech_aliases": [
+          "выключи",
+          "выключить",
+          "выключите"
+        ]
+      },
+      {
+        "assignments": [
+          {
+            "field": "power",
+            "value": true
+          }
+        ],
+        "description": "Питание → Включено.",
+        "enabled": true,
+        "id": "action_torsher_vklyuchit",
+        "name": "Включить",
+        "operation": "mock.assign.v1",
+        "origin": "local_ai",
+        "parameters": [],
+        "speech_aliases": [
+          "включи",
+          "включить",
+          "включите"
+        ]
+      },
+      {
+        "assignments": [
+          {
+            "field": "power",
+            "value": false
+          }
+        ],
+        "description": "Питание → Выключено.",
+        "enabled": true,
+        "id": "action_torsher_vyklyuchit",
+        "name": "Выключить",
+        "operation": "mock.assign.v1",
+        "origin": "local_ai",
+        "parameters": [],
+        "speech_aliases": [
+          "выключи",
+          "выключить",
+          "выключите"
+        ]
+      },
+      {
+        "assignments": [
+          {
+            "field": "power",
+            "value": true
+          }
+        ],
+        "description": "Питание → Включено.",
+        "enabled": true,
+        "id": "action_ventilyator_vklyuchit",
+        "name": "Включить",
+        "operation": "mock.assign.v1",
+        "origin": "local_ai",
+        "parameters": [],
+        "speech_aliases": [
+          "включи",
+          "включить",
+          "включите"
+        ]
+      },
+      {
+        "assignments": [
+          {
+            "field": "power",
+            "value": false
+          }
+        ],
+        "description": "Питание → Выключено.",
+        "enabled": true,
+        "id": "action_ventilyator_vyklyuchit",
+        "name": "Выключить",
+        "operation": "mock.assign.v1",
+        "origin": "local_ai",
+        "parameters": [],
+        "speech_aliases": [
+          "выключи",
+          "выключить",
+          "выключите"
+        ]
+      }
+    ],
+    "bindings": [
+      {
+        "action_id": "action_podsvetka_vklyuchit",
+        "connection_id": "connection_podsvetka",
+        "executor": "modbus_rtu",
+        "modbus": {
+          "address": 1,
+          "data_type": "boolean",
+          "function": 5,
+          "value": true
+        },
+        "target_id": "device_podsvetka"
+      },
+      {
+        "action_id": "action_podsvetka_vyklyuchit",
+        "connection_id": "connection_podsvetka",
+        "executor": "modbus_rtu",
+        "modbus": {
+          "address": 1,
+          "data_type": "boolean",
+          "function": 5,
+          "value": false
+        },
+        "target_id": "device_podsvetka"
+      },
+      {
+        "action_id": "action_rabochaya_lampa_vklyuchit",
+        "connection_id": "connection_rabochaya_lampa",
+        "executor": "modbus_tcp",
+        "modbus": {
+          "address": 0,
+          "data_type": "boolean",
+          "function": 5,
+          "value": true
+        },
+        "target_id": "device_rabochaya_lampa"
+      },
+      {
+        "action_id": "action_rabochaya_lampa_vyklyuchit",
+        "connection_id": "connection_rabochaya_lampa",
+        "executor": "modbus_tcp",
+        "modbus": {
+          "address": 0,
+          "data_type": "boolean",
+          "function": 5,
+          "value": false
+        },
+        "target_id": "device_rabochaya_lampa"
+      },
+      {
+        "action_id": "action_torsher_vklyuchit",
+        "connection_id": "connection_torsher",
+        "executor": "mqtt",
+        "mqtt": {
+          "payload": "ON",
+          "qos": 1,
+          "retain": false,
+          "topic": "test/living/floorlamp/set"
+        },
+        "target_id": "device_torsher"
+      },
+      {
+        "action_id": "action_torsher_vyklyuchit",
+        "connection_id": "connection_torsher",
+        "executor": "mqtt",
+        "mqtt": {
+          "payload": "OFF",
+          "qos": 1,
+          "retain": false,
+          "topic": "test/living/floorlamp/set"
+        },
+        "target_id": "device_torsher"
+      },
+      {
+        "action_id": "action_ventilyator_vklyuchit",
+        "connection_id": "connection_ventilyator",
+        "executor": "http",
+        "http": {
+          "body": {
+            "on": true
+          },
+          "content_type": "application/json",
+          "expected_status": 200,
+          "method": "POST",
+          "path": "/api/fan",
+          "timeout_ms": 0
+        },
+        "target_id": "device_ventilyator"
+      },
+      {
+        "action_id": "action_ventilyator_vyklyuchit",
+        "connection_id": "connection_ventilyator",
+        "executor": "http",
+        "http": {
+          "body": {
+            "on": false
+          },
+          "content_type": "application/json",
+          "expected_status": 200,
+          "method": "POST",
+          "path": "/api/fan",
+          "timeout_ms": 0
+        },
+        "target_id": "device_ventilyator"
+      }
+    ],
+    "compatibility": null,
+    "connections": [
+      {
+        "enabled": true,
+        "id": "connection_podsvetka",
+        "modbus": {
+          "unit_id": 2
+        },
+        "name": "Подсветка",
+        "serial": {
+          "baud_rate": 9600,
+          "parity": "none",
+          "port": "/dev/ttyUSB0",
+          "stop_bits": 1
+        },
+        "timeout_ms": 1000,
+        "type": "modbus_rtu"
+      },
+      {
+        "enabled": true,
+        "id": "connection_rabochaya_lampa",
+        "modbus": {
+          "unit_id": 1
+        },
+        "name": "Рабочая лампа",
+        "network": {
+          "host": "192.168.68.121",
+          "port": 502
+        },
+        "timeout_ms": 1000,
+        "type": "modbus_tcp"
+      },
+      {
+        "enabled": true,
+        "id": "connection_torsher",
+        "mqtt": {
+          "tls": false
+        },
+        "name": "Торшер",
+        "network": {
+          "host": "192.168.68.111",
+          "port": 1883
+        },
+        "timeout_ms": 2000,
+        "type": "mqtt"
+      },
+      {
+        "enabled": true,
+        "http": {
+          "base_path": "",
+          "base_url": "http://192.168.68.120:8080"
+        },
+        "id": "connection_ventilyator",
+        "name": "Вентилятор",
+        "timeout_ms": 1000,
+        "type": "http"
+      },
+      {
+        "id": "foreign_broker",
+        "name": "Чужой брокер",
+        "type": "mqtt",
+        "enabled": true,
+        "timeout_ms": 2000,
+        "network": {
+          "host": "192.168.68.199",
+          "port": 1883
+        },
+        "mqtt": {
+          "tls": false
+        }
+      }
+    ],
+    "devices": [
+      {
+        "action_ids": [
+          "action_podsvetka_vklyuchit",
+          "action_podsvetka_vyklyuchit"
+        ],
+        "enabled": true,
+        "id": "device_podsvetka",
+        "kind": "generic",
+        "metadata": {
+          "aliases": [
+            "подсветка"
+          ],
+          "confirmed": false,
+          "description": "Подсветка",
+          "origin": "local_ai",
+          "type": "power_only"
+        },
+        "name": "Подсветка",
+        "room_id": "location_testovaya_teplitsa",
+        "spoken_aliases": [
+          "подсветка"
+        ],
+        "state": [
+          {
+            "description": "Питание виртуального устройства.",
+            "id": "power",
+            "initial": false,
+            "name": "Питание",
+            "required": true,
+            "type": "boolean",
+            "unit": ""
+          }
+        ]
+      },
+      {
+        "action_ids": [
+          "action_rabochaya_lampa_vklyuchit",
+          "action_rabochaya_lampa_vyklyuchit"
+        ],
+        "enabled": true,
+        "id": "device_rabochaya_lampa",
+        "kind": "generic",
+        "metadata": {
+          "aliases": [
+            "рабочая лампа"
+          ],
+          "confirmed": false,
+          "description": "Рабочая лампа",
+          "origin": "local_ai",
+          "type": "power_only"
+        },
+        "name": "Рабочая лампа",
+        "room_id": "location_testovaya_masterskaya",
+        "spoken_aliases": [
+          "рабочая лампа"
+        ],
+        "state": [
+          {
+            "description": "Питание виртуального устройства.",
+            "id": "power",
+            "initial": false,
+            "name": "Питание",
+            "required": true,
+            "type": "boolean",
+            "unit": ""
+          }
+        ]
+      },
+      {
+        "action_ids": [
+          "action_torsher_vklyuchit",
+          "action_torsher_vyklyuchit"
+        ],
+        "enabled": true,
+        "id": "device_torsher",
+        "kind": "generic",
+        "metadata": {
+          "aliases": [
+            "торшер"
+          ],
+          "confirmed": false,
+          "description": "Торшер",
+          "origin": "local_ai",
+          "type": "power_only"
+        },
+        "name": "Торшер",
+        "room_id": "location_testovaya_gostinaya",
+        "spoken_aliases": [
+          "торшер"
+        ],
+        "state": [
+          {
+            "description": "Питание виртуального устройства.",
+            "id": "power",
+            "initial": false,
+            "name": "Питание",
+            "required": true,
+            "type": "boolean",
+            "unit": ""
+          }
+        ]
+      },
+      {
+        "action_ids": [
+          "action_ventilyator_vklyuchit",
+          "action_ventilyator_vyklyuchit"
+        ],
+        "enabled": true,
+        "id": "device_ventilyator",
+        "kind": "generic",
+        "metadata": {
+          "aliases": [
+            "вентилятор"
+          ],
+          "confirmed": false,
+          "description": "Вентилятор",
+          "origin": "local_ai",
+          "type": "power_only"
+        },
+        "name": "Вентилятор",
+        "room_id": "location_testovaya_masterskaya",
+        "spoken_aliases": [
+          "вентилятор"
+        ],
+        "state": [
+          {
+            "description": "Питание виртуального устройства.",
+            "id": "power",
+            "initial": false,
+            "name": "Питание",
+            "required": true,
+            "type": "boolean",
+            "unit": ""
+          }
+        ]
+      }
+    ],
+    "observations": [
+      {
+        "connection_id": "connection_podsvetka",
+        "executor": "modbus_rtu",
+        "fields": {},
+        "modbus": {
+          "address": 1,
+          "data_type": "boolean",
+          "field": "power",
+          "function": 1
+        },
+        "target_id": "device_podsvetka"
+      },
+      {
+        "connection_id": "connection_rabochaya_lampa",
+        "executor": "modbus_tcp",
+        "fields": {},
+        "modbus": {
+          "address": 0,
+          "data_type": "boolean",
+          "field": "power",
+          "function": 1
+        },
+        "target_id": "device_rabochaya_lampa"
+      },
+      {
+        "connection_id": "connection_torsher",
+        "executor": "mqtt",
+        "fields": {},
+        "mqtt": {
+          "false_payload": "OFF",
+          "field": "power",
+          "format": "text",
+          "qos": 1,
+          "topic": "test/living/floorlamp/state",
+          "true_payload": "ON"
+        },
+        "target_id": "device_torsher"
+      }
+    ],
+    "retired_ids": [],
+    "revision": 1,
+    "rooms": [
+      {
+        "id": "location_testovaya_gostinaya",
+        "metadata": {
+          "aliases": [],
+          "confirmed": false,
+          "container": false,
+          "description": "Тестовая гостиная",
+          "origin": "local_ai",
+          "parent_id": null,
+          "type": "location"
+        },
+        "name": "Тестовая гостиная",
+        "speech": {
+          "locations": [
+            "в тестовая гостиная"
+          ],
+          "mentions": [
+            "тестовая гостиная"
+          ]
+        }
+      },
+      {
+        "id": "location_testovaya_masterskaya",
+        "metadata": {
+          "aliases": [],
+          "confirmed": false,
+          "container": false,
+          "description": "Тестовая мастерская",
+          "origin": "local_ai",
+          "parent_id": null,
+          "type": "location"
+        },
+        "name": "Тестовая мастерская",
+        "speech": {
+          "locations": [
+            "в тестовая мастерская"
+          ],
+          "mentions": [
+            "тестовая мастерская"
+          ]
+        }
+      },
+      {
+        "id": "location_testovaya_teplitsa",
+        "metadata": {
+          "aliases": [],
+          "confirmed": false,
+          "container": false,
+          "description": "Тестовая теплица",
+          "origin": "local_ai",
+          "parent_id": null,
+          "type": "location"
+        },
+        "name": "Тестовая теплица",
+        "speech": {
+          "locations": [
+            "в тестовая теплица"
+          ],
+          "mentions": [
+            "тестовая теплица"
+          ]
+        }
+      }
+    ],
+    "safety": {
+      "restrictions": []
+    },
+    "schema_version": 2,
+    "system": {
+      "id": "system_home",
+      "interpretation_profile": "legacy_m4_v1",
+      "locale": "ru-RU",
+      "name": "Firefly V1 Prototype"
+    }
+  },
+  "text": "Для Торшера в зоне Тестовая гостиная измени только независимое состояние. MQTT host 192.168.68.111 port 1883. Состояние topic test/living/floorlamp/newstate, format text, field power, {\"true_payload\": \"ON\", \"false_payload\": \"OFF\"}, QoS 1.",
+  "response": {
+    "complete": true,
+    "ops": [
+      [
+        "observe",
+        "Тестовая гостиная",
+        "Торшер",
+        "Торшер",
+        {
+          "mqtt": {
+            "topic": "test/living/floorlamp/newstate",
+            "format": "text",
+            "field": "power",
+            "true_payload": "ON",
+            "false_payload": "OFF",
+            "qos": 1
+          },
+          "fields": {}
+        }
+      ]
+    ]
+  }
+}

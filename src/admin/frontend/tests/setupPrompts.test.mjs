@@ -121,3 +121,35 @@ test('completed proposal after reload during planning is recovered for review wi
         await setup.refreshSession();assert.ok(setup.proposal.value);assert.equal(setup.proposal.value.version,1);assert.equal(manual.candidate.value.devices.length,0);assert.equal(ctx.calls.some(c=>/setup\/message|apply|command|probe|poll/.test(c.path)),false);
     }finally{ctx.close();}
 });
+test('resuming interrupted server draft preserves the exact retry text and never submits automatically',async()=>{
+    const text='Создай кухню и подключи свет через MQTT. Ничего не применяй.';let messages=0;
+    const ctx=await fixture(async(path,body,c)=>{
+        if(path==='/api/setup/resume')return c.state={...c.state,active:true,status:'planning_failed',session_id:'resumed-owner'};
+        assert.equal(path,'/api/setup/message');assert.equal(body.text,text);
+        if(++messages===1){c.state={...c.state,version:1,status:'planning_failed',message_incomplete:true};return{ok:false,errors:[{code:'setup_failed',path:'',message:'timeout'}]};}
+        return c.state={...c.state,version:2,status:'editing',message_incomplete:false,configuration:candidate()};
+    });
+    try {
+        setup.composer.value=text;await setup.sendMessage();
+        ctx.state={...ctx.state,active:false};await setup.pollStatus();
+        assert.equal(setupAuth.token,'');assert.equal(JSON.parse(ctx.memory.get('firefly-v2-setup-owner')).token,undefined);
+        setup.composer.value='';
+        await setup.restoreSession();assert.equal(setup.composer.value,text);assert.equal(messages,1);
+        await setup.startSetup(true);assert.equal(messages,1);assert.equal(setup.composer.value,text);
+        await setup.sendMessage(true);assert.equal(messages,2);assert.ok(setup.proposal.value);
+        assert.equal(ctx.calls.some(c=>/apply|command|probe|poll/.test(c.path)),false);
+    }finally{ctx.close();}
+});
+test('fresh-tab explicit retry from composer remains visible after a later reload',async()=>{
+    const text='Добавь торшер в гостиную';const ctx=await fixture(async(path,body,c)=>{
+        assert.equal(path,'/api/setup/message');assert.equal(body.text,text);
+        c.state={...c.state,status:'planning_failed',message_incomplete:true};
+        return {ok:false,errors:[{code:'setup_failed',path:'',message:'model failure'}]};
+    });
+    try {
+        ctx.state={...ctx.state,status:'planning_failed',message_incomplete:true};await setup.pollStatus();
+        setup.composer.value=text;await setup.sendMessage(true);setup.composer.value='';
+        await setup.restoreSession();assert.equal(setup.composer.value,text);
+        assert.equal(ctx.calls.filter(c=>c.path==='/api/setup/message').length,1);
+    }finally{ctx.close();}
+});
