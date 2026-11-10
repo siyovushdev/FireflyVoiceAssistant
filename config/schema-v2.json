@@ -731,7 +731,9 @@
         "executor": {
           "enum": [
             "http",
-            "mqtt"
+            "mqtt",
+            "modbus_tcp",
+            "modbus_rtu"
           ]
         },
         "http": {
@@ -742,6 +744,9 @@
         },
         "mqtt": {
           "$ref": "#/$defs/mqtt_binding"
+        },
+        "modbus": {
+          "$ref": "#/$defs/modbus_binding"
         }
       },
       "required": [
@@ -767,7 +772,9 @@
             "tcp",
             "udp",
             "serial",
-            "can"
+            "can",
+            "modbus_tcp",
+            "modbus_rtu"
           ]
         },
         "enabled": {
@@ -828,6 +835,18 @@
               "type": "integer",
               "minimum": 50,
               "maximum": 4000000
+            },
+            "parity": {
+              "enum": [
+                "none",
+                "even",
+                "odd"
+              ]
+            },
+            "stop_bits": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2
             }
           },
           "required": [
@@ -864,6 +883,20 @@
             "tls"
           ],
           "additionalProperties": false
+        },
+        "modbus": {
+          "type": "object",
+          "properties": {
+            "unit_id": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 247
+            }
+          },
+          "required": [
+            "unit_id"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
@@ -887,7 +920,9 @@
         "executor": {
           "enum": [
             "http",
-            "mqtt"
+            "mqtt",
+            "modbus_tcp",
+            "modbus_rtu"
           ]
         },
         "http": {
@@ -898,6 +933,9 @@
         },
         "mqtt": {
           "$ref": "#/$defs/mqtt_observation"
+        },
+        "modbus": {
+          "$ref": "#/$defs/modbus_observation"
         }
       },
       "required": [
@@ -972,6 +1010,71 @@
         "topic",
         "format",
         "qos"
+      ],
+      "additionalProperties": false
+    },
+    "modbus_binding": {
+      "type": "object",
+      "properties": {
+        "function": {
+          "type": "integer"
+        },
+        "address": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "data_type": {
+          "enum": [
+            "boolean",
+            "uint16",
+            "int16"
+          ]
+        },
+        "value": {
+          "type": [
+            "boolean",
+            "integer"
+          ]
+        },
+        "argument": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "function",
+        "address",
+        "data_type"
+      ],
+      "additionalProperties": false
+    },
+    "modbus_observation": {
+      "type": "object",
+      "properties": {
+        "function": {
+          "type": "integer"
+        },
+        "address": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "data_type": {
+          "enum": [
+            "boolean",
+            "uint16",
+            "int16"
+          ]
+        },
+        "field": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "function",
+        "address",
+        "data_type",
+        "field"
       ],
       "additionalProperties": false
     }

@@ -1,6 +1,8 @@
 #include "firefly/execution/ActionExecutor.h"
 #include "firefly/execution/HttpHardwareExecutor.h"
 #include "firefly/execution/MqttHardwareExecutor.h"
+#include "firefly/execution/ModbusHardwareExecutor.h"
+#include "firefly/config/Connectivity.h"
 #include <nlohmann/json.hpp>
 #include <stdexcept>
 
@@ -33,6 +35,9 @@ std::map<std::string, std::string> physicalMappings(config::Catalog catalog) {
 BoundDeviceExecutor::BoundDeviceExecutor(config::Catalog catalog, SteadyClockMs steadyClock, WallClockMs wallClock)
     : catalog_(catalog), playground_(catalog), production_(catalog, std::move(steadyClock), std::move(wallClock)), resolver_(catalog) {
     registry_.registerExecutor(config::ExecutorKind::Http, std::make_shared<HttpHardwareExecutor>(catalog));
+    auto modbus=std::make_shared<ModbusHardwareExecutor>(catalog);
+    registry_.registerExecutor(config::ExecutorKind::ModbusTcp,modbus);
+    registry_.registerExecutor(config::ExecutorKind::ModbusRtu,modbus);
     mqtt_ = std::make_shared<MqttHardwareExecutor>(catalog, production_);
     registry_.registerExecutor(config::ExecutorKind::Mqtt, mqtt_);
 }
@@ -72,7 +77,9 @@ HardwareResult BoundDeviceExecutor::poll(const std::string& targetId, std::int64
         if (binding.targetId != targetId) continue;
         const auto order = production_.steadyNowMs();
         const auto observation = timeoutLimitMs > 0 && binding.executor == config::ExecutorKind::Http
-            ? HttpHardwareExecutor(catalog_).observe(binding, timeoutLimitMs) : registry_.observe(binding);
+            ? HttpHardwareExecutor(catalog_).observe(binding, timeoutLimitMs)
+            : timeoutLimitMs > 0 && config::isModbus(binding.executor) ? ModbusHardwareExecutor(catalog_).observe(binding,timeoutLimitMs)
+            : registry_.observe(binding);
         const auto now = production_.nowMs();
         if (observation.result.reachability == ReachabilityEvidence::Reachable) production_.markReachable(targetId, now);
         else if (observation.result.reachability == ReachabilityEvidence::Unreachable) production_.markUnreachable(targetId, now);

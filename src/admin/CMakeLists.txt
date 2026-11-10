@@ -37,6 +37,7 @@ add_library(firefly_execution
     ../execution/MockDeviceExecutor.cpp
     ../execution/BoundDeviceExecutor.cpp
     ../execution/BindingResolver.cpp
+    ../execution/ModbusHardwareExecutor.cpp
     ../execution/HttpHardwareExecutor.cpp
     ../execution/MqttHardwareExecutor.cpp
     ../execution/MqttPublishProcess.cpp
@@ -343,6 +344,24 @@ if(BUILD_TESTING)
     target_include_directories(execution_tests SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
     target_compile_options(execution_tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME MockExecutionUnifiedRuntime COMMAND execution_tests "${PROJECT_SOURCE_DIR}")
+    add_executable(modbus_test_driver "${PROJECT_SOURCE_DIR}/tests/execution/ModbusDriver.cpp")
+    target_link_libraries(modbus_test_driver PRIVATE firefly_execution)
+    target_include_directories(modbus_test_driver SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
+    add_test(NAME ModbusIsolatedIntegration COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tests/execution/ModbusIntegrationTests.py" $<TARGET_FILE:modbus_test_driver> "${PROJECT_SOURCE_DIR}")
+    set_tests_properties(ModbusIsolatedIntegration PROPERTIES TIMEOUT 60)
+    add_executable(setup_real_model_driver "${PROJECT_SOURCE_DIR}/tests/admin/SetupRealModelDriver.cpp")
+    target_link_libraries(setup_real_model_driver PRIVATE firefly_admin_core)
+    target_include_directories(setup_real_model_driver SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
+    add_executable(setup_document_tests "${PROJECT_SOURCE_DIR}/tests/admin/SetupDocumentTests.cpp")
+    target_link_libraries(setup_document_tests PRIVATE firefly_admin_core)
+    target_include_directories(setup_document_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+    target_include_directories(setup_document_tests SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
+    add_test(NAME SetupDocument COMMAND setup_document_tests "${PROJECT_SOURCE_DIR}")
+    add_executable(setup_source_contract_tests "${PROJECT_SOURCE_DIR}/tests/admin/SetupSourceContractTests.cpp")
+    target_link_libraries(setup_source_contract_tests PRIVATE firefly_admin_core)
+    target_include_directories(setup_source_contract_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+    target_include_directories(setup_source_contract_tests SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/third_party")
+    add_test(NAME SetupSourceContract COMMAND setup_source_contract_tests "${PROJECT_SOURCE_DIR}")
     add_executable(connectivity_config_tests "${PROJECT_SOURCE_DIR}/tests/execution/ConnectivityConfigTests.cpp")
     target_link_libraries(connectivity_config_tests PRIVATE firefly_admin_core)
     target_include_directories(connectivity_config_tests SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/third_party")

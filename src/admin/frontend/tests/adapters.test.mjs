@@ -427,7 +427,7 @@ test('M20 MQTT R3 caches wizard component across protocol navigation without ear
     const shell = readFileSync(new URL('../src/components/ConnectionWizard.vue', import.meta.url), 'utf8');
     assert.match(shell, /<KeepAlive>\s*<MqttWizard v-if="transport === 'mqtt'"/,
         'MQTT instance must not be torn down by protocol chooser');
-    assert.match(shell, /<div v-if="transport !== 'mqtt'"/,
+    assert.match(shell, /<div v-if="transport === 'http'"/,
         'HTTP wizard is independent and still visible after leaving MQTT');
     const wizard = readFileSync(new URL('../src/components/MqttWizard.vue', import.meta.url), 'utf8');
     assert.match(wizard, /watch\(targetId, \(next, previous\) => \{/,

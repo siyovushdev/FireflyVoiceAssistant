@@ -25,6 +25,14 @@ std::set<std::string> occupied(const Json& value) {
     return ids;
 }
 std::string allocate(std::set<std::string>& ids, const char* category, const std::string& name) {
+    if (std::string_view(category) == "connection") {
+        auto base = std::string("connection_") + deterministicId("device", name).substr(7);
+        if (base.size() > 56) base.resize(56);
+        while (!base.empty() && base.back() == '_') base.pop_back();
+        auto id = base;
+        for (std::size_t suffix = 2; ids.count(id); ++suffix) id = base + "_" + std::to_string(suffix);
+        ids.insert(id); return id;
+    }
     const auto id = deterministicId(category, name, ids);
     ids.insert(id);
     return id;
@@ -126,6 +134,34 @@ Json* resolveDevice(Json& value, const std::string& deviceRef, const std::string
     if (matches.size() > 1) ambiguous("Multiple devices match \"" + deviceRef + "\"");
     if (matches.empty()) ambiguous("No device matches \"" + deviceRef + "\"");
     return matches.front();
+}
+Json* resolveConnection(Json& value, const std::string& ref) {
+    Json* selected = nullptr;
+    for (auto& connection : value["connections"]) {
+        if (equalsFolded(connection.at("id").get<std::string>(), ref) || equalsFolded(connection.at("name").get<std::string>(), ref)) {
+            if (selected) ambiguous("Multiple connections match the requested name");
+            selected = &connection;
+        }
+    }
+    if (!selected) ambiguous("Connection was not defined in the draft or this plan");
+    return selected;
+}
+Json* resolveDeviceAction(Json& value, const Json& device, const std::string& ref) {
+    Json* selected = nullptr;
+    for (auto& action : value["actions"]) {
+        if (std::find(device.at("action_ids").begin(), device.at("action_ids").end(), action.at("id")) == device.at("action_ids").end()) continue;
+        bool hit = equalsFolded(action.at("id").get<std::string>(), ref) || equalsFolded(action.at("name").get<std::string>(), ref);
+        for (const auto& alias : action.value("speech_aliases", Json::array())) hit = hit || equalsFolded(alias.get<std::string>(), ref);
+        if (!hit && (ref == "ON" || ref == "OFF")) {
+            const auto assignments = action.value("assignments", Json::array());
+            hit = assignments.size() == 1 && assignments[0].value("field", std::string()) == "power" &&
+                assignments[0].contains("value") && assignments[0]["value"].is_boolean() &&
+                assignments[0]["value"].get<bool>() == (ref == "ON");
+        }
+        if (hit) { if (selected) ambiguous("Multiple actions match on this device"); selected = &action; }
+    }
+    if (!selected) ambiguous("Action is not available on the selected device");
+    return selected;
 }
 bool pinnedDevice(const Json& value, const Json& device) {
     const auto& compatibility = value.at("compatibility");
@@ -369,6 +405,46 @@ void applyOperation(Json& value, std::set<std::string>& ids, const Json& op, con
                     }
             }
         }
+    } else if (kind == "setup_connection") {
+        members(op, {"op", "name", "settings"}); requireText(op.at("name"), 128);
+        const auto& settings = op.at("settings");
+        if (!settings.is_object() || !settings.contains("type")) unsupported("Connection type required");
+        for (const auto& member : settings.items())
+            if (!std::set<std::string>{"type", "timeout_ms", "http", "network", "mqtt", "serial", "modbus"}.count(member.key()))
+                unsupported("Unknown connection setting");
+        if (!value.contains("connections")) value["connections"] = Json::array();
+        Json* existing = nullptr;
+        for (auto& connection : value["connections"]) if (equalsFolded(connection.at("name").get<std::string>(), op.at("name").get<std::string>())) {
+            if (existing) ambiguous("Multiple connections share that name"); existing = &connection;
+        }
+        // Partial AI edits preserve private references and unmentioned options.
+        // A protocol change needs the explicit manual transport workflow.
+        if (existing && existing->at("type") != settings.at("type"))
+            unsupported("Change an existing connection's protocol using the manual connection editor");
+        Json entry = existing ? *existing : Json{{"enabled",true},{"timeout_ms",2000}};
+        entry.merge_patch(settings); entry["name"] = op.at("name");
+        if (existing) { entry["id"] = existing->at("id"); *existing = entry; }
+        else {
+            for (const auto& c : value["connections"]) ids.insert(c.at("id").get<std::string>());
+            entry["id"] = allocate(ids, "connection", op.at("name")); value["connections"].push_back(entry);
+        }
+    } else if (kind == "setup_binding" || kind == "setup_observe") {
+        members(op, kind == "setup_binding" ? std::set<std::string>{"op", "location", "device", "action", "connection", "settings"} :
+            std::set<std::string>{"op", "location", "device", "connection", "settings"});
+        requireText(op.at("device"), 128); requireText(op.at("location"), 128, true); requireText(op.at("connection"), 128);
+        auto* device = resolveDevice(value, op.at("device"), op.at("location").is_null() ? "" : op.at("location").get<std::string>());
+        auto* connection = resolveConnection(value, op.at("connection"));
+        const auto& settings = op.at("settings"); if (!settings.is_object()) unsupported("Typed mapping required");
+        for (const auto& member : settings.items())
+            if (!std::set<std::string>{"http", "mqtt", "modbus", "fields"}.count(member.key())) unsupported("Unknown mapping setting");
+        Json entry = settings; entry["target_id"] = device->at("id"); entry["connection_id"] = connection->at("id"); entry["executor"] = connection->at("type");
+        const auto category = kind == "setup_binding" ? "bindings" : "observations";
+        if (kind == "setup_binding") { requireText(op.at("action"), 128); entry["action_id"] = resolveDeviceAction(value, *device, op.at("action"))->at("id"); }
+        if (!value.contains(category)) value[category] = Json::array();
+        auto& list = value[category]; const auto found = std::find_if(list.begin(), list.end(), [&](const Json& old) {
+            return old.at("target_id") == entry.at("target_id") && (kind != "setup_binding" || old.at("action_id") == entry.at("action_id"));
+        });
+        if (found == list.end()) list.push_back(entry); else *found = entry;
     } else if (kind == "set_http_connection") {
         members(op, {"op", "connection"});
         const auto& entry = op.at("connection");
@@ -532,15 +608,15 @@ HTTP-подключение: только из явно указанных по�
 )") + scope;
 }
 
-std::string decodeCopilotProposal(std::string_view raw, config::Catalog draft) {
-    if (raw.size() > 4096) throw std::invalid_argument("Copilot proposal too large");
+static std::string decodeCopilot(std::string_view raw, config::Catalog draft, bool document) {
+    if (raw.size() > (document ? 16384 : 4096)) throw std::invalid_argument("Copilot proposal too large");
     const auto baseHash = draftFingerprint(draft);
     const auto proposal = parseMessage(raw, true);
     members(proposal, {"status", "summary", "operations"});
     requireText(proposal.at("status"), 32);
     requireText(proposal.at("summary"), 320);
-    if (!proposal.at("operations").is_array() || proposal.at("operations").size() > 8)
-        throw std::invalid_argument("Copilot supports at most 8 operations");
+    if (!proposal.at("operations").is_array() || proposal.at("operations").size() > (document ? 64 : 8))
+        throw std::invalid_argument("Copilot operation limit exceeded");
     const auto status = proposal.at("status").get<std::string>();
     if (status == "ambiguous" || status == "unsupported") {
         if (!proposal.at("operations").empty()) throw std::invalid_argument("Non-ok status must have empty operations");
@@ -556,15 +632,16 @@ std::string decodeCopilotProposal(std::string_view raw, config::Catalog draft) {
         if (!op.is_object() || !op.contains("op") || !op.at("op").is_string())
             throw std::invalid_argument("Invalid operation: each item needs string discriminator \"op\"");
         const auto kind = op.at("op").get<std::string>();
+        if (kind.rfind("setup_", 0) == 0 && !document) throw std::invalid_argument("Whole-document grounding required for this operation");
         const bool physical = kind == "set_http_connection" || kind == "set_connection_binding" || kind == "set_http_observe" || kind == "set_http_binding" || kind == "clear_http_binding";
         connectivity = connectivity || physical; semantic = semantic || !physical;
         if (kind == "create_location") ++createLocations;
         if (kind == "create_device") ++createDevices;
         if (kind == "add_location_mention" || kind == "add_location_phrase") speechEdit = true;
     }
-    if (connectivity && semantic) throw std::invalid_argument("Connection proposals cannot change capabilities or semantic entities");
-    if (createLocations > 2) unsupported("At most two new locations per Copilot proposal");
-    if (createDevices > 6) unsupported("At most six new devices per Copilot proposal");
+    if (connectivity && semantic && !document) throw std::invalid_argument("Connection proposals cannot change capabilities or semantic entities");
+    if (createLocations > (document ? 6 : 2)) unsupported("Too many new locations in one proposal");
+    if (createDevices > (document ? 10 : 6)) unsupported("Too many new devices in one proposal");
     if (createDevices > 0 && speechEdit)
         return Json{{"rejected", true}, {"status", "unsupported"}, {"code", "unsupported"},
             {"summary", "Добавление устройства не должно менять speech зоны. Уберите add_location_mention/phrase."},
@@ -590,6 +667,8 @@ std::string decodeCopilotProposal(std::string_view raw, config::Catalog draft) {
         {"summary", proposal.at("summary")}, {"operations", proposal.at("operations")},
         {"base_hash", baseHash}, {"saved", false}, {"applied", false}}.dump();
 }
+std::string decodeCopilotProposal(std::string_view raw, config::Catalog draft) { return decodeCopilot(raw, std::move(draft), false); }
+std::string decodeSetupCopilotProposal(std::string_view raw, config::Catalog draft) { return decodeCopilot(raw, std::move(draft), true); }
 
 std::string acceptCopilotProposal(std::string_view currentDraftJson, std::string_view proposalJson) {
     const auto current = config::ConfigLoader::fromJson(std::string(currentDraftJson));

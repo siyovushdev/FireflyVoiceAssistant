@@ -14,6 +14,8 @@ Local Russian voice assistant for Firefly RK3588S (8 GB, Ubuntu 22.04/aarch64). 
 
 **Device telemetry development:** [availability, last-known state and periodic ESP32 reporting](docs/device-telemetry.md). Online status requires independent device data; broker acknowledgements do not establish it.
 
+AI Setup development: [complete prompts and explicit connection proposals](docs/ai-setup-prompts.md); [Modbus TCP/RTU MVP](docs/modbus-connectivity.md). These changes require separate activation and hardware checks.
+
 ## Version and scope
 
 As verified read-only on **2026-10-16**, fetched Git master is `c6e68419eea1f47300f7ca8d51b85997344e405c` (PR #27 merged). Installed release is `m19-c7fa1490-20261015T150156Z`, built from exact product commit `c7fa14906f8ae15f4c8fb488e9c9d7628eb8154f`; annotated tag `m19-production-20261015-c7fa149` points to that product commit. Master contains later operator/tests/docs changes. These identities are deliberately distinct and must be rechecked for future work.

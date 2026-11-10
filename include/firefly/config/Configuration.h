@@ -90,7 +90,7 @@ struct LegacyMapping {
     std::map<char, std::string> lightTargets;
 };
 // Physical transport mapping only. Semantic GenericAction / SafetyGate never read this.
-enum class ExecutorKind { Unknown, Http, Mqtt, Tcp, Udp, Serial, Can };
+enum class ExecutorKind { Unknown, Http, Mqtt, ModbusTcp, ModbusRtu, Tcp, Udp, Serial, Can };
 struct HttpConnection {
     std::string baseUrl, basePath;
 };
@@ -116,7 +116,22 @@ struct MqttObservation {
     std::int64_t qos = 0;
 };
 struct NetworkConnection { std::string host; std::int64_t port = 0; };
-struct SerialConnection { std::string port; std::int64_t baudRate = 9600; };
+struct SerialConnection {
+    std::string port; std::int64_t baudRate = 9600;
+    std::string parity = "even"; std::int64_t stopBits = 1;
+};
+struct ModbusConnection { std::int64_t unitId = 1; };
+// MVP: one coil or one 16-bit register, no implicit scaling/address offsets.
+struct ModbusBinding {
+    std::int64_t function = 0, address = 0;
+    std::string dataType;
+    std::optional<actions::Scalar> value;
+    std::optional<std::string> argument;
+};
+struct ModbusObservation {
+    std::int64_t function = 0, address = 0;
+    std::string dataType, field;
+};
 struct CanConnection { std::string interface; };
 struct Connection : Identity {
     ExecutorKind type = ExecutorKind::Unknown;
@@ -124,6 +139,7 @@ struct Connection : Identity {
     std::int64_t timeoutMs = 2000;
     HttpConnection http;
     MqttConnectionSettings mqtt;
+    ModbusConnection modbus;
     NetworkConnection network;
     SerialConnection serial;
     CanConnection can;
@@ -147,6 +163,7 @@ struct Binding {
     ExecutorKind executor = ExecutorKind::Unknown;
     HttpBinding http;
     MqttBinding mqtt;
+    ModbusBinding modbus;
     std::string connectionId;
 };
 struct ObservationBinding {
@@ -154,6 +171,7 @@ struct ObservationBinding {
     ExecutorKind executor = ExecutorKind::Http;
     HttpBinding http;
     MqttObservation mqtt;
+    ModbusObservation modbus;
     // Top-level JSON response member -> existing state property. No expressions.
     std::map<std::string, std::string> fields;
 };

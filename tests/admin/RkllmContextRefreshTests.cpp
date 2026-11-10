@@ -14,6 +14,10 @@ int main() {
         engine.setSystemPrompt("next context");
         check(stub.events == std::vector<std::string>{"clear:0", "template", "bootstrap", "clear:1"}, "full clear before refresh bootstrap, then keep system");
         check(stub.init == 1 && stub.destroy == 0 && engine.ready(), "refresh reuses model handle");
+        auto beforeReservationChange = stub.run;
+        bool badReservation = false;
+        try { engine.setSystemPrompt("runtime cannot use Admin reservation", 128, 128); } catch (...) { badReservation = true; }
+        check(badReservation && engine.ready() && stub.run == beforeReservationChange, "Admin reservation API cannot change Runtime admission");
         stub.events.clear(); engine.setSystemPrompt("next context");
         check(stub.events.empty(), "unchanged context no extra cache operation");
         (void)engine.infer("Открой входную дверь");
@@ -100,6 +104,74 @@ int main() {
         const auto destroyed=stub.destroy;
         admin.close();admin.close();
         check(stub.destroy==destroyed+1,"explicit release once before a replacement model");
+    }
+    {
+        auto adminConfig=config;
+        adminConfig.adminProfile=true;adminConfig.contextLimit=4096;adminConfig.requestTokenReserve=2048;
+        stub.refreshBootstrapTokens=500;stub.requestTokens=30;
+        firefly::RkllmEngine admin(adminConfig);
+        const auto inits=stub.init;
+        const std::string document(20000,'a');
+        stub.refreshBootstrapTokens=3200;
+        admin.setSystemPrompt(document,768,128);
+        check(admin.ready() && admin.contextTokens()==3200,"Whole document uses measured 4096 minus 768 output minus 128 request budget");
+        check(!admin.inferAdmin("Process INPUT_DATA").empty() && admin.metrics().inputTokens==30,"Document inference uses a short fixed user request");
+        stub.refreshBootstrapTokens=500;
+        admin.setSystemPrompt("small accepted document",768,128);
+        const auto before=stub.run;
+        stub.refreshBootstrapTokens=3201;
+        // The failed context is too large; the previous one still fits. Do not
+        // make every bootstrap fail, which would test terminal recovery instead.
+        stub.onRun=[] { stub.refreshBootstrapTokens=500; };
+        bool budgetRejected=false;
+        try { admin.setSystemPrompt("too large document",768,128); }
+        catch(const firefly::AdminContextBudgetError&) { budgetRejected=true; }
+        stub.onRun={};
+        check(budgetRejected && admin.ready() && stub.run==before+2 && stub.system.find("small accepted document")!=std::string::npos,
+            "Measured document overflow restores previous context and returns editable budget error");
+        check(!admin.inferAdmin("Process shorter INPUT_DATA").empty() && stub.init==inits,"Next shorter request succeeds without loading another model");
+        const auto byteRuns=stub.run;
+        budgetRejected=false;
+        try { admin.setSystemPrompt(std::string(65537,'a'),768,128); }
+        catch(const firefly::AdminContextBudgetError&) { budgetRejected=true; }
+        check(budgetRejected && admin.ready() && stub.run==byteRuns,"Admin byte cap fails before touching the accepted context");
+        admin.setSystemPrompt("small accepted document",768,2048);
+        stub.requestTokens=2048;
+        check(!admin.inferAdmin("ordinary language-profile request").empty(),"Ordinary Admin context restores the 2048 request reservation even for identical instructions");
+        stub.requestTokens=30;
+        const auto noCalls=stub.run;
+        bool rejected=false;
+        try { admin.setSystemPrompt("invalid reserve",768,127); } catch (...) { rejected=true; }
+        check(rejected && stub.run==noCalls && admin.ready(),"Unbounded or too-small document reservations are rejected");
+        for (const auto fault : {Fault::Error, Fault::MissingFinish}) {
+            stub.fault=fault;stub.refreshBootstrapTokens=3201;
+            stub.onRun=[] {stub.fault=Fault::None;stub.refreshBootstrapTokens=500;};
+            bool failure=false,editable=false;
+            try {admin.setSystemPrompt("invalid native callback",768,128);}
+            catch(const firefly::AdminContextBudgetError&) {editable=true;}
+            catch(const std::runtime_error&) {failure=true;}
+            stub.onRun={};
+            check(failure && !editable && admin.ready(),"Native callback failures never become an editable document-budget rejection");
+        }
+    }
+    {
+        auto bounded=config;bounded.adminProfile=true;bounded.contextLimit=4096;bounded.requestTokenReserve=2048;
+        bounded.adminDocumentTimeout=std::chrono::milliseconds(30);
+        firefly::RkllmEngine admin(bounded);
+        admin.setSystemPrompt("document watchdog fixture",768,128);
+        stub.fault=Fault::Timeout;stub.aborted=false;const auto aborts=stub.abort;
+        const auto begin=std::chrono::steady_clock::now();bool rejected=false;
+        try {(void)admin.inferAdmin("Process INPUT_DATA");}catch(const std::runtime_error&) {rejected=true;}
+        const auto elapsed=std::chrono::steady_clock::now()-begin;
+        check(rejected && !admin.ready() && stub.abort==aborts+1 && !stub.running,"Document watchdog aborts and joins the real synchronous call seam before returning failure");
+        check(elapsed>=std::chrono::milliseconds(25) && elapsed<std::chrono::seconds(2),"Document deadline is bounded and does not silently inherit ordinary Admin's 60 seconds");
+        stub.fault=Fault::None;
+    }
+    for(const auto duration:{0,240001}) {
+        auto invalid=config;invalid.adminDocumentTimeout=std::chrono::milliseconds(duration);
+        const auto inits=stub.init;bool rejected=false;
+        try {firefly::RkllmEngine bad(invalid);}catch(const std::invalid_argument&) {rejected=true;}
+        check(rejected && stub.init==inits,"Invalid unbounded document deadline rejected before SDK initialization");
     }
     std::cout << checks << " checks, " << failures << " failures\n";
     return failures ? 1 : 0;

@@ -1,0 +1,4 @@
+{
+  "mode": "timeout",
+  "text": "timeout 999999 ms"
+}

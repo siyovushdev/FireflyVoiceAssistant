@@ -42,6 +42,8 @@ std::string executorName(ExecutorKind kind) {
     switch (kind) {
         case ExecutorKind::Http: return "http";
         case ExecutorKind::Mqtt: return "mqtt";
+        case ExecutorKind::ModbusTcp: return "modbus_tcp";
+        case ExecutorKind::ModbusRtu: return "modbus_rtu";
         case ExecutorKind::Tcp: return "tcp";
         case ExecutorKind::Udp: return "udp";
         case ExecutorKind::Serial: return "serial";
@@ -50,7 +52,7 @@ std::string executorName(ExecutorKind kind) {
     }
 }
 ExecutorKind executorKind(const std::string& name) {
-    for (auto kind : {ExecutorKind::Http, ExecutorKind::Mqtt, ExecutorKind::Tcp, ExecutorKind::Udp, ExecutorKind::Serial, ExecutorKind::Can})
+    for (auto kind : {ExecutorKind::Http, ExecutorKind::Mqtt, ExecutorKind::ModbusTcp, ExecutorKind::ModbusRtu, ExecutorKind::Tcp, ExecutorKind::Udp, ExecutorKind::Serial, ExecutorKind::Can})
         if (executorName(kind) == name) return kind;
     return ExecutorKind::Unknown;
 }
@@ -68,7 +70,30 @@ void validateConnections(const Configuration& config) {
             field = "/timeout_ms";
             if (c.timeoutMs < 50 || c.timeoutMs > 10000) invalid("Timeout must be 50..10000 ms");
             if (c.type == ExecutorKind::Http) { field = "/http/base_url"; url(c.http.baseUrl, true); field = "/http/base_path"; path(c.http.basePath, true); }
-            else {
+            else if(isModbus(c.type)) {
+                field="/modbus/unit_id";
+                if(c.modbus.unitId<1 || c.modbus.unitId>247)invalid("Modbus unit must be 1..247; broadcast is not supported");
+                if(c.type==ExecutorKind::ModbusTcp) {
+                    field="/network"; in_addr address{};
+                    if(::inet_pton(AF_INET,c.network.host.c_str(),&address)!=1 || c.network.port<1 || c.network.port>65535)
+                        invalid("Modbus TCP requires numeric IPv4 and port 1..65535");
+                } else {
+                    field="/serial";
+                    bool literal=false;
+                    for(const auto* prefix:{"/dev/ttyUSB","/dev/ttyACM","/dev/ttyS","/dev/ttyAMA","/dev/pts/"}) {
+                        const std::string stem(prefix);
+                        if(c.serial.port.rfind(stem,0)==0) {
+                            const auto suffix=c.serial.port.substr(stem.size());
+                            literal=!suffix.empty() && suffix.size()<=8 && suffix.find_first_not_of("0123456789")==std::string::npos;
+                            if(literal)break;
+                        }
+                    }
+                    if(!literal)invalid("Modbus RTU requires a literal ttyUSB/ttyACM/ttyS/ttyAMA port, no symlinks or traversal");
+                    const std::set<std::int64_t> rates={1200,2400,4800,9600,19200,38400,57600,115200,230400};
+                    if(!rates.count(c.serial.baudRate) || (c.serial.parity!="none" && c.serial.parity!="even" && c.serial.parity!="odd") ||
+                        (c.serial.stopBits!=1 && c.serial.stopBits!=2))invalid("Unsupported Modbus serial parameters");
+                }
+            } else {
                 field = "/type";
                 if (c.type != ExecutorKind::Mqtt && c.enabled) throw ConfigError("unsupported_executor", "/connections", "Planned transports must remain disabled");
                 if (c.type == ExecutorKind::Mqtt || c.type == ExecutorKind::Tcp || c.type == ExecutorKind::Udp) {
@@ -182,5 +207,46 @@ void validateMqttObservation(const MqttObservation& observation, const Connectio
          observation.truePayload == observation.falsePayload || observation.truePayload.size() > 128 ||
          observation.falsePayload.size() > 128))
         throw ConfigError("malformed_binding", "/mqtt", "Text observation requires distinct ON/OFF values and a target field");
+}
+}
+
+namespace firefly::config {
+namespace {
+void modbusMapping(const Connection* c, ExecutorKind kind, std::int64_t address) {
+    if(!c || !isModbus(kind) || c->type!=kind || !c->enabled)
+        throw ConfigError("malformed_binding","/modbus","Mapping requires an enabled matching Modbus connection");
+    if(address<0 || address>65535)throw ConfigError("malformed_binding","/modbus/address","Use the zero-based protocol address 0..65535");
+}
+void modbusType(const std::string& type, bool coil) {
+    if(coil ? type!="boolean" : (type!="uint16" && type!="int16"))
+        throw ConfigError("malformed_binding","/modbus/data_type","Coils require boolean; registers require uint16 or int16");
+}
+}
+void validateModbusBinding(const ModbusBinding& m, const Connection* c, ExecutorKind kind, const ActionDefinition& action) {
+    modbusMapping(c,kind,m.address);
+    if(m.function!=5 && m.function!=6)throw ConfigError("unsupported_executor","/modbus/function","Only write-single-coil (5) and write-single-register (6) are supported");
+    modbusType(m.dataType,m.function==5);
+    if(m.value.has_value()==m.argument.has_value())throw ConfigError("malformed_binding","/modbus","Specify exactly one fixed value or declared argument");
+    const auto low=m.dataType=="int16"?-32768:0,high=m.dataType=="int16"?32767:65535;
+    if(m.value) {
+        if(!action.parameters.empty())throw ConfigError("malformed_binding","/modbus/value","Parameterized actions require an argument mapping");
+        if(m.function==5) {
+            if(!std::holds_alternative<bool>(m.value->data()))throw ConfigError("malformed_binding","/modbus/value","Coil write requires boolean");
+        } else if(!std::holds_alternative<std::int64_t>(m.value->data()) || m.value->value()<low || m.value->value()>high)
+            throw ConfigError("malformed_binding","/modbus/value","Register value out of range");
+    } else {
+        const auto p=std::find_if(action.parameters.begin(),action.parameters.end(),[&](const Parameter& p){return p.id==*m.argument;});
+        if(action.parameters.size()!=1 || p==action.parameters.end() || !p->required ||
+            p->type!=(m.function==5?"boolean":"integer") || (m.function==6 && (p->minimum<low || p->maximum>high)))
+            throw ConfigError("malformed_binding","/modbus/argument","One required boolean/integer action parameter within the wire range is required");
+    }
+}
+void validateModbusObservation(const ModbusObservation& m, const Connection* c, ExecutorKind kind, const Device& device) {
+    modbusMapping(c,kind,m.address);
+    if(m.function<1 || m.function>4)throw ConfigError("unsupported_executor","/modbus/function","Read functions 1..4 are supported");
+    modbusType(m.dataType,m.function<=2);
+    const auto f=std::find_if(device.state.begin(),device.state.end(),[&](const StateField& f){return f.id==m.field;});
+    if(device.kind!=DeviceKind::Generic || f==device.state.end() || f->type!=(m.function<=2?"boolean":"integer"))
+        throw ConfigError("malformed_binding","/modbus/field","Observation requires a declared property of the matching type");
 }
 }

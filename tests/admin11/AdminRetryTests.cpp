@@ -15,6 +15,7 @@ public:
     std::vector<int> budgets;
     std::size_t index = 0;
     bool rejectRetryContext = false;
+    bool timeout = false;
     void useAdminContext(const std::string& value, int budget) override {
         if (rejectRetryContext && value.find("ПОЛНЫЙ корректный JSON")!=std::string::npos)
             throw std::runtime_error("Injected retry context exceeds export budget");
@@ -22,6 +23,7 @@ public:
     }
     std::string infer(std::string_view) override {
         ++inferences;
+        if(timeout)throw std::runtime_error("RKLLM deadline exceeded; abort status=0");
         if (index >= responses.size()) throw std::runtime_error("Unexpected extra inference");
         return responses[index++];
     }
@@ -122,6 +124,16 @@ int main(int argc, char** argv) {
         model.script({"{",action});reply=call("/api/admin/action-draft",{{"name","Включить"},{"target",generic->at("id")},{"configuration",graph}});
         check(reply.first==200 && reply.second.at("suggestion").at("parameters").empty(),"Action draft strict retry succeeds");
         check(reply.second.at("suggestion").at("assignments")[0].at("value")==true,"Typed fixed effect preserved");unchanged();
+        model.script({});model.timeout=true;const auto beforeTimeout=model.inferences;
+        reply=call("/api/admin/plan",request);model.timeout=false;
+        check(reply.first==422&&reply.second.at("errors")[0].at("code")=="ai_timeout","Model deadline has a specific user-visible failure");
+        check(model.inferences==beforeTimeout+1&&!reply.second.contains("draft"),"Timeout never retries or accepts a partial draft");unchanged();
+        ScriptedModel oneAttempt;firefly::admin::RuntimeGenerations limited(oneAttempt);limited.apply(catalog(baseline));
+        oneAttempt.script({"{","{}"});
+        const auto noRetry=Json::parse(limited.structuredDocumentSuggestion("Return JSON","test",384,
+            [](std::string_view raw){return Json::parse(raw).dump();},0));
+        check(!noRetry.at("ok").get<bool>()&&oneAttempt.index==1,"Exhausted shared document retry budget performs exactly one attempt");
+        check(noRetry.at("retry_count")==0&&noRetry.at("retry_limit")==0,"Zero remaining retries has accurate accounting");
         model.available=false;reply=call("/api/admin/draft",{{"entity","device"},{"name","ТВ для детей"}});
         check(reply.first==422 && reply.second.at("errors")[0].at("code")=="ai_unavailable","Unavailable model does not retry");
         std::cout<<"PASS "<<checks<<" admin retry/complete draft checks\n";

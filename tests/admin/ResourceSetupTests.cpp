@@ -107,6 +107,13 @@ void transitions(const std::string& root) {
         check(!error([&] { runtime.process("Включи свет на кухне", firefly::execution::ExecutionIntent::Production); }).empty(), "Setup blocks hardware command admission");
         model.useAdminContext("admin task", 128);
         check(!model.inferAdmin("request").empty(), "AI on the real adapter with fake C API");
+        stub.refreshBootstrapTokens=2800;
+        model.useAdminDocumentContext("complete document DATA",768);
+        check(model.contextTokens()==2800 && !model.inferAdmin("Process INPUT_DATA").empty(),"RuntimeModel admits measured whole-document context with the small fixed-request reserve");
+        stub.refreshBootstrapTokens=500;stub.requestTokens=2048;
+        model.useAdminContext("ordinary Admin task",128);
+        check(!model.inferAdmin("ordinary request").empty(),"RuntimeModel restores ordinary Admin request reservation after document context");
+        stub.requestTokens=30;stub.refreshBootstrapTokens=565;
         runtime.prepareRestore();
         check(runtime.setupBlocked(), "command admission stays closed during restoration");
         runtime.finishRestore();
@@ -198,6 +205,7 @@ void guardedInference() {
     r.memory.availableKiB = SetupResources::GiBKiB - 1;
     const auto bootstrapRuns = stub.run;
     check(!error([&] { model.useAdminContext("changed", 128); }).empty() && stub.run == bootstrapRuns, "context refresh bootstrap also guarded");
+    check(!error([&] { model.useAdminDocumentContext("long document", 768); }).empty() && stub.run == bootstrapRuns,"Whole-document context keeps the same 1 GiB pre-bootstrap memory guard");
 }
 void lateCommandAfterDrainFailure(const std::string& root) {
     Rig r;

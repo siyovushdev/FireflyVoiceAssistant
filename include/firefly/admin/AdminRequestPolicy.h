@@ -4,12 +4,12 @@
 #include <string_view>
 
 namespace firefly::admin {
-inline constexpr std::size_t MaxMessageCodePoints = 4000;
-inline constexpr std::size_t MaxAdminMessageBytes = 16000;
+inline constexpr std::size_t MaxMessageCodePoints = 12000;
+inline constexpr std::size_t MaxAdminMessageBytes = 48000;
 // Application message admission, independent of model context admission.
 inline std::size_t validateMessage(std::string_view text) {
     if (text.empty() || text.size() > MaxAdminMessageBytes)
-        throw std::invalid_argument("admin_input_size: максимум 4000 символов / 16000 UTF-8 байт");
+        throw std::invalid_argument("admin_input_size: максимум 12000 символов / 48000 UTF-8 байт");
     std::size_t count = 0;
     bool nonblank = false;
     for (std::size_t i = 0; i < text.size();) {
@@ -34,7 +34,7 @@ inline std::size_t validateMessage(std::string_view text) {
             throw std::invalid_argument("admin_control_character");
         if (cp != 32 && cp != 9 && cp != 10 && cp != 13 && cp != 160 && cp != 0x200b && cp != 0xfeff && !(cp >= 0x2000 && cp <= 0x200a) && cp != 0x2028 && cp != 0x2029 && cp != 0x202f && cp != 0x205f && cp != 0x3000)
             nonblank = true;
-        if (++count > MaxMessageCodePoints) throw std::invalid_argument("admin_input_size: максимум 4000 символов");
+        if (++count > MaxMessageCodePoints) throw std::invalid_argument("admin_input_size: максимум 12000 символов");
     }
     if (!nonblank) throw std::invalid_argument("admin_empty_message");
     return count;
